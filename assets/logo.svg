@@ -1,0 +1,8 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Inkstone logo">
+  <title>Inkstone</title>
+  <desc>A comic panel frame containing an inkstone well and an ink drop, with a seal-red mark.</desc>
+  <rect x="40" y="40" width="176" height="176" rx="30" fill="#FCFAF5" stroke="#1B212C" stroke-width="9"/>
+  <ellipse cx="128" cy="170" rx="52" ry="30" fill="#1B212C"/>
+  <path d="M128 64 C139 86 145 96 145 104 A17 17 0 1 1 111 104 C111 96 117 86 128 64 Z" fill="#1B212C"/>
+  <rect x="176" y="74" width="18" height="18" rx="4" fill="#C0412B"/>
+</svg>

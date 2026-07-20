@@ -15,10 +15,10 @@ By participating, you agree to abide by our
 git clone https://github.com/<your-username>/inkstone.git
 cd inkstone
 
-# 2. Create a virtual environment
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-pip install pytest ruff        # dev tools
+# 2. Create & activate the conda environment (Python 3.10+)
+conda create -n inkstone python=3.10 -y
+conda activate inkstone
+pip install -e ".[dev]"        # runtime + dev/test tools (pytest, ruff)
 
 # 3. Configure (ordinary users only need the API key)
 cp .env.example .env
