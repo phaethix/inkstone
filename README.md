@@ -63,9 +63,12 @@ Inkstone is an **independent implementation, not a fork** — inspired by [`lcy3
 # 1. Create & activate the conda environment
 conda create -n inkstone python=3.12 -y
 conda activate inkstone
+# Verify the env is active — `which python` must point inside the env
+# (e.g. .../envs/inkstone/bin/python). If it still shows /opt/homebrew/... or
+# /usr/bin, run `conda init zsh` and open a new terminal, then reactivate.
 
 # 2. Install Inkstone (runtime + dev/test tooling)
-pip install -e ".[dev]"
+python -m pip install -e ".[dev]"
 
 # 3. Provide your API key
 cp .env.example .env
@@ -95,7 +98,7 @@ saved -> /home/you/inkstone/panel.png
 Verify the install — the test suite runs fully offline:
 
 ```console
-$ pytest
+$ python -m pytest
 15 passed   # validates the ImageProvider abstraction, factory contract, and retry/backoff reliability
 ```
 
