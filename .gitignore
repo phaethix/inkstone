@@ -216,3 +216,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- Inkstone project-specific ---
+.agnes_config/
+error_logs/
+output/
+state.json
+task_state.json

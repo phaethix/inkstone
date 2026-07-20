@@ -1,0 +1,13 @@
+Inkstone
+Copyright (c) 2026 Inkstone contributors
+
+This project was inspired by the concepts of Agnes Video Generator
+(https://github.com/lcy362/agnes-video-generator), Copyright (c) 2026 lcy362,
+licensed under the MIT License.
+
+Inkstone is an INDEPENDENT implementation and is NOT a fork — it does not
+incorporate the upstream source tree. The upstream work informed the design
+of Inkstone's reliability layer (rate limiting, retry, image download) and
+the choice of Agnes AI as the free multimodal backend.
+
+Inkstone is released under the MIT License; see LICENSE.
