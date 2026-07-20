@@ -84,15 +84,16 @@ from core.api import get_image_provider
 async def main() -> None:
     provider = get_image_provider()            # reads AGNES_API_KEY, defaults to Agnes
     out = await provider.generate_single_image("a bespectacled cat, ink-wash style")
-    out.save("panel.png")                      # downloaded & persisted on disk
-    print(f"saved -> {out.path}")
+    path = "panel.png"
+    out.save(path)                             # downloaded & persisted on disk
+    print(f"saved -> {path}")
 
 asyncio.run(main())
 ```
 
 ```console
 $ python first_panel.py
-saved -> /home/you/inkstone/panel.png
+saved -> panel.png
 ```
 
 Verify the install — the test suite runs fully offline:
