@@ -1,0 +1,39 @@
+"""core.config — single source of truth for environment configuration (review P1).
+
+The whitepaper (§5.7) calls for ``pydantic-settings``; this is a
+dependency-free stand-in that centralizes every ``os.environ`` read so values,
+defaults, and the ``.env`` entrypoint live in one place. Swap to
+``pydantic-settings`` when M2 pulls it in — the rest of the code only depends on
+the :class:`ImageConfig` shape below, not on how it is populated.
+"""
+
+import os
+
+
+def _get(name: str, default: str = "") -> str:
+    return os.environ.get(name, default)
+
+
+class ImageConfig:
+    """Aggregated image-generation configuration (review P1)."""
+
+    provider: str
+    agnes_api_key: str
+    agnes_i2i_model: str
+    openai_compat_base_url: str
+    openai_compat_api_key: str
+    openai_compat_model_t2i: str
+    openai_compat_model_i2i: str
+    rate_limit: int
+
+    def __init__(self) -> None:
+        self.provider = _get("PROVIDER", "agnes").lower()
+        self.agnes_api_key = _get("AGNES_API_KEY")
+        self.agnes_i2i_model = _get("AGNES_IMAGE_I2I_MODEL")
+        self.openai_compat_base_url = _get("OPENAI_COMPAT_BASE_URL")
+        self.openai_compat_api_key = _get("OPENAI_COMPAT_API_KEY")
+        self.openai_compat_model_t2i = _get(
+            "OPENAI_COMPAT_MODEL_T2I", "gemini-2.0-flash-exp-image-generation"
+        )
+        self.openai_compat_model_i2i = _get("OPENAI_COMPAT_MODEL_I2I")
+        self.rate_limit = int(_get("AGNES_RATE_LIMIT", "20"))
