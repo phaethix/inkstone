@@ -1,7 +1,7 @@
-"""core.schemas — D1 structured contracts (Pydantic models).
+"""core.schemas — structured contracts (Pydantic models).
 
 These models are the single source of truth for the three JSON contracts that
-flow through the M2 comic pipeline:
+flow through the comic pipeline:
 
 - ``CharacterAsset`` / ``StoryElements``: the extraction product returned by the
   ``extract_story_elements`` forced function call.
@@ -22,7 +22,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.json_schema import SkipJsonSchema
 
-# Six resumable pipeline stages (see M2-design §1.3 / §3.3).
+# Six resumable pipeline stages.
 Stage = Literal["extract", "storyboard", "portraits", "panels", "layout", "export"]
 
 

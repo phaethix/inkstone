@@ -1,9 +1,9 @@
-"""tests/test_schemas.py — D1 structured-contract (Pydantic) parsing tests.
+"""tests/test_schemas.py — structured-contract (Pydantic) parsing tests.
 
-Verifies the three JSON contracts from M2-design §1:
-- StoryElements / CharacterAsset parse the §1.1 extraction payload (appearance,
+Verifies the three JSON contracts:
+- StoryElements / CharacterAsset parse the extraction payload (appearance,
   l1_prompt) and reuse-by-name shape.
-- Storyboard / Panel parse the §1.2 payload; panel_prompt carries the L1 lever
+- Storyboard / Panel parse the planning payload; panel_prompt carries the L1 lever
   and dialogue is optional.
 - ProjectState round-trips through save/load and preserves the resume dedup key.
 - to_tool_schema emits a valid function-tool definition and hides runtime-only

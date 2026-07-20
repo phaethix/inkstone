@@ -1,12 +1,12 @@
-"""M2 probe — verify the Agnes server-side contracts before writing M2 code.
+"""Probe — verify the Agnes server-side contracts before writing pipeline code.
 
-Covers M2-design.md §9:
+Covers:
   - R1: i2i via ``extra_body.image=[url]`` + ``response_format="url"`` still 200.
   - R3: multi-image reference (<=9) does not 400.
   - R4: forced function calling (tool_choice) returns valid JSON for extraction.
 
-Reuses M1's ``get_image_provider`` for image calls; the chat call is raw
-``requests`` because ``ChatProvider`` is an M2 deliverable, not yet written.
+Reuses ``get_image_provider`` for image calls; the chat call is raw
+``requests`` because ``ChatProvider`` is not yet written.
 
 Run from the repo root:  python scripts/probe_m2.py
 Artifacts (image URLs, raw JSON) are printed; no files are committed.
