@@ -4,11 +4,11 @@ Verifies:
 - AgnesImageAPI and OpenAICompatProvider both implement the ImageProvider contract.
 - get_image_provider raises a clear error (not a silent failure) when the key is missing.
 - Retry/backoff behavior: 503s are retried with the exponential+jitter backoff, and
-  the backoff value is actually applied (review P0-5).
-- Both providers now collect errors on retryable failures (review P0-2 consistency).
+  the backoff value is actually applied.
+- Both providers now collect errors on retryable failures.
 - i2i reference images are resolved to base64 data URIs inside ``extra_body.image``.
 - ImageOutput.b64 save decodes the data URI to bytes.
-- collect_error appends a single JSON line to the JSONL error log (review P0-4).
+- collect_error appends a single JSON line to the JSONL error log.
 """
 
 import asyncio
@@ -111,12 +111,12 @@ def test_image_output_save_url(tmp_path, monkeypatch):
     assert p.exists()
 
 
-# --- P0-5: retry / backoff behavior ---
+# --- retry / backoff behavior ---
 
 
 def test_compute_backoff_exponential_capped_with_jitter():
     vals = [compute_backoff(i, 20.0) for i in range(10)]
-    # Every value is positive and clamped to the 120s cap (ADR-12.4).
+    # Every value is positive and clamped to the 120s cap.
     assert all(0 < v <= 120.0 for v in vals)
     # Early attempts are strictly smaller than later ones (exponential growth
     # dominates before the cap is hit).
@@ -168,7 +168,7 @@ def test_agnes_gives_up_after_max_retries(patch_async, monkeypatch):
     assert fake_post.calls["n"] == 3
 
 
-# --- P0-2: both providers now collect errors on retryable failures ---
+# --- both providers collect errors on retryable failures ---
 
 
 def test_openai_compat_collects_errors(patch_async, monkeypatch):
@@ -187,7 +187,7 @@ def test_openai_compat_collects_errors(patch_async, monkeypatch):
     assert collected["n"] == 2
 
 
-# --- P0-3: i2i reference resolution into extra_body.image ---
+# --- i2i reference resolution into extra_body.image ---
 
 
 def test_openai_compat_i2i_sends_resolved_image(patch_async, monkeypatch, tmp_path):
@@ -231,7 +231,7 @@ def test_image_output_save_b64(tmp_path):
     assert p.read_bytes() == raw
 
 
-# --- P0-4: error collector appends a JSONL line ---
+# --- error collector appends a JSONL line ---
 
 
 def test_collect_error_appends_jsonl(tmp_path, monkeypatch):

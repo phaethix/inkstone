@@ -1,9 +1,9 @@
 """core.api.rate_limiter — Global token-bucket rate limiter (thread-safe).
 
 All Agnes API calls share a token bucket so the total call rate never exceeds
-the upstream free-tier limit. The limit is **size-aware** (whitepaper §6:
-free-tier RPM 1K ≈ 20 / 2K ≈ 10) — generating larger images automatically
-downshifts to a lower RPM to avoid 429s (review P2-2).
+the upstream free-tier limit. The limit is **size-aware** (free-tier RPM
+1K ≈ 20 / 2K ≈ 10) — generating larger images automatically downshifts to a
+lower RPM to avoid 429s.
 
 Usage::
 
@@ -19,7 +19,7 @@ import time
 # Safety factor so we stay comfortably under the upstream ceiling.
 _SAFETY_FACTOR = 0.8
 
-# Whitepaper §6: free-tier RPM by output size (1K ≈ 20/min, 2K ≈ 10/min).
+# Free-tier RPM by output size (1K ≈ 20/min, 2K ≈ 10/min).
 _RPM_BY_SIZE = {
     "1024x1024": 20,
     "1792x1024": 20,

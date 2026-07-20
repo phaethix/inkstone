@@ -1,10 +1,10 @@
 """core.api.error_collector — API failure collector (persists to error_logs/*.jsonl).
 
 Lightweight, dependency-free. Each failure is appended as one JSON object per
-line to a single JSONL log (M2-design §1.3: ``error_logs/<project>.jsonl``), so
-a long run produces one aggregatable file instead of hundreds of loose ``.json``
-files (review P0-4). Writes are serialized with a module-level lock and pushed
-off the event loop by callers via ``asyncio.to_thread`` (review P1).
+line to a single JSONL log (``error_logs/<project>.jsonl``), so a long run
+produces one aggregatable file instead of hundreds of loose ``.json`` files.
+Writes are serialized with a module-level lock and pushed off the event loop by
+callers via ``asyncio.to_thread``.
 
 Called only when an Agnes call fails; its own exceptions never break the main
 flow.

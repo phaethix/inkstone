@@ -2,8 +2,8 @@
 
 Both ``AgnesImageAPI`` and ``OpenAICompatProvider`` funnel their HTTP retry loop
 through :func:`retryable_post` so that retry semantics, the backoff policy
-(ADR-12.4: exponential, capped at 120s, with jitter), and error collection stay
-identical across providers (review P0-1 / P0-2).
+(exponential, capped at 120s, with jitter), and error collection stay identical
+across providers.
 
 Previously the ~100-line retry block was copy-pasted into each provider with
 *different* error-collection behavior; that duplication is gone now.
@@ -17,7 +17,7 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-# ADR-12.4: exponential backoff, capped at 120s, with full jitter.
+# Exponential backoff, capped at 120s, with full jitter.
 BACKOFF_CAP_SECONDS = 120.0
 
 # Image generation is a long-running task: the free upstream often needs
@@ -27,12 +27,12 @@ BACKOFF_CAP_SECONDS = 120.0
 CONNECT_TIMEOUT_SECONDS = 30.0
 READ_TIMEOUT_SECONDS = 300.0
 
-# Transient statuses worth retrying (shared by both providers, review P0-2).
+# Transient statuses worth retrying (shared by both providers).
 RETRYABLE_STATUS = (429, 500, 502, 503, 504)
 
 
 def compute_backoff(attempt: int, base_delay: float, cap: float = BACKOFF_CAP_SECONDS) -> float:
-    """Exponential backoff with a hard cap and full jitter (ADR-12.4).
+    """Exponential backoff with a hard cap and full jitter.
 
     ``attempt`` is 0-based (the current retry index). The raw delay grows as
     ``base_delay * 2**attempt``, is clamped to ``cap`` (120s), then multiplied
@@ -53,10 +53,10 @@ async def collect_provider_error(
     exc: "Exception | None" = None,
     final: bool = False,
 ) -> None:
-    """Record a transient/terminal failure identically for every provider (P0-2).
+    """Record a transient/terminal failure identically for every provider.
 
     Wrapped in ``asyncio.to_thread`` by callers so the disk write never blocks
-    the event loop (review P1).
+    the event loop.
     """
     from core.api.error_collector import (
         collect_error,
@@ -111,7 +111,7 @@ async def retryable_post(
       response was ever obtained.
 
     The ``requests`` call and the error-collection disk write are both pushed
-    off the event loop via ``asyncio.to_thread`` (review P1).
+    off the event loop via ``asyncio.to_thread``.
     """
     from core.api.rate_limiter import get_rate_limiter
 

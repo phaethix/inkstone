@@ -1,11 +1,11 @@
 """utils.image — image download and reference resolution helpers.
 
-- :func:`download_image` fetches a URL to disk (ADR-12.2: only a ``User-Agent``
-  header, no auth) with a size cap and tenacity retries.
+- :func:`download_image` fetches a URL to disk with only a ``User-Agent``
+  header (no auth), a size cap, and tenacity retries.
 - :func:`resolve_image_ref` converts a local image path into a base64 data URI,
   leaving URLs / existing data URIs untouched. This is the single, shared
-  implementation that both providers use (review P0-3) — the previous four
-  copy-pasted variants (including the dead ``image_path_to_b64``) are gone.
+  implementation that both providers use — the previous four copy-pasted
+  variants (including the dead ``image_path_to_b64``) are gone.
 """
 
 import asyncio
@@ -19,10 +19,10 @@ from tenacity import retry, stop_after_attempt
 
 logger = logging.getLogger(__name__)
 
-# B6: download size cap (guard against filling disk)
+# Guard against filling disk: cap download size.
 _MAX_IMAGE_SIZE = 50 * 1024 * 1024  # 50 MB
 
-# ADR-12.2: download carries only a User-Agent, never auth (review P2-3).
+# Downloads carry only a User-Agent header, never auth.
 USER_AGENT = "Inkstone/0.1 (+https://github.com/phaethix/inkstone)"
 
 
@@ -63,5 +63,5 @@ def resolve_image_ref(ref: str) -> str:
 
 
 async def resolve_image_ref_async(ref: str) -> str:
-    """Async variant that reads local files off the event loop (review P1)."""
+    """Async variant that reads local files off the event loop."""
     return await asyncio.to_thread(resolve_image_ref, ref)

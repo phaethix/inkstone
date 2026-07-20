@@ -1,10 +1,10 @@
-"""core.config — single source of truth for environment configuration (review P1).
+"""core.config — single source of truth for environment configuration.
 
-The whitepaper (§5.7) calls for ``pydantic-settings``; this is a
-dependency-free stand-in that centralizes every ``os.environ`` read so values,
-defaults, and the ``.env`` entrypoint live in one place. Swap to
-``pydantic-settings`` when M2 pulls it in — the rest of the code only depends on
-the :class:`ImageConfig` shape below, not on how it is populated.
+Centralizes every ``os.environ`` read so values, defaults, and the ``.env``
+entrypoint live in one place. The recommended long-term approach is
+``pydantic-settings``; this dependency-free stand-in keeps the same
+:class:`ImageConfig` shape so the rest of the code never depends on how the
+values are populated.
 """
 
 import os
@@ -15,7 +15,7 @@ def _get(name: str, default: str = "") -> str:
 
 
 class ImageConfig:
-    """Aggregated image-generation configuration (review P1)."""
+    """Aggregated image-generation configuration."""
 
     provider: str
     agnes_api_key: str

@@ -1,9 +1,9 @@
-"""core.api.image_provider — Image Provider abstraction layer (ADR-12.1).
+"""core.api.image_provider — Image Provider abstraction layer.
 
 Centralizes all image-generation calls behind a single interface so that the
 free Agnes API is the zero-config default, while any OpenAI-compatible image
 endpoint can be swapped in seamlessly to hedge against the single-provider
-dependency risk (whitepaper R3).
+dependency risk.
 
 - ``ImageOutput``: generation result (url / b64); ``.save(path)`` persists to
   disk (**downloads carry no auth header**).
@@ -13,8 +13,7 @@ dependency risk (whitepaper R3).
 - ``get_image_provider``: factory that picks a provider from config / args.
 
 Reliability (retry, exponential backoff + jitter, error collection) is shared
-across both providers via :mod:`core.api.retry` so their semantics never drift
-(review P0-1 / P0-2).
+across both providers via :mod:`core.api.retry` so their semantics never drift.
 """
 
 import asyncio
@@ -50,7 +49,7 @@ class ImageOutput:
 
 
 class ImageProvider(ABC):
-    """Image Provider abstraction (the core M1 abstraction).
+    """Image Provider abstraction (the core abstraction of this module).
 
     All image generation (text-to-image / image-to-image) goes through this
     interface; callers do not care which backend model serves the request.
@@ -141,7 +140,7 @@ class OpenAICompatProvider(ImageProvider):
         **kwargs,
     ) -> ImageOutput:
         reference_image_paths = reference_image_paths or []
-        # Resolve refs off the event loop (review P1).
+        # Resolve refs off the event loop.
         resolved = [await asyncio.to_thread(resolve_image_ref, p) for p in reference_image_paths]
         payload = self._build_payload(prompt, resolved, size)
         logger.info(
@@ -202,8 +201,7 @@ def get_image_provider(
     """Factory: return an image Provider based on configuration.
 
     Precedence: explicit args > environment variables > default (agnes).
-    Configuration is read centrally from :class:`core.config.ImageConfig`
-    (review P1).
+    Configuration is read centrally from :class:`core.config.ImageConfig`.
 
     Env (ordinary users only need ``AGNES_API_KEY``)::
 
