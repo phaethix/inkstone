@@ -1,7 +1,7 @@
 # Inkstone — novel -> comic generator (M1 dependencies)
 # The current code (ImageProvider abstraction layer) needs only the lines below.
 
-requests>=2.28.0,<3.0.0      # HTTP calls to Agnes / OpenAI-compatible image endpoints
+requests>=2.34.2,<3.0.0      # HTTP calls to Agnes / OpenAI-compatible image endpoints
 tenacity>=8.0.0,<10.0.0      # download retries (utils.image.download_image)
 
 # L3 cross-image consistency fallback (PIL/OpenCV feature overlay), lands in M2
