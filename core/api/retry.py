@@ -20,6 +20,13 @@ logger = logging.getLogger(__name__)
 # ADR-12.4: exponential backoff, capped at 120s, with full jitter.
 BACKOFF_CAP_SECONDS = 120.0
 
+# Image generation is a long-running task: the free upstream often needs
+# 60-150s for the first call (queueing / load). A short read timeout just
+# trips a pointless retry that re-queues a fresh generation, so we use a
+# fixed, generous read timeout instead of growing it per attempt.
+CONNECT_TIMEOUT_SECONDS = 30.0
+READ_TIMEOUT_SECONDS = 300.0
+
 # Transient statuses worth retrying (shared by both providers, review P0-2).
 RETRYABLE_STATUS = (429, 500, 502, 503, 504)
 
@@ -111,14 +118,13 @@ async def retryable_post(
     resp: requests.Response | None = None
     for attempt in range(max_retries):
         await asyncio.to_thread(get_rate_limiter(size).acquire)
-        read_timeout = 60 * (attempt + 1)
         try:
             resp = await asyncio.to_thread(
                 requests.post,
                 url,
                 headers=headers,
                 json=json_payload,
-                timeout=(30, read_timeout),
+                timeout=(CONNECT_TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS),
             )
         except (requests.ConnectionError, requests.Timeout) as e:
             if collect is not None:
