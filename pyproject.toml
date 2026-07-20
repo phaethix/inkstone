@@ -13,7 +13,7 @@ authors = [{ name = "Inkstone contributors" }]
 keywords = ["comic", "manga", "ai", "agnes", "image-generation", "novel"]
 dependencies = [
     "requests>=2.28.0,<3.0.0",
-    "tenacity>=8.0.0,<10.0.0",
+    "tenacity>=9.1.4,<10.0.0",
     "Pillow>=10.0.0,<12.0.0",
     "numpy>=1.24.0,<3.0.0",
 ]
