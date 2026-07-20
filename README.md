@@ -17,16 +17,6 @@
   <img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs welcome" />
 </p>
 
-<p align="center">
-  <a href="#features">Features</a> ·
-  <a href="#quick-start">Quick Start</a> ·
-  <a href="docs/ROADMAP.md">Roadmap</a> ·
-  <a href="docs/whitepaper.md">Design</a> ·
-  <a href="#contributing">Contributing</a>
-</p>
-
----
-
 > *"Grind your novel into comics."*
 
 **Inkstone** is a local-first, open-source **novel → series comic** generator. It reads a local `txt` novel and, through the free **Agnes** multimodal API, produces comic pages with cross-panel character consistency — exported as **PDF / PNG**. No GPU, no paid plan: just one free API key. Image generation sits behind a pluggable `ImageProvider`, so you can switch to any OpenAI-compatible endpoint with a single line.
@@ -45,12 +35,12 @@
 
 ## Features
 
-- 🪨 **Runs for free, on your machine.** Set one variable — `AGNES_API_KEY` — and go. No GPU, no paid plan, no cloud sign-up beyond the free key.
-- 🧠 **Agnes-native multimodal.** Screenwriting on `agnes-2.0-flash` (512K context), text-to-image on `agnes-image-2.1-flash`, image-to-image / consistency on `agnes-image-2.0-flash`.
-- 🔌 **Pluggable `ImageProvider`.** Agnes is the zero-config default; a one-line switch routes to any OpenAI-compatible image endpoint (Gemini / Qwen / self-hosted SD) to hedge single-provider risk.
-- 🎭 **Character consistency engine.** L1 prompt hard-description + L2 reference-image img2img + L3 PIL/OpenCV feature-overlay — the best feasible consistency under a no-GPU, free-API constraint.
-- 🛡️ **Reliability layer.** Token-bucket rate limiting + exponential-backoff retries + error collection, against upstream `503` / `429`.
-- 📖 **Resumable long-form generation.** Chapter-split generation with a persisted `state.json` checkpoint — a crash never wastes generated panels or API quota.
+- **Free & local-first** — one `AGNES_API_KEY`, no GPU, no paid plan.
+- **Agnes-native multimodal** — `agnes-2.0-flash` for scripting, `agnes-image-2.1-flash` for t2i and i2i consistency.
+- **Pluggable `ImageProvider`** — Agnes by default; one line switches to any OpenAI-compatible endpoint.
+- **Character consistency engine** — L1 prompt description + L2 reference img2img + L3 PIL/OpenCV overlay, the best feasible under no-GPU.
+- **Reliability layer** — token-bucket rate limiting, exponential-backoff retries, and error collection against 429/503.
+- **Resumable long-form runs** — chapter-split generation with a persisted `state.json` checkpoint.
 
 ## Why Inkstone
 
@@ -71,7 +61,7 @@ Inkstone is an **independent implementation, not a fork** — inspired by [`lcy3
 
 ```bash
 # 1. Create & activate the conda environment
-conda create -n inkstone python=3.10 -y
+conda create -n inkstone python=3.12 -y
 conda activate inkstone
 
 # 2. Install Inkstone (runtime + dev/test tooling)
@@ -106,10 +96,10 @@ Verify the install — the test suite runs fully offline:
 
 ```console
 $ pytest
-6 passed   # validates the ImageProvider abstraction and factory contract
+15 passed   # validates the ImageProvider abstraction, factory contract, and retry/backoff reliability
 ```
 
-> **Status:** M1 (the `ImageProvider` abstraction foundation) has shipped. The comic-specific pipeline — `creative_comic`, layout/export, long-novel resumption — is planned for M2/M3. See [Roadmap](#roadmap).
+> **Status:** M1 (the `ImageProvider` abstraction foundation) has shipped. The comic-specific pipeline — `creative_comic`, layout/export, long-novel resumption — is planned for M2/M3. See [Roadmap](docs/ROADMAP.md).
 
 ## Configuration
 
@@ -129,10 +119,10 @@ A `txt` novel is split into segments → characters & scenes are extracted with 
 
 ## Resources
 
-- 📐 **Design & risk analysis** — [docs/whitepaper.md](docs/whitepaper.md)
-- 🗺️ **Milestone plan** — [docs/ROADMAP.md](docs/ROADMAP.md)
-- 🤝 **Contributing guide** — [CONTRIBUTING.md](CONTRIBUTING.md)
-- 💬 **Issues & feedback** — [GitHub Issues](https://github.com/phaethix/inkstone/issues)
+- **Design & risk analysis** — [docs/whitepaper.md](docs/whitepaper.md)
+- **Milestone plan** — [docs/ROADMAP.md](docs/ROADMAP.md)
+- **Contributing guide** — [CONTRIBUTING.md](CONTRIBUTING.md)
+- **Issues & feedback** — [GitHub Issues](https://github.com/phaethix/inkstone/issues)
 
 ## Contributing
 
