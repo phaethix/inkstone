@@ -16,7 +16,7 @@ zero config; advanced users can switch to any OpenAI-compatible endpoint.
   - `get_image_provider(...)`: factory reading `PROVIDER` / `AGNES_API_KEY` / `OPENAI_COMPAT_*`, default agnes
 - [x] `core/api/agnes_image.py`: `AgnesImageAPI(ImageProvider)` with exponential-backoff retries + error collection
 - [x] `core/api/rate_limiter.py`: thread-safe token bucket (default 20/min × 0.8 safety factor)
-- [x] `core/api/error_collector.py`: API failures persisted to `error_logs/`, self-failures never break the main flow
+- [x] `core/api/error_collector.py`: API failures persisted to `logs/`, self-failures never break the main flow
 - [x] `utils/image.py`: `download_image` (bare request, 50MB cap)
 - [x] `tests/test_providers.py`: 6 cases — interface conformance + factory missing-key error, **all passing**
 

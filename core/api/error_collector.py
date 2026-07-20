@@ -1,7 +1,7 @@
-"""core.api.error_collector — API failure collector (persists to error_logs/*.jsonl).
+"""core.api.error_collector — API failure collector (persists to logs/*.jsonl).
 
 Lightweight, dependency-free. Each failure is appended as one JSON object per
-line to a single JSONL log (``error_logs/<project>.jsonl``), so a long run
+line to a single JSONL log (``logs/<project>.jsonl``), so a long run
 produces one aggregatable file instead of hundreds of loose ``.json`` files.
 Writes are serialized with a module-level lock and pushed off the event loop by
 callers via ``asyncio.to_thread``.
@@ -23,7 +23,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 _lock = threading.Lock()
-_DEFAULT_LOG = "error_logs/errors.jsonl"
+_DEFAULT_LOG = "logs/errors.jsonl"
 
 
 def _log_path() -> Path:

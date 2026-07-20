@@ -219,7 +219,7 @@ __marimo__/
 
 # --- Inkstone project-specific ---
 .agnes_config/
-error_logs/
+logs/
 output/
 state.json
 task_state.json

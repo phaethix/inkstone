@@ -75,21 +75,7 @@ cp .env.example .env
 #    then open .env and set AGNES_API_KEY=sk-xxx
 ```
 
-Generate your first panel — the runnable example lives at `examples/first_panel.py` (shown below):
-
-```python
-import asyncio
-from core.api import get_image_provider
-
-async def main() -> None:
-    provider = get_image_provider()            # reads AGNES_API_KEY, defaults to Agnes
-    out = await provider.generate_single_image("a bespectacled cat, ink-wash style")
-    path = "panel.png"
-    out.save(path)                             # downloaded & persisted on disk
-    print(f"saved -> {path}")
-
-asyncio.run(main())
-```
+Generate your first panel — the runnable example lives at `examples/first_panel.py`:
 
 ```console
 $ python examples/first_panel.py   # run from the repo root
