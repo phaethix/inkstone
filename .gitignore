@@ -223,3 +223,6 @@ error_logs/
 output/
 state.json
 task_state.json
+panel*.png
+webtoon*.png
+comic*.pdf

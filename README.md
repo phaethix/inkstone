@@ -75,7 +75,7 @@ cp .env.example .env
 #    then open .env and set AGNES_API_KEY=sk-xxx
 ```
 
-Generate your first panel — save the snippet below as `first_panel.py`:
+Generate your first panel — the runnable example lives at `examples/first_panel.py` (shown below):
 
 ```python
 import asyncio
@@ -92,7 +92,7 @@ asyncio.run(main())
 ```
 
 ```console
-$ python first_panel.py
+$ python examples/first_panel.py   # run from the repo root
 saved -> panel.png
 ```
 
