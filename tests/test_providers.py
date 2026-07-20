@@ -56,6 +56,38 @@ def _fake_response_class(status_codes):
 # --- contract tests (unchanged shape, retained) ---
 
 
+def test_agnes_image_uses_image_bucket(monkeypatch):
+    captured = {}
+
+    class _L:
+        def acquire(self):
+            return None
+
+    def fake_get_rate_limiter(size=None, bucket="image"):
+        captured["bucket"] = bucket
+        return _L()
+
+    monkeypatch.setattr("core.api.rate_limiter.get_rate_limiter", fake_get_rate_limiter)
+
+    class FakeResp:
+        def __init__(self, code=200):
+            self.status_code = code
+            self.text = ""
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise requests.HTTPError(response=self)
+
+        def json(self):
+            return {"data": [{"url": "http://x/y.png"}]}
+
+    monkeypatch.setattr(requests, "post", lambda *a, **k: FakeResp())
+    api = AgnesImageAPI(api_key="k")
+    asyncio.run(api.generate_single_image("p", max_retries=1))
+    # Image calls keep the "image" bucket, distinct from chat's "chat" bucket.
+    assert captured.get("bucket") == "image"
+
+
 def test_agnes_is_image_provider():
     api = AgnesImageAPI(api_key="test-key")
     assert isinstance(api, ImageProvider)

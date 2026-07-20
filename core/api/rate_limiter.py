@@ -76,10 +76,15 @@ _instances: dict[str, RateLimiter] = {}
 _instances_lock = threading.Lock()
 
 
-def get_rate_limiter(size: str | None = None) -> RateLimiter:
-    """Return the (size-aware) global rate-limiter singleton (thread-safe)."""
+def get_rate_limiter(size: str | None = None, bucket: str = "image") -> RateLimiter:
+    """Return the (size-aware) global rate-limiter singleton (thread-safe).
+
+    Buckets are keyed by ``(bucket, size)`` so distinct API surfaces — e.g.
+    ``"image"`` vs ``"chat"`` — get independent token budgets and never starve
+    each other, while still downshifting RPM for larger image sizes.
+    """
     rpm = select_rpm(size) * _SAFETY_FACTOR
-    key = size or "<default>"
+    key = f"{bucket}:{size or '<default>'}"
     with _instances_lock:
         inst = _instances.get(key)
         if inst is None:

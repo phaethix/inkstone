@@ -37,3 +37,22 @@ class ImageConfig:
         )
         self.openai_compat_model_i2i = _get("OPENAI_COMPAT_MODEL_I2I")
         self.rate_limit = int(_get("AGNES_RATE_LIMIT", "20"))
+
+
+class ChatConfig:
+    """Aggregated chat / function-calling configuration."""
+
+    provider: str
+    agnes_api_key: str
+    agnes_chat_model: str
+    openai_compat_chat_base_url: str
+    openai_compat_chat_api_key: str
+    openai_compat_chat_model: str
+
+    def __init__(self) -> None:
+        self.provider = _get("PROVIDER", "agnes").lower()
+        self.agnes_api_key = _get("AGNES_API_KEY")
+        self.agnes_chat_model = _get("AGNES_CHAT_MODEL", "agnes-2.0-flash")
+        self.openai_compat_chat_base_url = _get("OPENAI_COMPAT_CHAT_BASE_URL")
+        self.openai_compat_chat_api_key = _get("OPENAI_COMPAT_CHAT_API_KEY")
+        self.openai_compat_chat_model = _get("OPENAI_COMPAT_CHAT_MODEL")

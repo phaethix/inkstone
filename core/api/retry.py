@@ -52,8 +52,13 @@ async def collect_provider_error(
     attempt: int = 0,
     exc: "Exception | None" = None,
     final: bool = False,
+    model_type: str = "image",
 ) -> None:
     """Record a transient/terminal failure identically for every provider.
+
+    ``model_type`` labels the failure in the error log (e.g. ``"image"`` vs
+    ``"chat"``) so chat and image calls share one collection path without
+    cross-contaminating their records.
 
     Wrapped in ``asyncio.to_thread`` by callers so the disk write never blocks
     the event loop.
@@ -65,7 +70,7 @@ async def collect_provider_error(
 
     if exc is not None:
         collect_error_from_exception(
-            "image",
+            model_type,
             "generate_single_image",
             exc,
             prompt=prompt,
@@ -77,7 +82,7 @@ async def collect_provider_error(
         "RateLimit429" if status_code == 429 else "HTTPError" if final else f"HTTP{status_code}"
     )
     collect_error(
-        "image",
+        model_type,
         "generate_single_image",
         prompt=prompt,
         error_type=error_type,
@@ -98,6 +103,7 @@ async def retryable_post(
     max_retries: int,
     retry_base_delay: float,
     size: str | None = None,
+    bucket: str = "image",
     collect: "callable | None" = None,
 ) -> "requests.Response":
     """Retryable async ``POST`` to an image-generation endpoint.
@@ -117,7 +123,7 @@ async def retryable_post(
 
     resp: requests.Response | None = None
     for attempt in range(max_retries):
-        await asyncio.to_thread(get_rate_limiter(size).acquire)
+        await asyncio.to_thread(get_rate_limiter(size, bucket=bucket).acquire)
         try:
             resp = await asyncio.to_thread(
                 requests.post,
