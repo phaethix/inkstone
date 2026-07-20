@@ -8,10 +8,12 @@ tenacity>=9.1.4,<10.0.0      # download retries (utils.image.download_image)
 Pillow>=12.3.0,<13.0.0
 numpy>=1.24.0,<3.0.0
 
+# D1 structured contracts (core/schemas.py) — Pydantic models for the three JSON contracts
+pydantic>=2.0.0,<3.0.0
+
 # —— M2+ to enable (uncomment when needed) ——
 # fastapi>=0.100.0,<1.0.0
 # uvicorn>=0.23.0,<1.0.0
 # python-multipart>=0.0.6,<1.0.0
-# pydantic>=2.0.0,<3.0.0
 # PyYAML>=6.0,<7.0
 # manga2pdf>=0.2.0             # comic-page PDF export
