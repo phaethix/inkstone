@@ -31,7 +31,7 @@ Repository = "https://github.com/phaethix/inkstone"
 "Bug Tracker" = "https://github.com/phaethix/inkstone/issues"
 
 [tool.setuptools]
-packages = ["core", "core.api", "utils"]
+packages = ["core", "core.api", "core.comic", "utils"]
 
 [tool.ruff]
 line-length = 100
