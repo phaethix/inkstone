@@ -222,6 +222,11 @@ __marimo__/
 logs/
 output/
 comic_out/          # generated comic artifacts (panels/portraits/webtoon) — regenerated locally
+# Internal design docs — not for public commit.
+docs/whitepaper.md
+docs/M1-code-review.md
+docs/M2-design.md
+docs/hosting-options.md
 state.json
 task_state.json
 panel*.png
