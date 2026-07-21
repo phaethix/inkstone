@@ -131,6 +131,12 @@ Paste a novel, pick webtoon/page, and hit Generate. The backend runs `creative_c
 in a background thread and streams progress + panels to the browser (polls every 2s).
 Artifacts land in `comic_out/` (gitignored). The key is read from the environment or `.env`.
 
+**The same `web/index.html` is also deployed to GitHub Pages.** The SPA auto-detects
+whether a backend is present: locally it generates your comic; on the static site it
+runs in *demo mode* and showcases a real generated sample with the **identical interface
+and operations**. What you run locally is what's on the page — see
+`https://phaethix.github.io/inkstone/` (goes live once Pages is enabled in repo settings).
+
 ## Configuration
 
 Inkstone is configured through environment variables (copy `.env.example` → `.env`):

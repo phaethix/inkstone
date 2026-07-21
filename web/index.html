@@ -6,77 +6,139 @@
   <title>Inkstone — novel → comic</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen">
-  <div class="max-w-3xl mx-auto px-4 py-8">
-    <header class="mb-6">
-      <h1 class="text-2xl font-bold">Inkstone</h1>
-      <p class="text-slate-400 text-sm">Local-first novel → comic generator. Paste a (short) novel and grind it into panels.</p>
+<body class="bg-slate-950 text-slate-100 min-h-screen antialiased">
+  <div class="max-w-3xl mx-auto px-4 py-10">
+    <header class="flex items-center justify-between mb-8">
+      <div class="flex items-center gap-3">
+        <img src="assets/logo.svg" alt="Inkstone" class="w-9 h-9 rounded-lg bg-slate-900 p-1 border border-slate-800" />
+        <div>
+          <h1 class="text-xl font-bold leading-tight">Inkstone</h1>
+          <p class="text-xs text-slate-500">novel → comic · free Agnes API</p>
+        </div>
+      </div>
+      <span id="mode" class="text-xs font-medium px-2.5 py-1 rounded-full bg-slate-800 text-slate-300">…</span>
     </header>
 
-    <section class="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-4">
-      <label class="block text-sm font-medium mb-2" for="text">Novel text</label>
-      <textarea id="text" rows="10"
-        class="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
+    <!-- Composer -->
+    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-5 mb-5">
+      <label class="block text-sm font-medium mb-2" for="text">你的小说</label>
+      <textarea id="text" rows="9"
+        class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-indigo-500"
         placeholder="第一章 渡口&#10;&#10;江风裹着初秋的凉意……"></textarea>
 
-      <div class="flex items-center gap-3 mt-3">
-        <select id="format" class="bg-slate-950 border border-slate-700 rounded-lg p-2 text-sm">
-          <option value="webtoon">Webtoon (vertical PNG)</option>
-          <option value="page">Page (PDF)</option>
+      <div class="flex items-center gap-3 mt-4">
+        <select id="format" class="bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm">
+          <option value="webtoon">条漫 (webtoon PNG)</option>
+          <option value="page">页漫 (PDF)</option>
         </select>
         <button id="go"
-          class="ml-auto bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium rounded-lg px-4 py-2 text-sm">
-          Generate
+          class="ml-auto bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium rounded-xl px-5 py-2 text-sm transition">
+          生成
         </button>
       </div>
       <p id="hint" class="text-xs text-slate-500 mt-2"></p>
     </section>
 
-    <section id="progressWrap" class="hidden mb-4">
+    <!-- Demo banner -->
+    <div id="demoBanner" class="hidden mb-5 bg-indigo-950/40 border border-indigo-800 rounded-xl px-4 py-3 text-sm text-indigo-200">
+      演示模式 · 下方展示一次真实生成的效果。在本地运行 <code class="px-1 bg-indigo-900/60 rounded">python web/server.py</code> 即可生成你自己的漫画。
+    </div>
+
+    <!-- Progress -->
+    <section id="progressWrap" class="hidden mb-5">
       <div class="flex items-center gap-2 text-sm text-slate-300 mb-2">
-        <span id="spinner" class="inline-block w-3 h-3 rounded-full bg-indigo-400 animate-pulse"></span>
-        <span id="status">running…</span>
+        <span class="inline-block w-3 h-3 rounded-full bg-indigo-400 animate-pulse"></span>
+        <span id="status">生成中…</span>
       </div>
-      <pre id="log" class="bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs text-slate-400 h-40 overflow-auto"></pre>
+      <pre id="log" class="bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-slate-400 h-44 overflow-auto"></pre>
     </section>
 
-    <section id="errorWrap" class="hidden mb-4 bg-red-950/40 border border-red-800 rounded-lg p-3 text-sm text-red-300"></section>
+    <section id="errorWrap" class="hidden mb-5 bg-red-950/40 border border-red-800 rounded-xl px-4 py-3 text-sm text-red-300"></section>
 
+    <!-- Results -->
     <section id="results" class="hidden">
-      <h2 class="text-lg font-semibold mb-3">Panels</h2>
+      <h2 class="text-base font-semibold mb-3">分镜</h2>
       <div id="panels" class="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6"></div>
 
       <div id="webtoonWrap" class="hidden mb-6">
-        <h2 class="text-lg font-semibold mb-3">Webtoon</h2>
-        <img id="webtoon" class="w-full rounded-lg border border-slate-800" alt="webtoon" />
+        <h2 class="text-base font-semibold mb-3">条漫全图</h2>
+        <img id="webtoon" class="w-full rounded-xl border border-slate-800 bg-slate-900" alt="webtoon" />
       </div>
 
       <div id="pdfWrap" class="hidden">
-        <a id="pdf" href="#" class="text-indigo-400 underline text-sm" target="_blank" rel="noreferrer">Download PDF</a>
+        <a id="pdf" href="#" class="text-indigo-400 underline text-sm" target="_blank" rel="noreferrer">下载 PDF</a>
       </div>
     </section>
 
-    <footer class="text-xs text-slate-600 mt-10">
-      Free Agnes API · no GPU · consistency via L1 prompt + L2 reference img2img. The optional L3 face overlay is off by default.
+    <footer class="text-xs text-slate-600 mt-12">
+      免费 Agnes API · 无需 GPU · 一致性来自 L1 提示词 + L2 参考图。可选的 L3 人脸叠加默认关闭。
     </footer>
   </div>
 
   <script>
     const $ = (id) => document.getElementById(id);
+
+    // Pre-generated samples shown on GitHub Pages (demo mode) — the "effect".
+    const DEMO = {
+      panels: [
+        { id: "P01", url: "assets/samples/P01.png" },
+        { id: "P02", url: "assets/samples/P02.png" },
+        { id: "P03", url: "assets/samples/P03.png" },
+      ],
+      webtoon: "assets/samples/webtoon_preview.png",
+      pdf: null,
+    };
+
+    const DEMO_STEPS = ["分段文本", "抽取角色 / 场景", "规划分镜", "生成分镜图", "排版合成", "导出"];
+
+    let mode = "demo";
     let pollTimer = null;
 
-    async function generate() {
+    async function detectMode() {
+      try {
+        const r = await fetch("/api/health");
+        if (r.ok) { mode = "live"; $("mode").textContent = "本地 · Live"; $("mode").className = "text-xs font-medium px-2.5 py-1 rounded-full bg-emerald-900/60 text-emerald-300"; return; }
+      } catch (e) { /* no backend -> demo */ }
+      mode = "demo";
+      $("mode").textContent = "演示 · Demo";
+      $("mode").className = "text-xs font-medium px-2.5 py-1 rounded-full bg-indigo-900/60 text-indigo-200";
+      $("demoBanner").classList.remove("hidden");
+      render(DEMO); // show the effect immediately on the static site
+    }
+
+    function generate() {
       const text = $("text").value.trim();
-      const format = $("format").value;
-      if (!text) { setHint("Paste some novel text first."); return; }
+      if (mode === "live" && !text) { setHint("先粘贴一些小说文本。"); return; }
 
       $("go").disabled = true;
       $("errorWrap").classList.add("hidden");
       $("results").classList.add("hidden");
       $("progressWrap").classList.remove("hidden");
       $("log").textContent = "";
-      setStatus("starting…");
 
+      if (mode === "demo") return demoRun();
+      liveRun(text, $("format").value);
+    }
+
+    // Demo: simulate the same step streaming, then reveal the baked samples.
+    function demoRun() {
+      let i = 0;
+      setStatus("生成中…");
+      const t = setInterval(() => {
+        logLine("✓ " + DEMO_STEPS[i]);
+        i++;
+        if (i >= DEMO_STEPS.length) {
+          clearInterval(t);
+          setStatus("完成");
+          $("progressWrap").classList.add("hidden");
+          render(DEMO);
+          $("go").disabled = false;
+        }
+      }, 350);
+    }
+
+    async function liveRun(text, format) {
+      setStatus("提交任务…");
       let res;
       try {
         res = await fetch("/api/generate", {
@@ -84,71 +146,60 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text, format }),
         });
-      } catch (e) {
-        return fail("Network error: " + e.message);
-      }
+      } catch (e) { return fail("网络错误: " + e.message); }
       const data = await res.json();
       if (!res.ok) return fail(data.error || ("HTTP " + res.status));
-      const jobId = data.job_id;
-      poll(jobId);
+      poll(data.job_id);
     }
 
     function poll(jobId) {
       clearInterval(pollTimer);
       pollTimer = setInterval(async () => {
         let job;
-        try {
-          const r = await fetch("/api/job/" + jobId);
-          job = await r.json();
-        } catch (e) { return; }
+        try { job = await (await fetch("/api/job/" + jobId)).json(); }
+        catch (e) { return; }
         $("log").textContent = job.log.join("\n");
         $("log").scrollTop = $("log").scrollHeight;
-        if (job.status === "running") { setStatus("generating…"); return; }
+        if (job.status === "running") { setStatus("生成中…"); return; }
         clearInterval(pollTimer);
-        if (job.status === "error") return fail(job.error || "generation failed");
+        if (job.status === "error") return fail(job.error || "生成失败");
+        setStatus("完成");
+        $("progressWrap").classList.add("hidden");
         render(job);
       }, 2000);
     }
 
     function render(job) {
-      setStatus("done");
-      $("progressWrap").classList.add("hidden");
       $("results").classList.remove("hidden");
-
       const grid = $("panels");
       grid.innerHTML = "";
       (job.panels || []).forEach((p) => {
         const img = document.createElement("img");
-        img.src = p.url;
-        img.alt = p.id;
-        img.className = "w-full rounded-lg border border-slate-800 bg-slate-900";
+        img.src = p.url; img.alt = p.id;
+        img.className = "w-full rounded-xl border border-slate-800 bg-slate-900";
         grid.appendChild(img);
       });
-
-      if (job.webtoon) {
-        $("webtoon").src = job.webtoon;
-        $("webtoonWrap").classList.remove("hidden");
-      }
-      if (job.pdf) {
-        $("pdf").href = job.pdf;
-        $("pdfWrap").classList.remove("hidden");
-      }
+      if (job.webtoon) { $("webtoon").src = job.webtoon; $("webtoonWrap").classList.remove("hidden"); }
+      if (job.pdf) { $("pdf").href = job.pdf; $("pdfWrap").classList.remove("hidden"); }
       $("go").disabled = false;
+      $("results").scrollIntoView({ behavior: "smooth", block: "start" });
     }
 
     function fail(msg) {
       clearInterval(pollTimer);
       $("go").disabled = false;
-      setStatus("error");
+      setStatus("错误");
       const e = $("errorWrap");
       e.textContent = msg;
       e.classList.remove("hidden");
     }
 
-    function setStatus(s) { $("status").textContent = s; }
-    function setHint(s) { $("hint").textContent = s; }
+    const setStatus = (s) => ($("status").textContent = s);
+    const setHint = (s) => ($("hint").textContent = s);
+    const logLine = (s) => { $("log").textContent += s + "\n"; $("log").scrollTop = $("log").scrollHeight; };
 
     $("go").addEventListener("click", generate);
+    detectMode();
   </script>
 </body>
 </html>

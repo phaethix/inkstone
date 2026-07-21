@@ -72,3 +72,4 @@ Goal: make Inkstone genuinely runnable and reviewable by an outside contributor.
 - [x] Sample-novel demo — runnable `txt` inputs ship in `examples/` (`scene1.txt` + `sample_novel.txt`).
 - [x] README gallery — committed 3 sample panels + a downscaled webtoon under `assets/samples/` and referenced them.
 - [x] Optional lightweight Web UI: single-file Tailwind SPA (zero build) + zero-dependency stdlib `http.server` backend that runs the pipeline and streams panels.
+- [x] Same SPA deployed to GitHub Pages in demo mode (auto-detects backend via `/api/health`) so the public site shows the identical UI and a real generated sample (the "effect").

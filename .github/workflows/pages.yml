@@ -1,0 +1,44 @@
+name: Pages
+
+# Deploys the static Web UI to GitHub Pages. The UI (web/index.html) is the SAME
+# file used for local runs; on Pages it runs in demo mode and showcases the
+# pre-generated comic (the "effect") from assets/samples/.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble site
+        run: |
+          mkdir -p _site/assets/samples
+          cp web/index.html _site/index.html
+          cp assets/samples/* _site/assets/samples/ 2>/dev/null || true
+          cp assets/logo.svg _site/assets/logo.svg 2>/dev/null || true
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -138,6 +138,20 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/" or self.path == "/index.html":
             self._send_file(Path(__file__).resolve().parent / "index.html")
             return
+        if self.path == "/api/health":
+            # Lets the SPA distinguish live (backend present) from demo (static Pages).
+            self._send_json({"ok": True, "key": bool(os.environ.get("AGNES_API_KEY"))})
+            return
+        if self.path.startswith("/assets/"):
+            # Serve repo-root assets (logo, sample panels) so the same SPA works
+            # both locally and on GitHub Pages with relative paths.
+            rel = self.path[len("/assets/") :]
+            target = (ROOT / "assets" / rel).resolve()
+            if target.is_file() and str(target).startswith(str((ROOT / "assets").resolve())):
+                self._send_file(target)
+            else:
+                self._send_json({"error": "not found"}, status=404)
+            return
         if self.path.startswith("/files/"):
             rel = self.path[len("/files/") :]
             target = (OUTPUT_DIR / rel).resolve()
