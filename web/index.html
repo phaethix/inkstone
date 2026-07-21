@@ -1,78 +1,118 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Inkstone — novel → comic</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --bg: #020617; --card: #0f172a; --card2: #111827; --border: #1e293b;
+      --line: #334155; --text: #e2e8f0; --muted: #94a3b8; --faint: #64748b;
+      --indigo: #4f46e5; --indigo-h: #6366f1; --indigo-bg: #312e81;
+      --emerald-bg: #064e3b; --emerald: #6ee7b7;
+      --red-bg: #450a0a; --red: #fca5a5;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+      line-height: 1.5; -webkit-font-smoothing: antialiased;
+    }
+    .wrap { max-width: 640px; margin: 0 auto; padding: 40px 16px 64px; }
+    .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand img { width: 36px; height: 36px; border-radius: 10px; background: var(--card); border: 1px solid var(--border); padding: 3px; }
+    .brand h1 { font-size: 20px; font-weight: 700; margin: 0; }
+    .brand p { font-size: 12px; color: var(--muted); margin: 0; }
+    .badge { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; background: var(--card); color: var(--muted); }
+    .badge.live { background: var(--emerald-bg); color: var(--emerald); }
+    .badge.demo { background: var(--indigo-bg); color: #c7d2fe; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 20px; margin-bottom: 20px; }
+    label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+    textarea {
+      width: 100%; min-height: 200px; resize: vertical; background: var(--bg);
+      border: 1px solid var(--line); border-radius: 12px; padding: 12px;
+      color: var(--text); font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    textarea:focus { outline: none; border-color: var(--indigo); box-shadow: 0 0 0 2px rgba(79,70,229,.4); }
+    .row { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+    select { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; color: var(--text); font-size: 14px; }
+    button {
+      margin-left: auto; background: var(--indigo); color: #fff; font-weight: 600;
+      border: none; border-radius: 12px; padding: 10px 20px; font-size: 14px; cursor: pointer;
+    }
+    button:hover:not(:disabled) { background: var(--indigo-h); }
+    button:disabled { opacity: .5; cursor: default; }
+    .hint { font-size: 12px; color: var(--faint); margin-top: 8px; }
+    .banner { background: rgba(49,46,129,.35); border: 1px solid var(--indigo-bg); border-radius: 12px; padding: 12px 16px; font-size: 14px; color: #c7d2fe; margin-bottom: 20px; }
+    .banner code { background: rgba(49,46,129,.6); padding: 1px 5px; border-radius: 5px; }
+    .progress { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); margin-bottom: 8px; }
+    .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--indigo-h); animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+    pre { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 12px; font-size: 12px; color: var(--muted); height: 176px; overflow: auto; white-space: pre-wrap; margin: 0; }
+    .err { background: var(--red-bg); border: 1px solid #7f1d1d; border-radius: 12px; padding: 12px 16px; font-size: 14px; color: var(--red); }
+    h2 { font-size: 16px; font-weight: 600; margin: 0 0 12px; }
+    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 24px; }
+    @media (min-width: 520px) { .grid { grid-template-columns: repeat(3, 1fr); } }
+    .grid img, .webtoon { width: 100%; border-radius: 12px; border: 1px solid var(--border); background: var(--card); display: block; }
+    .webtoon { margin-bottom: 24px; }
+    a.link { color: #a5b4fc; text-decoration: underline; font-size: 14px; }
+    .hidden { display: none !important; }
+    footer { font-size: 12px; color: var(--faint); margin-top: 48px; }
+  </style>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen antialiased">
-  <div class="max-w-3xl mx-auto px-4 py-10">
-    <header class="flex items-center justify-between mb-8">
-      <div class="flex items-center gap-3">
-        <img src="assets/logo.svg" alt="Inkstone" class="w-9 h-9 rounded-lg bg-slate-900 p-1 border border-slate-800" />
+<body>
+  <div class="wrap">
+    <header class="header">
+      <div class="brand">
+        <img src="assets/logo.svg" alt="Inkstone" />
         <div>
-          <h1 class="text-xl font-bold leading-tight">Inkstone</h1>
-          <p class="text-xs text-slate-500">novel → comic · free Agnes API</p>
+          <h1>Inkstone</h1>
+          <p>novel → comic · free Agnes API</p>
         </div>
       </div>
-      <span id="mode" class="text-xs font-medium px-2.5 py-1 rounded-full bg-slate-800 text-slate-300">…</span>
+      <span id="mode" class="badge">…</span>
     </header>
 
-    <!-- Composer -->
-    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-5 mb-5">
-      <label class="block text-sm font-medium mb-2" for="text">你的小说</label>
-      <textarea id="text" rows="9"
-        class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        placeholder="第一章 渡口&#10;&#10;江风裹着初秋的凉意……"></textarea>
-
-      <div class="flex items-center gap-3 mt-4">
-        <select id="format" class="bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm">
+    <section class="card">
+      <label for="text">你的小说</label>
+      <textarea id="text" placeholder="第一章 渡口&#10;&#10;江风裹着初秋的凉意……"></textarea>
+      <div class="row">
+        <select id="format">
           <option value="webtoon">条漫 (webtoon PNG)</option>
           <option value="page">页漫 (PDF)</option>
         </select>
-        <button id="go"
-          class="ml-auto bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium rounded-xl px-5 py-2 text-sm transition">
-          生成
-        </button>
+        <button id="go">生成</button>
       </div>
-      <p id="hint" class="text-xs text-slate-500 mt-2"></p>
+      <p id="hint" class="hint"></p>
     </section>
 
-    <!-- Demo banner -->
-    <div id="demoBanner" class="hidden mb-5 bg-indigo-950/40 border border-indigo-800 rounded-xl px-4 py-3 text-sm text-indigo-200">
-      演示模式 · 下方展示一次真实生成的效果。在本地运行 <code class="px-1 bg-indigo-900/60 rounded">python web/server.py</code> 即可生成你自己的漫画。
+    <div id="demoBanner" class="banner hidden">
+      演示模式 · 下方展示一次真实生成的效果。在本地运行 <code>python web/server.py</code> 即可生成你自己的漫画。
     </div>
 
-    <!-- Progress -->
-    <section id="progressWrap" class="hidden mb-5">
-      <div class="flex items-center gap-2 text-sm text-slate-300 mb-2">
-        <span class="inline-block w-3 h-3 rounded-full bg-indigo-400 animate-pulse"></span>
-        <span id="status">生成中…</span>
-      </div>
-      <pre id="log" class="bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-slate-400 h-44 overflow-auto"></pre>
+    <section id="progressWrap" class="hidden">
+      <div class="progress"><span class="dot"></span><span id="status">生成中…</span></div>
+      <pre id="log"></pre>
     </section>
 
-    <section id="errorWrap" class="hidden mb-5 bg-red-950/40 border border-red-800 rounded-xl px-4 py-3 text-sm text-red-300"></section>
+    <section id="errorWrap" class="err hidden"></section>
 
-    <!-- Results -->
     <section id="results" class="hidden">
-      <h2 class="text-base font-semibold mb-3">分镜</h2>
-      <div id="panels" class="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6"></div>
+      <h2>分镜</h2>
+      <div id="panels" class="grid"></div>
 
-      <div id="webtoonWrap" class="hidden mb-6">
-        <h2 class="text-base font-semibold mb-3">条漫全图</h2>
-        <img id="webtoon" class="w-full rounded-xl border border-slate-800 bg-slate-900" alt="webtoon" />
+      <div id="webtoonWrap" class="hidden">
+        <h2>条漫全图</h2>
+        <img id="webtoon" class="webtoon" alt="webtoon" />
       </div>
 
       <div id="pdfWrap" class="hidden">
-        <a id="pdf" href="#" class="text-indigo-400 underline text-sm" target="_blank" rel="noreferrer">下载 PDF</a>
+        <a id="pdf" class="link" href="#" target="_blank" rel="noreferrer">下载 PDF</a>
       </div>
     </section>
 
-    <footer class="text-xs text-slate-600 mt-12">
-      免费 Agnes API · 无需 GPU · 一致性来自 L1 提示词 + L2 参考图。可选的 L3 人脸叠加默认关闭。
-    </footer>
+    <footer>免费 Agnes API · 无需 GPU · 一致性来自 L1 提示词 + L2 参考图。可选的 L3 人脸叠加默认关闭。</footer>
   </div>
 
   <script>
@@ -97,11 +137,18 @@
     async function detectMode() {
       try {
         const r = await fetch("/api/health");
-        if (r.ok) { mode = "live"; $("mode").textContent = "本地 · Live"; $("mode").className = "text-xs font-medium px-2.5 py-1 rounded-full bg-emerald-900/60 text-emerald-300"; return; }
+        if (r.ok) {
+          mode = "live";
+          const el = $("mode");
+          el.textContent = "本地 · Live";
+          el.className = "badge live";
+          return;
+        }
       } catch (e) { /* no backend -> demo */ }
       mode = "demo";
-      $("mode").textContent = "演示 · Demo";
-      $("mode").className = "text-xs font-medium px-2.5 py-1 rounded-full bg-indigo-900/60 text-indigo-200";
+      const el = $("mode");
+      el.textContent = "演示 · Demo";
+      el.className = "badge demo";
       $("demoBanner").classList.remove("hidden");
       render(DEMO); // show the effect immediately on the static site
     }
@@ -176,7 +223,6 @@
       (job.panels || []).forEach((p) => {
         const img = document.createElement("img");
         img.src = p.url; img.alt = p.id;
-        img.className = "w-full rounded-xl border border-slate-800 bg-slate-900";
         grid.appendChild(img);
       });
       if (job.webtoon) { $("webtoon").src = job.webtoon; $("webtoonWrap").classList.remove("hidden"); }
