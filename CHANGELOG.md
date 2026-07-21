@@ -26,6 +26,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     resume reuses them and never re-pays the (billable) chat API; `panels_done` dedup avoids duplicate
     panel generation. `InsightFace` embedding / L4 iterative refinement remain deferred (GPU-only).
 
+### Changed
+- **L3 face overlay is now OFF by default** (`INKSTONE_L3=1` to enable). The cv2/OpenCV
+  face-swap pastes a close-up portrait face onto generated panels and deforms stylized faces
+  whenever pose/angle/lighting differ (which is most of the time in comic art). Consistency now
+  relies on the robust L1 (prompt hard-description) + L2 (reference img2img) path; L3 stays as an
+  opt-in experiment. `apply_l3` guards were also retuned to use absolute face-pixel size as the
+  "big enough" gate instead of a fragile full-frame ratio.
+
 ## [0.1.0] - 2026-07-20
 
 ### Added

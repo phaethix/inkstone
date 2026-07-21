@@ -67,10 +67,15 @@ class ConsistencyEngine:
 
     def __init__(self, style_guide: str = "", enable_l3: bool | None = None):
         self.style_guide = style_guide or ""
-        # L3 face compositing can be disabled entirely via ``INKSTONE_L3=0`` (or the
-        # ``enable_l3`` arg). Even when enabled, the quality guards below skip any
-        # case where a swap would look worse than the raw generation.
-        self.enable_l3 = _truthy_env("INKSTONE_L3") if enable_l3 is None else enable_l3
+        # L3 face compositing is **opt-in and OFF by default** (``INKSTONE_L3=1``
+        # or ``enable_l3=True`` to turn on). It is a cv2 Haar-based face-swap that
+        # pastes a close-up portrait face onto the generated panel; on stylized
+        # comic art the pose/angle/lighting rarely match, so it frequently
+        # *deforms* the face and looks worse than the raw generation. Character
+        # consistency is therefore carried by L1 (prompt hardening) + L2
+        # (reference-image conditioning of the generation model), which is the
+        # robust path. Keep L3 only for users who want to experiment.
+        self.enable_l3 = _truthy_env("INKSTONE_L3", default="0") if enable_l3 is None else enable_l3
 
     def build_panel_prompt(
         self,

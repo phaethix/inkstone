@@ -38,7 +38,7 @@
 - **Free & local-first** — one `AGNES_API_KEY`, no GPU, no paid plan.
 - **Agnes-native multimodal** — `agnes-2.0-flash` for scripting, `agnes-image-2.1-flash` for t2i and i2i consistency.
 - **Pluggable `ImageProvider`** — Agnes by default; one line switches to any OpenAI-compatible endpoint.
-- **Character consistency engine** — L1 prompt description + L2 reference img2img + L3 PIL/OpenCV overlay, the best feasible under no-GPU.
+- **Character consistency engine** — L1 prompt hard-description + L2 reference img2img, the robust path under no-GPU. An optional L3 PIL/OpenCV face overlay exists but is **off by default** (it deforms stylized faces when pose/lighting differ, so it's opt-in via `INKSTONE_L3=1`).
 - **Reliability layer** — token-bucket rate limiting, exponential-backoff retries, and error collection against 429/503.
 - **Resumable long-form runs** — chapter-split generation with a persisted `state.json` checkpoint.
 
@@ -104,10 +104,11 @@ Inkstone is configured through environment variables (copy `.env.example` → `.
 | `AGNES_IMAGE_RETRY_BASE_DELAY` | | `15.0` | Image retry backoff base (seconds, exponential, capped at 120s). |
 | `PROVIDER` | | `agnes` | Set to `openai_compat` to route to any OpenAI-compatible image endpoint. |
 | `OPENAI_COMPAT_*` | | — | Base URL / key / models, used only when `PROVIDER=openai_compat`. |
+| `INKSTONE_L3` | | `0` | Enable the experimental L3 PIL/OpenCV face overlay (`1` to turn on). Off by default — it tends to deform stylized faces, so consistency relies on L1+L2. |
 
 ## How it works
 
-A `txt` novel is split into segments → characters & scenes are extracted with `agnes-2.0-flash` → storyboard prompts are generated → the `ImageProvider` (Agnes by default) paints each panel → panels are laid out and exported to PDF/PNG. The core challenge — **cross-panel character consistency without a GPU** — is handled by a layered strategy (prompt hard-description + reference img2img + PIL/OpenCV overlay), backed by a reliability layer (rate limiting, retries, and `state.json` resumption). Full design, consistency strategy, and risk analysis live in the [whitepaper](docs/whitepaper.md).
+A `txt` novel is split into segments → characters & scenes are extracted with `agnes-2.0-flash` → storyboard prompts are generated → the `ImageProvider` (Agnes by default) paints each panel → panels are laid out and exported to PDF/PNG. The core challenge — **cross-panel character consistency without a GPU** — is handled by a layered strategy (L1 prompt hard-description + L2 reference img2img; an optional L3 PIL/OpenCV face overlay exists but is off by default because it deforms stylized faces), backed by a reliability layer (rate limiting, retries, and `state.json` resumption). Full design, consistency strategy, and risk analysis live in the [whitepaper](docs/whitepaper.md).
 
 ## Resources
 

@@ -77,7 +77,7 @@ def test_apply_l3_skips_without_cv2():
         pass
     else:
         pytest.skip("cv2 installed; degradation covered by no-face test")
-    eng = ConsistencyEngine()
+    eng = ConsistencyEngine(enable_l3=True)
     img = Image.new("RGB", (64, 64), (10, 20, 30))
     out = eng.apply_l3(img, img)
     assert out is img
@@ -85,7 +85,7 @@ def test_apply_l3_skips_without_cv2():
 
 def test_apply_l3_no_face_returns_original():
     pytest.importorskip("cv2")  # skip cleanly where cv2 is absent
-    eng = ConsistencyEngine()
+    eng = ConsistencyEngine(enable_l3=True)
     # Solid-color image: Haar cascade detects no face -> graceful skip.
     img = Image.new("RGB", (80, 80), (220, 220, 220))
     out = eng.apply_l3(img, img)
@@ -102,7 +102,7 @@ def test_apply_l3_composites_real_face():
     fixture = _astronaut_fixture()
     if not fixture.exists():
         pytest.skip("astronaut fixture missing")
-    eng = ConsistencyEngine()
+    eng = ConsistencyEngine(enable_l3=True)
     img = Image.open(fixture).convert("RGB")
     # Same image as panel and portrait -> Haar finds a face in both and the
     # face-ratio guard passes, so compositing runs and returns a NEW image.
@@ -115,7 +115,7 @@ def test_apply_l3_composites_real_face():
 
 def test_apply_l3_no_face_returns_same_object():
     pytest.importorskip("cv2")
-    eng = ConsistencyEngine()
+    eng = ConsistencyEngine(enable_l3=True)
     # No face -> graceful skip, original object returned unchanged.
     img = Image.new("RGB", (80, 80), (220, 220, 220))
     out = eng.apply_l3(img, img)
@@ -139,7 +139,7 @@ def test_apply_l3_skips_far_shot_small_face():
     fixture = _astronaut_fixture()
     if not fixture.exists():
         pytest.skip("astronaut fixture missing")
-    eng = ConsistencyEngine()
+    eng = ConsistencyEngine(enable_l3=True)
     # Downscale so the detected face (~53px) falls below MIN_PANEL_FACE_PX (80):
     # a far/wide shot where a swap would seam -> graceful skip, original returned.
     small = Image.open(fixture).convert("RGB").resize((256, 256))
