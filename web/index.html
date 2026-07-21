@@ -45,7 +45,6 @@
       overflow-x: hidden;
     }
 
-    /* ambient mesh */
     body::before {
       content: "";
       position: fixed;
@@ -114,7 +113,7 @@
 
     /* hero */
     .hero {
-      padding: 80px 0 60px;
+      padding: 90px 0 70px;
       text-align: center;
     }
     .hero-eyebrow {
@@ -125,7 +124,7 @@
       margin-bottom: 24px;
     }
     .hero h1 {
-      font-size: clamp(42px, 8vw, 78px);
+      font-size: clamp(44px, 8.5vw, 84px);
       font-weight: 800;
       letter-spacing: -0.04em;
       line-height: 1.05;
@@ -169,7 +168,7 @@
     /* visual mockup */
     .showcase {
       display: flex; justify-content: center; perspective: 1200px;
-      margin: 30px 0 60px;
+      margin: 20px 0 80px;
     }
     .panel-stack {
       position: relative;
@@ -192,6 +191,121 @@
     .panel-stack:hover img:nth-child(2) { transform: translateZ(30px) translateY(-6px); }
     .panel-stack:hover img:nth-child(3) { transform: rotateY(-8deg) rotateZ(3deg) translateX(10px); }
 
+    /* section utils */
+    .section-label {
+      display: inline-block;
+      font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 10px;
+    }
+    .section-head { text-align: center; margin-bottom: 42px; }
+    .section-head h2 { font-size: 32px; font-weight: 800; margin: 0 0 12px; letter-spacing: -0.02em; }
+    .section-head p { color: var(--muted); margin: 0; font-size: 16px; }
+
+    /* values / tech highlights — moved up */
+    .values { padding: 60px 0 90px; }
+    .value-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+    .value-card {
+      position: relative;
+      padding: 30px 26px;
+      border-radius: 22px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      transition: transform .25s, border-color .25s, box-shadow .25s;
+      overflow: hidden;
+    }
+    .value-card::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 0; right: 0; height: 2px;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      opacity: 0.5;
+      transition: opacity .25s;
+    }
+    .value-card:hover { transform: translateY(-5px); border-color: var(--border-strong); box-shadow: var(--glow); }
+    .value-card:hover::before { opacity: 1; }
+    .value-num {
+      font-size: 36px; font-weight: 800; line-height: 1;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      -webkit-background-clip: text; background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 16px;
+    }
+    .value-card h3 { font-size: 17px; font-weight: 700; margin: 0 0 10px; }
+    .value-card p { font-size: 14px; color: var(--muted); margin: 0; line-height: 1.65; }
+    @media (max-width: 820px) { .value-grid { grid-template-columns: 1fr; } }
+
+    /* demo section */
+    .demo-section { padding: 50px 0 100px; }
+    .demo-meta {
+      text-align: center; color: var(--dim); font-size: 14px; margin-top: 14px;
+    }
+
+    /* browser-like frame for webtoon */
+    .webtoon-frame {
+      position: relative;
+      border-radius: 24px;
+      padding: 1px;
+      background: linear-gradient(135deg, rgba(99,102,241,0.35), rgba(168,85,247,0.25), rgba(236,72,153,0.15));
+      box-shadow: var(--shadow), var(--glow);
+      overflow: hidden;
+    }
+    .webtoon-frame::before {
+      content: "";
+      position: absolute; inset: 1px; border-radius: 23px;
+      background: var(--bg-soft);
+      z-index: 0;
+    }
+    .frame-header {
+      position: relative;
+      z-index: 1;
+      display: flex; align-items: center; gap: 8px;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+    .frame-header .dot { width: 10px; height: 10px; border-radius: 50%; }
+    .frame-header .dot.r { background: #f87171; }
+    .frame-header .dot.y { background: #fbbf24; }
+    .frame-header .dot.g { background: #34d399; }
+    .frame-title { margin-left: 10px; font-size: 12px; color: var(--dim); font-family: ui-monospace, monospace; }
+    .webtoon-frame img {
+      position: relative;
+      z-index: 1;
+      display: block;
+      width: 100%;
+      border-bottom-left-radius: 23px;
+      border-bottom-right-radius: 23px;
+    }
+
+    /* panel film strip */
+    .strip-title {
+      font-size: 18px; font-weight: 700; margin: 50px 0 22px; text-align: center;
+    }
+    .panel-strip {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+    }
+    .panel-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      overflow: hidden;
+      transition: transform .25s, box-shadow .25s, border-color .25s;
+    }
+    .panel-card:hover { transform: translateY(-5px); box-shadow: var(--shadow); border-color: var(--border-strong); }
+    .panel-card img { width: 100%; display: block; }
+    .panel-caption {
+      padding: 14px 16px;
+      font-size: 13px; color: var(--muted);
+      border-top: 1px solid var(--border);
+    }
+    @media (max-width: 760px) { .panel-strip { grid-template-columns: 1fr; } }
+
     /* glass card */
     .glass {
       background: var(--surface);
@@ -202,27 +316,9 @@
       box-shadow: var(--shadow);
     }
 
-    /* section titles */
-    .section-head { text-align: center; margin-bottom: 34px; }
-    .section-head h2 { font-size: 28px; font-weight: 700; margin: 0 0 10px; }
-    .section-head p { color: var(--muted); margin: 0; }
-
-    /* demo strip */
-    .demo-section { padding: 40px 0 80px; }
-    .webtoon-wrap {
-      border-radius: 20px; overflow: hidden;
-      border: 1px solid var(--border); box-shadow: var(--shadow);
-    }
-    .webtoon-wrap img { width: 100%; display: block; }
-    .demo-caption {
-      text-align: center; color: var(--dim); font-size: 13px; margin-top: 14px;
-    }
-
     /* generator */
-    .generator-section { padding: 40px 0 90px; }
-    .generator {
-      max-width: 800px; margin: 0 auto; padding: 28px;
-    }
+    .generator-section { padding: 40px 0 100px; }
+    .generator { max-width: 800px; margin: 0 auto; padding: 28px; }
     .generator label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 10px; color: var(--muted); }
     .generator textarea {
       width: 100%; min-height: 220px; resize: vertical;
@@ -272,10 +368,8 @@
     }
 
     /* results */
-    .results { padding-top: 50px; }
-    .results-grid {
-      display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
-    }
+    .results { padding-top: 40px; }
+    .results-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
     .results-grid img {
       width: 100%; border-radius: 16px; border: 1px solid var(--border); background: var(--surface);
       box-shadow: var(--shadow); transition: transform .25s, box-shadow .25s;
@@ -283,27 +377,6 @@
     .results-grid img:hover { transform: translateY(-4px); box-shadow: 0 30px 60px -20px rgba(0,0,0,0.6); }
     @media (max-width: 760px) { .results-grid { grid-template-columns: repeat(2, 1fr); } }
     @media (max-width: 480px) { .results-grid { grid-template-columns: 1fr; } }
-
-    /* features */
-    .features { padding: 60px 0 90px; }
-    .feature-grid {
-      display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px;
-    }
-    .feature {
-      padding: 26px; border-radius: 20px;
-      background: var(--surface); border: 1px solid var(--border);
-      transition: transform .2s, border-color .2s;
-    }
-    .feature:hover { transform: translateY(-3px); border-color: var(--border-strong); }
-    .feature-icon {
-      width: 40px; height: 40px; border-radius: 12px; margin-bottom: 16px;
-      display: flex; align-items: center; justify-content: center; font-size: 18px;
-      background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(168,85,247,0.12));
-      border: 1px solid rgba(99,102,241,0.2);
-    }
-    .feature h3 { font-size: 16px; font-weight: 700; margin: 0 0 8px; }
-    .feature p { font-size: 14px; color: var(--muted); margin: 0; line-height: 1.55; }
-    @media (max-width: 800px) { .feature-grid { grid-template-columns: 1fr; } }
 
     /* footer */
     footer {
@@ -322,7 +395,7 @@
     }
 
     /* reveal animation */
-    .reveal { opacity: 0; transform: translateY(16px); animation: reveal .8s ease forwards; }
+    .reveal { opacity: 0; transform: translateY(18px); animation: reveal .8s ease forwards; }
     .reveal:nth-child(2) { animation-delay: .08s; }
     .reveal:nth-child(3) { animation-delay: .16s; }
     @keyframes reveal { to { opacity: 1; transform: translateY(0); } }
@@ -369,20 +442,70 @@
     </div>
   </section>
 
+  <!-- Tech highlights moved up -->
+  <section class="values wrap">
+    <div class="section-head reveal">
+      <div class="section-label">设计思路</div>
+      <h2>在无 GPU、只用免费 Agnes 的硬约束下，做到可用的角色一致性</h2>
+      <p>把一致性拆成三层可工程化策略，每层各司其职</p>
+    </div>
+    <div class="value-grid">
+      <div class="value-card reveal">
+        <div class="value-num">01</div>
+        <h3>L1 提示词硬描述</h3>
+        <p>自动抽取角色外貌、服饰、场景，并把完整描述内嵌到每个分镜 prompt。身份不依赖参考图，零额外 API 成本。</p>
+      </div>
+      <div class="value-card reveal">
+        <div class="value-num">02</div>
+        <h3>L2 参考图 img2img</h3>
+        <p>先生成角色立绘，后续分镜把「立绘 + 上一格」同时作为 Agnes 多图参考输入，辅助保持身份稳定。</p>
+      </div>
+      <div class="value-card reveal">
+        <div class="value-num">03</div>
+        <h3>可续跑 + 容错</h3>
+        <p>state.json 断点续跑、503 耐心重试、内容安全跳过，让长小说生成不惧怕网络抖动。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Premium demo layout -->
   <section id="demo" class="demo-section wrap">
     <div class="section-head reveal">
-      <h2>真实生成效果</h2>
-      <p>由示例小说 `examples/scene1.txt` 直接生成，未经人工修图</p>
+      <div class="section-label">真实生成效果</div>
+      <h2>从小说到条漫</h2>
+      <p>示例输入：examples/scene1.txt · 7 个分镜 · 未经人工修图</p>
     </div>
-    <div class="webtoon-wrap reveal">
+
+    <div class="webtoon-frame reveal">
+      <div class="frame-header">
+        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span class="frame-title">webtoon.png</span>
+      </div>
       <img src="assets/samples/webtoon_preview.png" alt="webtoon preview" />
     </div>
-    <p class="demo-caption">条漫模式 · 7 个分镜 · 角色一致性来自 L1 提示词 + L2 参考图</p>
+    <p class="demo-meta reveal">条漫模式 · 角色一致性来自 L1 + L2 · 默认关闭 L3 人脸叠加</p>
+
+    <h3 class="strip-title reveal">关键分镜</h3>
+    <div class="panel-strip">
+      <div class="panel-card reveal">
+        <img src="assets/samples/P01.png" alt="P01" />
+        <div class="panel-caption">渡口 · 沈知意望向雾中灯塔</div>
+      </div>
+      <div class="panel-card reveal">
+        <img src="assets/samples/P02.png" alt="P02" />
+        <div class="panel-caption">船上 · 少年与沈知意并肩</div>
+      </div>
+      <div class="panel-card reveal">
+        <img src="assets/samples/P03.png" alt="P03" />
+        <div class="panel-caption">灯下 · 托腮微笑的特写</div>
+      </div>
+    </div>
   </section>
 
   <section id="generator" class="generator-section">
     <div class="wrap">
       <div class="section-head reveal">
+        <div class="section-label">在线体验</div>
         <h2>生成你的漫画</h2>
         <p id="modeHint">粘贴小说文本，选择格式，一键生成</p>
       </div>
@@ -409,38 +532,15 @@
 
   <section id="results" class="results wrap hidden">
     <div class="section-head">
-      <h2>生成结果</h2>
+      <div class="section-label">生成结果</div>
+      <h2>你的漫画</h2>
     </div>
     <div id="panels" class="results-grid"></div>
     <div id="webtoonWrap" class="hidden" style="margin-top:30px;">
-      <div class="webtoon-wrap"><img id="webtoon" alt="webtoon" /></div>
+      <div class="webtoon-frame"><img id="webtoon" alt="webtoon" /></div>
     </div>
     <div id="pdfWrap" class="hidden" style="text-align:center;margin-top:24px;">
       <a id="pdf" class="btn btn-secondary" href="#" target="_blank" rel="noreferrer">下载 PDF</a>
-    </div>
-  </section>
-
-  <section class="features wrap">
-    <div class="section-head reveal">
-      <h2>技术亮点</h2>
-      <p>围绕一致性、可靠性、低成本三个核心问题设计</p>
-    </div>
-    <div class="feature-grid">
-      <div class="feature reveal">
-        <div class="feature-icon">📝</div>
-        <h3>L1 提示词硬描述</h3>
-        <p>自动抽取角色外貌、服饰、场景，并把详细描述内嵌到每个分镜 prompt 中，降低对参考图的依赖。</p>
-      </div>
-      <div class="feature reveal">
-        <div class="feature-icon">🖼️</div>
-        <h3>L2 参考图 img2img</h3>
-        <p>先生成角色立绘，再把立绘 + 上一格分镜同时作为 Agnes 多图参考输入，辅助保持身份一致。</p>
-      </div>
-      <div class="feature reveal">
-        <div class="feature-icon">🛡️</div>
-        <h3>可续跑 + 容错</h3>
-        <p>state.json 断点续跑、免费档 503 耐心重试、内容安全跳过，让长小说生成不惧怕网络抖动。</p>
-      </div>
     </div>
   </section>
 
@@ -562,7 +662,6 @@
         $("log").textContent = job.log.join("\n");
         $("log").scrollTop = $("log").scrollHeight;
 
-        // crude progress estimate from log length + status
         const base = job.status === "done" ? 100 : Math.min(95, 8 + job.log.length * 8);
         setProgress(base, job.status === "done" ? "完成" : "生成中…");
 
