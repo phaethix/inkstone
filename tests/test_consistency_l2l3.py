@@ -120,3 +120,28 @@ def test_apply_l3_no_face_returns_same_object():
     img = Image.new("RGB", (80, 80), (220, 220, 220))
     out = eng.apply_l3(img, img)
     assert out is img
+
+
+def test_apply_l3_disabled_via_env(monkeypatch):
+    pytest.importorskip("cv2")
+    monkeypatch.setenv("INKSTONE_L3", "0")
+    fixture = _astronaut_fixture()
+    if not fixture.exists():
+        pytest.skip("astronaut fixture missing")
+    eng = ConsistencyEngine()  # reads INKSTONE_L3 at construction
+    img = Image.open(fixture).convert("RGB")
+    out = eng.apply_l3(img, img)
+    assert out is img  # disabled -> no compositing, original returned
+
+
+def test_apply_l3_skips_far_shot_small_face():
+    pytest.importorskip("cv2")
+    fixture = _astronaut_fixture()
+    if not fixture.exists():
+        pytest.skip("astronaut fixture missing")
+    eng = ConsistencyEngine()
+    # Downscale so the detected face (~53px) falls below MIN_PANEL_FACE_PX (80):
+    # a far/wide shot where a swap would seam -> graceful skip, original returned.
+    small = Image.open(fixture).convert("RGB").resize((256, 256))
+    out = eng.apply_l3(small, small)
+    assert out is small

@@ -8,14 +8,20 @@ Three complementary techniques keep a character looking the same across panels:
 - **Multi-image reference** (auxiliary): ``collect_reference_images`` assembles
   the reference paths (character portraits + previous panel) fed into the image
   provider's ``generate_single_image(reference_image_paths=[...])``.
-- **Feature compositing** (best-effort fallback): ``apply_l3`` pastes the
-  portrait face back onto the generated panel. It is **optional** — ``cv2`` is
-  lazily imported and, if absent or if the quality guards fail, the panel is
-  returned unchanged. This is an engineering safety net, not a strong
-  consistency solution; it only guarantees the face "looks like" the portrait.
+- **Feature compositing** (best-effort fallback): ``apply_l3`` transplants the
+  portrait face onto the generated panel using **Poisson seamless cloning**
+  (``cv2.seamlessClone``) with **eye-angle alignment** and **strict quality
+  guards**. It is deliberately conservative: it only composites when the panel
+  face is a reasonably sized, comparably shaped, near-frontal region — exactly
+  the cases where a swap helps. On far/wide shots (tiny panel face), pose
+  mismatch, missing ``cv2``, or any failure, it **returns the panel unchanged**
+  so it never introduces a visible "pasted-on" seam. This is an engineering
+  safety net, not a strong consistency solution.
 """
 
 import logging
+import math
+import os
 from collections.abc import Iterable
 
 from PIL import Image
@@ -23,6 +29,22 @@ from PIL import Image
 from core.schemas import CharacterAsset, Panel, Setting
 
 logger = logging.getLogger(__name__)
+
+# Below this absolute panel-face size (px, min side), a face swap on a far/wide
+# shot produces a visible seam and Haar detection is unreliable, so L3 is skipped
+# and the t2i/i2i result is kept as-is.
+MIN_PANEL_FACE_PX = 80
+# The portrait and panel face boxes must have similar aspect (Haar boxes are
+# ~square; a big aspect gap implies different pose) — else skip to avoid distortion.
+MAX_ASPECT_MISMATCH = 0.35
+# The two faces must be within this size-ratio window; extreme up/downscaling of
+# the source face blurs detail and looks wrong, so skip instead.
+MIN_SIZE_RATIO = 0.35
+MAX_SIZE_RATIO = 3.0
+
+
+def _truthy_env(name: str, default: str = "1") -> bool:
+    return os.environ.get(name, default).strip().lower() not in ("0", "false", "no", "off", "")
 
 
 def _scene_prompt_of(setting) -> str:
@@ -43,8 +65,12 @@ class ConsistencyEngine:
     character's hardened description, and can composite portrait faces back
     onto generated panels as a fallback."""
 
-    def __init__(self, style_guide: str = ""):
+    def __init__(self, style_guide: str = "", enable_l3: bool | None = None):
         self.style_guide = style_guide or ""
+        # L3 face compositing can be disabled entirely via ``INKSTONE_L3=0`` (or the
+        # ``enable_l3`` arg). Even when enabled, the quality guards below skip any
+        # case where a swap would look worse than the raw generation.
+        self.enable_l3 = _truthy_env("INKSTONE_L3") if enable_l3 is None else enable_l3
 
     def build_panel_prompt(
         self,
@@ -133,26 +159,41 @@ class ConsistencyEngine:
         max_face_ratio: float = 0.60,
         feather: int = 12,
     ) -> Image.Image:
-        """Composite the portrait face onto the generated panel.
+        """Transplant the portrait face onto the generated panel (seamless).
 
-        A best-effort fallback: detect the largest face in both images, resize
-        the portrait face to the panel face box, match its lighting, and blend
-        with a feathered alpha edge. Quality guards (face-ratio bounds, missing
-        detections, any failure) cause a **graceful skip** — the original panel
-        is returned unchanged. ``cv2`` is optional: without it this step is a no-op.
+        Detects the largest face in both images, aligns the portrait face to the
+        panel face (scale + eye-angle rotation), and blends it in with **Poisson
+        seamless cloning** (``cv2.seamlessClone``) through a feathered elliptical
+        mask, so lighting/color match across the boundary and there is no visible
+        "pasted-on" seam.
+
+        It is deliberately conservative. Any of these causes a **graceful skip**
+        (the original panel object is returned unchanged), because compositing
+        would look worse than the raw generation:
+
+        - ``cv2`` not installed, or L3 disabled (``INKSTONE_L3=0``);
+        - no face detected in the portrait or the panel;
+        - the panel face is tiny (far/wide shot) — see ``MIN_PANEL_FACE_PX``;
+        - the two face boxes differ too much in aspect or size (pose mismatch);
+        - the face occupies an implausible fraction of its image;
+        - any runtime failure during blending.
 
         Args:
             panel_img: a ``PIL.Image`` or a path to the generated panel.
             portrait_img: a ``PIL.Image`` or a path to the character portrait.
             min_face_ratio / max_face_ratio: skip if a face occupies less than
                 2% or more than 60% of its image (anti-miscomposite guard).
-            feather: gaussian sigma (px) for the alpha edge blend.
+            feather: gaussian sigma (px) for the mask edge.
 
         Returns:
-            The (possibly) composited ``PIL.Image`` in RGB mode.
+            The (possibly) composited ``PIL.Image`` in RGB mode. When skipped,
+            the input ``PIL.Image`` object is returned unchanged.
         """
         panel_pil = _to_pil(panel_img)
         portrait_pil = _to_pil(portrait_img)
+        if not self.enable_l3:
+            logger.info("face compositing disabled (INKSTONE_L3=0); panel unchanged")
+            return panel_pil
         try:
             import cv2  # lazy: optional dependency
             import numpy as np
@@ -181,6 +222,15 @@ def _to_pil(img) -> Image.Image:
     return Image.open(img)
 
 
+def _load_cascade(cv2, name: str):
+    """Load a bundled Haar cascade; return ``None`` if unavailable."""
+    try:
+        cascade = cv2.CascadeClassifier(cv2.data.haarcascades + name)
+    except Exception:  # noqa: BLE001 — cv2 build without data / older API
+        return None
+    return None if cascade.empty() else cascade
+
+
 def _detect_faces(cascade, rgb, cv2) -> list[tuple[int, int, int, int]]:
     """Return faces ``(x, y, w, h)`` on an RGB array, largest first."""
     gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
@@ -190,18 +240,74 @@ def _detect_faces(cascade, rgb, cv2) -> list[tuple[int, int, int, int]]:
     return faces
 
 
+def _eye_angle(rgb, face, cv2) -> float | None:
+    """Roll angle (degrees) of a face from its two largest detected eyes.
+
+    Returns ``None`` when fewer than two eyes are found (angle unknown).
+    """
+    eye_cascade = _load_cascade(cv2, "haarcascade_eye.xml")
+    if eye_cascade is None:
+        return None
+    (fx, fy, fw, fh) = face
+    roi = cv2.cvtColor(rgb[fy : fy + fh, fx : fx + fw], cv2.COLOR_RGB2GRAY)
+    eyes = eye_cascade.detectMultiScale(
+        roi, scaleFactor=1.1, minNeighbors=6, minSize=(max(8, fw // 8), max(8, fh // 8))
+    )
+    if len(eyes) < 2:
+        return None
+    # Two biggest eyes, ordered left-to-right, then the angle of the line joining them.
+    biggest = sorted(eyes, key=lambda e: e[2] * e[3], reverse=True)[:2]
+    (lx, ly, lw, lh), (rx, ry, rw, rh) = sorted(biggest, key=lambda e: e[0])
+    c1 = (lx + lw / 2, ly + lh / 2)
+    c2 = (rx + rw / 2, ry + rh / 2)
+    return math.degrees(math.atan2(c2[1] - c1[1], c2[0] - c1[0]))
+
+
+def _rotate(img, angle: float, cv2):
+    """Rotate ``img`` about its center by ``angle`` degrees, keeping its size."""
+    h, w = img.shape[:2]
+    matrix = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1.0)
+    return cv2.warpAffine(img, matrix, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REFLECT)
+
+
+def _guards_pass(port_face, panel_face, port_area, panel_area, min_face_ratio, max_face_ratio):
+    """Return ``True`` only when a face swap is safe (else L3 should skip)."""
+    (_, _, xw, xh) = port_face
+    (_, _, pw, ph) = panel_face
+    # Fraction-of-image bounds (anti-miscomposite).
+    if not (
+        min_face_ratio <= xw * xh / port_area <= max_face_ratio
+        and min_face_ratio <= pw * ph / panel_area <= max_face_ratio
+    ):
+        logger.info("face compositing skipped: face ratio outside guard bounds")
+        return False
+    # Absolute-size guard: tiny panel faces (far/wide shots) look wrong when swapped.
+    if min(pw, ph) < MIN_PANEL_FACE_PX:
+        logger.info("face compositing skipped: panel face too small (%dpx)", min(pw, ph))
+        return False
+    # Aspect-compatibility guard: differing aspect => different pose.
+    a_src, a_dst = xw / xh, pw / ph
+    if abs(a_src - a_dst) / max(a_src, a_dst) > MAX_ASPECT_MISMATCH:
+        logger.info("face compositing skipped: face aspect mismatch")
+        return False
+    # Size-ratio guard: extreme up/downscale of the source face blurs detail.
+    ratio = (pw * ph) / (xw * xh)
+    if not (MIN_SIZE_RATIO <= ratio <= MAX_SIZE_RATIO):
+        logger.info("face compositing skipped: face size ratio outside window (%.2f)", ratio)
+        return False
+    return True
+
+
 def _apply_l3_cv2(
     panel_pil, portrait_pil, cv2, np, min_face_ratio, max_face_ratio, feather
 ) -> Image.Image:
-    cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-    if cascade.empty():
+    cascade = _load_cascade(cv2, "haarcascade_frontalface_default.xml")
+    if cascade is None:
         logger.warning("face compositing skipped: haar cascade XML not found")
         return panel_pil
 
     panel_rgb = np.array(panel_pil.convert("RGB"))
     port_rgb = np.array(portrait_pil.convert("RGB"))
-    panel_bgr = cv2.cvtColor(panel_rgb, cv2.COLOR_RGB2BGR)
-    port_bgr = cv2.cvtColor(port_rgb, cv2.COLOR_RGB2BGR)
 
     p_faces = _detect_faces(cascade, panel_rgb, cv2)
     x_faces = _detect_faces(cascade, port_rgb, cv2)
@@ -212,32 +318,36 @@ def _apply_l3_cv2(
         logger.info("face compositing skipped: no face detected in panel")
         return panel_pil
 
-    # Quality guard: face must occupy a sane fraction of each image.
-    (x0, y0, xw, xh) = x_faces[0]
-    (p0, p1, pw, ph) = p_faces[0]
+    port_face, panel_face = x_faces[0], p_faces[0]
     port_area = port_rgb.shape[0] * port_rgb.shape[1]
     panel_area = panel_rgb.shape[0] * panel_rgb.shape[1]
-    if not (
-        min_face_ratio <= xw * xh / port_area <= max_face_ratio
-        and min_face_ratio <= pw * ph / panel_area <= max_face_ratio
+    if not _guards_pass(
+        port_face, panel_face, port_area, panel_area, min_face_ratio, max_face_ratio
     ):
-        logger.info("face compositing skipped: face ratio outside guard bounds")
         return panel_pil
 
-    # Align: resize portrait face to the panel face box.
-    src = cv2.resize(port_bgr[y0 : y0 + xh, x0 : x0 + xw], (pw, ph))
-    # Color match: shift mean per-channel toward the panel face lighting.
-    src = src.astype(np.float32)
-    dst_roi = panel_bgr[p1 : p1 + ph, p0 : p0 + pw].astype(np.float32)
-    src += dst_roi.reshape(-1, 3).mean(0) - src.reshape(-1, 3).mean(0)
-    src = np.clip(src, 0, 255).astype(np.uint8)
+    (x0, y0, xw, xh) = port_face
+    (p0, p1, pw, ph) = panel_face
 
-    # Feathered alpha blend.
-    mask = np.zeros((ph, pw), np.float32)
-    cv2.ellipse(mask, (pw // 2, ph // 2), (pw // 2, ph // 2), 0, 0, 360, 1, -1)
-    sigma = max(1, min(feather, min(pw, ph) // 4))
-    mask = cv2.GaussianBlur(mask, (0, 0), sigma)[..., None]
-    blended = dst_roi * (1 - mask) + src * mask
-    panel_bgr[p1 : p1 + ph, p0 : p0 + pw] = blended.astype(np.uint8)
+    # Source patch: portrait face, roll-aligned to the panel face, resized to fit.
+    src = port_rgb[y0 : y0 + xh, x0 : x0 + xw]
+    src_angle = _eye_angle(port_rgb, port_face, cv2)
+    dst_angle = _eye_angle(panel_rgb, panel_face, cv2)
+    if src_angle is not None and dst_angle is not None:
+        delta = dst_angle - src_angle
+        # Only correct meaningful, plausible tilt; ignore detection noise/outliers.
+        if 3.0 <= abs(delta) <= 35.0:
+            src = _rotate(src, delta, cv2)
+    src = cv2.resize(src, (pw, ph), interpolation=cv2.INTER_CUBIC)
 
-    return Image.fromarray(cv2.cvtColor(panel_bgr, cv2.COLOR_BGR2RGB))
+    # Feathered elliptical mask over the face region.
+    mask = np.zeros((ph, pw), np.uint8)
+    cv2.ellipse(mask, (pw // 2, ph // 2), (int(pw * 0.46), int(ph * 0.46)), 0, 0, 360, 255, -1)
+    sigma = max(1, min(feather, min(pw, ph) // 6))
+    mask = cv2.GaussianBlur(mask, (0, 0), sigma)
+
+    # Poisson seamless clone: gradient-domain blend matches lighting/color across
+    # the boundary, eliminating the visible seam of a plain alpha composite.
+    center = (int(p0 + pw / 2), int(p1 + ph / 2))
+    blended = cv2.seamlessClone(src, panel_rgb, mask, center, cv2.NORMAL_CLONE)
+    return Image.fromarray(blended)
