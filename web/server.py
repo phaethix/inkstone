@@ -139,7 +139,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_file(Path(__file__).resolve().parent / "index.html")
             return
         if self.path.startswith("/files/"):
-            rel = self.path[len("/files/"):]
+            rel = self.path[len("/files/") :]
             target = (OUTPUT_DIR / rel).resolve()
             if target.is_file() and str(target).startswith(str(OUTPUT_DIR.resolve())):
                 self._send_file(target)
