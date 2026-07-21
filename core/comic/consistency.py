@@ -271,29 +271,40 @@ def _rotate(img, angle: float, cv2):
 
 
 def _guards_pass(port_face, panel_face, port_area, panel_area, min_face_ratio, max_face_ratio):
-    """Return ``True`` only when a face swap is safe (else L3 should skip)."""
+    """Return ``True`` only when a face swap is safe (else L3 should skip).
+
+    The decisive "is the face big enough to swap" signal is the **absolute**
+    panel-face size (``MIN_PANEL_FACE_PX``), not a fraction of the full frame:
+    comic panels show the subject small in-frame, so a perfectly usable 115px
+    face would otherwise read as a ~1% sliver and get rejected. Relative ratios
+    are only used as *upper* bounds (anti-misdetect) and to block *upscaling*
+    blur — downscaling the (hi-res) portrait onto a smaller in-scene face is the
+    normal, safe case and is explicitly allowed.
+    """
     (_, _, xw, xh) = port_face
     (_, _, pw, ph) = panel_face
-    # Fraction-of-image bounds (anti-miscomposite).
-    if not (
-        min_face_ratio <= xw * xh / port_area <= max_face_ratio
-        and min_face_ratio <= pw * ph / panel_area <= max_face_ratio
-    ):
-        logger.info("face compositing skipped: face ratio outside guard bounds")
+    # Upper-bound only: a face filling most of the frame is almost certainly a
+    # Haar misdetection (on the panel) or a face-only crop (portrait) — skip.
+    if xw * xh / port_area > max_face_ratio or pw * ph / panel_area > max_face_ratio:
+        logger.info("face compositing skipped: face ratio above guard bound")
         return False
-    # Absolute-size guard: tiny panel faces (far/wide shots) look wrong when swapped.
+    # Absolute-size gate: only composite when the panel face carries enough
+    # pixels for a clean swap (tiny far/wide-shot faces look wrong AND defeat
+    # Haar alignment).
     if min(pw, ph) < MIN_PANEL_FACE_PX:
         logger.info("face compositing skipped: panel face too small (%dpx)", min(pw, ph))
         return False
-    # Aspect-compatibility guard: differing aspect => different pose.
+    # Aspect-compatibility guard: very different aspect => different pose/angle.
     a_src, a_dst = xw / xh, pw / ph
     if abs(a_src - a_dst) / max(a_src, a_dst) > MAX_ASPECT_MISMATCH:
         logger.info("face compositing skipped: face aspect mismatch")
         return False
-    # Size-ratio guard: extreme up/downscale of the source face blurs detail.
+    # Upscale guard only: block when the panel face is far LARGER than the
+    # portrait face (enlarging the source would blur). Downscaling the portrait
+    # is fine, so there is intentionally no lower bound here.
     ratio = (pw * ph) / (xw * xh)
-    if not (MIN_SIZE_RATIO <= ratio <= MAX_SIZE_RATIO):
-        logger.info("face compositing skipped: face size ratio outside window (%.2f)", ratio)
+    if ratio > MAX_SIZE_RATIO:
+        logger.info("face compositing skipped: panel face far larger than portrait (%.2f)", ratio)
         return False
     return True
 
