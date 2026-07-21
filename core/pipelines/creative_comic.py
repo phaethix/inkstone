@@ -56,6 +56,34 @@ def _setting_of(elements: StoryElements, ref: str | None):
     return None
 
 
+def _reconcile_state(state: ProjectState, state_path: Path) -> None:
+    """Drop resume records whose panel file no longer exists on disk.
+
+    If a generated panel is deleted between runs, its ``panel_id`` would still be
+    in ``panels_done`` and get skipped on rerun — leaving a hole the layout stage
+    would then fail to open. Removing such stale entries lets the panel regenerate
+    while every other completed panel is still skipped (dedup key preserved).
+
+    Because storyboards are needed to rebuild a panel's prompt, ``chunks_done`` is
+    also cleared so planning re-runs; already-generated panels are then skipped by
+    the per-panel dedup, and existing characters are reused (no portrait re-gen),
+    so only the missing panel is actually regenerated.
+    """
+    stale = [
+        pid
+        for pid in state.panels_done
+        if pid not in state.generated.panels or not Path(state.generated.panels[pid].local).exists()
+    ]
+    if not stale:
+        return
+    for pid in stale:
+        state.panels_done.remove(pid)
+        state.generated.panels.pop(pid, None)
+    state.chunks_done.clear()
+    logger.warning("reconcile: regenerating %d panel(s) with missing files: %s", len(stale), stale)
+    state.save(state_path)
+
+
 async def creative_comic(
     source_txt: str,
     *,
@@ -93,6 +121,8 @@ async def creative_comic(
     chat = chat or get_chat_provider()
     image = image or get_image_provider()
     engine = ConsistencyEngine(style_guide=style_guide or "")
+
+    _reconcile_state(state, state_path)
 
     chunks = segment_text(source_txt)
     done_chunks = set(state.chunks_done)
@@ -176,7 +206,12 @@ async def creative_comic(
 
     state.stage = "layout"
     items = sorted(state.generated.panels.items(), key=lambda kv: kv[0])
-    panel_imgs = [PanelImage(Image.open(v.local)) for _, v in items]
+    panel_imgs = []
+    for pid, v in items:
+        if not Path(v.local).exists():
+            logger.warning("layout: panel %s missing on disk; omitting from output", pid)
+            continue
+        panel_imgs.append(PanelImage(Image.open(v.local)))
 
     pdf: str | None = None
     pages: list[str] = []
