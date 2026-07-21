@@ -27,7 +27,8 @@ Stage = Literal["extract", "storyboard", "portraits", "panels", "layout", "expor
 
 
 class Appearance(BaseModel):
-    """Structured character appearance — the sole information source for L1 hardening."""
+    """Structured character appearance — the sole information source for the
+    hardened prompt description."""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -48,7 +49,7 @@ class CharacterAsset(BaseModel):
     name: str
     role: str = ""
     appearance: Appearance = Field(default_factory=Appearance)
-    # English hardened description inlined into every panel prompt (L1 lever).
+    # English hardened description inlined into every panel prompt.
     l1_prompt: str = ""
     # t2i prompt for the character design sheet (portrait).
     portrait_prompt: str = ""
@@ -87,7 +88,7 @@ class Panel(BaseModel):
     setting_ref: str = ""
     action: str = ""
     dialogue: str | None = None
-    # Built from CharacterAsset.l1_prompt + setting.scene_prompt + action (L1).
+    # Built from CharacterAsset.l1_prompt + setting.scene_prompt + action.
     panel_prompt: str = ""
     reference_characters: list[str] = Field(default_factory=list)
     size: str = "1024x1024"

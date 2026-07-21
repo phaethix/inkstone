@@ -1,4 +1,4 @@
-"""tests/test_consistency_l1.py — L1 prompt-hardening (no network).
+"""tests/test_consistency_l1.py — prompt hardening (no network).
 
 Verifies:
 - build_panel_prompt inlines a single character's l1_prompt plus scene + action + style.

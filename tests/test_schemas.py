@@ -3,7 +3,8 @@
 Verifies the three JSON contracts:
 - StoryElements / CharacterAsset parse the extraction payload (appearance,
   l1_prompt) and reuse-by-name shape.
-- Storyboard / Panel parse the planning payload; panel_prompt carries the L1 lever
+- Storyboard / Panel parse the planning payload; panel_prompt carries the hardened
+  character description.
   and dialogue is optional.
 - ProjectState round-trips through save/load and preserves the resume dedup key.
 - to_tool_schema emits a valid function-tool definition and hides runtime-only
@@ -90,7 +91,7 @@ def test_storyboard_parses_panels_and_dialogue():
     assert sb.chapter_id == "ch01"
     assert len(sb.panels) == 2
     p1, p2 = sb.panels
-    # panel_prompt carries the L1 lever (hardened character description).
+    # panel_prompt carries the hardened character description.
     assert "metal-framed glasses" in p1.panel_prompt
     assert p1.dialogue is None
     assert p2.dialogue == "这海上的日子，倒也清静。"

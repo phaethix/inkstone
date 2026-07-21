@@ -1,12 +1,12 @@
 """Probe — verify the Agnes server-side contracts before writing pipeline code.
 
-Covers:
-  - R1: i2i via ``extra_body.image=[url]`` + ``response_format="url"`` still 200.
-  - R3: multi-image reference (<=9) does not 400.
-  - R4: forced function calling (tool_choice) returns valid JSON for extraction.
+Checks three things against the live server:
+  - i2i via ``extra_body.image=[url]`` + ``response_format="url"`` still 200.
+  - multi-image reference (<=9) does not 400.
+  - forced function calling (tool_choice) returns valid JSON for extraction.
 
 Reuses ``get_image_provider`` for image calls; the chat call is raw
-``requests`` because ``ChatProvider`` is not yet written.
+``requests``.
 
 Run from the repo root:  python scripts/probe_m2.py
 Artifacts (image URLs, raw JSON) are printed; no files are committed.
@@ -48,12 +48,12 @@ def _print(label: str, ok: bool, detail: str = "") -> None:
     print(f"[{status}] {label}" + (f" — {detail}" if detail else ""))
 
 
-# Probes A / C: image generation (t2i, i2i, multi-ref) via M1 provider.
+# Probes: image generation (t2i, i2i, multi-ref) via the image provider.
 async def probe_images(provider) -> dict:
     results: dict = {}
 
-    # t2i: generate a base portrait to use as reference (R1 setup).
-    print("\nImage probes (reuse M1 provider):")
+    # t2i: generate a base portrait to use as reference for the i2i call.
+    print("\nImage probes (reuse the image provider):")
     try:
         out = await provider.generate_single_image(
             "a bespectacled cat, ink-wash manhua style, character design sheet",
@@ -66,7 +66,7 @@ async def probe_images(provider) -> dict:
         _print("t2i generation", False, repr(e))
         return results
 
-    # R1: i2i with a single reference url (extra_body.image=[url]).
+    # i2i with a single reference url (extra_body.image=[url]).
     try:
         out2 = await provider.generate_single_image(
             "the same bespectacled cat, reading a book, ink-wash manhua style",
@@ -75,11 +75,11 @@ async def probe_images(provider) -> dict:
         )
         i2i_url = out2.data if out2.fmt == "url" else "<b64>"
         results["i2i_url"] = i2i_url
-        _print("R1 i2i (single ref url)", bool(i2i_url), i2i_url[:80])
+        _print("i2i (single ref url)", bool(i2i_url), i2i_url[:80])
     except Exception as e:  # noqa: BLE001
-        _print("R1 i2i (single ref url)", False, repr(e))
+        _print("i2i (single ref url)", False, repr(e))
 
-    # R3: multi-image reference (two urls) must not 400.
+    # multi-image reference (two urls) must not 400.
     try:
         out3 = await provider.generate_single_image(
             "the bespectacled cat standing on a ship deck at dawn, ink-wash manhua style",
@@ -91,18 +91,18 @@ async def probe_images(provider) -> dict:
         )
         multi_url = out3.data if out3.fmt == "url" else "<b64>"
         results["multi_url"] = multi_url
-        _print("R3 multi-image ref (2 urls)", bool(multi_url), multi_url[:80])
+        _print("multi-image ref (2 urls)", bool(multi_url), multi_url[:80])
     except Exception as e:  # noqa: BLE001
-        _print("R3 multi-image ref (2 urls)", False, repr(e))
+        _print("multi-image ref (2 urls)", False, repr(e))
 
     return results
 
 
-# Probe B: forced function calling for story extraction (R4).
+# Probe: forced function calling for story extraction.
 def probe_chat_function_calling() -> bool:
-    print("\nChat probe (R4: forced function calling):")
+    print("\nChat probe (forced function calling):")
     if not os.environ.get("AGNES_API_KEY"):
-        _print("R4 env AGNES_API_KEY", False, "key missing")
+        _print("env AGNES_API_KEY", False, "key missing")
         return False
 
     tool = {
@@ -161,15 +161,15 @@ def probe_chat_function_calling() -> bool:
 
     try:
         resp = requests.post(CHAT_URL, headers=CHAT_HEADERS, json=payload, timeout=(30, 120))
-        _print("R4 chat http status", resp.status_code == 200, f"status={resp.status_code}")
+        _print("chat http status", resp.status_code == 200, f"status={resp.status_code}")
         if resp.status_code != 200:
-            _print("R4 chat body", False, resp.text[:300])
+            _print("chat body", False, resp.text[:300])
             return False
         body = resp.json()
         msg = body["choices"][0]["message"]
         calls = msg.get("tool_calls") or []
         if not calls:
-            _print("R4 tool_calls present", False, f"message={json.dumps(msg)[:300]}")
+            _print("tool_calls present", False, f"message={json.dumps(msg)[:300]}")
             return False
         args_raw = calls[0]["function"]["arguments"]
         parsed = json.loads(args_raw)  # must be valid JSON
@@ -177,21 +177,21 @@ def probe_chat_function_calling() -> bool:
         settings = parsed.get("settings", [])
         ok = bool(chars) and bool(settings)
         _print(
-            "R4 valid JSON + structure",
+            "valid JSON + structure",
             ok,
             f"chars={[c.get('name') for c in chars]}, settings={[s.get('name') for s in settings]}",
         )
         print("    raw arguments:", args_raw[:400])
         return ok
     except Exception as e:  # noqa: BLE001
-        _print("R4 chat call", False, repr(e))
+        _print("chat call", False, repr(e))
         return False
 
 
 async def main() -> None:
     from core.api import get_image_provider
 
-    print("M2 probe starting — verifying Agnes server contracts (R1/R3/R4)")
+    print("probe starting — verifying Agnes server contracts")
     provider = get_image_provider()
     img_results = await probe_images(provider)
     chat_ok = probe_chat_function_calling()
@@ -199,11 +199,11 @@ async def main() -> None:
     print("\nSummary:")
     has_i2i = bool(img_results.get("i2i_url"))
     has_multi = bool(img_results.get("multi_url"))
-    print(f"  R1 i2i single-ref : {'ok' if has_i2i else 'FAILED'}")
-    print(f"  R3 multi-ref      : {'ok' if has_multi else 'FAILED'}")
-    print(f"  R4 function call  : {'ok' if chat_ok else 'FAILED'}")
+    print(f"  i2i single-ref : {'ok' if has_i2i else 'FAILED'}")
+    print(f"  multi-ref      : {'ok' if has_multi else 'FAILED'}")
+    print(f"  function call  : {'ok' if chat_ok else 'FAILED'}")
     all_ok = has_i2i and has_multi and chat_ok
-    print(f"  OVERALL           : {'ALL PASS' if all_ok else 'SEE FAILURES ABOVE'}")
+    print(f"  OVERALL        : {'ALL PASS' if all_ok else 'SEE FAILURES ABOVE'}")
 
 
 if __name__ == "__main__":
