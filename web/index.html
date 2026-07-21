@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Inkstone — 小说一键生漫画</title>
+  <title>Inkstone — Turn Novels Into Comics</title>
   <style>
     :root {
       --bg: #060608;
@@ -130,12 +130,13 @@
       box-shadow: 0 0 0 3px rgba(74,222,128,0.15);
     }
     .hero h1 {
-      font-size: clamp(42px, 8vw, 80px);
+      font-size: clamp(34px, 6.6vw, 74px);
       font-weight: 800;
       letter-spacing: -0.045em;
       line-height: 1.06;
       margin: 0 auto 20px;
-      max-width: 780px;
+      max-width: 900px;
+      white-space: nowrap;
     }
     .hero h1 .grad {
       background: linear-gradient(120deg, var(--accent), var(--accent-2));
@@ -144,7 +145,7 @@
     .hero p {
       font-size: clamp(15px, 2.2vw, 18px);
       color: var(--muted);
-      max-width: 500px;
+      max-width: 540px;
       margin: 0 auto 36px;
     }
     .hero-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 90px; }
@@ -227,6 +228,7 @@
       font-size: 11px; font-weight: 700; color: #fff;
       background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.18);
       padding: 6px 12px; border-radius: 999px; backdrop-filter: blur(6px);
+      white-space: nowrap;
     }
 
     /* mini features */
@@ -415,6 +417,7 @@
       .tab-bar { display: none; }
       .nav-extra { gap: 8px; }
       .hero { padding: 60px 0 0; }
+      .hero h1 { white-space: normal; }
       .hero-actions { margin-bottom: 60px; }
       .float-card { display: none; }
       .phone-screen { height: 320px; }
@@ -431,9 +434,9 @@
       </div>
       <div class="tab-bar" id="tabBar">
         <div class="tab-slider" id="tabSlider"></div>
-        <button class="tab active" data-target="home">首页</button>
-        <button class="tab" data-target="effect">效果</button>
-        <button class="tab" data-target="generate">生成</button>
+        <button class="tab active" data-target="home">Home</button>
+        <button class="tab" data-target="effect">Showcase</button>
+        <button class="tab" data-target="generate">Generate</button>
       </div>
       <div class="nav-extra">
         <span id="mode" class="badge">…</span>
@@ -448,12 +451,12 @@
   <section id="page-home" class="page active">
     <div class="wrap">
       <header class="hero">
-        <div class="eyebrow"><span class="dot-live"></span>免费 Agnes API · 无需 GPU · 开源</div>
-        <h1>把小说，<br class="br-mobile" />变成<span class="grad">漫画</span></h1>
-        <p>输入一段中文小说，Inkstone 自动抽取角色、规划分镜、生成条漫或页漫。</p>
+        <div class="eyebrow"><span class="dot-live"></span>Free Agnes API · No GPU · Open Source</div>
+        <h1>Turn Novels Into <span class="grad">Comics</span></h1>
+        <p>Paste a Chinese novel and Inkstone automatically extracts characters, plans panels, and generates a webtoon or paged comic.</p>
         <div class="hero-actions">
-          <button class="btn btn-primary" onclick="showTab('generate')">开始生成 →</button>
-          <button class="btn btn-secondary" onclick="showTab('effect')">查看效果</button>
+          <button class="btn btn-primary" onclick="showTab('generate')">Start Generating →</button>
+          <button class="btn btn-secondary" onclick="showTab('effect')">See Examples</button>
         </div>
       </header>
 
@@ -463,7 +466,7 @@
           <div class="phone-notch"></div>
           <div class="phone-screen">
             <img src="assets/samples/webtoon_preview.png" alt="generated webtoon" />
-            <div class="phone-fade"><span>点击查看完整条漫 ↓</span></div>
+            <div class="phone-fade"><span>Tap to view full webtoon ↓</span></div>
           </div>
         </div>
         <div class="float-card right"><img src="assets/samples/P03.png" alt="" /></div>
@@ -472,18 +475,18 @@
       <div class="mini-features">
         <div class="mini-feature">
           <div class="icon">📝</div>
-          <h3>L1 提示词硬描述</h3>
-          <p>自动把角色外貌、服饰、场景写进每个分镜 prompt，身份不依赖参考图。</p>
+          <h3>L1 — Prompt Hard-Description</h3>
+          <p>Character looks, outfits, and settings are baked into every panel prompt — identity doesn't rely on reference images.</p>
         </div>
         <div class="mini-feature">
           <div class="icon">🖼️</div>
-          <h3>L2 参考图 img2img</h3>
-          <p>以角色立绘 + 上一格作为 Agnes 多图参考，辅助保持跨画面一致。</p>
+          <h3>L2 — Reference img2img</h3>
+          <p>Character portraits plus the previous panel feed Agnes as multi-image references, helping keep cross-panel consistency.</p>
         </div>
         <div class="mini-feature">
           <div class="icon">🛡️</div>
-          <h3>断点续跑 + 容错</h3>
-          <p>state.json 持久化、503 耐心重试、内容安全跳过，长小说也能稳定跑完。</p>
+          <h3>Resumable + Fault-Tolerant</h3>
+          <p>Persisted state.json, patient 503 retries, and safe content skipping — long novels finish reliably.</p>
         </div>
       </div>
     </div>
@@ -493,24 +496,24 @@
   <section id="page-effect" class="page">
     <div class="wrap" style="padding-top:76px; padding-bottom:100px;">
       <div class="section-head">
-        <div class="eyebrow"><span class="dot-live"></span>真实生成结果，未经人工修图</div>
-        <h2>效果长什么样</h2>
-        <p>示例小说 <code>examples/scene1.txt</code> · 共 7 个分镜</p>
+        <div class="eyebrow"><span class="dot-live"></span>Real generated output, no manual retouching</div>
+        <h2>What It Looks Like</h2>
+        <p>Sample novel <code>examples/scene1.txt</code> · 7 panels total</p>
       </div>
 
       <div class="carousel">
         <div class="carousel-viewport">
           <div class="slide active">
             <img src="assets/samples/P01.png" alt="P01" />
-            <div class="slide-caption">渡口 · 沈知意望向雾中灯塔</div>
+            <div class="slide-caption">The Dock · Shen Zhiyi gazes at a lighthouse in the fog</div>
           </div>
           <div class="slide">
             <img src="assets/samples/P02.png" alt="P02" />
-            <div class="slide-caption">船上 · 少年与沈知意并肩而立</div>
+            <div class="slide-caption">On Board · the young man stands beside Shen Zhiyi</div>
           </div>
           <div class="slide">
             <img src="assets/samples/P03.png" alt="P03" />
-            <div class="slide-caption">灯下 · 托腮微笑的特写</div>
+            <div class="slide-caption">By Lamplight · a close-up smile, chin resting on hand</div>
           </div>
         </div>
         <button class="carousel-arrow prev" aria-label="previous" onclick="prevSlide()">‹</button>
@@ -525,8 +528,8 @@
       <div class="strip-cta" onclick="openLightbox()">
         <div class="thumb"><img src="assets/samples/webtoon_preview.png" alt="" /></div>
         <div class="txt">
-          <h4>完整条漫全图</h4>
-          <p>7 格拼接 · 竖向长图</p>
+          <h4>Full Webtoon Strip</h4>
+          <p>7 panels stitched · vertical strip</p>
         </div>
         <div class="arrow">↗</div>
       </div>
@@ -537,24 +540,24 @@
   <section id="page-generate" class="page">
     <div class="wrap" style="padding-top:76px; padding-bottom:100px;">
       <div class="section-head">
-        <h2>生成你的漫画</h2>
-        <p id="modeHint">粘贴小说文本，选择格式，一键生成</p>
+        <h2>Generate Your Comic</h2>
+        <p id="modeHint">Paste your novel text, pick a format, and generate</p>
       </div>
 
       <div class="generator-wrap">
         <div class="card generator">
-          <label for="text">小说文本</label>
-          <textarea id="text" placeholder="第一章 渡口&#10;&#10;江风裹着初秋的凉意，从船舷一侧涌来。沈知意把围巾拢了拢，望向雾里若隐若现的灯塔……"></textarea>
+          <label for="text">Novel Text</label>
+          <textarea id="text" placeholder="Chapter 1: The Dock&#10;&#10;The river wind carried the first chill of autumn across the deck. Shen Zhiyi pulled her scarf tighter, gazing at the lighthouse flickering in the fog..."></textarea>
           <div class="gen-row">
             <select id="format">
-              <option value="webtoon">条漫 (webtoon PNG)</option>
-              <option value="page">页漫 (PDF)</option>
+              <option value="webtoon">Webtoon (PNG)</option>
+              <option value="page">Paged Comic (PDF)</option>
             </select>
-            <button id="go" class="btn btn-primary">生成漫画</button>
+            <button id="go" class="btn btn-primary">Generate Comic</button>
           </div>
 
           <div id="progressWrap" class="progress-area hidden">
-            <div class="progress-meta"><span id="status">准备中…</span><span id="pct">0%</span></div>
+            <div class="progress-meta"><span id="status">Preparing…</span><span id="pct">0%</span></div>
             <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
             <pre id="log" class="log"></pre>
           </div>
@@ -562,15 +565,15 @@
         </div>
 
         <div id="results" class="results hidden">
-          <div class="section-head" style="margin-top:44px;"><h2 style="font-size:24px;">生成结果</h2></div>
+          <div class="section-head" style="margin-top:44px;"><h2 style="font-size:24px;">Results</h2></div>
           <div id="panels" class="results-grid"></div>
           <div id="webtoonWrap" class="hidden strip-cta" style="max-width:none;margin-top:20px;">
             <div class="thumb"><img id="webtoon" alt="webtoon" /></div>
-            <div class="txt"><h4>条漫全图</h4><p>点击查看完整长图</p></div>
+            <div class="txt"><h4>Full Webtoon</h4><p>Tap to view the full strip</p></div>
             <div class="arrow">↗</div>
           </div>
           <div id="pdfWrap" class="hidden" style="text-align:center;margin-top:24px;">
-            <a id="pdf" class="btn btn-secondary" href="#" target="_blank" rel="noreferrer">下载 PDF</a>
+            <a id="pdf" class="btn btn-secondary" href="#" target="_blank" rel="noreferrer">Download PDF</a>
           </div>
         </div>
       </div>
@@ -601,12 +604,12 @@
     };
 
     const DEMO_STEPS = [
-      { msg: "分段文本", pct: 10 },
-      { msg: "抽取角色 / 场景", pct: 25 },
-      { msg: "规划分镜", pct: 40 },
-      { msg: "生成分镜图", pct: 70 },
-      { msg: "排版合成", pct: 90 },
-      { msg: "导出", pct: 100 },
+      { msg: "Segmenting text", pct: 10 },
+      { msg: "Extracting characters / scenes", pct: 25 },
+      { msg: "Planning panels", pct: 40 },
+      { msg: "Generating panel images", pct: 70 },
+      { msg: "Compositing layout", pct: 90 },
+      { msg: "Exporting", pct: 100 },
     ];
 
     let mode = "demo";
@@ -667,17 +670,17 @@
         if (r.ok) {
           mode = "live";
           const el = $("mode");
-          el.textContent = "本地";
+          el.textContent = "Local";
           el.className = "badge live";
-          $("modeHint").textContent = "已连接本地后端，粘贴小说文本即可生成";
+          $("modeHint").textContent = "Connected to local backend — paste your novel text to generate";
           return;
         }
       } catch (e) {}
       mode = "demo";
       const el = $("mode");
-      el.textContent = "演示";
+      el.textContent = "Demo";
       el.className = "badge demo";
-      $("modeHint").textContent = "演示模式：点击生成即可查看预生成效果；本地运行 python web/server.py 可生成自己的漫画";
+      $("modeHint").textContent = "Demo mode: click generate to see a pre-made example; run python web/server.py locally to generate your own comic";
     }
 
     function setProgress(pct, msg) {
@@ -689,7 +692,7 @@
     function generate() {
       const text = $("text").value.trim();
       if (mode === "live" && !text) {
-        $("errorWrap").textContent = "请先粘贴一段小说文本。";
+        $("errorWrap").textContent = "Please paste some novel text first.";
         $("errorWrap").classList.remove("hidden");
         return;
       }
@@ -697,7 +700,7 @@
       $("go").disabled = true;
       $("progressWrap").classList.remove("hidden");
       $("log").textContent = "";
-      setProgress(0, "准备中…");
+      setProgress(0, "Preparing…");
 
       if (mode === "demo") return demoRun();
       liveRun(text, $("format").value);
@@ -747,11 +750,11 @@
         $("log").textContent = job.log.join("\n");
         $("log").scrollTop = $("log").scrollHeight;
         const base = job.status === "done" ? 100 : Math.min(95, 8 + job.log.length * 8);
-        setProgress(base, job.status === "done" ? "完成" : "生成中…");
+        setProgress(base, job.status === "done" ? "Done" : "Generating…");
         if (job.status === "running") return;
         clearInterval(pollTimer);
         $("progressWrap").classList.add("hidden");
-        if (job.status === "error") return fail(job.error || "生成失败");
+        if (job.status === "error") return fail(job.error || "Generation failed");
         render(job);
       }, 1500);
     }
