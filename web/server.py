@@ -126,7 +126,8 @@ class Handler(BaseHTTPRequestHandler):
     def _send_file(self, path: Path, status: int = 200) -> None:
         data = path.read_bytes()
         self.send_response(status)
-        self.send_header("Content-Type", "image/png")
+        mime = "text/html" if path.suffix == ".html" else "image/png"
+        self.send_header("Content-Type", mime)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
