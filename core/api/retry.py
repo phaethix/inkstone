@@ -137,7 +137,7 @@ async def retryable_post(
                 await collect(status_code=None, response=None, attempt=attempt, exc=e)
             if attempt < max_retries - 1:
                 delay = compute_backoff(attempt, retry_base_delay)
-                logger.warning(
+                logger.info(
                     f"{provider_tag} {type(e).__name__}, "
                     f"retry {attempt + 1}/{max_retries} in {delay:.1f}s..."
                 )
@@ -149,7 +149,7 @@ async def retryable_post(
             if collect is not None:
                 await collect(status_code=resp.status_code, response=resp, attempt=attempt)
             delay = compute_backoff(attempt, retry_base_delay)
-            logger.warning(
+            logger.info(
                 f"{provider_tag} HTTP {resp.status_code}, "
                 f"retry {attempt + 1}/{max_retries} in {delay:.1f}s..."
             )

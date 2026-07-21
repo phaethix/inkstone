@@ -141,10 +141,27 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    _MIME = {
+        ".html": "text/html",
+        ".css": "text/css",
+        ".js": "application/javascript",
+        ".json": "application/json",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".svg": "image/svg+xml",
+        ".ico": "image/x-icon",
+        ".pdf": "application/pdf",
+        ".txt": "text/plain",
+        ".woff2": "font/woff2",
+    }
+
     def _send_file(self, path: Path, status: int = 200) -> None:
         data = path.read_bytes()
         self.send_response(status)
-        mime = "text/html" if path.suffix == ".html" else "image/png"
+        mime = self._MIME.get(path.suffix, "application/octet-stream")
         self.send_header("Content-Type", mime)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()

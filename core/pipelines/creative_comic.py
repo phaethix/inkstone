@@ -28,6 +28,7 @@ from core.comic.consistency import DEFAULT_PORTRAIT_STYLE, ConsistencyEngine
 from core.comic.export import ExportEngine
 from core.comic.layout import LayoutEngine, PanelImage
 from core.comic.segmentation import detect_character_aliases, merge_characters, segment_text
+from core.perf import PerfCollector
 from core.schemas import (
     CharacterAliasSuggestion,
     ChunkCache,
@@ -131,6 +132,8 @@ async def creative_comic(
     (output_dir / "assets" / "portraits").mkdir(parents=True, exist_ok=True)
     pages_dir = output_dir / "pages"
 
+    perf = PerfCollector()
+
     def _report(stage: str, percent: float | None = None) -> None:
         if progress_callback is not None:
             progress_callback(stage, percent)
@@ -150,7 +153,8 @@ async def creative_comic(
 
     _reconcile_state(state, state_path)
 
-    chunks = segment_text(source_txt)
+    with perf.measure("segment"):
+        chunks = segment_text(source_txt)
     total_chunks = len(chunks) or 1
     _report("segment", 1.0)
     prev_panel_local: str | None = None
@@ -170,7 +174,8 @@ async def creative_comic(
         if elements is None:
             state.stage = "extract"
             try:
-                elements = await extract_story_elements(chunk, chat=chat)
+                with perf.measure("extract"):
+                    elements = await extract_story_elements(chunk, chat=chat)
             except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
                 if is_content_policy_rejection(exc):
                     logger.warning(
@@ -207,7 +212,8 @@ async def creative_comic(
                 else:
                     comic_style = DEFAULT_PORTRAIT_STYLE
                 prompt = f"{prompt}, {comic_style}"
-                out = await image.generate_single_image(prompt, size="1024x1024")
+                with perf.measure("portrait"):
+                    out = await image.generate_single_image(prompt, size="1024x1024")
                 ppath = output_dir / "assets" / "portraits" / f"{name}.png"
                 out.save(str(ppath))
                 asset.portrait_local = str(ppath)
@@ -230,7 +236,8 @@ async def creative_comic(
         if board is None:
             state.stage = "storyboard"
             try:
-                board = await plan_storyboard(chunk, elements, chat=chat)
+                with perf.measure("storyboard"):
+                    board = await plan_storyboard(chunk, elements, chat=chat)
             except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
                 if is_content_policy_rejection(exc):
                     logger.warning(
@@ -267,9 +274,10 @@ async def creative_comic(
                     characters_by_name=state.characters,
                     prev_panel_local=prev_panel_local,
                 )
-                out = await image.generate_single_image(
-                    prompt, reference_image_paths=refs, size=panel.size
-                )
+                with perf.measure("panel"):
+                    out = await image.generate_single_image(
+                        prompt, reference_image_paths=refs, size=panel.size
+                    )
                 local = output_dir / "panels" / f"{panel.panel_id}.png"
                 out.save(str(local))
 
@@ -317,18 +325,22 @@ async def creative_comic(
     webtoon: str | None = None
     pages: list[str] = []
     if panel_imgs:
-        engine_layout = LayoutEngine()
+        with perf.measure("layout"):
+            engine_layout = LayoutEngine()
+            if output_format == "webtoon":
+                pages = engine_layout.compose(panel_imgs, pages_dir, layout_mode="webtoon")
+            else:
+                pages = engine_layout.compose(panel_imgs, pages_dir, layout_mode="page")
+
+        state.stage = "export"
+        _report("export", 0.95)
         if output_format == "webtoon":
-            pages = engine_layout.compose(panel_imgs, pages_dir, layout_mode="webtoon")
-            state.stage = "export"
-            _report("export", 0.95)
             webtoon = pages[0] if pages else None
         else:
-            pages = engine_layout.compose(panel_imgs, pages_dir, layout_mode="page")
-            state.stage = "export"
-            _report("export", 0.95)
-            pdf = ExportEngine().export_pdf(pages_dir, out=str(output_dir / "comic.pdf"))
+            with perf.measure("export"):
+                pdf = ExportEngine().export_pdf(pages_dir, out=str(output_dir / "comic.pdf"))
 
     state.save(state_path)
     _report("done", 1.0)
+    perf.log_summary()
     return ComicProject(project_id=project_id, state=state, pages=pages, pdf=pdf, webtoon=webtoon)
