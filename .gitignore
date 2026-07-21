@@ -221,8 +221,8 @@ __marimo__/
 .agnes_config/
 logs/
 output/
-comic_out/          # generated comic artifacts (panels/portraits/webtoon) — regenerated locally
-.playwright-cli/    # browser automation snapshots and logs
+comic_out/
+.playwright-cli/
 # Internal design docs — not for public commit.
 docs/whitepaper.md
 docs/M1-code-review.md
