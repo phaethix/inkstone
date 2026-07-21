@@ -66,8 +66,8 @@ class ImageProvider(ABC):
         prompt: str,
         reference_image_paths: list[str] | None = None,
         size: str | None = None,
-        max_retries: int = 3,
-        retry_base_delay: float = 20.0,
+        max_retries: int | None = None,
+        retry_base_delay: float | None = None,
         **kwargs,
     ) -> ImageOutput:
         """Generate a single image (async, same as ``AgnesImageAPI``).
@@ -76,7 +76,10 @@ class ImageProvider(ABC):
             prompt: Text prompt for image generation.
             reference_image_paths: List of reference image paths/URLs (non-empty => i2i).
             size: Output size, e.g. ``1024x1024``.
-            max_retries / retry_base_delay: Retry count and backoff base for transient errors.
+            max_retries / retry_base_delay: Retry count and backoff base for transient
+                errors. The free-tier image service is frequently 503 "Service busy",
+                so the default is patient (8 attempts, 15s exponential backoff); tune via
+                ``AGNES_IMAGE_MAX_RETRIES`` / ``AGNES_IMAGE_RETRY_BASE_DELAY``.
         Returns:
             An ``ImageOutput``; call ``.save(path)`` to persist.
         """
@@ -103,8 +106,8 @@ class OpenAICompatProvider(ImageProvider):
         base_url: str,
         model: str,
         i2i_model: str | None = None,
-        max_retries: int = 3,
-        retry_base_delay: float = 20.0,
+        max_retries: int = 8,
+        retry_base_delay: float = 15.0,
     ):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
@@ -135,8 +138,8 @@ class OpenAICompatProvider(ImageProvider):
         prompt: str,
         reference_image_paths: list[str] | None = None,
         size: str | None = None,
-        max_retries: int = 3,
-        retry_base_delay: float = 20.0,
+        max_retries: int | None = None,
+        retry_base_delay: float | None = None,
         **kwargs,
     ) -> ImageOutput:
         reference_image_paths = reference_image_paths or []
@@ -164,8 +167,10 @@ class OpenAICompatProvider(ImageProvider):
             url=f"{self.base_url}/images/generations",
             headers=self.headers,
             json_payload=payload,
-            max_retries=max_retries,
-            retry_base_delay=retry_base_delay,
+            max_retries=max_retries if max_retries is not None else self.max_retries,
+            retry_base_delay=retry_base_delay
+            if retry_base_delay is not None
+            else self.retry_base_delay,
             size=size,
             collect=_collect,
         )
@@ -211,6 +216,8 @@ def get_image_provider(
         OPENAI_COMPAT_API_KEY=...
         OPENAI_COMPAT_MODEL_T2I=...
         OPENAI_COMPAT_MODEL_I2I=...
+        AGNES_IMAGE_MAX_RETRIES=8          # image service is often 503 "Service busy"
+        AGNES_IMAGE_RETRY_BASE_DELAY=15.0  # backoff base (s); capped at 120s
 
     Default path: when ``PROVIDER`` is unset or empty => ``agnes``, using only
     ``AGNES_API_KEY`` — realizing the "fill one line and it just works" goal.
@@ -230,6 +237,8 @@ def get_image_provider(
             api_key=api_key,
             model=model or "agnes-image-2.1-flash",
             i2i_model=i2i_model or cfg.agnes_i2i_model,
+            max_retries=cfg.image_max_retries,
+            retry_base_delay=cfg.image_retry_base_delay,
         )
 
     if provider in ("openai_compat", "openai-compatible", "openai", "gemini"):
@@ -244,6 +253,8 @@ def get_image_provider(
             base_url=base_url,
             model=model or cfg.openai_compat_model_t2i,
             i2i_model=i2i_model or cfg.openai_compat_model_i2i,
+            max_retries=cfg.image_max_retries,
+            retry_base_delay=cfg.image_retry_base_delay,
         )
 
     raise ValueError(f"Unknown PROVIDER={provider!r} (supported: agnes | openai_compat)")

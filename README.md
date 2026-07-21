@@ -100,6 +100,8 @@ Inkstone is configured through environment variables (copy `.env.example` → `.
 | `AGNES_API_KEY` | ✅ | — | Free Access tier key; the only thing ordinary users need. |
 | `AGNES_RATE_LIMIT` | | `20` | Requests/min ceiling (× 0.8 safety factor applied). |
 | `AGNES_IMAGE_I2I_MODEL` | | `agnes-image-2.1-flash` | Model used for consistency img2img. |
+| `AGNES_IMAGE_MAX_RETRIES` | | `8` | Image calls retry this many times; the free image tier is often 503 "Service busy", so this is patient by default. |
+| `AGNES_IMAGE_RETRY_BASE_DELAY` | | `15.0` | Image retry backoff base (seconds, exponential, capped at 120s). |
 | `PROVIDER` | | `agnes` | Set to `openai_compat` to route to any OpenAI-compatible image endpoint. |
 | `OPENAI_COMPAT_*` | | — | Base URL / key / models, used only when `PROVIDER=openai_compat`. |
 

@@ -23,6 +23,8 @@ class AgnesImageAPI(ImageProvider):
         api_key: str,
         model: str = "agnes-image-2.1-flash",
         i2i_model: str | None = None,
+        max_retries: int = 8,
+        retry_base_delay: float = 15.0,
     ):
         """Initialize the image API.
 
@@ -33,10 +35,16 @@ class AgnesImageAPI(ImageProvider):
                 agnes-image-2.1-flash supports both t2i and i2i). Pass an
                 explicit model to fall back to 2.0 for the consistency img2img
                 pass.
+            max_retries / retry_base_delay: Image generation on the free tier is
+                frequently 503 "Service busy", so we retry patiently by default
+                (8 attempts, 15s exponential backoff) instead of giving up after
+                a couple of tries. Override per call or via ``AGNES_IMAGE_*`` env.
         """
         self.api_key = api_key
         self.model = model
         self.i2i_model = i2i_model or model
+        self.max_retries = max_retries
+        self.retry_base_delay = retry_base_delay
         self.headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
@@ -47,8 +55,8 @@ class AgnesImageAPI(ImageProvider):
         prompt: str,
         reference_image_paths: list[str] | None = None,
         size: str | None = None,
-        max_retries: int = 3,
-        retry_base_delay: float = 20.0,
+        max_retries: int | None = None,
+        retry_base_delay: float | None = None,
         **kwargs,
     ) -> ImageOutput:
         reference_image_paths = reference_image_paths or []
@@ -92,8 +100,10 @@ class AgnesImageAPI(ImageProvider):
             url=f"{BASE_URL}/images/generations",
             headers=self.headers,
             json_payload=payload,
-            max_retries=max_retries,
-            retry_base_delay=retry_base_delay,
+            max_retries=max_retries if max_retries is not None else self.max_retries,
+            retry_base_delay=retry_base_delay
+            if retry_base_delay is not None
+            else self.retry_base_delay,
             size=size,
             collect=_collect,
         )
