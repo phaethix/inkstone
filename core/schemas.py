@@ -150,6 +150,9 @@ class ProjectState(BaseModel):
     chunks_done: list[str] = Field(default_factory=list)
     # Dedup key set for resume: already-generated panel_ids are skipped on rerun.
     panels_done: list[str] = Field(default_factory=list)
+    # Panels rejected by the upstream content filter; recorded (not regenerated)
+    # so a rerun stays honest about what was skipped instead of retrying blindly.
+    skipped: list[str] = Field(default_factory=list)
     generated: GeneratedAssets = Field(default_factory=GeneratedAssets)
     errors: str = "logs/errors.jsonl"
 

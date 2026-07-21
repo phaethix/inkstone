@@ -28,7 +28,11 @@ from core.schemas import (
     ProjectState,
     StoryElements,
 )
-from core.screenwriter import extract_story_elements, plan_storyboard
+from core.screenwriter import (
+    extract_story_elements,
+    is_content_policy_rejection,
+    plan_storyboard,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -120,39 +124,54 @@ async def creative_comic(
             if panel.panel_id in state.panels_done:
                 continue
             state.stage = "panels"
-            chars = [state.characters[n] for n in panel.characters_present if n in state.characters]
-            prompt = engine.build_panel_prompt(
-                characters=chars,
-                setting=_setting_of(elements, panel.setting_ref),
-                action=panel.action,
-                style_guide=style_guide,
-            )
-            refs = engine.collect_reference_images(
-                panel=panel,
-                characters_by_name=state.characters,
-                prev_panel_local=prev_panel_local,
-            )
-            out = await image.generate_single_image(
-                prompt, reference_image_paths=refs, size=panel.size
-            )
-            local = output_dir / "panels" / f"{panel.panel_id}.png"
-            out.save(str(local))
+            try:
+                chars = [
+                    state.characters[n] for n in panel.characters_present if n in state.characters
+                ]
+                prompt = engine.build_panel_prompt(
+                    characters=chars,
+                    setting=_setting_of(elements, panel.setting_ref),
+                    action=panel.action,
+                    style_guide=style_guide,
+                )
+                refs = engine.collect_reference_images(
+                    panel=panel,
+                    characters_by_name=state.characters,
+                    prev_panel_local=prev_panel_local,
+                )
+                out = await image.generate_single_image(
+                    prompt, reference_image_paths=refs, size=panel.size
+                )
+                local = output_dir / "panels" / f"{panel.panel_id}.png"
+                out.save(str(local))
 
-            portrait_ref = next(
-                (
-                    state.characters[n].portrait_local
-                    for n in panel.reference_characters
-                    if n in state.characters and state.characters[n].portrait_local
-                ),
-                None,
-            )
-            if portrait_ref:
-                composited = engine.apply_l3(str(local), portrait_ref)
-                composited.save(str(local))
+                portrait_ref = next(
+                    (
+                        state.characters[n].portrait_local
+                        for n in panel.reference_characters
+                        if n in state.characters and state.characters[n].portrait_local
+                    ),
+                    None,
+                )
+                if portrait_ref:
+                    composited = engine.apply_l3(str(local), portrait_ref)
+                    composited.save(str(local))
 
-            state.generated.panels[panel.panel_id] = GeneratedPanel(local=str(local))
+                state.generated.panels[panel.panel_id] = GeneratedPanel(local=str(local))
+                prev_panel_local = str(local)
+            except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
+                if is_content_policy_rejection(exc):
+                    logger.warning(
+                        "panel %s skipped: upstream content filter rejected it (%s)",
+                        panel.panel_id,
+                        exc,
+                    )
+                    if panel.panel_id not in state.skipped:
+                        state.skipped.append(panel.panel_id)
+                    state.save(state_path)
+                    continue
+                raise
             state.panels_done.append(panel.panel_id)
-            prev_panel_local = str(local)
             state.save(state_path)
 
     state.stage = "layout"
