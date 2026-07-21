@@ -4,9 +4,13 @@
 requests>=2.34.2,<3.0.0      # HTTP calls to Agnes / OpenAI-compatible image endpoints
 tenacity>=9.1.4,<10.0.0      # download retries (utils.image.download_image)
 
-# L3 cross-image consistency fallback (PIL/OpenCV feature overlay), lands in M2
+# L3 cross-image consistency fallback (PIL/OpenCV feature overlay)
 Pillow>=12.3.0,<13.0.0
 numpy>=1.24.0,<3.0.0
+# Haar face compositing needs OpenCV. PIN <5: cv2 5.x removed CascadeClassifier
+# and the Haar cascades this module relies on; without OpenCV, apply_l3 degrades
+# gracefully to a no-op (panel returned unchanged), so this is optional at runtime.
+opencv-python-headless>=4.5,<5
 
 # D1 structured contracts (core/schemas.py) — Pydantic models for the three JSON contracts
 pydantic>=2.0.0,<3.0.0

@@ -6,6 +6,8 @@
   skipped where cv2 is not installed, so CI stays green without opencv.
 """
 
+from pathlib import Path
+
 import pytest
 from PIL import Image
 
@@ -89,3 +91,32 @@ def test_apply_l3_no_face_returns_original():
     out = eng.apply_l3(img, img)
     assert isinstance(out, Image.Image)
     assert out.size == (80, 80) and out.mode == "RGB"
+
+
+def _astronaut_fixture() -> "Path":
+    return Path(__file__).parent / "fixtures" / "astronaut.png"
+
+
+def test_apply_l3_composites_real_face():
+    pytest.importorskip("cv2")  # positive path requires OpenCV
+    fixture = _astronaut_fixture()
+    if not fixture.exists():
+        pytest.skip("astronaut fixture missing")
+    eng = ConsistencyEngine()
+    img = Image.open(fixture).convert("RGB")
+    # Same image as panel and portrait -> Haar finds a face in both and the
+    # face-ratio guard passes, so compositing runs and returns a NEW image.
+    out = eng.apply_l3(img, img)
+    assert isinstance(out, Image.Image)
+    assert out.size == img.size
+    assert out.mode == img.mode
+    assert out is not img  # composite path produced a new object
+
+
+def test_apply_l3_no_face_returns_same_object():
+    pytest.importorskip("cv2")
+    eng = ConsistencyEngine()
+    # No face -> graceful skip, original object returned unchanged.
+    img = Image.new("RGB", (80, 80), (220, 220, 220))
+    out = eng.apply_l3(img, img)
+    assert out is img
