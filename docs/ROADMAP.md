@@ -22,24 +22,29 @@ zero config; advanced users can switch to any OpenAI-compatible endpoint.
 
 Verified: `pytest` → 6 passed.
 
-## M2 — Comic-specific pipeline (next)
+## M2 — Comic-specific pipeline ✅ done
 
 Goal: assemble text-to-image / image-to-image into a real comic production chain.
 
 **New:**
-- `core/comic/consistency.py` — `ConsistencyEngine`
+- [x] `core/api/chat_provider.py` — `ChatProvider` + `AgnesChatAPI` + `get_chat_provider()` (forced function calling)
+- [x] `core/schemas.py` — `CharacterAsset` / `StoryElements` / `Storyboard` / `ProjectState` (double as function-tool schemas)
+- [x] `core/comic/consistency.py` — `ConsistencyEngine`
   - L1: prompt hard-describes character features
   - L2: reference-image img2img (character portrait as `reference_image_paths`)
-  - L3: PIL/OpenCV face / feature overlay fallback (M1 spike showed L2 alone is insufficient)
-- `core/comic/layout.py` — `LayoutEngine`: N panels laid out on a grid (2×2, ...) into a comic page
-- `core/comic/export.py` — `ExportEngine`: PDF (`manga2pdf`) + vertical-strip PNG
-- `core/pipelines/creative_comic.py` — orchestration: character portraits → panels → layout → export
-- `core/screenwriter.py` — screenwriter (reusing the Agnes chat approach): adds content-safety constraints
-  (no explicit / smoking / etc. words — the spike proved this necessary)
+  - L3: PIL/OpenCV face / feature overlay fallback (cv2 lazy; quality guards skip on failure)
+- [x] `core/comic/segmentation.py` — `segment_text` (chapter/token split + overlap) + `merge_characters` (exact-name dedup)
+- [x] `core/comic/layout.py` — `LayoutEngine`: N panels on a grid (page) or vertical strip (webtoon) + dialogue bubbles
+- [x] `core/comic/export.py` — `ExportEngine`: PDF (`manga2pdf`) + vertical-strip PNG (pure PIL)
+- [x] `core/pipelines/creative_comic.py` — orchestration: portraits → panels → layout → export, with `state.json` resumption (regenerates missing panels) and content-safety graceful skip
+- [x] `core/screenwriter.py` — screenwriter: forced extract/storyboard + content-safety hygiene (`sanitize_text`, `is_content_policy_rejection`)
+- [x] `examples/generate_comic.py` + `examples/scene1.txt` — end-to-end runnable demo (needs `AGNES_API_KEY`)
 
 **Reused (not rewritten):** `get_image_provider`, `AgnesImageAPI`, `RateLimiter`, `error_collector`, `utils.image.download_image`.
 
-**New deps (enable in requirements when needed):** fastapi / uvicorn / pydantic / manga2pdf.
+**New deps (in requirements):** `pydantic` (schemas), `manga2pdf` (PDF export, optional CLI).
+
+Verified: `pytest` → 64 passed (1 cv2-dependent test skipped), CI green on Python 3.10–3.12.
 
 ## M3 — Long-form + consistency hardening
 
