@@ -17,15 +17,21 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-# Exponential backoff, capped at 120s, with full jitter.
-BACKOFF_CAP_SECONDS = 120.0
+# Exponential backoff, capped at 30s, with full jitter.
+# A 120s cap sounds patient but is counter-productive: the free tier often
+# recovers within 20-30s, and if the service is truly down for 2+ minutes,
+# waiting another 2 minutes per retry only burns time.  A 30s cap keeps the
+# worst-case retry cycle under ~1.5 minutes instead of ~4 minutes per attempt.
+BACKOFF_CAP_SECONDS = 30.0
 
 # Image generation is a long-running task: the free upstream often needs
 # 60-150s for the first call (queueing / load). A short read timeout just
 # trips a pointless retry that re-queues a fresh generation, so we use a
 # fixed, generous read timeout instead of growing it per attempt.
+# Reduced from 300s to 180s — if the API hasn't responded in 3 minutes,
+# the upstream is likely stuck; a fresh request is typically faster.
 CONNECT_TIMEOUT_SECONDS = 30.0
-READ_TIMEOUT_SECONDS = 300.0
+READ_TIMEOUT_SECONDS = 180.0
 
 # Transient statuses worth retrying (shared by both providers).
 RETRYABLE_STATUS = (429, 500, 502, 503, 504)

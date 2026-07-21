@@ -23,8 +23,8 @@ class AgnesImageAPI(ImageProvider):
         api_key: str,
         model: str = "agnes-image-2.1-flash",
         i2i_model: str | None = None,
-        max_retries: int = 8,
-        retry_base_delay: float = 15.0,
+        max_retries: int = 5,
+        retry_base_delay: float = 5.0,
     ):
         """Initialize the image API.
 
@@ -36,8 +36,8 @@ class AgnesImageAPI(ImageProvider):
                 explicit model to fall back to 2.0 for the consistency img2img
                 pass.
             max_retries / retry_base_delay: Image generation on the free tier is
-                frequently 503 "Service busy", so we retry patiently by default
-                (8 attempts, 15s exponential backoff) instead of giving up after
+                frequently 503 "Service busy", so we retry by default
+                (5 attempts, 5s exponential backoff) instead of giving up after
                 a couple of tries. Override per call or via ``AGNES_IMAGE_*`` env.
         """
         self.api_key = api_key

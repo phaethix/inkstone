@@ -26,7 +26,7 @@ class ImageConfig:
     openai_compat_model_i2i: str
     rate_limit: int
     # Image generation on the free tier is frequently 503 "Service busy", so we
-    # retry patiently by default instead of giving up after a couple of tries.
+    # retry by default (5 attempts, 5s base) instead of giving up quickly.
     image_max_retries: int
     image_retry_base_delay: float
 
@@ -41,8 +41,8 @@ class ImageConfig:
         )
         self.openai_compat_model_i2i = _get("OPENAI_COMPAT_MODEL_I2I")
         self.rate_limit = int(_get("AGNES_RATE_LIMIT", "20"))
-        self.image_max_retries = int(_get("AGNES_IMAGE_MAX_RETRIES", "8"))
-        self.image_retry_base_delay = float(_get("AGNES_IMAGE_RETRY_BASE_DELAY", "15.0"))
+        self.image_max_retries = int(_get("AGNES_IMAGE_MAX_RETRIES", "5"))
+        self.image_retry_base_delay = float(_get("AGNES_IMAGE_RETRY_BASE_DELAY", "5.0"))
 
 
 class ChatConfig:

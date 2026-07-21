@@ -64,8 +64,8 @@ class PerfCollector:
             self._acc.setdefault(label, []).append(elapsed)
             logger.info("⏱  %-36s %8.1fs", label, elapsed)
 
-    def log_summary(self, level: int = logging.INFO) -> None:
-        """Log a structured timing summary.
+    def log_summary(self, level: int = logging.DEBUG) -> None:
+        """Print a structured timing summary to stdout (and log at ``level``).
 
         Stages that appeared only once are shown as a single line.  Stages that
         repeated (e.g. per-panel generation) show count / avg / total.
@@ -97,4 +97,6 @@ class PerfCollector:
                 )
 
         lines.append(f"  {'TOTAL':<36} {total:8.1f}s")
-        logger.log(level, "\n".join(lines))
+        summary = "\n".join(lines)
+        print(summary)
+        logger.log(level, summary)

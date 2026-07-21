@@ -78,7 +78,7 @@ class ImageProvider(ABC):
             size: Output size, e.g. ``1024x1024``.
             max_retries / retry_base_delay: Retry count and backoff base for transient
                 errors. The free-tier image service is frequently 503 "Service busy",
-                so the default is patient (8 attempts, 15s exponential backoff); tune via
+                so the default retries (5 attempts, 5s exponential backoff); tune via
                 ``AGNES_IMAGE_MAX_RETRIES`` / ``AGNES_IMAGE_RETRY_BASE_DELAY``.
         Returns:
             An ``ImageOutput``; call ``.save(path)`` to persist.
@@ -106,8 +106,8 @@ class OpenAICompatProvider(ImageProvider):
         base_url: str,
         model: str,
         i2i_model: str | None = None,
-        max_retries: int = 8,
-        retry_base_delay: float = 15.0,
+        max_retries: int = 5,
+        retry_base_delay: float = 5.0,
     ):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
