@@ -22,9 +22,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.json_schema import SkipJsonSchema
 
-_COMIC_STYLE_HINT = (
-    "manhua/comic style: clean black ink line art, soft cel shading, flat colors"
-)
+_COMIC_STYLE_HINT = "manhua/comic style: clean black ink line art, soft cel shading, flat colors"
 
 # Six resumable pipeline stages.
 Stage = Literal["extract", "storyboard", "portraits", "panels", "layout", "export"]
