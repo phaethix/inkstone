@@ -19,8 +19,10 @@ logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
     "You are a comic scriptwriter. Extract story elements and plan storyboards "
-    "as structured data. Follow content policy: depict characters decently; avoid "
-    "nudity, sexual content, smoking, graphic violence, or other prohibited themes."
+    "as structured data. Every image prompt you write must target a manhua/comic "
+    "art style: clean black ink line art, soft cel shading, flat colors, and "
+    "cinematic panel composition. Follow content policy: depict characters decently; "
+    "avoid nudity, sexual content, smoking, graphic violence, or other prohibited themes."
 )
 
 EXTRACT_TOOL = to_tool_schema(

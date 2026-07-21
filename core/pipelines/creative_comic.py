@@ -23,7 +23,7 @@ from pathlib import Path
 from PIL import Image
 
 from core.api import get_chat_provider, get_image_provider
-from core.comic.consistency import ConsistencyEngine
+from core.comic.consistency import ConsistencyEngine, DEFAULT_PORTRAIT_STYLE
 from core.comic.export import ExportEngine
 from core.comic.layout import LayoutEngine, PanelImage
 from core.comic.segmentation import detect_character_aliases, merge_characters, segment_text
@@ -187,6 +187,13 @@ async def creative_comic(
             for name in new_names:
                 asset = state.characters[name]
                 prompt = asset.portrait_prompt or asset.l1_prompt
+                # Enforce the same manhua/comic art direction on character
+                # portraits so reference images match the panels.
+                if style_guide:
+                    comic_style = f"{style_guide}, {DEFAULT_PORTRAIT_STYLE}"
+                else:
+                    comic_style = DEFAULT_PORTRAIT_STYLE
+                prompt = f"{prompt}, {comic_style}"
                 out = await image.generate_single_image(prompt, size="1024x1024")
                 ppath = output_dir / "assets" / "portraits" / f"{name}.png"
                 out.save(str(ppath))

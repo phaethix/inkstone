@@ -8,7 +8,7 @@ Verifies:
 - A per-call style_guide overrides the engine default.
 """
 
-from core.comic.consistency import ConsistencyEngine
+from core.comic.consistency import ConsistencyEngine, DEFAULT_PANEL_STYLE
 from core.schemas import CharacterAsset, Setting
 
 
@@ -53,12 +53,13 @@ def test_l1_accepts_setting_dict_and_str():
     assert "explicit scene text" in p_str
 
 
-def test_l1_drops_empty_segments():
+def test_l1_drops_empty_segments_but_keeps_comic_style():
     engine = ConsistencyEngine()
-    # Character without l1_prompt and no setting -> only the action survives.
+    # Character without l1_prompt and no setting -> action + default comic style.
     char = CharacterAsset(name="x")  # l1_prompt defaults to ""
     prompt = engine.build_panel_prompt(characters=char, setting=None, action="just action")
-    assert prompt == "just action"
+    assert "just action" in prompt
+    assert DEFAULT_PANEL_STYLE in prompt
 
 
 def test_l1_per_call_style_overrides_default():
@@ -68,3 +69,16 @@ def test_l1_per_call_style_overrides_default():
     )
     assert "override style" in prompt
     assert "default style" not in prompt
+
+
+def test_l1_default_style_is_always_appended():
+    engine = ConsistencyEngine()
+    prompt = engine.build_panel_prompt(characters=[], setting=None, action="act")
+    assert DEFAULT_PANEL_STYLE in prompt
+
+
+def test_l1_user_style_is_kept_alongside_default():
+    engine = ConsistencyEngine(style_guide="vibrant cyberpunk manhua")
+    prompt = engine.build_panel_prompt(characters=[], setting=None, action="act")
+    assert "vibrant cyberpunk manhua" in prompt
+    assert DEFAULT_PANEL_STYLE in prompt

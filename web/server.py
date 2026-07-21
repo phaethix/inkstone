@@ -12,7 +12,7 @@ UI. Start it with your API key in the environment (or ``.env``):
 
 Routes:
     GET  /                        -> serves index.html
-    POST /api/generate            -> body {"text", "format"} -> {"job_id"}
+    POST /api/generate            -> body {"text", "format", "style_guide"?} -> {"job_id"}
     GET  /api/job/<job_id>        -> {"status", "log", "panels", "webtoon", "pdf"}
     GET  /files/<path>            -> serves generated artifacts (path-safe)
 
@@ -42,7 +42,8 @@ OUTPUT_DIR = ROOT / "comic_out"
 HOST = os.environ.get("INKSTONE_UI_HOST", "127.0.0.1")
 PORT = int(os.environ.get("INKSTONE_UI_PORT", "8000"))
 
-# In-memory job registry (single local user; latest job wins the output dir).
+# In-memory job registry. Each job writes to its own output directory so
+# successive generations do not reuse or overwrite each other's state.
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = threading.Lock()
 
@@ -73,19 +74,36 @@ class _JobLogHandler(logging.Handler):
         self._job["log"].append(record.getMessage())
 
 
-def _run_job(job_id: str, text: str, fmt: str) -> None:
+def _file_url(local_path: str) -> str:
+    """Turn an on-disk path under OUTPUT_DIR into a /files/<rel> URL."""
+    target = Path(local_path).resolve()
+    rel = target.relative_to(OUTPUT_DIR.resolve())
+    return f"/files/{rel.as_posix()}"
+
+
+def _run_job(job_id: str, text: str, fmt: str, style_guide: str | None) -> None:
     job = JOBS[job_id]
     handler = _JobLogHandler(job)
     handler.setLevel(logging.INFO)
     root = logging.getLogger()
     root.addHandler(handler)
     try:
-        proj = asyncio.run(creative_comic(text, output_dir=str(OUTPUT_DIR), output_format=fmt))
+        out_dir = OUTPUT_DIR / job_id
+        proj = asyncio.run(
+            creative_comic(
+                text,
+                output_dir=str(out_dir),
+                output_format=fmt,
+                style_guide=style_guide,
+            )
+        )
         job["panels"] = [
-            {"id": pid, "url": f"/files/panels/{pid}.png"} for pid in proj.state.panels_done
+            {"id": pid, "url": _file_url(v.local)}
+            for pid, v in sorted(proj.state.generated.panels.items())
+            if Path(v.local).exists()
         ]
-        job["webtoon"] = "/files/pages/webtoon.png" if proj.webtoon else None
-        job["pdf"] = "/files/comic.pdf" if proj.pdf else None
+        job["webtoon"] = _file_url(proj.webtoon) if proj.webtoon else None
+        job["pdf"] = _file_url(proj.pdf) if proj.pdf else None
         job["skipped"] = list(proj.state.skipped)
         job["status"] = "done"
     except Exception as exc:  # noqa: BLE001 — surface any failure to the UI
@@ -96,7 +114,7 @@ def _run_job(job_id: str, text: str, fmt: str) -> None:
         root.removeHandler(handler)
 
 
-def _start_job(text: str, fmt: str) -> str:
+def _start_job(text: str, fmt: str, style_guide: str | None) -> str:
     job_id = uuid.uuid4().hex[:12]
     with JOBS_LOCK:
         JOBS[job_id] = {
@@ -108,7 +126,7 @@ def _start_job(text: str, fmt: str) -> str:
             "skipped": [],
             "error": None,
         }
-    threading.Thread(target=_run_job, args=(job_id, text, fmt), daemon=True).start()
+    threading.Thread(target=_run_job, args=(job_id, text, fmt, style_guide), daemon=True).start()
     return job_id
 
 
@@ -194,6 +212,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         text = (payload.get("text") or "").strip()
         fmt = payload.get("format", "webtoon")
+        style_guide = (payload.get("style_guide") or "").strip() or None
         if not text:
             self._send_json({"error": "missing 'text'"}, status=400)
             return
@@ -205,7 +224,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if fmt not in ("page", "webtoon"):
             fmt = "webtoon"
-        job_id = _start_job(text, fmt)
+        job_id = _start_job(text, fmt, style_guide)
         self._send_json({"job_id": job_id})
 
 

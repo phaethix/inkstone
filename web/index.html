@@ -103,10 +103,10 @@
     .badge {
       font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
       padding: 5px 10px; border-radius: 999px; border: 1px solid var(--border);
-      color: var(--dim); text-transform: uppercase;
+      color: var(--dim); text-transform: uppercase; cursor: default;
     }
     .badge.live { color: #86efac; border-color: rgba(134,239,172,0.25); background: rgba(52,211,153,0.08); }
-    .badge.demo { color: #c7c9fb; border-color: rgba(124,127,242,0.25); background: rgba(124,127,242,0.08); }
+    .badge.demo { color: #c7c9fb; border-color: rgba(124,127,242,0.25); background: rgba(124,127,242,0.08); cursor: pointer; }
     .github-link { color: var(--muted); display: flex; align-items: center; transition: color .2s; }
     .github-link:hover { color: var(--text); }
     .github-link svg { width: 19px; height: 19px; }
@@ -243,11 +243,6 @@
       text-align: left;
     }
     .mini-feature:hover { border-color: var(--border-strong); transform: translateY(-3px); background: var(--surface-2); }
-    .mini-feature .icon {
-      width: 32px; height: 32px; border-radius: 9px; margin-bottom: 14px;
-      display: flex; align-items: center; justify-content: center; font-size: 15px;
-      background: rgba(255,255,255,0.04); border: 1px solid var(--border);
-    }
     .mini-feature h3 { font-size: 14px; font-weight: 700; margin: 0 0 6px; letter-spacing: -0.01em; }
     .mini-feature p { font-size: 13px; color: var(--muted); margin: 0; line-height: 1.6; }
     @media (max-width: 680px) { .mini-features { grid-template-columns: 1fr; } }
@@ -362,11 +357,26 @@
     }
     .generator textarea:focus { outline: none; border-color: var(--border-strong); }
     .generator textarea::placeholder { color: var(--dim); }
+    .upload-zone {
+      width: 100%;
+      min-height: 64px;
+      border: 1px dashed var(--border-strong);
+      border-radius: 14px;
+      background: var(--bg);
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      color: var(--muted); font-size: 13px; cursor: pointer;
+      transition: border-color .2s, background .2s; margin-bottom: 14px;
+    }
+    .upload-zone:hover, .upload-zone.dragover { border-color: var(--text); background: rgba(255,255,255,0.03); }
+    .upload-zone svg { width: 18px; height: 18px; }
+    .upload-zone .file-name { color: var(--text); font-weight: 600; }
     .gen-row { display: flex; align-items: center; gap: 12px; margin-top: 18px; flex-wrap: wrap; }
-    .gen-row select {
+    .gen-row select, .gen-row input[type="text"] {
       background: var(--bg); border: 1px solid var(--border); border-radius: 999px;
       padding: 11px 16px; color: var(--text); font-size: 13px; font-family: inherit;
     }
+    .gen-row input[type="text"] { flex: 1; min-width: 160px; }
+    .gen-row input[type="text"]::placeholder { color: var(--dim); }
     .gen-row .btn { margin-left: auto; }
 
     /* progress */
@@ -474,17 +484,14 @@
 
       <div class="mini-features">
         <div class="mini-feature">
-          <div class="icon">📝</div>
           <h3>L1 — Prompt Hard-Description</h3>
           <p>Character looks, outfits, and settings are baked into every panel prompt — identity doesn't rely on reference images.</p>
         </div>
         <div class="mini-feature">
-          <div class="icon">🖼️</div>
           <h3>L2 — Reference img2img</h3>
           <p>Character portraits plus the previous panel feed Agnes as multi-image references, helping keep cross-panel consistency.</p>
         </div>
         <div class="mini-feature">
-          <div class="icon">🛡️</div>
           <h3>Resumable + Fault-Tolerant</h3>
           <p>Persisted state.json, patient 503 retries, and safe content skipping — long novels finish reliably.</p>
         </div>
@@ -509,11 +516,11 @@
           </div>
           <div class="slide">
             <img src="assets/samples/P02.png" alt="P02" />
-            <div class="slide-caption">On Board · the young man stands beside Shen Zhiyi</div>
+            <div class="slide-caption">On Board · the young man plays guitar as Shen Zhiyi listens</div>
           </div>
           <div class="slide">
             <img src="assets/samples/P03.png" alt="P03" />
-            <div class="slide-caption">By Lamplight · a close-up smile, chin resting on hand</div>
+            <div class="slide-caption">By the Railing · the two stand side by side in the fog</div>
           </div>
         </div>
         <button class="carousel-arrow prev" aria-label="previous" onclick="prevSlide()">‹</button>
@@ -547,12 +554,19 @@
       <div class="generator-wrap">
         <div class="card generator">
           <label for="text">Novel Text</label>
+          <div id="uploadZone" class="upload-zone">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <span id="uploadLabel">Click or drag a .txt / .md novel file here</span>
+            <span id="fileName" class="file-name hidden"></span>
+          </div>
+          <input type="file" id="fileInput" accept=".txt,.md" class="hidden" />
           <textarea id="text" placeholder="Chapter 1: The Dock&#10;&#10;The river wind carried the first chill of autumn across the deck. Shen Zhiyi pulled her scarf tighter, gazing at the lighthouse flickering in the fog..."></textarea>
           <div class="gen-row">
             <select id="format">
               <option value="webtoon">Webtoon (PNG)</option>
               <option value="page">Paged Comic (PDF)</option>
             </select>
+            <input type="text" id="styleGuide" placeholder="Art style override (optional)" />
             <button id="go" class="btn btn-primary">Generate Comic</button>
           </div>
 
@@ -665,22 +679,29 @@
     window.addEventListener("keydown", (e) => { if (e.key === "Escape") closeLightbox(); });
 
     async function detectMode() {
+      const el = $("mode");
       try {
         const r = await fetch("/api/health");
         if (r.ok) {
           mode = "live";
-          const el = $("mode");
           el.textContent = "Local";
           el.className = "badge live";
           $("modeHint").textContent = "Connected to local backend — paste your novel text to generate";
           return;
         }
-      } catch (e) {}
+        console.warn("Local backend responded but not OK:", r.status);
+      } catch (e) {
+        console.warn("Local backend not reachable:", e);
+      }
       mode = "demo";
-      const el = $("mode");
       el.textContent = "Demo";
       el.className = "badge demo";
-      $("modeHint").textContent = "Demo mode: click generate to see a pre-made example; run python web/server.py locally to generate your own comic";
+      const loc = window.location.href;
+      if (loc.startsWith("file:")) {
+        $("modeHint").innerHTML = `Demo mode: open <code>http://127.0.0.1:8000/</code> instead of the local file to use the real generator`;
+      } else {
+        $("modeHint").innerHTML = `Demo mode: backend not found at this origin. Make sure <code>python web/server.py</code> is running, then refresh.`;
+      }
     }
 
     function setProgress(pct, msg) {
@@ -728,10 +749,13 @@
 
     async function liveRun(text, format) {
       try {
+        const payload = { text, format };
+        const style = $("styleGuide").value.trim();
+        if (style) payload.style_guide = style;
         const res = await fetch("/api/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text, format }),
+          body: JSON.stringify(payload),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
@@ -795,7 +819,42 @@
 
     const logLine = (s) => { $("log").textContent += s + "\n"; $("log").scrollTop = $("log").scrollHeight; };
 
+    function updateFileName(name) {
+      $("uploadLabel").textContent = "Loaded file:";
+      $("fileName").textContent = name;
+      $("fileName").classList.remove("hidden");
+    }
+
+    function readFile(file) {
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        $("text").value = ev.target.result;
+        updateFileName(file.name);
+      };
+      reader.readAsText(file);
+    }
+
+    const uploadZone = $("uploadZone");
+    const fileInput = $("fileInput");
+
+    uploadZone.addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", (e) => readFile(e.target.files[0]));
+
+    uploadZone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      uploadZone.classList.add("dragover");
+    });
+    uploadZone.addEventListener("dragleave", () => uploadZone.classList.remove("dragover"));
+    uploadZone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      uploadZone.classList.remove("dragover");
+      const file = e.dataTransfer.files[0];
+      if (file) readFile(file);
+    });
+
     $("go").addEventListener("click", generate);
+    $("mode").addEventListener("click", detectMode);
     detectMode();
   </script>
 </body>

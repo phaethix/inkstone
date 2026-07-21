@@ -30,6 +30,20 @@ from core.schemas import CharacterAsset, Panel, Setting
 
 logger = logging.getLogger(__name__)
 
+# Default comic art style appended to every panel prompt. This is a deliberate
+# hardening: without it, image models tend to render realistic photos instead of
+# the manhua/comic panels the project is built for.
+DEFAULT_PANEL_STYLE = (
+    "single manhua comic panel, clean black ink line art, soft cel shading, "
+    "flat colors, cinematic composition"
+)
+# Default comic art style appended to every character portrait prompt so the
+# reference images stay in the same manhua/comic world as the panels.
+DEFAULT_PORTRAIT_STYLE = (
+    "character design sheet, manhua comic style, clean black ink line art, "
+    "soft cel shading, flat colors, consistent character reference"
+)
+
 # Below this absolute panel-face size (px, min side), a face swap on a far/wide
 # shot produces a visible seam and Haar detection is unreliable, so L3 is skipped
 # and the t2i/i2i result is kept as-is.
@@ -100,7 +114,15 @@ class ConsistencyEngine:
         l1_parts = [c.l1_prompt for c in chars if getattr(c, "l1_prompt", "")]
         style = style_guide if style_guide is not None else self.style_guide
 
-        parts = [p for p in [scene, *l1_parts, action, style] if p]
+        # Always enforce a comic art style. A user/style_guide flavor is kept,
+        # but the default manhua/comic direction is appended so images render as
+        # comics rather than realistic photos/illustrations.
+        if style:
+            comic_style = f"{style}, {DEFAULT_PANEL_STYLE}"
+        else:
+            comic_style = DEFAULT_PANEL_STYLE
+
+        parts = [p for p in [scene, *l1_parts, action, comic_style] if p]
         return ", ".join(parts)
 
     # ------------------------------------------------------------------ #

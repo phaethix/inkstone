@@ -222,6 +222,7 @@ __marimo__/
 logs/
 output/
 comic_out/          # generated comic artifacts (panels/portraits/webtoon) — regenerated locally
+.playwright-cli/    # browser automation snapshots and logs
 # Internal design docs — not for public commit.
 docs/whitepaper.md
 docs/M1-code-review.md

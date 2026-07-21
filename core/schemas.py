@@ -22,6 +22,10 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.json_schema import SkipJsonSchema
 
+_COMIC_STYLE_HINT = (
+    "manhua/comic style: clean black ink line art, soft cel shading, flat colors"
+)
+
 # Six resumable pipeline stages.
 Stage = Literal["extract", "storyboard", "portraits", "panels", "layout", "export"]
 
@@ -52,7 +56,10 @@ class CharacterAsset(BaseModel):
     # English hardened description inlined into every panel prompt.
     l1_prompt: str = ""
     # t2i prompt for the character design sheet (portrait).
-    portrait_prompt: str = ""
+    portrait_prompt: str = Field(
+        default="",
+        description=f"standalone t2i prompt for a character design sheet / reference illustration; {_COMIC_STYLE_HINT}",
+    )
     # Runtime-only: local path of the generated portrait. Filled by the pipeline,
     # never requested from the model, so it is hidden from the tool schema.
     portrait_local: SkipJsonSchema[str | None] = None
@@ -75,7 +82,10 @@ class StoryElements(BaseModel):
 
     characters: list[CharacterAsset] = Field(default_factory=list)
     settings: list[Setting] = Field(default_factory=list)
-    style_guide: str = ""
+    style_guide: str = Field(
+        default="",
+        description=f"concise English art-direction string shared across all panels; default to {_COMIC_STYLE_HINT}",
+    )
 
 
 class Panel(BaseModel):
@@ -88,8 +98,11 @@ class Panel(BaseModel):
     setting_ref: str = ""
     action: str = ""
     dialogue: str | None = None
-    # Built from CharacterAsset.l1_prompt + setting.scene_prompt + action.
-    panel_prompt: str = ""
+    # Built from CharacterAsset.l1_prompt + setting.scene_prompt + action + comic style.
+    panel_prompt: str = Field(
+        default="",
+        description=f"t2i prompt for this panel, assembled from scene + characters + action; {_COMIC_STYLE_HINT}",
+    )
     reference_characters: list[str] = Field(default_factory=list)
     size: str = "1024x1024"
 

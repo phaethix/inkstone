@@ -106,17 +106,11 @@ On Windows use `.\start.ps1`. Both reuse an already-active `venv`/`conda` env in
 
 ## Gallery
 
-Generated from the bundled sample (`examples/scene1.txt`) with the default L1+L2 pipeline — no L3, straight from the model:
+Sample panels and the full webtoon strip are rendered live on the GitHub Pages site:
 
-![Panel P01](assets/samples/P01.png) ![Panel P02](assets/samples/P02.png) ![Panel P03](assets/samples/P03.png)
+**[https://phaethix.github.io/inkstone/](https://phaethix.github.io/inkstone/)**
 
-*Full strip (downscaled):*
-
-![Webtoon preview](assets/samples/webtoon_preview.png)
-
-> Consistency here is "medium" by design — the honest ceiling of a free, no-GPU
-> model. L1 prompt hard-description + L2 reference img2img carry identity; the
-> optional L3 face overlay is off by default because it deforms stylized faces.
+They were generated from the bundled sample (`examples/scene1.txt`) with the default L1+L2 pipeline — no L3, straight from the model. Consistency here is "medium" by design — the honest ceiling of a free, no-GPU model. L1 prompt hard-description + L2 reference img2img carry identity; the optional L3 face overlay is off by default because it deforms stylized faces.
 
 ## Web UI
 
