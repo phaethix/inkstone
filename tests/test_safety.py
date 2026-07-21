@@ -86,6 +86,54 @@ def _fake_export_pdf(self, page_dir, out="comic.pdf", layout="TwoPageRight", dir
     return out
 
 
+class FakeImage(ImageProvider):
+    """Plain success stub (no rejections) for the chunk-skip test."""
+
+    def __init__(self):
+        self.calls = 0
+
+    async def generate_single_image(self, prompt, reference_image_paths=None, size=None, **kw):
+        self.calls += 1
+        return FakeImageOutput()
+
+
+class RejectingExtractChat(ChatProvider):
+    """Succeeds chapter 1's extraction, then rejects chapter 2's extraction with
+    a content-policy error so we can assert the whole chunk is skipped gracefully.
+    """
+
+    def __init__(self):
+        self.extract_calls = 0
+
+    async def chat_function_call(self, messages, tools, tool_choice, **kw):
+        name = tool_choice["function"]["name"]
+        if name == "extract_story_elements":
+            self.extract_calls += 1
+            if self.extract_calls == 2:  # chapter 2's extraction
+                raise RuntimeError("Agnes chat error: content_policy_violation: text rejected")
+            return {
+                "characters": [
+                    {"name": "方鸿渐", "l1_prompt": "a young man", "portrait_prompt": "portrait"}
+                ],
+                "settings": [{"name": "甲板", "scene_prompt": "deck"}],
+                "style_guide": "manhua",
+            }
+        # chapter 1's storyboard (chapter 2 never reaches here)
+        return {
+            "chapter_id": "ch01",
+            "panels": [
+                {
+                    "panel_id": "ch01_p01",
+                    "characters_present": ["方鸿渐"],
+                    "setting_ref": "甲板",
+                    "action": "look at the sea",
+                    "reference_characters": ["方鸿渐"],
+                    "size": "1024x1024",
+                }
+            ],
+        }
+
+
 def _http_400() -> requests.HTTPError:
     resp = Response()
     resp.status_code = 400
@@ -112,4 +160,17 @@ def test_orchestration_skips_rejected_panel(tmp_path):
     assert "ch02_p01" in proj.state.skipped
     assert "ch02_p01" not in proj.state.panels_done
     assert img.calls == 3  # portrait + 2 panel attempts (1 rejected but still a call)
+    assert proj.pdf and Path(proj.pdf).exists()
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_orchestration_skips_content_rejected_chunk(tmp_path):
+    src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
+    chat, img = RejectingExtractChat(), FakeImage()
+    proj = asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=chat, image=img))
+
+    # Chapter 1 fully produced; chapter 2's extraction was rejected -> chunk skip.
+    assert "ch01_p01" in proj.state.panels_done
+    assert "1" in proj.state.skipped_chunks  # chunk index of chapter 2
+    assert img.calls == 2  # portrait + ch01 panel only (ch02 never generated)
     assert proj.pdf and Path(proj.pdf).exists()

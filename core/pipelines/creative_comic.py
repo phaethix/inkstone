@@ -137,22 +137,51 @@ async def creative_comic(
             continue
 
         state.stage = "extract"
-        elements = await extract_story_elements(chunk, chat=chat)
+        try:
+            elements = await extract_story_elements(chunk, chat=chat)
+        except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
+            if is_content_policy_rejection(exc):
+                logger.warning("chunk %s skipped: content filter rejected extraction (%s)", ci, exc)
+                if str(ci) not in state.skipped_chunks:
+                    state.skipped_chunks.append(str(ci))
+                state.save(state_path)
+                continue
+            raise
+
         state.characters, new_names = merge_characters(state.characters, elements.characters)
-        # Generate a portrait only for first-seen characters.
-        for name in new_names:
-            asset = state.characters[name]
-            prompt = asset.portrait_prompt or asset.l1_prompt
-            out = await image.generate_single_image(prompt, size="1024x1024")
-            ppath = output_dir / "assets" / "portraits" / f"{name}.png"
-            out.save(str(ppath))
-            asset.portrait_local = str(ppath)
-            state.generated.portraits[name] = str(ppath)
+        # Generate a portrait only for first-seen characters (image call; may be
+        # content-rejected, in which case the whole chunk is skipped).
+        try:
+            for name in new_names:
+                asset = state.characters[name]
+                prompt = asset.portrait_prompt or asset.l1_prompt
+                out = await image.generate_single_image(prompt, size="1024x1024")
+                ppath = output_dir / "assets" / "portraits" / f"{name}.png"
+                out.save(str(ppath))
+                asset.portrait_local = str(ppath)
+                state.generated.portraits[name] = str(ppath)
+        except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
+            if is_content_policy_rejection(exc):
+                logger.warning("chunk %s skipped: content filter rejected portrait (%s)", ci, exc)
+                if str(ci) not in state.skipped_chunks:
+                    state.skipped_chunks.append(str(ci))
+                state.save(state_path)
+                continue
+            raise
         state.chunks_done.append(str(ci))
         state.save(state_path)
 
         state.stage = "storyboard"
-        board = await plan_storyboard(chunk, elements, chat=chat)
+        try:
+            board = await plan_storyboard(chunk, elements, chat=chat)
+        except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
+            if is_content_policy_rejection(exc):
+                logger.warning("chunk %s skipped: content filter rejected storyboard (%s)", ci, exc)
+                if str(ci) not in state.skipped_chunks:
+                    state.skipped_chunks.append(str(ci))
+                state.save(state_path)
+                continue
+            raise
 
         for panel in board.panels:
             if panel.panel_id in state.panels_done:

@@ -153,6 +153,9 @@ class ProjectState(BaseModel):
     # Panels rejected by the upstream content filter; recorded (not regenerated)
     # so a rerun stays honest about what was skipped instead of retrying blindly.
     skipped: list[str] = Field(default_factory=list)
+    # Whole chunks whose text was rejected by the upstream content filter during
+    # extraction/storyboard/portrait; recorded so a rerun stays honest about them.
+    skipped_chunks: list[str] = Field(default_factory=list)
     generated: GeneratedAssets = Field(default_factory=GeneratedAssets)
     errors: str = "logs/errors.jsonl"
 

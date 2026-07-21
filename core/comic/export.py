@@ -1,22 +1,16 @@
-"""core.comic.export — turn composed pages into final comic artifacts.
+"""core.comic.export — turn composed pages into a final comic PDF.
 
-``ExportEngine`` offers two products:
-
-- ``export_pdf`` wraps a directory of ``page_NN.png`` images into a PDF via the
-  external ``manga2pdf`` CLI. The CLI must be installed separately (it is not a
-  Python import dependency); only its command line is invoked.
-- ``export_webtoon`` stacks already-rendered panel images into one tall PNG
-  using PIL, with no external dependency.
+``ExportEngine.export_pdf`` wraps a directory of ``page_NN.png`` images into a
+PDF via the external ``manga2pdf`` CLI. The CLI must be installed separately
+(it is not a Python import dependency); only its command line is invoked. The
+vertical webtoon strip is produced by ``LayoutEngine`` (pure PIL), not here.
 """
 
 import subprocess
-from pathlib import Path
-
-from PIL import Image
 
 
 class ExportEngine:
-    """Produce PDF / webtoon outputs from composed panel images."""
+    """Produce a PDF from composed panel images via the manga2pdf CLI."""
 
     def export_pdf(
         self,
@@ -45,29 +39,3 @@ class ExportEngine:
         if result.returncode != 0:
             raise RuntimeError(f"manga2pdf failed (exit {result.returncode}): {result.stderr}")
         return out
-
-    def export_webtoon(self, panel_paths, out: str = "webtoon.png") -> str:
-        """Vertically concatenate ``panel_paths`` into a single PNG.
-
-        Args:
-            panel_paths: ordered list of image paths to stack.
-            out: output PNG path.
-
-        Returns:
-            The output PNG path.
-        """
-        paths = [Path(p) for p in panel_paths]
-        if not paths:
-            raise ValueError("export_webtoon requires at least one panel")
-        imgs = [Image.open(p).convert("RGB") for p in paths]
-        width = max(i.width for i in imgs)
-        total_h = sum(i.height for i in imgs)
-        canvas = Image.new("RGB", (width, total_h), (255, 255, 255))
-        y = 0
-        for img in imgs:
-            canvas.paste(img, (0, y))
-            y += img.height
-        out_path = Path(out)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        canvas.save(out_path)
-        return str(out_path)
