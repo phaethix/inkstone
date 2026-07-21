@@ -103,6 +103,22 @@ class Storyboard(BaseModel):
     panels: list[Panel] = Field(default_factory=list)
 
 
+class ChunkCache(BaseModel):
+    """Per-chunk cache of the billable chat-API results.
+
+    ``extract_story_elements`` and ``plan_storyboard`` are the only network/cost
+    calls in the pipeline; caching their products per chunk lets a resume reuse
+    them instead of re-paying for already-planned chunks. Either field may be
+    ``None`` while a chunk is mid-flight (e.g. extraction cached but storyboard
+    still pending or rejected), in which case only the missing step is re-run.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    elements: StoryElements | None = None
+    storyboard: Storyboard | None = None
+
+
 class ModelSnapshot(BaseModel):
     """Model identifiers captured at project creation (for provenance / resume)."""
 
@@ -156,6 +172,9 @@ class ProjectState(BaseModel):
     # Whole chunks whose text was rejected by the upstream content filter during
     # extraction/storyboard/portrait; recorded so a rerun stays honest about them.
     skipped_chunks: list[str] = Field(default_factory=list)
+    # Per-chunk cache of extraction + storyboard results so a resume reuses them
+    # instead of re-calling the (billable) chat API for already-planned chunks.
+    chunk_cache: dict[str, ChunkCache] = Field(default_factory=dict)
     generated: GeneratedAssets = Field(default_factory=GeneratedAssets)
     errors: str = "logs/errors.jsonl"
 

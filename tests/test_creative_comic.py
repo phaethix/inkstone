@@ -113,6 +113,27 @@ def test_creative_comic_regenerates_deleted_panel(tmp_path):
     assert set(proj.state.panels_done) == {"ch01_p01", "ch02_p01"}
 
 
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_creative_comic_resume_reuses_chunk_cache(tmp_path):
+    src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
+    asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage()))
+
+    # Delete one finished panel, then rerun.
+    deleted = tmp_path / "panels" / "ch01_p01.png"
+    assert deleted.exists()
+    deleted.unlink()
+
+    chat2, img2 = FakeChat(), FakeImage()
+    proj = asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=chat2, image=img2))
+
+    # The cached storyboard/extraction is reused: the (billable) chat API is NOT
+    # re-called, and only the single missing panel is regenerated (portrait reused).
+    assert chat2.calls == 0
+    assert img2.calls == 1
+    assert deleted.exists()
+    assert set(proj.state.panels_done) == {"ch01_p01", "ch02_p01"}
+
+
 def test_creative_comic_webtoon_output(tmp_path):
     src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
     chat, img = FakeChat(), FakeImage()

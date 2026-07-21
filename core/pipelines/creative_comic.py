@@ -1,13 +1,17 @@
 """core.pipelines.creative_comic — text-to-comic orchestration.
 
-Drives the whole M2 flow for one source text:
+Drives the whole flow for one source text:
 
     segment -> extract -> merge characters -> (portraits) -> storyboard
     -> per panel: build prompt (L1) + collect references (L2) -> generate
     -> face composite (L3) -> layout -> export PDF
 
 State is persisted to ``state.json`` after every panel so a rerun resumes
-from where it stopped and never regenerates an already-finished panel.
+from where it stopped and never regenerates an already-finished panel. Each
+chunk's extracted ``StoryElements`` and planned ``Storyboard`` are cached in
+``ProjectState.chunk_cache``, so a resume reuses them instead of re-paying the
+(billable) chat API for already-planned chunks; only chunks with missing panels
+are re-entered, and only the missing panels are regenerated.
 
 Providers are injected so the pipeline can be exercised without network.
 """
@@ -24,8 +28,10 @@ from core.comic.export import ExportEngine
 from core.comic.layout import LayoutEngine, PanelImage
 from core.comic.segmentation import merge_characters, segment_text
 from core.schemas import (
+    ChunkCache,
     GeneratedPanel,
     ProjectState,
+    Storyboard,
     StoryElements,
 )
 from core.screenwriter import (
@@ -62,13 +68,10 @@ def _reconcile_state(state: ProjectState, state_path: Path) -> None:
 
     If a generated panel is deleted between runs, its ``panel_id`` would still be
     in ``panels_done`` and get skipped on rerun — leaving a hole the layout stage
-    would then fail to open. Removing such stale entries lets the panel regenerate
-    while every other completed panel is still skipped (dedup key preserved).
-
-    Because storyboards are needed to rebuild a panel's prompt, ``chunks_done`` is
-    also cleared so planning re-runs; already-generated panels are then skipped by
-    the per-panel dedup, and existing characters are reused (no portrait re-gen),
-    so only the missing panel is actually regenerated.
+    would then fail to open. Removing only the stale panel records (not the whole
+    chunk) lets the pipeline regenerate just that panel on rerun while reusing the
+    cached storyboard/extraction, so the (billable) chat API is never re-called
+    and every other completed panel stays skipped.
     """
     stale = [
         pid
@@ -80,9 +83,17 @@ def _reconcile_state(state: ProjectState, state_path: Path) -> None:
     for pid in stale:
         state.panels_done.remove(pid)
         state.generated.panels.pop(pid, None)
-    state.chunks_done.clear()
     logger.warning("reconcile: regenerating %d panel(s) with missing files: %s", len(stale), stale)
     state.save(state_path)
+
+
+def _chunk_complete(state: ProjectState, board: Storyboard) -> bool:
+    """True when every panel in ``board`` is generated and present on disk."""
+    for p in board.panels:
+        rec = state.generated.panels.get(p.panel_id)
+        if rec is None or p.panel_id not in state.panels_done or not Path(rec.local).exists():
+            return False
+    return True
 
 
 async def creative_comic(
@@ -129,28 +140,40 @@ async def creative_comic(
     _reconcile_state(state, state_path)
 
     chunks = segment_text(source_txt)
-    done_chunks = set(state.chunks_done)
     prev_panel_local: str | None = None
 
     for ci, chunk in enumerate(chunks):
-        if str(ci) in done_chunks:
+        key = str(ci)
+        cached = state.chunk_cache.get(key)
+        board = cached.storyboard if cached else None
+        elements = cached.elements if cached else None
+
+        # Fully planned chunk: cached, marked done, every panel present on disk.
+        # Re-running reuses the cache so the billable chat API is never re-called.
+        if board is not None and key in set(state.chunks_done) and _chunk_complete(state, board):
             continue
 
-        state.stage = "extract"
-        try:
-            elements = await extract_story_elements(chunk, chat=chat)
-        except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
-            if is_content_policy_rejection(exc):
-                logger.warning("chunk %s skipped: content filter rejected extraction (%s)", ci, exc)
-                if str(ci) not in state.skipped_chunks:
-                    state.skipped_chunks.append(str(ci))
-                state.save(state_path)
-                continue
-            raise
+        # ---- extraction (only when not cached) ----
+        if elements is None:
+            state.stage = "extract"
+            try:
+                elements = await extract_story_elements(chunk, chat=chat)
+            except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
+                if is_content_policy_rejection(exc):
+                    logger.warning(
+                        "chunk %s skipped: content filter rejected extraction (%s)", ci, exc
+                    )
+                    if key not in state.skipped_chunks:
+                        state.skipped_chunks.append(key)
+                    state.save(state_path)
+                    continue
+                raise
+            # Cache so a later resume does not re-pay for extraction.
+            state.chunk_cache.setdefault(key, ChunkCache()).elements = elements
+            state.save(state_path)
 
+        # Merge characters; generate a portrait only for first-seen names.
         state.characters, new_names = merge_characters(state.characters, elements.characters)
-        # Generate a portrait only for first-seen characters (image call; may be
-        # content-rejected, in which case the whole chunk is skipped).
         try:
             for name in new_names:
                 asset = state.characters[name]
@@ -163,26 +186,35 @@ async def creative_comic(
         except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
             if is_content_policy_rejection(exc):
                 logger.warning("chunk %s skipped: content filter rejected portrait (%s)", ci, exc)
-                if str(ci) not in state.skipped_chunks:
-                    state.skipped_chunks.append(str(ci))
+                if key not in state.skipped_chunks:
+                    state.skipped_chunks.append(key)
                 state.save(state_path)
                 continue
             raise
-        state.chunks_done.append(str(ci))
+        if key not in state.chunks_done:
+            state.chunks_done.append(key)
         state.save(state_path)
 
-        state.stage = "storyboard"
-        try:
-            board = await plan_storyboard(chunk, elements, chat=chat)
-        except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
-            if is_content_policy_rejection(exc):
-                logger.warning("chunk %s skipped: content filter rejected storyboard (%s)", ci, exc)
-                if str(ci) not in state.skipped_chunks:
-                    state.skipped_chunks.append(str(ci))
-                state.save(state_path)
-                continue
-            raise
+        # ---- storyboard (only when not cached) ----
+        if board is None:
+            state.stage = "storyboard"
+            try:
+                board = await plan_storyboard(chunk, elements, chat=chat)
+            except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
+                if is_content_policy_rejection(exc):
+                    logger.warning(
+                        "chunk %s skipped: content filter rejected storyboard (%s)", ci, exc
+                    )
+                    if key not in state.skipped_chunks:
+                        state.skipped_chunks.append(key)
+                    state.save(state_path)
+                    continue
+                raise
+            # Cache the planned storyboard so resume reuses it (no re-planning call).
+            state.chunk_cache.setdefault(key, ChunkCache()).storyboard = board
+            state.save(state_path)
 
+        # ---- panels ----
         for panel in board.panels:
             if panel.panel_id in state.panels_done:
                 continue
