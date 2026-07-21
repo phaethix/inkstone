@@ -45,6 +45,7 @@ class ComicProject:
     state: ProjectState
     pages: list[str] = field(default_factory=list)
     pdf: str | None = None
+    webtoon: str | None = None
 
 
 def _setting_of(elements: StoryElements, ref: str | None):
@@ -92,6 +93,7 @@ async def creative_comic(
     chat=None,
     image=None,
     style_guide: str | None = None,
+    output_format: str = "page",
 ) -> ComicProject:
     """Generate a comic from ``source_txt`` into ``output_dir``.
 
@@ -101,6 +103,8 @@ async def creative_comic(
         project_id: identifier stored in state (defaults to the dir name).
         chat / image: provider instances (defaults from the factories).
         style_guide: optional global style appended to every panel prompt.
+        output_format: ``"page"`` for a flip-page PDF (default) or ``"webtoon"``
+            for a single vertical strip PNG (no external CLI required).
 
     Returns:
         A ``ComicProject`` with the final state, produced page paths, and PDF.
@@ -214,11 +218,18 @@ async def creative_comic(
         panel_imgs.append(PanelImage(Image.open(v.local)))
 
     pdf: str | None = None
+    webtoon: str | None = None
     pages: list[str] = []
     if panel_imgs:
-        pages = LayoutEngine().compose(panel_imgs, pages_dir, layout_mode="page")
-        state.stage = "export"
-        pdf = ExportEngine().export_pdf(pages_dir, out=str(output_dir / "comic.pdf"))
+        engine_layout = LayoutEngine()
+        if output_format == "webtoon":
+            pages = engine_layout.compose(panel_imgs, pages_dir, layout_mode="webtoon")
+            state.stage = "export"
+            webtoon = pages[0] if pages else None
+        else:
+            pages = engine_layout.compose(panel_imgs, pages_dir, layout_mode="page")
+            state.stage = "export"
+            pdf = ExportEngine().export_pdf(pages_dir, out=str(output_dir / "comic.pdf"))
 
     state.save(state_path)
-    return ComicProject(project_id=project_id, state=state, pages=pages, pdf=pdf)
+    return ComicProject(project_id=project_id, state=state, pages=pages, pdf=pdf, webtoon=webtoon)

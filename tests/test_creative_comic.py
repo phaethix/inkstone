@@ -111,3 +111,17 @@ def test_creative_comic_regenerates_deleted_panel(tmp_path):
     assert img2.calls == 1
     assert deleted.exists()
     assert set(proj.state.panels_done) == {"ch01_p01", "ch02_p01"}
+
+
+def test_creative_comic_webtoon_output(tmp_path):
+    src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
+    chat, img = FakeChat(), FakeImage()
+    proj = asyncio.run(
+        creative_comic(src, output_dir=str(tmp_path), chat=chat, image=img, output_format="webtoon")
+    )
+
+    # Webtoon produces a single vertical strip PNG and no PDF (no external CLI).
+    assert proj.pdf is None
+    assert proj.webtoon and Path(proj.webtoon).exists()
+    assert proj.webtoon.endswith("webtoon.png")
+    assert proj.pages == [proj.webtoon]
