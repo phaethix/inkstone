@@ -1,124 +1,457 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Inkstone — novel → comic</title>
+  <title>Inkstone — 小说一键生漫画</title>
   <style>
     :root {
-      --bg: #020617; --card: #0f172a; --card2: #111827; --border: #1e293b;
-      --line: #334155; --text: #e2e8f0; --muted: #94a3b8; --faint: #64748b;
-      --indigo: #4f46e5; --indigo-h: #6366f1; --indigo-bg: #312e81;
-      --emerald-bg: #064e3b; --emerald: #6ee7b7;
-      --red-bg: #450a0a; --red: #fca5a5;
+      --bg: #030712;
+      --bg-soft: #0b1021;
+      --surface: rgba(15, 23, 42, 0.55);
+      --surface-strong: rgba(15, 23, 42, 0.85);
+      --border: rgba(148, 163, 184, 0.12);
+      --border-strong: rgba(148, 163, 184, 0.22);
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --dim: #64748b;
+      --accent: #6366f1;
+      --accent-2: #a855f7;
+      --accent-3: #ec4899;
+      --success: #34d399;
+      --danger: #f87171;
+      --shadow: 0 25px 80px -20px rgba(0, 0, 0, 0.55);
+      --glow: 0 0 40px rgba(99, 102, 241, 0.25);
     }
+
     * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
     body {
-      margin: 0; background: var(--bg); color: var(--text);
-      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
-      line-height: 1.5; -webkit-font-smoothing: antialiased;
+      margin: 0;
+      background:
+        radial-gradient(ellipse 80% 50% at 50% -10%, rgba(99, 102, 241, 0.22), transparent),
+        radial-gradient(ellipse 60% 40% at 80% 60%, rgba(168, 85, 247, 0.14), transparent),
+        radial-gradient(ellipse 50% 30% at 20% 90%, rgba(236, 72, 153, 0.1), transparent),
+        var(--bg);
+      background-attachment: fixed;
+      color: var(--text);
+      font-family:
+        "Inter", "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB",
+        -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
     }
-    .wrap { max-width: 640px; margin: 0 auto; padding: 40px 16px 64px; }
-    .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; }
-    .brand { display: flex; align-items: center; gap: 12px; }
-    .brand img { width: 36px; height: 36px; border-radius: 10px; background: var(--card); border: 1px solid var(--border); padding: 3px; }
-    .brand h1 { font-size: 20px; font-weight: 700; margin: 0; }
-    .brand p { font-size: 12px; color: var(--muted); margin: 0; }
-    .badge { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; background: var(--card); color: var(--muted); }
-    .badge.live { background: var(--emerald-bg); color: var(--emerald); }
-    .badge.demo { background: var(--indigo-bg); color: #c7d2fe; }
-    .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 20px; margin-bottom: 20px; }
-    label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; }
-    textarea {
-      width: 100%; min-height: 200px; resize: vertical; background: var(--bg);
-      border: 1px solid var(--line); border-radius: 12px; padding: 12px;
-      color: var(--text); font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+    /* ambient mesh */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(circle at 15% 25%, rgba(99, 102, 241, 0.08) 0%, transparent 35%),
+        radial-gradient(circle at 85% 75%, rgba(168, 85, 247, 0.07) 0%, transparent 35%);
+      pointer-events: none;
+      z-index: -1;
     }
-    textarea:focus { outline: none; border-color: var(--indigo); box-shadow: 0 0 0 2px rgba(79,70,229,.4); }
-    .row { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
-    select { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; color: var(--text); font-size: 14px; }
-    button {
-      margin-left: auto; background: var(--indigo); color: #fff; font-weight: 600;
-      border: none; border-radius: 12px; padding: 10px 20px; font-size: 14px; cursor: pointer;
+
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 0 20px; }
+
+    /* nav */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      backdrop-filter: blur(16px);
+      background: rgba(3, 7, 18, 0.65);
+      border-bottom: 1px solid var(--border);
     }
-    button:hover:not(:disabled) { background: var(--indigo-h); }
-    button:disabled { opacity: .5; cursor: default; }
-    .hint { font-size: 12px; color: var(--faint); margin-top: 8px; }
-    .banner { background: rgba(49,46,129,.35); border: 1px solid var(--indigo-bg); border-radius: 12px; padding: 12px 16px; font-size: 14px; color: #c7d2fe; margin-bottom: 20px; }
-    .banner code { background: rgba(49,46,129,.6); padding: 1px 5px; border-radius: 5px; }
-    .progress { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); margin-bottom: 8px; }
-    .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--indigo-h); animation: pulse 1s infinite; }
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
-    pre { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 12px; font-size: 12px; color: var(--muted); height: 176px; overflow: auto; white-space: pre-wrap; margin: 0; }
-    .err { background: var(--red-bg); border: 1px solid #7f1d1d; border-radius: 12px; padding: 12px 16px; font-size: 14px; color: var(--red); }
-    h2 { font-size: 16px; font-weight: 600; margin: 0 0 12px; }
-    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 24px; }
-    @media (min-width: 520px) { .grid { grid-template-columns: repeat(3, 1fr); } }
-    .grid img, .webtoon { width: 100%; border-radius: 12px; border: 1px solid var(--border); background: var(--card); display: block; }
-    .webtoon { margin-bottom: 24px; }
-    a.link { color: #a5b4fc; text-decoration: underline; font-size: 14px; }
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+    }
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 18px;
+      letter-spacing: -0.02em;
+    }
+    .nav-brand img {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border);
+      padding: 3px;
+    }
+    .nav-links { display: flex; align-items: center; gap: 14px; }
+    .badge {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border-strong);
+      background: var(--surface);
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .badge.live { color: var(--success); border-color: rgba(52,211,153,0.3); background: rgba(52,211,153,0.08); }
+    .badge.demo { color: #c7d2fe; border-color: rgba(99,102,241,0.35); background: rgba(99,102,241,0.12); }
+    .github-link {
+      display: flex; align-items: center; gap: 6px;
+      color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 500;
+      padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border);
+      transition: all .2s;
+    }
+    .github-link:hover { color: var(--text); border-color: var(--border-strong); background: var(--surface); }
+
+    /* hero */
+    .hero {
+      padding: 80px 0 60px;
+      text-align: center;
+    }
+    .hero-eyebrow {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: 12px; font-weight: 600; color: var(--muted);
+      padding: 6px 14px; border-radius: 999px;
+      border: 1px solid var(--border); background: var(--surface);
+      margin-bottom: 24px;
+    }
+    .hero h1 {
+      font-size: clamp(42px, 8vw, 78px);
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      line-height: 1.05;
+      margin: 0 0 18px;
+      background: linear-gradient(135deg, #fff 30%, #c7d2fe 60%, #e9d5ff 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero-sub {
+      font-size: clamp(16px, 2.4vw, 20px);
+      color: var(--muted);
+      max-width: 620px;
+      margin: 0 auto 34px;
+    }
+    .hero-badges {
+      display: inline-flex; flex-wrap: wrap; gap: 10px; justify-content: center;
+      margin-bottom: 34px;
+    }
+    .hero-badges span {
+      font-size: 12px; color: var(--dim);
+      padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface);
+    }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      font-size: 15px; font-weight: 700; color: #fff;
+      padding: 14px 28px; border-radius: 14px; border: none; cursor: pointer;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+      box-shadow: 0 12px 40px -12px rgba(99, 102, 241, 0.55);
+      transition: transform .2s, box-shadow .2s;
+      text-decoration: none;
+    }
+    .btn:hover { transform: translateY(-2px); box-shadow: 0 18px 50px -12px rgba(99, 102, 241, 0.65); }
+    .btn:disabled { opacity: .55; transform: none; cursor: default; }
+    .btn-secondary {
+      background: transparent; border: 1px solid var(--border-strong);
+      box-shadow: none; color: var(--text);
+    }
+    .btn-secondary:hover { background: var(--surface); box-shadow: none; }
+
+    /* visual mockup */
+    .showcase {
+      display: flex; justify-content: center; perspective: 1200px;
+      margin: 30px 0 60px;
+    }
+    .panel-stack {
+      position: relative;
+      width: min(560px, 92vw);
+      height: 320px;
+    }
+    .panel-stack img {
+      position: absolute;
+      width: 54%;
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      border: 1px solid var(--border-strong);
+      background: var(--surface-strong);
+      transition: transform .4s ease;
+    }
+    .panel-stack img:nth-child(1) { left: 5%; top: 10%; transform: rotateY(8deg) rotateZ(-3deg); z-index: 1; }
+    .panel-stack img:nth-child(2) { left: 24%; top: 4%; transform: translateZ(20px); z-index: 3; }
+    .panel-stack img:nth-child(3) { right: 5%; top: 12%; transform: rotateY(-8deg) rotateZ(3deg); z-index: 2; }
+    .panel-stack:hover img:nth-child(1) { transform: rotateY(8deg) rotateZ(-3deg) translateX(-10px); }
+    .panel-stack:hover img:nth-child(2) { transform: translateZ(30px) translateY(-6px); }
+    .panel-stack:hover img:nth-child(3) { transform: rotateY(-8deg) rotateZ(3deg) translateX(10px); }
+
+    /* glass card */
+    .glass {
+      background: var(--surface);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+    }
+
+    /* section titles */
+    .section-head { text-align: center; margin-bottom: 34px; }
+    .section-head h2 { font-size: 28px; font-weight: 700; margin: 0 0 10px; }
+    .section-head p { color: var(--muted); margin: 0; }
+
+    /* demo strip */
+    .demo-section { padding: 40px 0 80px; }
+    .webtoon-wrap {
+      border-radius: 20px; overflow: hidden;
+      border: 1px solid var(--border); box-shadow: var(--shadow);
+    }
+    .webtoon-wrap img { width: 100%; display: block; }
+    .demo-caption {
+      text-align: center; color: var(--dim); font-size: 13px; margin-top: 14px;
+    }
+
+    /* generator */
+    .generator-section { padding: 40px 0 90px; }
+    .generator {
+      max-width: 800px; margin: 0 auto; padding: 28px;
+    }
+    .generator label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 10px; color: var(--muted); }
+    .generator textarea {
+      width: 100%; min-height: 220px; resize: vertical;
+      background: rgba(2, 6, 23, 0.6);
+      border: 1px solid var(--border); border-radius: 16px;
+      padding: 16px; color: var(--text); font-size: 14px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, "Cascadia Mono", monospace;
+      line-height: 1.7;
+      transition: border-color .2s, box-shadow .2s;
+    }
+    .generator textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,102,241,0.18); }
+    .generator textarea::placeholder { color: var(--dim); }
+    .gen-controls {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-top: 20px;
+    }
+    .gen-controls select {
+      background: rgba(2, 6, 23, 0.6); border: 1px solid var(--border); border-radius: 12px;
+      padding: 12px 14px; color: var(--text); font-size: 14px;
+    }
+    .gen-controls .btn { margin-left: auto; min-width: 140px; }
+
+    /* progress */
+    .progress-area { margin-top: 22px; }
+    .progress-bar {
+      height: 6px; border-radius: 999px; background: rgba(255,255,255,0.06);
+      overflow: hidden; margin-bottom: 14px;
+    }
+    .progress-fill {
+      height: 100%; width: 0%; border-radius: 999px;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      box-shadow: 0 0 16px rgba(99,102,241,0.5);
+      transition: width .4s ease;
+    }
+    .progress-area.running .progress-fill { animation: shimmer 1.5s infinite linear; background-size: 200% 100%; }
+    @keyframes shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    .progress-meta {
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 13px; color: var(--muted); margin-bottom: 10px;
+    }
+    .log {
+      background: rgba(2, 6, 23, 0.55); border: 1px solid var(--border); border-radius: 14px;
+      padding: 14px; font-size: 12px; color: var(--muted); font-family: ui-monospace, monospace;
+      max-height: 180px; overflow: auto; white-space: pre-wrap;
+    }
+
+    /* results */
+    .results { padding-top: 50px; }
+    .results-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
+    }
+    .results-grid img {
+      width: 100%; border-radius: 16px; border: 1px solid var(--border); background: var(--surface);
+      box-shadow: var(--shadow); transition: transform .25s, box-shadow .25s;
+    }
+    .results-grid img:hover { transform: translateY(-4px); box-shadow: 0 30px 60px -20px rgba(0,0,0,0.6); }
+    @media (max-width: 760px) { .results-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 480px) { .results-grid { grid-template-columns: 1fr; } }
+
+    /* features */
+    .features { padding: 60px 0 90px; }
+    .feature-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px;
+    }
+    .feature {
+      padding: 26px; border-radius: 20px;
+      background: var(--surface); border: 1px solid var(--border);
+      transition: transform .2s, border-color .2s;
+    }
+    .feature:hover { transform: translateY(-3px); border-color: var(--border-strong); }
+    .feature-icon {
+      width: 40px; height: 40px; border-radius: 12px; margin-bottom: 16px;
+      display: flex; align-items: center; justify-content: center; font-size: 18px;
+      background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(168,85,247,0.12));
+      border: 1px solid rgba(99,102,241,0.2);
+    }
+    .feature h3 { font-size: 16px; font-weight: 700; margin: 0 0 8px; }
+    .feature p { font-size: 14px; color: var(--muted); margin: 0; line-height: 1.55; }
+    @media (max-width: 800px) { .feature-grid { grid-template-columns: 1fr; } }
+
+    /* footer */
+    footer {
+      text-align: center; padding: 50px 0 70px; border-top: 1px solid var(--border);
+      color: var(--dim); font-size: 13px;
+    }
+    footer a { color: var(--muted); text-decoration: none; }
+    footer a:hover { color: var(--text); }
+
+    /* utils */
     .hidden { display: none !important; }
-    footer { font-size: 12px; color: var(--faint); margin-top: 48px; }
+    .error {
+      margin-top: 18px; padding: 14px 18px; border-radius: 14px;
+      background: rgba(248, 113, 113, 0.1); border: 1px solid rgba(248,113,113,0.25);
+      color: var(--danger); font-size: 14px;
+    }
+
+    /* reveal animation */
+    .reveal { opacity: 0; transform: translateY(16px); animation: reveal .8s ease forwards; }
+    .reveal:nth-child(2) { animation-delay: .08s; }
+    .reveal:nth-child(3) { animation-delay: .16s; }
+    @keyframes reveal { to { opacity: 1; transform: translateY(0); } }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <header class="header">
-      <div class="brand">
+  <nav>
+    <div class="wrap nav-inner">
+      <div class="nav-brand">
         <img src="assets/logo.svg" alt="Inkstone" />
-        <div>
-          <h1>Inkstone</h1>
-          <p>novel → comic · free Agnes API</p>
-        </div>
+        <span>Inkstone</span>
       </div>
-      <span id="mode" class="badge">…</span>
-    </header>
-
-    <section class="card">
-      <label for="text">你的小说</label>
-      <textarea id="text" placeholder="第一章 渡口&#10;&#10;江风裹着初秋的凉意……"></textarea>
-      <div class="row">
-        <select id="format">
-          <option value="webtoon">条漫 (webtoon PNG)</option>
-          <option value="page">页漫 (PDF)</option>
-        </select>
-        <button id="go">生成</button>
+      <div class="nav-links">
+        <span id="mode" class="badge">…</span>
+        <a class="github-link" href="https://github.com/phaethix/inkstone" target="_blank" rel="noreferrer">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12Z"/></svg>
+          GitHub
+        </a>
       </div>
-      <p id="hint" class="hint"></p>
-    </section>
-
-    <div id="demoBanner" class="banner hidden">
-      演示模式 · 下方展示一次真实生成的效果。在本地运行 <code>python web/server.py</code> 即可生成你自己的漫画。
     </div>
+  </nav>
 
-    <section id="progressWrap" class="hidden">
-      <div class="progress"><span class="dot"></span><span id="status">生成中…</span></div>
-      <pre id="log"></pre>
-    </section>
+  <header class="hero wrap">
+    <div class="hero-eyebrow reveal">✨ 基于免费 Agnes API 的本地优先开源项目</div>
+    <h1 class="reveal">把小说，变成漫画</h1>
+    <p class="hero-sub reveal">输入一段中文小说，Inkstone 自动抽取角色、规划分镜、生成条漫 / 页漫。无需 GPU，无需付费 Key。</p>
+    <div class="hero-badges reveal">
+      <span>🎨 Agnes 原生</span>
+      <span>🖥️ 无需 GPU</span>
+      <span>🆓 零成本</span>
+      <span>📄 开源 MIT</span>
+    </div>
+    <div class="reveal">
+      <a class="btn" href="#generator">开始生成</a>
+      <a class="btn btn-secondary" href="#demo" style="margin-left:12px;">查看效果</a>
+    </div>
+  </header>
 
-    <section id="errorWrap" class="err hidden"></section>
+  <section class="showcase">
+    <div class="panel-stack reveal">
+      <img src="assets/samples/P01.png" alt="sample panel 1" />
+      <img src="assets/samples/P02.png" alt="sample panel 2" />
+      <img src="assets/samples/P03.png" alt="sample panel 3" />
+    </div>
+  </section>
 
-    <section id="results" class="hidden">
-      <h2>分镜</h2>
-      <div id="panels" class="grid"></div>
+  <section id="demo" class="demo-section wrap">
+    <div class="section-head reveal">
+      <h2>真实生成效果</h2>
+      <p>由示例小说 `examples/scene1.txt` 直接生成，未经人工修图</p>
+    </div>
+    <div class="webtoon-wrap reveal">
+      <img src="assets/samples/webtoon_preview.png" alt="webtoon preview" />
+    </div>
+    <p class="demo-caption">条漫模式 · 7 个分镜 · 角色一致性来自 L1 提示词 + L2 参考图</p>
+  </section>
 
-      <div id="webtoonWrap" class="hidden">
-        <h2>条漫全图</h2>
-        <img id="webtoon" class="webtoon" alt="webtoon" />
+  <section id="generator" class="generator-section">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <h2>生成你的漫画</h2>
+        <p id="modeHint">粘贴小说文本，选择格式，一键生成</p>
       </div>
+      <div class="generator glass reveal">
+        <label for="text">小说文本</label>
+        <textarea id="text" placeholder="第一章 渡口&#10;&#10;江风裹着初秋的凉意，从船舷一侧涌来。沈知意把围巾拢了拢，望向雾里若隐若现的灯塔……"></textarea>
+        <div class="gen-controls">
+          <select id="format">
+            <option value="webtoon">条漫 (webtoon PNG)</option>
+            <option value="page">页漫 (PDF)</option>
+          </select>
+          <button id="go" class="btn">生成漫画</button>
+        </div>
 
-      <div id="pdfWrap" class="hidden">
-        <a id="pdf" class="link" href="#" target="_blank" rel="noreferrer">下载 PDF</a>
+        <div id="progressWrap" class="progress-area hidden">
+          <div class="progress-meta"><span id="status">准备中…</span><span id="pct">0%</span></div>
+          <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
+          <pre id="log" class="log"></pre>
+        </div>
+        <div id="errorWrap" class="error hidden"></div>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <footer>免费 Agnes API · 无需 GPU · 一致性来自 L1 提示词 + L2 参考图。可选的 L3 人脸叠加默认关闭。</footer>
-  </div>
+  <section id="results" class="results wrap hidden">
+    <div class="section-head">
+      <h2>生成结果</h2>
+    </div>
+    <div id="panels" class="results-grid"></div>
+    <div id="webtoonWrap" class="hidden" style="margin-top:30px;">
+      <div class="webtoon-wrap"><img id="webtoon" alt="webtoon" /></div>
+    </div>
+    <div id="pdfWrap" class="hidden" style="text-align:center;margin-top:24px;">
+      <a id="pdf" class="btn btn-secondary" href="#" target="_blank" rel="noreferrer">下载 PDF</a>
+    </div>
+  </section>
+
+  <section class="features wrap">
+    <div class="section-head reveal">
+      <h2>技术亮点</h2>
+      <p>围绕一致性、可靠性、低成本三个核心问题设计</p>
+    </div>
+    <div class="feature-grid">
+      <div class="feature reveal">
+        <div class="feature-icon">📝</div>
+        <h3>L1 提示词硬描述</h3>
+        <p>自动抽取角色外貌、服饰、场景，并把详细描述内嵌到每个分镜 prompt 中，降低对参考图的依赖。</p>
+      </div>
+      <div class="feature reveal">
+        <div class="feature-icon">🖼️</div>
+        <h3>L2 参考图 img2img</h3>
+        <p>先生成角色立绘，再把立绘 + 上一格分镜同时作为 Agnes 多图参考输入，辅助保持身份一致。</p>
+      </div>
+      <div class="feature reveal">
+        <div class="feature-icon">🛡️</div>
+        <h3>可续跑 + 容错</h3>
+        <p>state.json 断点续跑、免费档 503 耐心重试、内容安全跳过，让长小说生成不惧怕网络抖动。</p>
+      </div>
+    </div>
+  </section>
+
+  <footer class="wrap">
+    <p>Inkstone — open-source novel → comic generator · MIT License · <a href="https://github.com/phaethix/inkstone">GitHub</a></p>
+    <p style="margin-top:6px;opacity:.7;">Powered by the free Agnes multimodal API. No GPU, no paid key.</p>
+  </footer>
 
   <script>
     const $ = (id) => document.getElementById(id);
 
-    // Pre-generated samples shown on GitHub Pages (demo mode) — the "effect".
     const DEMO = {
       panels: [
         { id: "P01", url: "assets/samples/P01.png" },
@@ -129,7 +462,14 @@
       pdf: null,
     };
 
-    const DEMO_STEPS = ["分段文本", "抽取角色 / 场景", "规划分镜", "生成分镜图", "排版合成", "导出"];
+    const DEMO_STEPS = [
+      { msg: "分段文本", pct: 10 },
+      { msg: "抽取角色 / 场景", pct: 25 },
+      { msg: "规划分镜", pct: 40 },
+      { msg: "生成分镜图", pct: 70 },
+      { msg: "排版合成", pct: 90 },
+      { msg: "导出", pct: 100 },
+    ];
 
     let mode = "demo";
     let pollTimer = null;
@@ -140,63 +480,77 @@
         if (r.ok) {
           mode = "live";
           const el = $("mode");
-          el.textContent = "本地 · Live";
+          el.textContent = "本地运行";
           el.className = "badge live";
+          $("modeHint").textContent = "已连接本地后端，粘贴小说文本即可生成";
           return;
         }
-      } catch (e) { /* no backend -> demo */ }
+      } catch (e) {}
       mode = "demo";
       const el = $("mode");
-      el.textContent = "演示 · Demo";
+      el.textContent = "演示模式";
       el.className = "badge demo";
-      $("demoBanner").classList.remove("hidden");
-      render(DEMO); // show the effect immediately on the static site
+      $("modeHint").textContent = "演示模式：点击下方按钮即可查看预生成效果；本地运行 `python web/server.py` 可生成自己的漫画";
+    }
+
+    function setProgress(pct, msg) {
+      $("progressFill").style.width = pct + "%";
+      $("pct").textContent = pct + "%";
+      $("status").textContent = msg;
     }
 
     function generate() {
       const text = $("text").value.trim();
-      if (mode === "live" && !text) { setHint("先粘贴一些小说文本。"); return; }
-
-      $("go").disabled = true;
+      if (mode === "live" && !text) {
+        $("errorWrap").textContent = "请先粘贴一段小说文本。";
+        $("errorWrap").classList.remove("hidden");
+        return;
+      }
       $("errorWrap").classList.add("hidden");
-      $("results").classList.add("hidden");
+      $("go").disabled = true;
       $("progressWrap").classList.remove("hidden");
+      $("progressWrap").classList.add("running");
       $("log").textContent = "";
+      setProgress(0, "准备中…");
 
       if (mode === "demo") return demoRun();
       liveRun(text, $("format").value);
     }
 
-    // Demo: simulate the same step streaming, then reveal the baked samples.
     function demoRun() {
       let i = 0;
-      setStatus("生成中…");
-      const t = setInterval(() => {
-        logLine("✓ " + DEMO_STEPS[i]);
+      const tick = () => {
+        const step = DEMO_STEPS[i];
+        logLine("✓ " + step.msg);
+        setProgress(step.pct, step.msg);
         i++;
         if (i >= DEMO_STEPS.length) {
-          clearInterval(t);
-          setStatus("完成");
-          $("progressWrap").classList.add("hidden");
-          render(DEMO);
-          $("go").disabled = false;
+          setTimeout(() => {
+            $("progressWrap").classList.add("hidden");
+            $("progressWrap").classList.remove("running");
+            render(DEMO);
+            $("go").disabled = false;
+          }, 400);
+          return;
         }
-      }, 350);
+        setTimeout(tick, 320);
+      };
+      tick();
     }
 
     async function liveRun(text, format) {
-      setStatus("提交任务…");
-      let res;
       try {
-        res = await fetch("/api/generate", {
+        const res = await fetch("/api/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text, format }),
         });
-      } catch (e) { return fail("网络错误: " + e.message); }
-      const data = await res.json();
-      if (!res.ok) return fail(data.error || ("HTTP " + res.status));
-      poll(data.job_id);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+        poll(data.job_id);
+      } catch (e) {
+        fail(e.message);
+      }
     }
 
     function poll(jobId) {
@@ -207,13 +561,18 @@
         catch (e) { return; }
         $("log").textContent = job.log.join("\n");
         $("log").scrollTop = $("log").scrollHeight;
-        if (job.status === "running") { setStatus("生成中…"); return; }
+
+        // crude progress estimate from log length + status
+        const base = job.status === "done" ? 100 : Math.min(95, 8 + job.log.length * 8);
+        setProgress(base, job.status === "done" ? "完成" : "生成中…");
+
+        if (job.status === "running") return;
         clearInterval(pollTimer);
-        if (job.status === "error") return fail(job.error || "生成失败");
-        setStatus("完成");
         $("progressWrap").classList.add("hidden");
+        $("progressWrap").classList.remove("running");
+        if (job.status === "error") return fail(job.error || "生成失败");
         render(job);
-      }, 2000);
+      }, 1500);
     }
 
     function render(job) {
@@ -225,23 +584,28 @@
         img.src = p.url; img.alt = p.id;
         grid.appendChild(img);
       });
-      if (job.webtoon) { $("webtoon").src = job.webtoon; $("webtoonWrap").classList.remove("hidden"); }
-      if (job.pdf) { $("pdf").href = job.pdf; $("pdfWrap").classList.remove("hidden"); }
+      if (job.webtoon) {
+        $("webtoon").src = job.webtoon;
+        $("webtoonWrap").classList.remove("hidden");
+      }
+      if (job.pdf) {
+        $("pdf").href = job.pdf;
+        $("pdfWrap").classList.remove("hidden");
+      }
       $("go").disabled = false;
       $("results").scrollIntoView({ behavior: "smooth", block: "start" });
     }
 
     function fail(msg) {
       clearInterval(pollTimer);
+      $("progressWrap").classList.add("hidden");
+      $("progressWrap").classList.remove("running");
       $("go").disabled = false;
-      setStatus("错误");
       const e = $("errorWrap");
       e.textContent = msg;
       e.classList.remove("hidden");
     }
 
-    const setStatus = (s) => ($("status").textContent = s);
-    const setHint = (s) => ($("hint").textContent = s);
     const logLine = (s) => { $("log").textContent += s + "\n"; $("log").scrollTop = $("log").scrollHeight; };
 
     $("go").addEventListener("click", generate);
