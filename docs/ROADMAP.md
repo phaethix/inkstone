@@ -71,4 +71,4 @@ Goal: make Inkstone genuinely runnable and reviewable by an outside contributor.
 - [x] One-click launch script (`start.sh` / `start.ps1`) — sets up env, installs deps, runs the demo.
 - [x] Sample-novel demo — runnable `txt` inputs ship in `examples/` (`scene1.txt` + `sample_novel.txt`).
 - [x] README gallery — committed 3 sample panels + a downscaled webtoon under `assets/samples/` and referenced them.
-- [ ] Optional lightweight Web UI: single-file Tailwind SPA (zero build) + zero-dependency stdlib `http.server` backend that runs the pipeline and streams panels.
+- [x] Optional lightweight Web UI: single-file Tailwind SPA (zero build) + zero-dependency stdlib `http.server` backend that runs the pipeline and streams panels.

@@ -27,6 +27,7 @@
 - [Why Inkstone](#why-inkstone)
 - [Quick Start](#quick-start)
 - [Gallery](#gallery)
+- [Web UI](#web-ui)
 - [Configuration](#configuration)
 - [How it works](#how-it-works)
 - [Resources](#resources)
@@ -116,6 +117,19 @@ Generated from the bundled sample (`examples/scene1.txt`) with the default L1+L2
 > Consistency here is "medium" by design — the honest ceiling of a free, no-GPU
 > model. L1 prompt hard-description + L2 reference img2img carry identity; the
 > optional L3 face overlay is off by default because it deforms stylized faces.
+
+## Web UI
+
+A zero-dependency local UI (Tailwind SPA + a `http.server` backend — **no new pip package**) wraps the same pipeline:
+
+```bash
+AGNES_API_KEY=sk-xxx python web/server.py
+# open http://127.0.0.1:8000
+```
+
+Paste a novel, pick webtoon/page, and hit Generate. The backend runs `creative_comic`
+in a background thread and streams progress + panels to the browser (polls every 2s).
+Artifacts land in `comic_out/` (gitignored). The key is read from the environment or `.env`.
 
 ## Configuration
 
