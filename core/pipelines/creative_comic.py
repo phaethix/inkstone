@@ -26,8 +26,9 @@ from core.api import get_chat_provider, get_image_provider
 from core.comic.consistency import ConsistencyEngine
 from core.comic.export import ExportEngine
 from core.comic.layout import LayoutEngine, PanelImage
-from core.comic.segmentation import merge_characters, segment_text
+from core.comic.segmentation import detect_character_aliases, merge_characters, segment_text
 from core.schemas import (
+    CharacterAliasSuggestion,
     ChunkCache,
     GeneratedPanel,
     ProjectState,
@@ -174,6 +175,14 @@ async def creative_comic(
 
         # Merge characters; generate a portrait only for first-seen names.
         state.characters, new_names = merge_characters(state.characters, elements.characters)
+
+        # Surface likely alias variants for human review (never auto-merged, so a
+        # person called by a variant name is not silently forked into a second
+        # character that would fracture cross-chapter consistency).
+        for name, cand, reason in detect_character_aliases(state.characters, new_names):
+            sugg = CharacterAliasSuggestion(new_name=name, candidate=cand, reason=reason)
+            if sugg not in state.needs_review:
+                state.needs_review.append(sugg)
         try:
             for name in new_names:
                 asset = state.characters[name]

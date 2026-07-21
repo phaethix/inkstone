@@ -134,6 +134,56 @@ def test_creative_comic_resume_reuses_chunk_cache(tmp_path):
     assert set(proj.state.panels_done) == {"ch01_p01", "ch02_p01"}
 
 
+class FakeChatAlias(FakeChat):
+    """Second chunk introduces a variant name of the first character."""
+
+    async def chat_function_call(self, messages, tools, tool_choice, **kw):
+        self.calls += 1
+        name = tool_choice["function"]["name"]
+        if name == "extract_story_elements":
+            char = "方鸿渐" if self.calls <= 1 else "鸿渐"
+            return {
+                "characters": [
+                    {"name": char, "l1_prompt": "a person", "portrait_prompt": "portrait"}
+                ],
+                "settings": [{"name": "甲板", "scene_prompt": "deck"}],
+                "style_guide": "manhua",
+            }
+        if name == "plan_storyboard":
+            self.board += 1
+            char = "方鸿渐" if self.board <= 1 else "鸿渐"
+            return {
+                "chapter_id": f"ch{self.board:02d}",
+                "panels": [
+                    {
+                        "panel_id": f"ch{self.board:02d}_p01",
+                        "characters_present": [char],
+                        "setting_ref": "甲板",
+                        "action": "stand",
+                        "reference_characters": [char],
+                        "size": "1024x1024",
+                    }
+                ],
+            }
+        return {}
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_creative_comic_flags_character_alias_for_review(tmp_path):
+    src = "第一章\n方鸿渐在甲板上。\n第二章\n鸿渐在读书。"
+    proj = asyncio.run(
+        creative_comic(src, output_dir=str(tmp_path), chat=FakeChatAlias(), image=FakeImage())
+    )
+
+    # Both names stay as separate characters (no auto-merge / no mis-consistency).
+    assert "方鸿渐" in proj.state.characters
+    assert "鸿渐" in proj.state.characters
+    # The variant is surfaced for human review rather than silently forked.
+    assert len(proj.state.needs_review) == 1
+    sugg = proj.state.needs_review[0]
+    assert sugg.new_name == "鸿渐" and sugg.candidate == "方鸿渐"
+
+
 def test_creative_comic_webtoon_output(tmp_path):
     src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
     chat, img = FakeChat(), FakeImage()

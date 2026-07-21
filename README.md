@@ -86,10 +86,10 @@ Verify the install — the test suite runs fully offline:
 
 ```console
 $ python -m pytest
-64 passed   # validates the ImageProvider/ChatProvider abstractions, schemas, layout/export, consistency, screenwriter, and the full creative_comic orchestration (incl. resume + content-safety skip)
+67 passed   # validates the ImageProvider/ChatProvider abstractions, schemas, layout/export, consistency, screenwriter, and the full creative_comic orchestration (incl. resume + content-safety skip)
 ```
 
-> **Status:** M1 (the `ImageProvider` abstraction foundation) and M2 (the comic-specific pipeline — `creative_comic`, layout/export, long-novel segmentation & resumption, character consistency L1/L2/L3, content-safety skip, and webtoon/page output) have shipped. See [Roadmap](docs/ROADMAP.md).
+> **Status:** M1 (the `ImageProvider` abstraction foundation), M2 (the comic-specific pipeline — `creative_comic`, layout/export, long-novel segmentation & resumption, character consistency L1/L2/L3, content-safety skip, and webtoon/page output), and M3 (long-form + consistency hardening — cross-chapter character reuse, alias detection, and billing-free resume) have shipped. See [Roadmap](docs/ROADMAP.md).
 
 ## Configuration
 

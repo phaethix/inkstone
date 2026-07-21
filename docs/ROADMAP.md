@@ -46,13 +46,20 @@ Goal: assemble text-to-image / image-to-image into a real comic production chain
 
 Verified: `pytest` → 64 passed (1 cv2-dependent test skipped), CI green on Python 3.10–3.12.
 
-## M3 — Long-form + consistency hardening
+## M3 — Long-form + consistency hardening ✅ done
 
-- Long text split by chapter / segment → generate per segment → cross-chapter character assets reused
-  (`CharacterAsset` persisted + optional face embedding).
-- Default consistency strategy **L1 + L2 + L3**; introduce `InsightFace` embedding for precise "which face belongs to which
-  character" matching (avoids L3 mis-overlay).
-- Resumption: checkpoint written to `state.json`; `done_panels` dedup key avoids duplicate generation / billing.
+- [x] Long text split by chapter / segment → generate per segment → cross-chapter character assets reused
+  (`CharacterAsset` persisted in `state.json`; `merge_characters` dedups by exact name so the same portrait is never regenerated).
+- [x] Default consistency strategy **L1 + L2 + L3** wired and exercised end-to-end (prompt hardening / multi-image reference / cv2 Haar face-composite fallback).
+- [x] Cross-chapter alias detection: `detect_character_aliases` flags near-duplicate names (e.g. `方鸿渐` vs `鸿渐`) into
+  `state.needs_review` for human decision — **no auto-merge**, so a variant name is never silently forked into a second character.
+- [x] Resumption: checkpoint in `state.json`; per-chunk `extract`/`storyboard` cached in `chunk_cache` so a resume reuses them
+  and never re-pays the (billable) chat API; `panels_done` dedup key avoids duplicate panel generation / billing.
+- [ ] **Deferred (GPU / optional):** `InsightFace` embedding for precise "which face belongs to which character" matching
+  (avoids L3 mis-overlay) and **L4** multi-round iterative refinement. The whitepaper scopes these as local-GPU-only and out
+  of the default zero-cost path; revisit only if a GPU branch is added.
+
+Verified: `pytest` → 67 passed (1 cv2-dependent test skipped), CI green on Python 3.10–3.12.
 
 ## M4 — Open-source release
 

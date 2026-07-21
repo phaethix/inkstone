@@ -119,6 +119,23 @@ class ChunkCache(BaseModel):
     storyboard: Storyboard | None = None
 
 
+class CharacterAliasSuggestion(BaseModel):
+    """A new character name that likely refers to an already-known character.
+
+    Detected by a cheap heuristic (name-variant / similarity) so the same person
+    called by a variant (e.g. ``方鸿渐`` vs ``鸿渐``) is surfaced for human review
+    rather than silently forked into a second character (which would spawn a
+    duplicate portrait and fracture cross-chapter consistency). Nothing is
+    auto-merged — the human decides.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    new_name: str
+    candidate: str
+    reason: str = ""
+
+
 class ModelSnapshot(BaseModel):
     """Model identifiers captured at project creation (for provenance / resume)."""
 
@@ -172,6 +189,10 @@ class ProjectState(BaseModel):
     # Whole chunks whose text was rejected by the upstream content filter during
     # extraction/storyboard/portrait; recorded so a rerun stays honest about them.
     skipped_chunks: list[str] = Field(default_factory=list)
+    # Cross-chapter character-name variants flagged for human review (no auto-merge).
+    # Populated by the alias detector so a person called by a variant name is not
+    # silently forked into a second character.
+    needs_review: list[CharacterAliasSuggestion] = Field(default_factory=list)
     # Per-chunk cache of extraction + storyboard results so a resume reuses them
     # instead of re-calling the (billable) chat API for already-planned chunks.
     chunk_cache: dict[str, ChunkCache] = Field(default_factory=dict)

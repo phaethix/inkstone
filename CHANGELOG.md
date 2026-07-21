@@ -16,6 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `export` (PDF via `manga2pdf` + pure-PIL webtoon PNG).
 - `core/screenwriter` for structured extraction/storyboard planning with content-safety hygiene.
 - End-to-end example (`examples/generate_comic.py` + `examples/scene1.txt`).
+- M3 long-form + consistency hardening:
+  - Cross-chapter character reuse: `CharacterAsset` persisted in `state.json`; `merge_characters`
+    dedups by exact name so a portrait is never regenerated for a known character.
+  - Alias detection: `detect_character_aliases` flags near-duplicate names (e.g. `方鸿渐` vs `鸿渐`)
+    into `state.needs_review` for human review — no auto-merge, so a variant name is never silently
+    forked into a second character that would fracture consistency.
+  - Billing-free resume: per-chunk `extract`/`storyboard` cached in `ProjectState.chunk_cache`, so a
+    resume reuses them and never re-pays the (billable) chat API; `panels_done` dedup avoids duplicate
+    panel generation. `InsightFace` embedding / L4 iterative refinement remain deferred (GPU-only).
 
 ## [0.1.0] - 2026-07-20
 

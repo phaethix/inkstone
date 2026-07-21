@@ -124,3 +124,70 @@ def merge_characters(
             merged[char.name] = char
             created.append(char.name)
     return merged, created
+
+
+def _normalize_name(name: str) -> str:
+    """Lowercase and drop whitespace + common CJK honorifics for fuzzy compare."""
+    s = name.strip().lower()
+    for suf in (
+        "先生",
+        "小姐",
+        "女士",
+        "太太",
+        "哥",
+        "姐",
+        "弟",
+        "妹",
+        "叔",
+        "姨",
+        "舅",
+        "公",
+        "婆",
+    ):
+        if s.endswith(suf) and len(s) > len(suf):
+            s = s[: -len(suf)]
+    return s
+
+
+def detect_character_aliases(
+    existing: dict[str, CharacterAsset],
+    new_names: list[str],
+    *,
+    threshold: float = 0.8,
+) -> list[tuple[str, str, str]]:
+    """Flag new character names that likely refer to an existing character.
+
+    Uses a cheap, deterministic heuristic (substring on normalized names, or
+    ``difflib`` similarity) so the same person referred to by a variant name
+    (e.g. ``方鸿渐`` vs ``鸿渐``) is surfaced for human review instead of being
+    silently forked into a distinct character — which would spawn a duplicate
+    portrait and fracture cross-chapter consistency. Nothing is auto-merged;
+    callers record the suggestions in ``state.needs_review`` and let a human
+    decide.
+
+    Args:
+        existing: the project's current character table.
+        new_names: names freshly added this chunk (not yet in ``existing``).
+        threshold: ``difflib`` similarity at/above which a name is flagged.
+
+    Returns:
+        A list of ``(new_name, candidate, reason)`` tuples, one per suggestion.
+    """
+    from difflib import SequenceMatcher
+
+    suggestions: list[tuple[str, str, str]] = []
+    existing_norm = {n: _normalize_name(n) for n in existing}
+    for name in new_names:
+        norm = _normalize_name(name)
+        if not norm:
+            continue
+        for exn, exnorm in existing_norm.items():
+            if not exnorm or exn == name:
+                continue
+            if norm == exnorm or norm in exnorm or exnorm in norm:
+                suggestions.append((name, exn, "name variant (normalized/substring match)"))
+                break
+            if SequenceMatcher(None, norm, exnorm).ratio() >= threshold:
+                suggestions.append((name, exn, "similar name (difflib match)"))
+                break
+    return suggestions
