@@ -89,7 +89,18 @@ $ python -m pytest
 67 passed   # validates the ImageProvider/ChatProvider abstractions, schemas, layout/export, consistency, screenwriter, and the full creative_comic orchestration (incl. resume + content-safety skip)
 ```
 
-> **Status:** M1 (the `ImageProvider` abstraction foundation), M2 (the comic-specific pipeline — `creative_comic`, layout/export, long-novel segmentation & resumption, character consistency L1/L2/L3, content-safety skip, and webtoon/page output), and M3 (long-form + consistency hardening — cross-chapter character reuse, alias detection, and billing-free resume) have shipped. See [Roadmap](docs/ROADMAP.md).
+> **Status:** M1 (the `ImageProvider` abstraction foundation), M2 (the comic-specific pipeline — `creative_comic`, layout/export, long-novel segmentation & resumption, character consistency L1/L2/L3, content-safety skip, and webtoon/page output), and M3 (long-form + consistency hardening — cross-chapter character reuse, alias detection, and billing-free resume) have shipped. M4 (open-source release) is in progress — see [Roadmap](docs/ROADMAP.md).
+
+### One-click launch
+
+Prefer a single command? The launcher sets up the environment, installs deps, loads your key from `.env`, and runs the generator:
+
+```bash
+./start.sh                                   # runs examples/scene1.txt -> comic_out (page PDF)
+./start.sh examples/sample_novel.txt --format webtoon
+```
+
+On Windows use `.\start.ps1`. Both reuse an already-active `venv`/`conda` env instead of nesting one. Sample inputs ship in `examples/` (`scene1.txt`, `sample_novel.txt`).
 
 ## Configuration
 

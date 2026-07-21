@@ -68,7 +68,7 @@ Goal: make Inkstone genuinely runnable and reviewable by an outside contributor.
 
 - [x] `comic_out/` added to `.gitignore` (generated artifacts no longer committable by accident).
 - [x] Design docs committed: `whitepaper.md`, `M1-code-review.md`, `M2-design.md`, `hosting-options.md`.
-- [ ] One-click launch script (`start.sh` / `start.ps1`) — sets up env, installs deps, runs the demo.
-- [ ] Sample-novel demo — a runnable `txt` input (default `examples/scene1.txt`) + a second short sample.
+- [x] One-click launch script (`start.sh` / `start.ps1`) — sets up env, installs deps, runs the demo.
+- [x] Sample-novel demo — runnable `txt` inputs ship in `examples/` (`scene1.txt` + `sample_novel.txt`).
 - [ ] README gallery — commit 2–3 sample panels + a downscaled webtoon under `assets/samples/` and reference them.
 - [ ] Optional lightweight Web UI: single-file Tailwind SPA (zero build) + zero-dependency stdlib `http.server` backend that runs the pipeline and streams panels.
