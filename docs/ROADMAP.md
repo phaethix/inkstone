@@ -62,7 +62,7 @@ Verified: `pytest` → 64 passed (1 cv2-dependent test skipped), CI green on Pyt
 
 Verified: `pytest` → 67 passed (1 cv2-dependent test skipped), CI green on Python 3.10–3.12.
 
-## M4 — Open-source release 🚧 in progress
+## M4 — Open-source release ✅ done
 
 Goal: make Inkstone genuinely runnable and reviewable by an outside contributor.
 
