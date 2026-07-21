@@ -26,6 +26,7 @@
 - [Features](#features)
 - [Why Inkstone](#why-inkstone)
 - [Quick Start](#quick-start)
+- [Gallery](#gallery)
 - [Configuration](#configuration)
 - [How it works](#how-it-works)
 - [Resources](#resources)
@@ -101,6 +102,20 @@ Prefer a single command? The launcher sets up the environment, installs deps, lo
 ```
 
 On Windows use `.\start.ps1`. Both reuse an already-active `venv`/`conda` env instead of nesting one. Sample inputs ship in `examples/` (`scene1.txt`, `sample_novel.txt`).
+
+## Gallery
+
+Generated from the bundled sample (`examples/scene1.txt`) with the default L1+L2 pipeline — no L3, straight from the model:
+
+![Panel P01](assets/samples/P01.png) ![Panel P02](assets/samples/P02.png) ![Panel P03](assets/samples/P03.png)
+
+*Full strip (downscaled):*
+
+![Webtoon preview](assets/samples/webtoon_preview.png)
+
+> Consistency here is "medium" by design — the honest ceiling of a free, no-GPU
+> model. L1 prompt hard-description + L2 reference img2img carry identity; the
+> optional L3 face overlay is off by default because it deforms stylized faces.
 
 ## Configuration
 
