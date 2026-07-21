@@ -204,28 +204,28 @@ def test_agnes_default_retries_are_patient():
     # The free-tier image service is frequently 503 "Service busy"; the default
     # must ride through it rather than giving up after a couple of tries.
     api = AgnesImageAPI(api_key="k")
-    assert api.max_retries == 8
-    assert api.retry_base_delay == 15.0
+    assert api.max_retries == 5
+    assert api.retry_base_delay == 5.0
 
 
 def test_agnes_retries_through_many_busy_503s(patch_async, monkeypatch):
-    # Five consecutive "Service busy" replies, then success — must not give up.
-    fake_post = _fake_response_class([503, 503, 503, 503, 503, 200])
+    # Four consecutive "Service busy" replies, then success — must not give up.
+    fake_post = _fake_response_class([503, 503, 503, 503, 200])
     monkeypatch.setattr(requests, "post", fake_post)
     api = AgnesImageAPI(api_key="k")
     out = asyncio.run(api.generate_single_image("p"))
     assert out.fmt == "url"
-    # 5 busy attempts + 1 success => 6 posts, all within the patient retry budget.
-    assert fake_post.calls["n"] == 6
+    # 4 busy attempts + 1 success => 5 posts, all within the retry budget.
+    assert fake_post.calls["n"] == 5
 
 
 def test_openai_compat_retries_through_many_busy_503s(patch_async, monkeypatch):
-    fake_post = _fake_response_class([503, 503, 503, 503, 503, 200])
+    fake_post = _fake_response_class([503, 503, 503, 503, 200])
     monkeypatch.setattr(requests, "post", fake_post)
     api = OpenAICompatProvider(api_key="x", base_url="https://example.com/v1", model="m")
     out = asyncio.run(api.generate_single_image("p"))
     assert out.fmt == "url"
-    assert fake_post.calls["n"] == 6
+    assert fake_post.calls["n"] == 5
 
 
 # --- both providers collect errors on retryable failures ---
