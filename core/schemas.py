@@ -58,7 +58,10 @@ class CharacterAsset(BaseModel):
     # t2i prompt for the character design sheet (portrait).
     portrait_prompt: str = Field(
         default="",
-        description=f"standalone t2i prompt for a character design sheet / reference illustration; {_COMIC_STYLE_HINT}",
+        description=(
+            "standalone t2i prompt for a character design sheet / reference "
+            f"illustration; {_COMIC_STYLE_HINT}"
+        ),
     )
     # Runtime-only: local path of the generated portrait. Filled by the pipeline,
     # never requested from the model, so it is hidden from the tool schema.
@@ -84,7 +87,10 @@ class StoryElements(BaseModel):
     settings: list[Setting] = Field(default_factory=list)
     style_guide: str = Field(
         default="",
-        description=f"concise English art-direction string shared across all panels; default to {_COMIC_STYLE_HINT}",
+        description=(
+            "concise English art-direction string shared across all panels; "
+            f"default to {_COMIC_STYLE_HINT}"
+        ),
     )
 
 
@@ -101,7 +107,10 @@ class Panel(BaseModel):
     # Built from CharacterAsset.l1_prompt + setting.scene_prompt + action + comic style.
     panel_prompt: str = Field(
         default="",
-        description=f"t2i prompt for this panel, assembled from scene + characters + action; {_COMIC_STYLE_HINT}",
+        description=(
+            "t2i prompt for this panel, assembled from scene + characters + "
+            f"action; {_COMIC_STYLE_HINT}"
+        ),
     )
     reference_characters: list[str] = Field(default_factory=list)
     size: str = "1024x1024"

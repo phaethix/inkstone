@@ -23,7 +23,7 @@ from pathlib import Path
 from PIL import Image
 
 from core.api import get_chat_provider, get_image_provider
-from core.comic.consistency import ConsistencyEngine, DEFAULT_PORTRAIT_STYLE
+from core.comic.consistency import DEFAULT_PORTRAIT_STYLE, ConsistencyEngine
 from core.comic.export import ExportEngine
 from core.comic.layout import LayoutEngine, PanelImage
 from core.comic.segmentation import detect_character_aliases, merge_characters, segment_text

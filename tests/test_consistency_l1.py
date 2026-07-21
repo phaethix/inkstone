@@ -8,7 +8,7 @@ Verifies:
 - A per-call style_guide overrides the engine default.
 """
 
-from core.comic.consistency import ConsistencyEngine, DEFAULT_PANEL_STYLE
+from core.comic.consistency import DEFAULT_PANEL_STYLE, ConsistencyEngine
 from core.schemas import CharacterAsset, Setting
 
 
