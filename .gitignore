@@ -221,6 +221,7 @@ __marimo__/
 .agnes_config/
 logs/
 output/
+comic_out/          # generated comic artifacts (panels/portraits/webtoon) — regenerated locally
 state.json
 task_state.json
 panel*.png

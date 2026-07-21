@@ -50,7 +50,8 @@ Verified: `pytest` → 64 passed (1 cv2-dependent test skipped), CI green on Pyt
 
 - [x] Long text split by chapter / segment → generate per segment → cross-chapter character assets reused
   (`CharacterAsset` persisted in `state.json`; `merge_characters` dedups by exact name so the same portrait is never regenerated).
-- [x] Default consistency strategy **L1 + L2 + L3** wired and exercised end-to-end (prompt hardening / multi-image reference / cv2 Haar face-composite fallback).
+- [x] Default consistency strategy **L1 + L2** wired and exercised end-to-end (prompt hardening / multi-image reference).
+  - **L3 (cv2 Haar face overlay) is opt-in and OFF by default** since it deforms stylized faces when pose/lighting differ; enable with `INKSTONE_L3=1`. Verified by regenerating `comic_out` end-to-end with L3 off.
 - [x] Cross-chapter alias detection: `detect_character_aliases` flags near-duplicate names (e.g. `方鸿渐` vs `鸿渐`) into
   `state.needs_review` for human decision — **no auto-merge**, so a variant name is never silently forked into a second character.
 - [x] Resumption: checkpoint in `state.json`; per-chunk `extract`/`storyboard` cached in `chunk_cache` so a resume reuses them
@@ -61,7 +62,13 @@ Verified: `pytest` → 64 passed (1 cv2-dependent test skipped), CI green on Pyt
 
 Verified: `pytest` → 67 passed (1 cv2-dependent test skipped), CI green on Python 3.10–3.12.
 
-## M4 — Open-source release
+## M4 — Open-source release 🚧 in progress
 
-- README / screenshots / sample-novel demo; GitHub Release; one-click launch script.
-- Optional lightweight Web UI (single-file Tailwind SPA, zero build).
+Goal: make Inkstone genuinely runnable and reviewable by an outside contributor.
+
+- [x] `comic_out/` added to `.gitignore` (generated artifacts no longer committable by accident).
+- [x] Design docs committed: `whitepaper.md`, `M1-code-review.md`, `M2-design.md`, `hosting-options.md`.
+- [ ] One-click launch script (`start.sh` / `start.ps1`) — sets up env, installs deps, runs the demo.
+- [ ] Sample-novel demo — a runnable `txt` input (default `examples/scene1.txt`) + a second short sample.
+- [ ] README gallery — commit 2–3 sample panels + a downscaled webtoon under `assets/samples/` and reference them.
+- [ ] Optional lightweight Web UI: single-file Tailwind SPA (zero build) + zero-dependency stdlib `http.server` backend that runs the pipeline and streams panels.
