@@ -22,9 +22,9 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Generator
 
 logger = logging.getLogger(__name__)
 
