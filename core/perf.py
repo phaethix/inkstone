@@ -92,9 +92,7 @@ class PerfCollector:
                 )
             else:
                 pct = rec.elapsed / total * 100 if total else 0
-                lines.append(
-                    f"  {rec.label:<36} {rec.elapsed:8.1f}s ({pct:5.1f}%)"
-                )
+                lines.append(f"  {rec.label:<36} {rec.elapsed:8.1f}s ({pct:5.1f}%)")
 
         lines.append(f"  {'TOTAL':<36} {total:8.1f}s")
         summary = "\n".join(lines)
