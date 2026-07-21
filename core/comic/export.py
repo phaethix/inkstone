@@ -1,16 +1,25 @@
 """core.comic.export — turn composed pages into a final comic PDF.
 
 ``ExportEngine.export_pdf`` wraps a directory of ``page_NN.png`` images into a
-PDF via the external ``manga2pdf`` CLI. The CLI must be installed separately
-(it is not a Python import dependency); only its command line is invoked. The
-vertical webtoon strip is produced by ``LayoutEngine`` (pure PIL), not here.
+PDF. It prefers the external ``manga2pdf`` CLI (nicer two-page / R2L manga
+layout) when that CLI is on ``PATH``, and otherwise falls back to a
+**pure-PIL** multi-page PDF so the ``page`` export works with zero extra
+dependencies. The vertical webtoon strip is produced by ``LayoutEngine``
+(pure PIL), not here.
 """
 
+import shutil
 import subprocess
+from pathlib import Path
+
+try:
+    from PIL import Image
+except ImportError:  # pragma: no cover — Pillow is a hard dependency
+    Image = None
 
 
 class ExportEngine:
-    """Produce a PDF from composed panel images via the manga2pdf CLI."""
+    """Produce a PDF from composed panel images."""
 
     def export_pdf(
         self,
@@ -25,17 +34,32 @@ class ExportEngine:
             page_dir: directory whose ``page_01.png`` ... files define page order.
             out: output PDF path.
             layout: manga2pdf page layout (e.g. ``TwoPageRight`` for flip pages).
-            direction: reading direction (e.g. ``R2L``).
+            direction: reading direction (e.g. ``R2L``); ignored by the PIL fallback.
 
         Returns:
             The output PDF path.
 
         Raises:
-            RuntimeError: if the ``manga2pdf`` CLI exits non-zero.
+            RuntimeError: if no page images are found, or if neither manga2pdf
+                nor Pillow can produce the PDF.
         """
-        page_dir = str(page_dir)
-        cmd = ["manga2pdf", page_dir, "-o", out, "-p", layout, "-d", direction]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            raise RuntimeError(f"manga2pdf failed (exit {result.returncode}): {result.stderr}")
+        page_dir = Path(page_dir)
+        pages = sorted(page_dir.glob("page_*.png")) or sorted(page_dir.glob("*.png"))
+        if not pages:
+            raise RuntimeError(f"no page images found in {page_dir}")
+
+        if shutil.which("manga2pdf"):
+            cmd = ["manga2pdf", str(page_dir), "-o", out, "-p", layout, "-d", direction]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                raise RuntimeError(f"manga2pdf failed (exit {result.returncode}): {result.stderr}")
+            return out
+
+        # Fallback: pure-PIL multi-page PDF — no external CLI required.
+        if Image is None:
+            raise RuntimeError(
+                "manga2pdf CLI not found and Pillow is not installed; cannot export PDF"
+            )
+        imgs = [Image.open(p).convert("RGB") for p in pages]
+        imgs[0].save(out, "PDF", save_all=True, append_images=imgs[1:])
         return out
