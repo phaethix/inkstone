@@ -21,6 +21,8 @@ import os
 import sys
 from pathlib import Path
 
+from tqdm import tqdm
+
 # Allow running as a standalone script from the repo root (python examples/...).
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -31,7 +33,28 @@ _DEFAULT_SCENE = Path(__file__).resolve().parent / "scene1.txt"
 
 async def _run(source: str, out: str, fmt: str) -> None:
     text = Path(source).read_text(encoding="utf-8")
-    proj = await creative_comic(text, output_dir=out, output_format=fmt)
+
+    with tqdm(
+        total=100,
+        unit="%",
+        bar_format="{l_bar}{bar}| {n:3.0f}% [{postfix}]",
+        desc="generating comic",
+    ) as pbar:
+
+        def _on_progress(stage: str, percent: float | None) -> None:
+            pbar.set_postfix(stage=stage)
+            if percent is not None:
+                pbar.n = percent * 100
+                pbar.update(0)
+            pbar.refresh()
+
+        proj = await creative_comic(
+            text,
+            output_dir=out,
+            output_format=fmt,
+            progress_callback=_on_progress,
+        )
+
     print(f"project {proj.project_id}: {len(proj.pages)} page(s)")
     if proj.pdf:
         print(f"  PDF     -> {proj.pdf}")

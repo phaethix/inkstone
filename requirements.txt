@@ -14,6 +14,7 @@ opencv-python-headless>=4.5,<5
 
 # D1 structured contracts (core/schemas.py) — Pydantic models for the three JSON contracts
 pydantic>=2.0.0,<3.0.0
+tqdm>=4.66.0,<5.0.0            # terminal progress bars for examples/generate_comic.py
 
 # —— M2+ to enable (uncomment when needed) ——
 # fastapi>=0.100.0,<1.0.0

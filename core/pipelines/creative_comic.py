@@ -17,6 +17,7 @@ Providers are injected so the pipeline can be exercised without network.
 """
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -106,6 +107,7 @@ async def creative_comic(
     image=None,
     style_guide: str | None = None,
     output_format: str = "page",
+    progress_callback: Callable[[str, float | None], None] | None = None,
 ) -> ComicProject:
     """Generate a comic from ``source_txt`` into ``output_dir``.
 
@@ -117,6 +119,9 @@ async def creative_comic(
         style_guide: optional global style appended to every panel prompt.
         output_format: ``"page"`` for a flip-page PDF (default) or ``"webtoon"``
             for a single vertical strip PNG (no external CLI required).
+        progress_callback: optional ``callback(stage, percent)`` invoked during
+            generation. ``percent`` is ``None`` when the stage has no reliable
+            completion percentage; otherwise it ranges from 0.0 to 1.0.
 
     Returns:
         A ``ComicProject`` with the final state, produced page paths, and PDF.
@@ -126,7 +131,12 @@ async def creative_comic(
     (output_dir / "assets" / "portraits").mkdir(parents=True, exist_ok=True)
     pages_dir = output_dir / "pages"
 
+    def _report(stage: str, percent: float | None = None) -> None:
+        if progress_callback is not None:
+            progress_callback(stage, percent)
+
     project_id = project_id or output_dir.name or "comic"
+    _report("init", 0.0)
     state_path = output_dir / "state.json"
     state = (
         ProjectState.load(state_path)
@@ -141,6 +151,8 @@ async def creative_comic(
     _reconcile_state(state, state_path)
 
     chunks = segment_text(source_txt)
+    total_chunks = len(chunks) or 1
+    _report("segment", 1.0)
     prev_panel_local: str | None = None
 
     for ci, chunk in enumerate(chunks):
@@ -172,6 +184,7 @@ async def creative_comic(
             # Cache so a later resume does not re-pay for extraction.
             state.chunk_cache.setdefault(key, ChunkCache()).elements = elements
             state.save(state_path)
+            _report("extract", 0.05 + 0.20 * (ci + 1) / total_chunks)
 
         # Merge characters; generate a portrait only for first-seen names.
         state.characters, new_names = merge_characters(state.characters, elements.characters)
@@ -199,6 +212,7 @@ async def creative_comic(
                 out.save(str(ppath))
                 asset.portrait_local = str(ppath)
                 state.generated.portraits[name] = str(ppath)
+                _report("portrait", None)
         except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
             if is_content_policy_rejection(exc):
                 logger.warning("chunk %s skipped: content filter rejected portrait (%s)", ci, exc)
@@ -210,6 +224,7 @@ async def creative_comic(
         if key not in state.chunks_done:
             state.chunks_done.append(key)
         state.save(state_path)
+        _report("portrait", 0.30 + 0.10 * (ci + 1) / total_chunks)
 
         # ---- storyboard (only when not cached) ----
         if board is None:
@@ -229,8 +244,10 @@ async def creative_comic(
             # Cache the planned storyboard so resume reuses it (no re-planning call).
             state.chunk_cache.setdefault(key, ChunkCache()).storyboard = board
             state.save(state_path)
+            _report("storyboard", 0.40 + 0.10 * (ci + 1) / total_chunks)
 
         # ---- panels ----
+        _report("panels", 0.50 + 0.10 * ci / total_chunks)
         for panel in board.panels:
             if panel.panel_id in state.panels_done:
                 continue
@@ -270,6 +287,7 @@ async def creative_comic(
 
                 state.generated.panels[panel.panel_id] = GeneratedPanel(local=str(local))
                 prev_panel_local = str(local)
+                _report("panel", None)
             except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
                 if is_content_policy_rejection(exc):
                     logger.warning(
@@ -286,6 +304,7 @@ async def creative_comic(
             state.save(state_path)
 
     state.stage = "layout"
+    _report("layout", 0.90)
     items = sorted(state.generated.panels.items(), key=lambda kv: kv[0])
     panel_imgs = []
     for pid, v in items:
@@ -302,11 +321,14 @@ async def creative_comic(
         if output_format == "webtoon":
             pages = engine_layout.compose(panel_imgs, pages_dir, layout_mode="webtoon")
             state.stage = "export"
+            _report("export", 0.95)
             webtoon = pages[0] if pages else None
         else:
             pages = engine_layout.compose(panel_imgs, pages_dir, layout_mode="page")
             state.stage = "export"
+            _report("export", 0.95)
             pdf = ExportEngine().export_pdf(pages_dir, out=str(output_dir / "comic.pdf"))
 
     state.save(state_path)
+    _report("done", 1.0)
     return ComicProject(project_id=project_id, state=state, pages=pages, pdf=pdf, webtoon=webtoon)
