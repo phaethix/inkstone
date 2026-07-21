@@ -231,4 +231,6 @@ state.json
 task_state.json
 panel*.png
 webtoon*.png
+# Sample webtoon preview used on the GitHub Pages gallery.
+!assets/samples/webtoon_preview.png
 comic*.pdf
