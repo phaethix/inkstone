@@ -29,6 +29,8 @@ class ImageConfig:
     # retry by default (5 attempts, 5s base) instead of giving up quickly.
     image_max_retries: int
     image_retry_base_delay: float
+    image_concurrency: int
+    panel_continuity: bool
 
     def __init__(self) -> None:
         self.provider = _get("PROVIDER", "agnes").lower()
@@ -43,6 +45,13 @@ class ImageConfig:
         self.rate_limit = int(_get("AGNES_RATE_LIMIT", "20"))
         self.image_max_retries = int(_get("AGNES_IMAGE_MAX_RETRIES", "5"))
         self.image_retry_base_delay = float(_get("AGNES_IMAGE_RETRY_BASE_DELAY", "5.0"))
+        self.image_concurrency = max(1, int(_get("INKSTONE_IMAGE_CONCURRENCY", "3")))
+        self.panel_continuity = _get("INKSTONE_PANEL_CONTINUITY", "1").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
 
 
 class ChatConfig:

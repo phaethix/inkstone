@@ -124,6 +124,18 @@ def test_factory_unknown_provider():
         get_image_provider(provider="bogus")
 
 
+def test_openai_compat_factory_does_not_send_agnes_key(monkeypatch):
+    monkeypatch.setenv("AGNES_API_KEY", "agnes-secret")
+    monkeypatch.setenv("PROVIDER", "openai_compat")
+    monkeypatch.setenv("OPENAI_COMPAT_BASE_URL", "https://images.example/v1")
+    monkeypatch.setenv("OPENAI_COMPAT_API_KEY", "compat-secret")
+
+    provider = get_image_provider()
+
+    assert isinstance(provider, OpenAICompatProvider)
+    assert provider.api_key == "compat-secret"
+
+
 def test_image_output_save_url(tmp_path, monkeypatch):
     # Do not really download: stub download_image to verify .save() routing
     import core.api.image_provider as ip

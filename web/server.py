@@ -36,6 +36,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from core.api import get_chat_provider, get_image_provider  # noqa: E402
 from core.pipelines.creative_comic import creative_comic  # noqa: E402
 
 OUTPUT_DIR = ROOT / "comic_out"
@@ -81,6 +82,29 @@ def _file_url(local_path: str) -> str:
     return f"/files/{rel.as_posix()}"
 
 
+def _providers_configured() -> bool:
+    """Validate the selected provider pair without making an upstream request."""
+    try:
+        get_chat_provider()
+        get_image_provider()
+    except (RuntimeError, ValueError):
+        return False
+    return True
+
+
+def _is_within(path: str | Path, root: Path) -> bool:
+    try:
+        Path(path).resolve().relative_to(root.resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def _is_output_file(path: str) -> bool:
+    target = Path(path).resolve()
+    return target.is_file() and _is_within(target, OUTPUT_DIR)
+
+
 def _run_job(job_id: str, text: str, fmt: str, style_guide: str | None) -> None:
     job = JOBS[job_id]
     handler = _JobLogHandler(job)
@@ -97,10 +121,14 @@ def _run_job(job_id: str, text: str, fmt: str, style_guide: str | None) -> None:
                 style_guide=style_guide,
             )
         )
+        ordered_panels = sorted(
+            proj.state.generated.panels.items(),
+            key=lambda item: (item[1].chunk_index, item[1].panel_index),
+        )
         job["panels"] = [
-            {"id": pid, "url": _file_url(v.local)}
-            for pid, v in sorted(proj.state.generated.panels.items())
-            if Path(v.local).exists()
+            {"id": generated.source_panel_id or panel_key, "url": _file_url(generated.local)}
+            for panel_key, generated in ordered_panels
+            if _is_output_file(generated.local)
         ]
         job["webtoon"] = _file_url(proj.webtoon) if proj.webtoon else None
         job["pdf"] = _file_url(proj.pdf) if proj.pdf else None
@@ -176,14 +204,14 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/api/health":
             # Lets the SPA distinguish live (backend present) from demo (static Pages).
-            self._send_json({"ok": True, "key": bool(os.environ.get("AGNES_API_KEY"))})
+            self._send_json({"ok": True, "key": _providers_configured()})
             return
         if self.path.startswith("/assets/"):
             # Serve repo-root assets (logo, sample panels) so the same SPA works
             # both locally and on GitHub Pages with relative paths.
             rel = self.path[len("/assets/") :]
             target = (ROOT / "assets" / rel).resolve()
-            if target.is_file() and str(target).startswith(str((ROOT / "assets").resolve())):
+            if target.is_file() and _is_within(target, ROOT / "assets"):
                 self._send_file(target)
             else:
                 self._send_json({"error": "not found"}, status=404)
@@ -191,7 +219,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/files/"):
             rel = self.path[len("/files/") :]
             target = (OUTPUT_DIR / rel).resolve()
-            if target.is_file() and str(target).startswith(str(OUTPUT_DIR.resolve())):
+            if target.is_file() and _is_within(target, OUTPUT_DIR):
                 self._send_file(target)
             else:
                 self._send_json({"error": "not found"}, status=404)
@@ -233,9 +261,12 @@ class Handler(BaseHTTPRequestHandler):
         if not text:
             self._send_json({"error": "missing 'text'"}, status=400)
             return
-        if not os.environ.get("AGNES_API_KEY"):
+        if not _providers_configured():
             self._send_json(
-                {"error": "AGNES_API_KEY is not set. Export it (or put it in .env) and restart."},
+                {
+                    "error": "Selected provider credentials are incomplete. "
+                    "Check your environment and restart."
+                },
                 status=503,
             )
             return

@@ -15,6 +15,8 @@ Runtime-only fields (populated by the pipeline, not the model) are annotated wit
 ``SkipJsonSchema`` so they never leak into the tool schema shown to the model.
 """
 
+import os
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -167,11 +169,15 @@ class ModelSnapshot(BaseModel):
 
 
 class GeneratedPanel(BaseModel):
-    """A generated panel's on-disk path plus optional source URL (24h expiry)."""
+    """A generated panel and the immutable storyboard position that produced it."""
 
     model_config = ConfigDict(extra="ignore")
 
     local: str
+    chunk_index: int = 0
+    panel_index: int = 0
+    source_panel_id: str = ""
+    dialogue: str | None = None
     url: str | None = None
     expires_at: str | None = None
 
@@ -196,6 +202,7 @@ class ProjectState(BaseModel):
 
     project_id: str
     source_file: str = ""
+    source_fingerprint: str = ""
     created_at: str = Field(default_factory=_now_iso)
     model_snapshot: ModelSnapshot = Field(default_factory=ModelSnapshot)
     stage: Stage = "extract"
@@ -220,10 +227,19 @@ class ProjectState(BaseModel):
     errors: str = "logs/errors.jsonl"
 
     def save(self, path: str | Path) -> None:
-        """Persist state as pretty JSON, creating parent dirs as needed."""
+        """Persist state atomically, so interruption cannot truncate ``state.json``."""
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(self.model_dump_json(indent=2), encoding="utf-8")
+        fd, temp_name = tempfile.mkstemp(prefix=f".{p.name}.", dir=p.parent, text=True)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as temp:
+                temp.write(self.model_dump_json(indent=2))
+                temp.flush()
+                os.fsync(temp.fileno())
+            os.replace(temp_name, p)
+        except Exception:
+            Path(temp_name).unlink(missing_ok=True)
+            raise
 
     @classmethod
     def load(cls, path: str | Path) -> "ProjectState":

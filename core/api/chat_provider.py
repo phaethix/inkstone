@@ -256,12 +256,12 @@ def get_chat_provider(
 
     cfg = ChatConfig()
     provider = (provider or cfg.provider or "agnes").lower()
-    api_key = api_key or cfg.agnes_api_key
 
     if provider == "agnes":
-        if not api_key:
+        key = api_key or cfg.agnes_api_key
+        if not key:
             raise RuntimeError("PROVIDER=agnes but no AGNES_API_KEY found (env or config)")
-        return AgnesChatAPI(api_key=api_key, model=model or cfg.agnes_chat_model)
+        return AgnesChatAPI(api_key=key, model=model or cfg.agnes_chat_model)
 
     if provider in ("openai_compat", "openai-compatible", "openai", "gemini"):
         base_url = base_url or cfg.openai_compat_chat_base_url

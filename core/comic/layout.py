@@ -76,10 +76,17 @@ class LayoutEngine:
         cols = self._cols_for(n)
         rows = ceil(n / cols) if n else 1
         cell_w = self.page_width // cols
-        canvas = Image.new("RGB", (self.page_width, self.cell_height * rows), self.bg)
+        caption_heights = (
+            self._bubble_height(panel.dialogue, int(cell_w * 0.8)) + 40
+            for panel in page_panels
+            if panel.dialogue
+        )
+        required_caption = max(caption_heights, default=0)
+        cell_h = max(self.cell_height, required_caption)
+        canvas = Image.new("RGB", (self.page_width, cell_h * rows), self.bg)
         for idx, panel in enumerate(page_panels):
             r, c = divmod(idx, cols)
-            box = (c * cell_w, r * self.cell_height, (c + 1) * cell_w, (r + 1) * self.cell_height)
+            box = (c * cell_w, r * cell_h, (c + 1) * cell_w, (r + 1) * cell_h)
             self._place_panel(canvas, panel, box)
         return canvas
 
@@ -91,7 +98,8 @@ class LayoutEngine:
         img = panel.image.convert("RGB").resize((cw, ch))
         canvas.paste(img, (x0, y0))
         if panel.dialogue:
-            bw, bh = int(cw * 0.8), int(ch * 0.3)
+            bw = int(cw * 0.8)
+            bh = self._bubble_height(panel.dialogue, bw)
             bx = x0 + (cw - bw) // 2
             by = y1 - bh - 20
             draw = ImageDraw.Draw(canvas)
@@ -109,9 +117,22 @@ class LayoutEngine:
         for panel in panels:
             img = panel.image.convert("RGB")
             h = int(width * img.height / img.width) if img.width else width
-            s = img.resize((width, h))
-            scaled.append(s)
-            total_h += h
+            scaled_panel = img.resize((width, h))
+            if panel.dialogue:
+                bubble_w = int(width * 0.8)
+                bubble_h = self._bubble_height(panel.dialogue, bubble_w)
+                bubble_x = (width - bubble_w) // 2
+                caption_h = bubble_h + 40
+                with_caption = Image.new("RGB", (width, h + caption_h), self.bg)
+                with_caption.paste(scaled_panel, (0, 0))
+                self._draw_bubble(
+                    ImageDraw.Draw(with_caption),
+                    (bubble_x, h + 20, bubble_w, bubble_h),
+                    panel.dialogue,
+                )
+                scaled_panel = with_caption
+            scaled.append(scaled_panel)
+            total_h += scaled_panel.height
         canvas = Image.new("RGB", (width, total_h), self.bg)
         y = 0
         for s in scaled:
@@ -124,6 +145,13 @@ class LayoutEngine:
     # ------------------------------------------------------------------ #
     # Dialogue bubble
     # ------------------------------------------------------------------ #
+    @staticmethod
+    def _bubble_height(text: str, width: int) -> int:
+        font = ImageFont.load_default()
+        lines = LayoutEngine._wrap_text(text, font, width - 20)
+        line_h = int(font.getlength("Ag") * 1.2) or 12
+        return max(50, len(lines) * line_h + 20)
+
     def _draw_bubble(
         self, draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int], text: str
     ) -> None:
@@ -143,13 +171,17 @@ class LayoutEngine:
     @staticmethod
     def _wrap_text(text: str, font: ImageFont.ImageFont, max_width: int) -> list[str]:
         lines: list[str] = []
-        cur = ""
-        for ch in text:
-            if font.getlength(cur + ch) <= max_width:
-                cur += ch
-            else:
+        for paragraph in text.split("\n"):
+            if not paragraph:
+                lines.append("")
+                continue
+            cur = ""
+            for char in paragraph:
+                if font.getlength(cur + char) <= max_width:
+                    cur += char
+                else:
+                    lines.append(cur)
+                    cur = char
+            if cur:
                 lines.append(cur)
-                cur = ch
-        if cur:
-            lines.append(cur)
         return lines or [""]

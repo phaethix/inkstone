@@ -8,6 +8,7 @@ from PIL import Image
 
 from core.api import ChatProvider, ImageProvider
 from core.pipelines.creative_comic import creative_comic
+from core.schemas import ProjectState
 
 
 class FakeImageOutput:
@@ -80,9 +81,13 @@ def test_creative_comic_generates_and_resumes(tmp_path):
     proj = asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=chat, image=img))
 
     # Both chapters produced a panel; portrait generated once for the new char.
-    assert set(proj.state.panels_done) == {"ch01_p01", "ch02_p01"}
+    assert set(proj.state.panels_done) == {"c0000-p0000", "c0001-p0000"}
+    assert {panel.source_panel_id for panel in proj.state.generated.panels.values()} == {
+        "ch01_p01",
+        "ch02_p01",
+    }
     assert "方鸿渐" in proj.state.generated.portraits
-    assert (tmp_path / "assets" / "portraits" / "方鸿渐.png").exists()
+    assert Path(proj.state.generated.portraits["方鸿渐"]).exists()
     assert proj.pdf and Path(proj.pdf).exists()
     assert img.calls == 3  # 1 portrait + 2 panels (char reused on 2nd chunk)
     assert chat.calls == 4  # 2 extract + 2 storyboard
@@ -100,7 +105,8 @@ def test_creative_comic_regenerates_deleted_panel(tmp_path):
     asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage()))
 
     # Delete one finished panel file, then rerun.
-    deleted = tmp_path / "panels" / "ch01_p01.png"
+    state = ProjectState.load(tmp_path / "state.json")
+    deleted = Path(next(iter(state.generated.panels.values())).local)
     assert deleted.exists()
     deleted.unlink()
 
@@ -110,7 +116,7 @@ def test_creative_comic_regenerates_deleted_panel(tmp_path):
     # Exactly the deleted panel is regenerated; the other is skipped (dedup holds).
     assert img2.calls == 1
     assert deleted.exists()
-    assert set(proj.state.panels_done) == {"ch01_p01", "ch02_p01"}
+    assert set(proj.state.panels_done) == {"c0000-p0000", "c0001-p0000"}
 
 
 @patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
@@ -119,7 +125,8 @@ def test_creative_comic_resume_reuses_chunk_cache(tmp_path):
     asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage()))
 
     # Delete one finished panel, then rerun.
-    deleted = tmp_path / "panels" / "ch01_p01.png"
+    state = ProjectState.load(tmp_path / "state.json")
+    deleted = Path(next(iter(state.generated.panels.values())).local)
     assert deleted.exists()
     deleted.unlink()
 
@@ -131,7 +138,7 @@ def test_creative_comic_resume_reuses_chunk_cache(tmp_path):
     assert chat2.calls == 0
     assert img2.calls == 1
     assert deleted.exists()
-    assert set(proj.state.panels_done) == {"ch01_p01", "ch02_p01"}
+    assert set(proj.state.panels_done) == {"c0000-p0000", "c0001-p0000"}
 
 
 class FakeChatAlias(FakeChat):
@@ -196,3 +203,254 @@ def test_creative_comic_webtoon_output(tmp_path):
     assert proj.webtoon and Path(proj.webtoon).exists()
     assert proj.webtoon.endswith("webtoon.png")
     assert proj.pages == [proj.webtoon]
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_changed_source_invalidates_resume_state(tmp_path):
+    asyncio.run(
+        creative_comic(
+            "第一章\n方鸿渐在甲板上。",
+            output_dir=str(tmp_path),
+            chat=FakeChat(),
+            image=FakeImage(),
+        )
+    )
+
+    chat, image = FakeChat(), FakeImage()
+    project = asyncio.run(
+        creative_comic(
+            "第一章\n方鸿渐改在图书馆读书。",
+            output_dir=str(tmp_path),
+            chat=chat,
+            image=image,
+        )
+    )
+
+    assert chat.calls > 0
+    assert image.calls > 0
+    assert project.state.source_fingerprint
+
+
+class UnsafeIdentifierChat(FakeChat):
+    async def chat_function_call(self, messages, tools, tool_choice, **kw):
+        name = tool_choice["function"]["name"]
+        if name == "extract_story_elements":
+            return {
+                "characters": [{"name": "../../escaped-portrait", "portrait_prompt": "portrait"}],
+                "settings": [],
+            }
+        return {
+            "chapter_id": "unsafe",
+            "panels": [
+                {
+                    "panel_id": "../../escaped-panel",
+                    "characters_present": ["../../escaped-portrait"],
+                    "reference_characters": ["../../escaped-portrait"],
+                    "action": "walk",
+                }
+            ],
+        }
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_model_identifiers_cannot_escape_project_directory(tmp_path):
+    escaped_portrait = tmp_path.parent / "escaped-portrait.png"
+    escaped_panel = tmp_path.parent / "escaped-panel.png"
+    try:
+        project = asyncio.run(
+            creative_comic(
+                "第一章\n测试。",
+                output_dir=str(tmp_path),
+                chat=UnsafeIdentifierChat(),
+                image=FakeImage(),
+            )
+        )
+        project_root = tmp_path.resolve()
+        asset_paths = [*project.state.generated.portraits.values()]
+        asset_paths.extend(panel.local for panel in project.state.generated.panels.values())
+        assert all(Path(path).resolve().is_relative_to(project_root) for path in asset_paths)
+        assert not escaped_portrait.exists()
+        assert not escaped_panel.exists()
+    finally:
+        escaped_portrait.unlink(missing_ok=True)
+        escaped_panel.unlink(missing_ok=True)
+
+
+class OrderedDialogueChat(FakeChat):
+    async def chat_function_call(self, messages, tools, tool_choice, **kw):
+        name = tool_choice["function"]["name"]
+        if name == "extract_story_elements":
+            return {
+                "characters": [{"name": "甲", "portrait_prompt": "portrait"}],
+                "settings": [],
+                "style_guide": "ink wash",
+            }
+        return {
+            "chapter_id": "chapter",
+            "panels": [
+                {"panel_id": "z-first", "action": "first", "dialogue": "first dialogue"},
+                {"panel_id": "a-second", "action": "second", "dialogue": "second dialogue"},
+            ],
+        }
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_layout_uses_storyboard_order_and_dialogue(tmp_path, monkeypatch):
+    captured = []
+
+    def capture_compose(self, panels, output_dir, *, layout_mode="page"):
+        captured.extend(panel.dialogue for panel in panels)
+        return []
+
+    monkeypatch.setattr("core.pipelines.creative_comic.LayoutEngine.compose", capture_compose)
+    asyncio.run(
+        creative_comic(
+            "第一章\n测试。",
+            output_dir=str(tmp_path),
+            chat=OrderedDialogueChat(),
+            image=FakeImage(),
+        )
+    )
+
+    assert captured == ["first dialogue", "second dialogue"]
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_legacy_generated_panel_metadata_is_restored_from_storyboard(tmp_path, monkeypatch):
+    asyncio.run(
+        creative_comic(
+            "第一章\n测试。",
+            output_dir=str(tmp_path),
+            chat=OrderedDialogueChat(),
+            image=FakeImage(),
+        )
+    )
+    state_path = tmp_path / "state.json"
+    state = ProjectState.load(state_path)
+    for generated in state.generated.panels.values():
+        generated.chunk_index = 0
+        generated.panel_index = 0
+        generated.dialogue = None
+    state.save(state_path)
+
+    captured = []
+
+    def capture_compose(self, panels, output_dir, *, layout_mode="page"):
+        captured.extend(panel.dialogue for panel in panels)
+        return []
+
+    monkeypatch.setattr("core.pipelines.creative_comic.LayoutEngine.compose", capture_compose)
+    asyncio.run(
+        creative_comic(
+            "第一章\n测试。",
+            output_dir=str(tmp_path),
+            chat=OrderedDialogueChat(),
+            image=FakeImage(),
+        )
+    )
+
+    assert captured == ["first dialogue", "second dialogue"]
+
+
+class ParallelChat(FakeChat):
+    async def chat_function_call(self, messages, tools, tool_choice, **kw):
+        name = tool_choice["function"]["name"]
+        if name == "extract_story_elements":
+            return {
+                "characters": [
+                    {"name": "甲", "portrait_prompt": "portrait"},
+                    {"name": "乙", "portrait_prompt": "portrait"},
+                    {"name": "丙", "portrait_prompt": "portrait"},
+                ],
+                "settings": [],
+            }
+        return {
+            "chapter_id": "parallel",
+            "panels": [
+                {"panel_id": "p1", "action": "one"},
+                {"panel_id": "p2", "action": "two"},
+                {"panel_id": "p3", "action": "three"},
+            ],
+        }
+
+
+class TrackingImage(FakeImage):
+    def __init__(self):
+        super().__init__()
+        self.active = 0
+        self.max_active = 0
+
+    async def generate_single_image(self, prompt, reference_image_paths=None, size=None, **kw):
+        self.active += 1
+        self.max_active = max(self.max_active, self.active)
+        try:
+            await asyncio.sleep(0.02)
+            return FakeImageOutput()
+        finally:
+            self.active -= 1
+
+
+class ReusedPanelIdChat(FakeChat):
+    def __init__(self, panel_id="panel-1"):
+        super().__init__()
+        self.panel_id = panel_id
+
+    async def chat_function_call(self, messages, tools, tool_choice, **kw):
+        name = tool_choice["function"]["name"]
+        if name == "extract_story_elements":
+            return {
+                "characters": [{"name": "甲", "portrait_prompt": "portrait"}],
+                "settings": [],
+            }
+        self.board += 1
+        return {
+            "chapter_id": f"chapter-{self.board}",
+            "panels": [{"panel_id": self.panel_id, "action": f"scene-{self.board}"}],
+        }
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_reused_model_panel_ids_are_isolated_per_chunk(tmp_path):
+    project = asyncio.run(
+        creative_comic(
+            "第一章\n甲散步。\n第二章\n甲回家。",
+            output_dir=str(tmp_path),
+            chat=ReusedPanelIdChat(),
+            image=FakeImage(),
+        )
+    )
+
+    assert len(project.state.generated.panels) == 2
+    assert len(project.state.panels_done) == 2
+    assert len({panel.local for panel in project.state.generated.panels.values()}) == 2
+    source_ids = {panel.source_panel_id for panel in project.state.generated.panels.values()}
+    assert source_ids == {"panel-1"}
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_model_id_cannot_collide_with_internal_panel_key(tmp_path):
+    project = asyncio.run(
+        creative_comic(
+            "第一章\n甲散步。\n第二章\n甲回家。",
+            output_dir=str(tmp_path),
+            chat=ReusedPanelIdChat(panel_id="c0000-p0000"),
+            image=FakeImage(),
+        )
+    )
+
+    assert set(project.state.generated.panels) == {"c0000-p0000", "c0001-p0000"}
+    assert len(project.state.panels_done) == 2
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_independent_image_work_uses_bounded_concurrency(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKSTONE_IMAGE_CONCURRENCY", "3")
+    monkeypatch.setenv("INKSTONE_PANEL_CONTINUITY", "0")
+    image = TrackingImage()
+    asyncio.run(
+        creative_comic(
+            "第一章\n测试。", output_dir=str(tmp_path), chat=ParallelChat(), image=image
+        )
+    )
+
+    assert image.max_active == 3

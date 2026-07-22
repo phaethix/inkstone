@@ -61,23 +61,19 @@ def sanitize_text(
 
 
 def is_content_policy_rejection(exc: Exception) -> bool:
-    """Return True if ``exc`` looks like an upstream content-policy rejection.
+    """Return True only when a provider supplies explicit policy evidence.
 
-    Two shapes are recognized so the orchestration can skip a panel gracefully
-    instead of aborting the whole run:
-
-    - an ``HTTP 400`` (the canonical code Agnes returns for a filtered prompt);
-    - a provider error whose message carries a ``content_policy_violation``-style
-      string (some gateways return ``200`` with an ``error`` body instead).
-
-    Other failures (5xx, 429, network) are *not* treated as content rejections and
-    are allowed to propagate so genuine errors are not silently swallowed.
+    HTTP 400 is intentionally insufficient: providers also use it for invalid
+    request parameters, unsupported tool schemas, and malformed payloads. Those
+    operational failures must remain visible and retryable rather than being
+    persisted as permanently skipped content.
     """
+    evidence = [str(exc)]
     if isinstance(exc, requests.HTTPError):
-        resp = getattr(exc, "response", None)
-        if resp is not None and resp.status_code == 400:
-            return True
-    text = str(exc).lower()
+        response = getattr(exc, "response", None)
+        if response is not None:
+            evidence.append(getattr(response, "text", "") or "")
+    text = " ".join(evidence).lower()
     return any(k in text for k in ("content_policy", "content policy", "policy_violation"))
 
 

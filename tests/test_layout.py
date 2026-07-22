@@ -53,3 +53,53 @@ def test_webtoon_stacks_vertically(tmp_path):
     assert len(paths) == 1
     out = Image.open(paths[0])
     assert out.size == (400, 300)
+
+
+def test_webtoon_renders_dialogue_bubble(tmp_path):
+    eng = LayoutEngine(page_width=400)
+    plain = eng.compose([PanelImage(_img(400, 100))], tmp_path / "plain", layout_mode="webtoon")
+    with_dialogue = eng.compose(
+        [PanelImage(_img(400, 100), dialogue="hello")],
+        tmp_path / "dialogue",
+        layout_mode="webtoon",
+    )
+
+    assert Image.open(plain[0]).tobytes() != Image.open(with_dialogue[0]).tobytes()
+
+
+def test_webtoon_expands_for_long_dialogue(tmp_path):
+    eng = LayoutEngine(page_width=400)
+    text = "很长的对白" * 200
+    paths = eng.compose(
+        [PanelImage(_img(400, 100), dialogue=text)],
+        tmp_path,
+        layout_mode="webtoon",
+    )
+
+    assert Image.open(paths[0]).height > 100
+
+
+def test_page_expands_for_long_dialogue(tmp_path):
+    eng = LayoutEngine(page_width=400, cell_height=100)
+    text = "很长的对白" * 200
+    paths = eng.compose([PanelImage(_img(400, 100), dialogue=text)], tmp_path, layout_mode="page")
+
+    assert Image.open(paths[0]).height > 100
+
+
+def test_explicit_newlines_expand_dialogue_bubble(tmp_path):
+    eng = LayoutEngine(page_width=400, cell_height=100)
+    text = "\n".join(["line"] * 20)
+    page = eng.compose(
+        [PanelImage(_img(400, 100), dialogue=text)],
+        tmp_path / "page",
+        layout_mode="page",
+    )
+    webtoon = eng.compose(
+        [PanelImage(_img(400, 100), dialogue=text)],
+        tmp_path / "webtoon",
+        layout_mode="webtoon",
+    )
+
+    assert Image.open(page[0]).height > 100
+    assert Image.open(webtoon[0]).height > 100
