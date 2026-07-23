@@ -158,7 +158,10 @@ def test_image_output_save_url(tmp_path, monkeypatch):
 # --- retry / backoff behavior ---
 
 
-def test_compute_backoff_exponential_capped_with_jitter():
+def test_compute_backoff_exponential_capped_with_jitter(monkeypatch):
+    # Pin the jitter factor so the exponential-growth assertion is deterministic:
+    # the production code still multiplies by random.uniform, we only fix the value.
+    monkeypatch.setattr("core.api.retry.random.uniform", lambda _a, _b: 0.75)
     vals = [compute_backoff(i, 20.0) for i in range(10)]
     # Every value is positive and clamped to the 120s cap.
     assert all(0 < v <= 120.0 for v in vals)
