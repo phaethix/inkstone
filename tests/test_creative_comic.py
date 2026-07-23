@@ -448,9 +448,7 @@ def test_independent_image_work_uses_bounded_concurrency(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_PANEL_CONTINUITY", "0")
     image = TrackingImage()
     asyncio.run(
-        creative_comic(
-            "第一章\n测试。", output_dir=str(tmp_path), chat=ParallelChat(), image=image
-        )
+        creative_comic("第一章\n测试。", output_dir=str(tmp_path), chat=ParallelChat(), image=image)
     )
 
     assert image.max_active == 3

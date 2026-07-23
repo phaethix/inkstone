@@ -262,11 +262,7 @@ def _ordered_generated_panels(state: ProjectState) -> list[tuple[str, GeneratedP
             generated.dialogue = panel.dialogue
             ordered.append((state_key, generated))
             seen.add(state_key)
-    extras = [
-        item
-        for item in state.generated.panels.items()
-        if item[0] not in seen
-    ]
+    extras = [item for item in state.generated.panels.items() if item[0] not in seen]
     ordered.extend(sorted(extras, key=lambda item: (item[1].chunk_index, item[1].panel_index)))
     return ordered
 
@@ -445,9 +441,7 @@ async def _creative_comic(
         async def _render_portrait(name: str, *, style: str = portrait_style) -> tuple[str, str]:
             asset = state.characters[name]
             prompt = asset.portrait_prompt or asset.l1_prompt
-            comic_style = (
-                f"{style}, {DEFAULT_PORTRAIT_STYLE}" if style else DEFAULT_PORTRAIT_STYLE
-            )
+            comic_style = f"{style}, {DEFAULT_PORTRAIT_STYLE}" if style else DEFAULT_PORTRAIT_STYLE
             async with image_semaphore:
                 with perf.measure("portrait"):
                     out = await image.generate_single_image(
@@ -557,9 +551,7 @@ async def _creative_comic(
                 characters_by_name=state.characters,
                 prev_panel_local=previous,
             )
-            refs = [
-                ref for ref in refs if _is_within(ref, output_dir) and Path(ref).is_file()
-            ]
+            refs = [ref for ref in refs if _is_within(ref, output_dir) and Path(ref).is_file()]
             async with image_semaphore:
                 with perf.measure("panel"):
                     out = await image.generate_single_image(

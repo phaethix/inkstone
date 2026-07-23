@@ -163,9 +163,7 @@ def test_resume_continuity_uses_completed_predecessor(tmp_path, monkeypatch):
     Path(project.state.generated.panels["c0001-p0000"].local).unlink()
 
     image = CapturingImage()
-    asyncio.run(
-        creative_comic(source, output_dir=str(tmp_path), chat=TwoPanelChat(), image=image)
-    )
+    asyncio.run(creative_comic(source, output_dir=str(tmp_path), chat=TwoPanelChat(), image=image))
 
     expected_refs = [
         project.state.generated.portraits["甲"],
