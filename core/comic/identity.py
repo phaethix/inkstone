@@ -191,9 +191,7 @@ def merge_character_alias(
         if board is None:
             continue
         for panel in board.panels:
-            panel.characters_present = _rewrite_names(
-                panel.characters_present, new_name, keep_name
-            )
+            panel.characters_present = _rewrite_names(panel.characters_present, new_name, keep_name)
             panel.reference_characters = _rewrite_names(
                 panel.reference_characters, new_name, keep_name
             )
@@ -224,9 +222,7 @@ def dismiss_character_alias(
 ) -> None:
     """Remove a review suggestion without merging identities."""
     state.needs_review = [
-        s
-        for s in state.needs_review
-        if not (s.new_name == new_name and s.candidate == candidate)
+        s for s in state.needs_review if not (s.new_name == new_name and s.candidate == candidate)
     ]
 
 

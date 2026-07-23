@@ -233,6 +233,7 @@ def _mark_chunk_done_if_complete(
     if key not in state.chunks_done:
         state.chunks_done.append(key)
 
+
 def _reconcile_state(state: ProjectState, state_path: Path, output_dir: Path) -> None:
     """Remove every missing or escaped persisted asset before a resume trusts it."""
     changed = False
@@ -315,7 +316,6 @@ def _ordered_generated_panels(state: ProjectState) -> list[tuple[str, GeneratedP
     extras = [item for item in state.generated.panels.items() if item[0] not in seen]
     ordered.extend(sorted(extras, key=lambda item: (item[1].chunk_index, item[1].panel_index)))
     return ordered
-
 
 
 async def creative_comic(

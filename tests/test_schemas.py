@@ -115,9 +115,7 @@ def test_project_state_round_trip(tmp_path):
         project_id="weicheng-ch01",
         source_file="scene1.txt",
         stage="panels",
-        characters={
-            "方鸿渐": CharacterAsset(name="方鸿渐", l1_prompt="x", aliases=["鸿渐"])
-        },
+        characters={"方鸿渐": CharacterAsset(name="方鸿渐", l1_prompt="x", aliases=["鸿渐"])},
         settings={"甲板": Setting(name="甲板", scene_prompt="deck at dawn")},
         chunks_done=["ch01"],
         panels_done=["ch01_p01", "ch01_p02"],
