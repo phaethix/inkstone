@@ -82,7 +82,11 @@ def _parse_args(argv=None) -> argparse.Namespace:
         default=str(_DEFAULT_SCENE),
         help="path to the source text file (defaults to examples/scene1.txt)",
     )
-    p.add_argument("--out", default=None, help="output directory (default: comic_out or comic_out/<project>)")
+    p.add_argument(
+        "--out",
+        default=None,
+        help="output directory (default: comic_out or comic_out/<project>)",
+    )
     p.add_argument(
         "--project",
         default=None,
