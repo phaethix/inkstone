@@ -85,6 +85,18 @@ def test_factory_unknown_provider():
         get_chat_provider(provider="bogus")
 
 
+def test_openai_compat_chat_factory_does_not_send_agnes_key(monkeypatch):
+    monkeypatch.setenv("AGNES_API_KEY", "agnes-secret")
+    monkeypatch.setenv("PROVIDER", "openai_compat")
+    monkeypatch.setenv("OPENAI_COMPAT_CHAT_BASE_URL", "https://chat.example/v1")
+    monkeypatch.setenv("OPENAI_COMPAT_CHAT_API_KEY", "compat-secret")
+
+    provider = get_chat_provider()
+
+    assert isinstance(provider, OpenAICompatChatProvider)
+    assert provider.api_key == "compat-secret"
+
+
 # --- forced function calling ---
 
 

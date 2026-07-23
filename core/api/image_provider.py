@@ -226,15 +226,15 @@ def get_image_provider(
 
     cfg = ImageConfig()
     provider = (provider or cfg.provider or "agnes").lower()
-    api_key = api_key or cfg.agnes_api_key
 
     if provider == "agnes":
-        if not api_key:
+        key = api_key or cfg.agnes_api_key
+        if not key:
             raise RuntimeError("PROVIDER=agnes but no AGNES_API_KEY found (env or config)")
         from core.api.agnes_image import AgnesImageAPI
 
         return AgnesImageAPI(
-            api_key=api_key,
+            api_key=key,
             model=model or "agnes-image-2.1-flash",
             i2i_model=i2i_model or cfg.agnes_i2i_model,
             max_retries=cfg.image_max_retries,

@@ -140,8 +140,10 @@ def _http_400() -> requests.HTTPError:
     return requests.HTTPError("400 Client Error", response=resp)
 
 
-def test_is_content_policy_rejection_detects_variants():
-    assert is_content_policy_rejection(_http_400()) is True
+def test_is_content_policy_rejection_requires_policy_evidence():
+    # A generic 400 is also used for malformed requests and provider/schema errors;
+    # only explicit provider policy evidence may make work permanently skippable.
+    assert is_content_policy_rejection(_http_400()) is False
     assert is_content_policy_rejection(RuntimeError("content_policy_violation")) is True
     assert is_content_policy_rejection(RuntimeError("content policy rejected")) is True
     # Genuine transient / other failures must NOT be classified as content rejections.
@@ -156,9 +158,9 @@ def test_orchestration_skips_rejected_panel(tmp_path):
     proj = asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=chat, image=img))
 
     # Chapter 1 panel succeeded; chapter 2's panel was skipped, not crash.
-    assert "ch01_p01" in proj.state.panels_done
-    assert "ch02_p01" in proj.state.skipped
-    assert "ch02_p01" not in proj.state.panels_done
+    assert "c0000-p0000" in proj.state.panels_done
+    assert "c0001-p0000" in proj.state.skipped
+    assert "c0001-p0000" not in proj.state.panels_done
     assert img.calls == 3  # portrait + 2 panel attempts (1 rejected but still a call)
     assert proj.pdf and Path(proj.pdf).exists()
 
@@ -170,7 +172,7 @@ def test_orchestration_skips_content_rejected_chunk(tmp_path):
     proj = asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=chat, image=img))
 
     # Chapter 1 fully produced; chapter 2's extraction was rejected -> chunk skip.
-    assert "ch01_p01" in proj.state.panels_done
+    assert "c0000-p0000" in proj.state.panels_done
     assert "1" in proj.state.skipped_chunks  # chunk index of chapter 2
     assert img.calls == 2  # portrait + ch01 panel only (ch02 never generated)
     assert proj.pdf and Path(proj.pdf).exists()
