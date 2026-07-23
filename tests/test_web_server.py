@@ -1,5 +1,13 @@
-"""Web server configuration and artifact-boundary tests."""
+"""Web server configuration, project helpers, and artifact-boundary tests."""
 
+from core.schemas import (
+    CharacterAliasSuggestion,
+    CharacterAsset,
+    ChunkCache,
+    Panel,
+    ProjectState,
+    Storyboard,
+)
 from web import server
 
 
@@ -34,3 +42,56 @@ def test_path_containment_rejects_shared_prefix_sibling(tmp_path):
     sibling.write_bytes(b"not an image")
 
     assert server._is_within(sibling, root) is False
+
+
+def test_validate_project_id_rejects_traversal():
+    try:
+        server.validate_project_id("../evil")
+        raise AssertionError("expected ValueError")
+    except ValueError:
+        pass
+    assert server.validate_project_id("demo_01") == "demo_01"
+
+
+def test_apply_review_merge_marks_stale(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    project_id = "proj1"
+    out = tmp_path / project_id
+    out.mkdir()
+    board = Storyboard(
+        chapter_id="0",
+        panels=[
+            Panel(
+                panel_id="p1",
+                characters_present=["鸿渐"],
+                reference_characters=["鸿渐"],
+                action="stand",
+            )
+        ],
+    )
+    state = ProjectState(
+        project_id=project_id,
+        characters={
+            "方鸿渐": CharacterAsset(name="方鸿渐"),
+            "鸿渐": CharacterAsset(name="鸿渐"),
+        },
+        chunk_cache={"0": ChunkCache(storyboard=board)},
+        panels_done=["c0000-p0000"],
+        needs_review=[
+            CharacterAliasSuggestion(
+                new_name="鸿渐",
+                candidate="方鸿渐",
+                reason="name variant (normalized/substring match)",
+                suggested=True,
+            )
+        ],
+    )
+    state.save(out / "state.json")
+    (out / "source.txt").write_text("第一章\n鸿渐。", encoding="utf-8")
+
+    result = server.apply_review(project_id, "merge", "鸿渐", "方鸿渐")
+    assert "c0000-p0000" in result["stale_panels"]
+    assert result["needs_review"] == []
+    loaded = ProjectState.load(out / "state.json")
+    assert "鸿渐" not in loaded.characters
+    assert "鸿渐" in loaded.characters["方鸿渐"].aliases

@@ -26,6 +26,7 @@ from collections.abc import Iterable
 
 from PIL import Image
 
+from core.comic.identity import ensure_character_l1
 from core.schemas import CharacterAsset, Panel, Setting
 
 logger = logging.getLogger(__name__)
@@ -111,7 +112,12 @@ class ConsistencyEngine:
             chars = [characters]
         else:
             chars = list(characters)
-        l1_parts = [c.l1_prompt for c in chars if getattr(c, "l1_prompt", "")]
+        # Appearance-derived L1 is authoritative when appearance fields exist.
+        l1_parts = []
+        for c in chars:
+            ensure_character_l1(c)
+            if c.l1_prompt:
+                l1_parts.append(c.l1_prompt)
         style = style_guide if style_guide is not None else self.style_guide
 
         # Always enforce a comic art style. A user/style_guide flavor is kept,

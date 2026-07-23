@@ -12,8 +12,11 @@ UI. Start it with your API key in the environment (or ``.env``):
 
 Routes:
     GET  /                        -> serves index.html
-    POST /api/generate            -> body {"text", "format", "style_guide"?} -> {"job_id"}
-    GET  /api/job/<job_id>        -> {"status", "log", "panels", "webtoon", "pdf"}
+    POST /api/generate            -> {text, format?, style_guide?, project_id?}
+                                    -> {job_id, project_id}
+    GET  /api/job/<job_id>        -> job status + panels + review fields
+    POST /api/project/<id>/review -> {action: merge|dismiss, new_name, candidate}
+    POST /api/project/<id>/regen  -> {stale?: true, keys?: [...]} -> {job_id, project_id}
     GET  /files/<path>            -> serves generated artifacts (path-safe)
 
 Generation runs in a background thread (it makes real upstream API calls and
@@ -26,6 +29,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import sys
 import threading
 import uuid
@@ -37,14 +41,21 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from core.api import get_chat_provider, get_image_provider  # noqa: E402
+from core.comic.identity import (  # noqa: E402
+    dismiss_character_alias,
+    force_regen_panels,
+    merge_character_alias,
+)
 from core.pipelines.creative_comic import creative_comic  # noqa: E402
+from core.schemas import ProjectState  # noqa: E402
 
 OUTPUT_DIR = ROOT / "comic_out"
 HOST = os.environ.get("INKSTONE_UI_HOST", "127.0.0.1")
 PORT = int(os.environ.get("INKSTONE_UI_PORT", "8000"))
 
-# In-memory job registry. Each job writes to its own output directory so
-# successive generations do not reuse or overwrite each other's state.
+_PROJECT_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+
+# In-memory job registry. Each job writes under comic_out/<project_id>/.
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = threading.Lock()
 
@@ -105,34 +116,68 @@ def _is_output_file(path: str) -> bool:
     return target.is_file() and _is_within(target, OUTPUT_DIR)
 
 
-def _run_job(job_id: str, text: str, fmt: str, style_guide: str | None) -> None:
+def validate_project_id(project_id: str) -> str:
+    """Return a safe project id or raise ValueError."""
+    if not _PROJECT_ID_RE.match(project_id or ""):
+        raise ValueError("invalid project_id (use 1-64 chars: letters, digits, _-)")
+    return project_id
+
+
+def _project_dir(project_id: str) -> Path:
+    return OUTPUT_DIR / validate_project_id(project_id)
+
+
+def _state_snapshot(state: ProjectState) -> dict:
+    return {
+        "skipped": list(state.skipped),
+        "skipped_chunks": list(state.skipped_chunks),
+        "needs_review": [s.model_dump() for s in state.needs_review],
+        "stale_panels": list(state.stale_panels),
+    }
+
+
+def _fill_job_from_project(job: dict, proj) -> None:
+    ordered_panels = sorted(
+        proj.state.generated.panels.items(),
+        key=lambda item: (item[1].chunk_index, item[1].panel_index),
+    )
+    job["panels"] = [
+        {"id": generated.source_panel_id or panel_key, "url": _file_url(generated.local)}
+        for panel_key, generated in ordered_panels
+        if _is_output_file(generated.local)
+    ]
+    job["webtoon"] = _file_url(proj.webtoon) if proj.webtoon else None
+    job["pdf"] = _file_url(proj.pdf) if proj.pdf else None
+    job.update(_state_snapshot(proj.state))
+    job["project_id"] = proj.project_id
+
+
+def _run_job(
+    job_id: str,
+    text: str,
+    fmt: str,
+    style_guide: str | None,
+    project_id: str,
+    panel_keys: list[str] | None = None,
+) -> None:
     job = JOBS[job_id]
     handler = _JobLogHandler(job)
     handler.setLevel(logging.INFO)
     root = logging.getLogger()
     root.addHandler(handler)
     try:
-        out_dir = OUTPUT_DIR / job_id
+        out_dir = _project_dir(project_id)
         proj = asyncio.run(
             creative_comic(
                 text,
                 output_dir=str(out_dir),
+                project_id=project_id,
                 output_format=fmt,
                 style_guide=style_guide,
+                panel_keys=panel_keys,
             )
         )
-        ordered_panels = sorted(
-            proj.state.generated.panels.items(),
-            key=lambda item: (item[1].chunk_index, item[1].panel_index),
-        )
-        job["panels"] = [
-            {"id": generated.source_panel_id or panel_key, "url": _file_url(generated.local)}
-            for panel_key, generated in ordered_panels
-            if _is_output_file(generated.local)
-        ]
-        job["webtoon"] = _file_url(proj.webtoon) if proj.webtoon else None
-        job["pdf"] = _file_url(proj.pdf) if proj.pdf else None
-        job["skipped"] = list(proj.state.skipped)
+        _fill_job_from_project(job, proj)
         job["status"] = "done"
     except Exception as exc:  # noqa: BLE001 — surface any failure to the UI
         job["status"] = "error"
@@ -142,7 +187,14 @@ def _run_job(job_id: str, text: str, fmt: str, style_guide: str | None) -> None:
         root.removeHandler(handler)
 
 
-def _start_job(text: str, fmt: str, style_guide: str | None) -> str:
+def _start_job(
+    text: str,
+    fmt: str,
+    style_guide: str | None,
+    project_id: str | None = None,
+    panel_keys: list[str] | None = None,
+) -> tuple[str, str]:
+    pid = validate_project_id(project_id) if project_id else uuid.uuid4().hex[:12]
     job_id = uuid.uuid4().hex[:12]
     with JOBS_LOCK:
         JOBS[job_id] = {
@@ -152,10 +204,63 @@ def _start_job(text: str, fmt: str, style_guide: str | None) -> str:
             "webtoon": None,
             "pdf": None,
             "skipped": [],
+            "skipped_chunks": [],
+            "needs_review": [],
+            "stale_panels": [],
+            "project_id": pid,
             "error": None,
         }
-    threading.Thread(target=_run_job, args=(job_id, text, fmt, style_guide), daemon=True).start()
-    return job_id
+    threading.Thread(
+        target=_run_job,
+        args=(job_id, text, fmt, style_guide, pid, panel_keys),
+        daemon=True,
+    ).start()
+    return job_id, pid
+
+
+def _load_project_state(project_id: str) -> tuple[Path, ProjectState]:
+    out_dir = _project_dir(project_id)
+    state_path = out_dir / "state.json"
+    if not state_path.is_file():
+        raise FileNotFoundError(f"no state.json for project {project_id}")
+    return out_dir, ProjectState.load(state_path)
+
+
+def apply_review(project_id: str, action: str, new_name: str, candidate: str) -> dict:
+    """Merge or dismiss an alias suggestion; persist state.json."""
+    out_dir, state = _load_project_state(project_id)
+    if action == "merge":
+        merge_character_alias(state, new_name, candidate)
+    elif action == "dismiss":
+        dismiss_character_alias(state, new_name, candidate)
+    else:
+        raise ValueError("action must be 'merge' or 'dismiss'")
+    state.save(out_dir / "state.json")
+    return _state_snapshot(state)
+
+
+def start_regen_job(
+    project_id: str,
+    *,
+    stale: bool = False,
+    keys: list[str] | None = None,
+    fmt: str = "webtoon",
+    style_guide: str | None = None,
+) -> tuple[str, str]:
+    """Force-regen stale/selected panels and start a background job."""
+    out_dir, state = _load_project_state(project_id)
+    source_path = out_dir / "source.txt"
+    if not source_path.is_file():
+        raise FileNotFoundError("project has no source.txt; regenerate from scratch")
+    text = source_path.read_text(encoding="utf-8")
+    target_keys = list(keys or [])
+    if stale:
+        target_keys = list(dict.fromkeys([*target_keys, *state.stale_panels]))
+    if not target_keys:
+        raise ValueError("no panel keys to regenerate")
+    force_regen_panels(state, target_keys)
+    state.save(out_dir / "state.json")
+    return _start_job(text, fmt, style_guide, project_id=project_id, panel_keys=target_keys)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -198,17 +303,18 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args) -> None:  # quieter default logging
         pass
 
+    def _read_json(self) -> dict:
+        length = int(self.headers.get("Content-Length", "0"))
+        return json.loads(self.rfile.read(length) or b"{}")
+
     def do_GET(self) -> None:
         if self.path == "/" or self.path == "/index.html":
             self._send_file(Path(__file__).resolve().parent / "index.html")
             return
         if self.path == "/api/health":
-            # Lets the SPA distinguish live (backend present) from demo (static Pages).
             self._send_json({"ok": True, "key": _providers_configured()})
             return
         if self.path.startswith("/assets/"):
-            # Serve repo-root assets (logo, sample panels) so the same SPA works
-            # both locally and on GitHub Pages with relative paths.
             rel = self.path[len("/assets/") :]
             target = (ROOT / "assets" / rel).resolve()
             if target.is_file() and _is_within(target, ROOT / "assets"):
@@ -238,7 +344,11 @@ class Handler(BaseHTTPRequestHandler):
                         "panels": job["panels"],
                         "webtoon": job["webtoon"],
                         "pdf": job["pdf"],
-                        "skipped": job["skipped"],
+                        "skipped": job.get("skipped", []),
+                        "skipped_chunks": job.get("skipped_chunks", []),
+                        "needs_review": job.get("needs_review", []),
+                        "stale_panels": job.get("stale_panels", []),
+                        "project_id": job.get("project_id"),
                         "error": job["error"],
                     }
                 )
@@ -246,18 +356,33 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json({"error": "not found"}, status=404)
 
     def do_POST(self) -> None:
-        if self.path != "/api/generate":
-            self._send_json({"error": "not found"}, status=404)
-            return
         try:
-            length = int(self.headers.get("Content-Length", "0"))
-            payload = json.loads(self.rfile.read(length) or b"{}")
-        except (ValueError, json.JSONDecodeError):
+            if self.path == "/api/generate":
+                self._post_generate()
+                return
+            if self.path.startswith("/api/project/") and self.path.endswith("/review"):
+                self._post_review()
+                return
+            if self.path.startswith("/api/project/") and self.path.endswith("/regen"):
+                self._post_regen()
+                return
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, status=400)
+            return
+        except FileNotFoundError as exc:
+            self._send_json({"error": str(exc)}, status=404)
+            return
+        except (json.JSONDecodeError, TypeError):
             self._send_json({"error": "invalid JSON"}, status=400)
             return
+        self._send_json({"error": "not found"}, status=404)
+
+    def _post_generate(self) -> None:
+        payload = self._read_json()
         text = (payload.get("text") or "").strip()
         fmt = payload.get("format", "webtoon")
         style_guide = (payload.get("style_guide") or "").strip() or None
+        project_id = (payload.get("project_id") or "").strip() or None
         if not text:
             self._send_json({"error": "missing 'text'"}, status=400)
             return
@@ -272,8 +397,54 @@ class Handler(BaseHTTPRequestHandler):
             return
         if fmt not in ("page", "webtoon"):
             fmt = "webtoon"
-        job_id = _start_job(text, fmt, style_guide)
-        self._send_json({"job_id": job_id})
+        if project_id:
+            validate_project_id(project_id)
+        job_id, pid = _start_job(text, fmt, style_guide, project_id=project_id)
+        self._send_json({"job_id": job_id, "project_id": pid})
+
+    def _post_review(self) -> None:
+        # /api/project/<id>/review
+        parts = self.path.strip("/").split("/")
+        if len(parts) != 4:
+            self._send_json({"error": "not found"}, status=404)
+            return
+        project_id = parts[2]
+        payload = self._read_json()
+        action = (payload.get("action") or "").strip()
+        new_name = (payload.get("new_name") or "").strip()
+        candidate = (payload.get("candidate") or "").strip()
+        if not new_name or not candidate:
+            self._send_json({"error": "missing new_name/candidate"}, status=400)
+            return
+        result = apply_review(project_id, action, new_name, candidate)
+        self._send_json({"project_id": project_id, **result})
+
+    def _post_regen(self) -> None:
+        parts = self.path.strip("/").split("/")
+        if len(parts) != 4:
+            self._send_json({"error": "not found"}, status=404)
+            return
+        project_id = parts[2]
+        if not _providers_configured():
+            self._send_json({"error": "provider credentials incomplete"}, status=503)
+            return
+        payload = self._read_json()
+        fmt = payload.get("format", "webtoon")
+        if fmt not in ("page", "webtoon"):
+            fmt = "webtoon"
+        style_guide = (payload.get("style_guide") or "").strip() or None
+        keys = payload.get("keys") or []
+        if not isinstance(keys, list):
+            raise ValueError("keys must be a list")
+        stale = bool(payload.get("stale"))
+        job_id, pid = start_regen_job(
+            project_id,
+            stale=stale,
+            keys=[str(k) for k in keys],
+            fmt=fmt,
+            style_guide=style_guide,
+        )
+        self._send_json({"job_id": job_id, "project_id": pid})
 
 
 def main() -> None:

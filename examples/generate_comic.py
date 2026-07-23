@@ -31,7 +31,7 @@ from core.pipelines.creative_comic import creative_comic
 _DEFAULT_SCENE = Path(__file__).resolve().parent / "scene1.txt"
 
 
-async def _run(source: str, out: str, fmt: str) -> None:
+async def _run(source: str, out: str, fmt: str, project_id: str | None = None) -> None:
     text = Path(source).read_text(encoding="utf-8")
 
     with tqdm(
@@ -51,6 +51,7 @@ async def _run(source: str, out: str, fmt: str) -> None:
         proj = await creative_comic(
             text,
             output_dir=out,
+            project_id=project_id,
             output_format=fmt,
             progress_callback=_on_progress,
         )
@@ -64,6 +65,13 @@ async def _run(source: str, out: str, fmt: str) -> None:
         f"  panels  -> {len(proj.state.panels_done)} generated, "
         f"{len(proj.state.skipped)} skipped (content filter)"
     )
+    if proj.state.needs_review:
+        print(f"  review  -> {len(proj.state.needs_review)} alias suggestion(s):")
+        for s in proj.state.needs_review:
+            flag = "suggested" if s.suggested else "review"
+            print(f"    [{flag}] {s.new_name} -> {s.candidate} ({s.reason})")
+    if proj.state.stale_panels:
+        print(f"  stale   -> {len(proj.state.stale_panels)} panel(s) need redraw")
 
 
 def _parse_args(argv=None) -> argparse.Namespace:
@@ -74,7 +82,12 @@ def _parse_args(argv=None) -> argparse.Namespace:
         default=str(_DEFAULT_SCENE),
         help="path to the source text file (defaults to examples/scene1.txt)",
     )
-    p.add_argument("--out", default="comic_out", help="output directory")
+    p.add_argument("--out", default=None, help="output directory (default: comic_out or comic_out/<project>)")
+    p.add_argument(
+        "--project",
+        default=None,
+        help="stable project id; stores under comic_out/<id> for resume unless --out is set",
+    )
     p.add_argument(
         "--format",
         choices=["page", "webtoon"],
@@ -90,7 +103,10 @@ def main() -> None:
         sys.exit("AGNES_API_KEY is not set. Export it (e.g. `export AGNES_API_KEY=sk-xxx`) first.")
     if not Path(args.source).exists():
         sys.exit(f"source file not found: {args.source}")
-    asyncio.run(_run(args.source, args.out, args.format))
+    out = args.out
+    if out is None:
+        out = str(Path("comic_out") / args.project) if args.project else "comic_out"
+    asyncio.run(_run(args.source, out, args.format, project_id=args.project))
 
 
 if __name__ == "__main__":

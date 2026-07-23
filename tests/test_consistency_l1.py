@@ -82,3 +82,18 @@ def test_l1_user_style_is_kept_alongside_default():
     prompt = engine.build_panel_prompt(characters=[], setting=None, action="act")
     assert "vibrant cyberpunk manhua" in prompt
     assert DEFAULT_PANEL_STYLE in prompt
+
+
+def test_l1_derives_from_appearance_when_prompt_empty():
+    from core.schemas import Appearance
+
+    char = CharacterAsset(
+        name="方鸿渐",
+        appearance=Appearance(hair="black short hair", eyewear="round glasses"),
+        l1_prompt="",
+    )
+    engine = ConsistencyEngine()
+    prompt = engine.build_panel_prompt(characters=char, setting=None, action="stands")
+    assert "black short hair" in prompt
+    assert "round glasses" in prompt
+    assert "方鸿渐" in prompt

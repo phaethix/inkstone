@@ -189,9 +189,37 @@ def test_creative_comic_flags_character_alias_for_review(tmp_path):
     assert len(proj.state.needs_review) == 1
     sugg = proj.state.needs_review[0]
     assert sugg.new_name == "鸿渐" and sugg.candidate == "方鸿渐"
+    assert sugg.suggested is True
 
 
-def test_creative_comic_webtoon_output(tmp_path):
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_creative_comic_regenerates_stale_panel(tmp_path):
+    src = "第一章\n方鸿渐在甲板上。"
+    asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage()))
+    state = ProjectState.load(tmp_path / "state.json")
+    key = "c0000-p0000"
+    assert key in state.panels_done
+    from core.comic.identity import force_regen_panels
+
+    force_regen_panels(state, [key])
+    state.save(tmp_path / "state.json")
+
+    chat2, img2 = FakeChat(), FakeImage()
+    proj = asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=chat2, image=img2))
+    assert img2.calls == 1
+    assert key in proj.state.panels_done
+    assert key not in proj.state.stale_panels
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_creative_comic_merges_settings_across_chunks(tmp_path):
+    src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
+    proj = asyncio.run(
+        creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage())
+    )
+    assert "甲板" in proj.state.settings
+    assert proj.state.settings["甲板"].scene_prompt == "deck"
+
     src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
     chat, img = FakeChat(), FakeImage()
     proj = asyncio.run(

@@ -587,6 +587,7 @@
               <option value="page">Paged Comic (PDF)</option>
             </select>
             <input type="text" id="styleGuide" placeholder="Art style override (optional)" />
+            <input type="text" id="projectId" placeholder="project id (optional, resume)" />
             <button id="go" class="btn btn-primary">Generate Comic</button>
           </div>
 
@@ -599,7 +600,19 @@
         </div>
 
         <div id="results" class="results hidden">
-          <div class="section-head" style="margin-top:44px;"><h2 style="font-size:24px;">Results</h2></div>
+          <div class="section-head" style="margin-top:44px;">
+            <h2 style="font-size:24px;">Results</h2>
+            <p id="projectMeta" class="muted" style="color:var(--muted);font-size:13px;"></p>
+          </div>
+          <div id="reviewWrap" class="hidden" style="margin:16px 0;padding:16px;border:1px solid var(--border);border-radius:12px;background:var(--surface);">
+            <h3 style="margin:0 0 8px;font-size:16px;">Character review</h3>
+            <div id="reviewList"></div>
+            <button id="redrawStale" class="btn btn-secondary hidden" style="margin-top:12px;">Redraw affected panels</button>
+          </div>
+          <div id="skippedWrap" class="hidden" style="margin:16px 0;padding:16px;border:1px solid var(--border);border-radius:12px;background:var(--surface);">
+            <h3 style="margin:0 0 8px;font-size:16px;">Skipped</h3>
+            <div id="skippedList"></div>
+          </div>
           <div id="panels" class="results-grid"></div>
           <div id="webtoonWrap" class="hidden strip-cta" style="max-width:none;margin-top:20px;">
             <div class="thumb"><img id="webtoon" alt="webtoon" /></div>
@@ -771,11 +784,17 @@
       tick();
     }
 
+    let currentProjectId = null;
+    let lastFormat = "webtoon";
+
     async function liveRun(text, format) {
       try {
+        lastFormat = format;
         const payload = { text, format };
         const style = $("styleGuide").value.trim();
         if (style) payload.style_guide = style;
+        const pid = $("projectId").value.trim();
+        if (pid) payload.project_id = pid;
         const res = await fetch("/api/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -783,6 +802,8 @@
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+        currentProjectId = data.project_id || null;
+        if (currentProjectId) $("projectId").value = currentProjectId;
         poll(data.job_id);
       } catch (e) {
         fail(e.message);
@@ -803,12 +824,19 @@
         clearInterval(pollTimer);
         $("progressWrap").classList.add("hidden");
         if (job.status === "error") return fail(job.error || "Generation failed");
+        if (job.project_id) {
+          currentProjectId = job.project_id;
+          $("projectId").value = currentProjectId;
+        }
         render(job);
       }, 1500);
     }
 
     function render(job) {
       $("results").classList.remove("hidden");
+      $("projectMeta").textContent = job.project_id
+        ? ("Project: " + job.project_id + " · resume by reusing this id")
+        : "";
       const grid = $("panels");
       grid.innerHTML = "";
       (job.panels || []).forEach((p) => {
@@ -823,13 +851,153 @@
           $("lightboxImg").src = job.webtoon;
           openLightbox();
         };
+      } else {
+        $("webtoonWrap").classList.add("hidden");
       }
       if (job.pdf) {
         $("pdf").href = job.pdf;
         $("pdfWrap").classList.remove("hidden");
+      } else {
+        $("pdfWrap").classList.add("hidden");
       }
+      renderReview(job);
+      renderSkipped(job);
       $("go").disabled = false;
       $("results").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    function renderReview(job) {
+      const wrap = $("reviewWrap");
+      const list = $("reviewList");
+      const redraw = $("redrawStale");
+      list.innerHTML = "";
+      const reviews = job.needs_review || [];
+      const stale = job.stale_panels || [];
+      if (!reviews.length && !stale.length) {
+        wrap.classList.add("hidden");
+        redraw.classList.add("hidden");
+        return;
+      }
+      wrap.classList.remove("hidden");
+      reviews.forEach((s) => {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0;font-size:13px;";
+        const label = document.createElement("span");
+        label.textContent = (s.suggested ? "★ Suggested: " : "") + s.new_name + " → " + s.candidate
+          + (s.reason ? " (" + s.reason + ")" : "");
+        row.appendChild(label);
+        const mergeBtn = document.createElement("button");
+        mergeBtn.className = "btn btn-primary";
+        mergeBtn.textContent = "Merge";
+        mergeBtn.onclick = () => reviewAction("merge", s.new_name, s.candidate);
+        const dismissBtn = document.createElement("button");
+        dismissBtn.className = "btn btn-secondary";
+        dismissBtn.textContent = "Dismiss";
+        dismissBtn.onclick = () => reviewAction("dismiss", s.new_name, s.candidate);
+        row.appendChild(mergeBtn);
+        row.appendChild(dismissBtn);
+        list.appendChild(row);
+      });
+      if (stale.length) {
+        redraw.classList.remove("hidden");
+        redraw.textContent = "Redraw " + stale.length + " affected panel(s)";
+        redraw.onclick = () => regenStale();
+      } else {
+        redraw.classList.add("hidden");
+      }
+    }
+
+    function renderSkipped(job) {
+      const wrap = $("skippedWrap");
+      const list = $("skippedList");
+      list.innerHTML = "";
+      const skipped = job.skipped || [];
+      const chunks = job.skipped_chunks || [];
+      if (!skipped.length && !chunks.length) {
+        wrap.classList.add("hidden");
+        return;
+      }
+      wrap.classList.remove("hidden");
+      skipped.forEach((key) => {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;gap:8px;align-items:center;margin:6px 0;font-size:13px;";
+        row.innerHTML = "<span>panel " + key + "</span>";
+        const btn = document.createElement("button");
+        btn.className = "btn btn-secondary";
+        btn.textContent = "Retry";
+        btn.onclick = () => regenKeys([key]);
+        row.appendChild(btn);
+        list.appendChild(row);
+      });
+      chunks.forEach((key) => {
+        const row = document.createElement("div");
+        row.style.cssText = "margin:6px 0;font-size:13px;color:var(--muted);";
+        row.textContent = "chunk " + key + " skipped (content filter)";
+        list.appendChild(row);
+      });
+    }
+
+    async function reviewAction(action, newName, candidate) {
+      if (!currentProjectId) return fail("No project id");
+      try {
+        const res = await fetch("/api/project/" + currentProjectId + "/review", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action, new_name: newName, candidate }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+        renderReview(data);
+        if ((data.stale_panels || []).length) {
+          $("reviewWrap").classList.remove("hidden");
+        }
+      } catch (e) {
+        fail(e.message);
+      }
+    }
+
+    async function regenStale() {
+      if (!currentProjectId) return fail("No project id");
+      $("go").disabled = true;
+      $("progressWrap").classList.remove("hidden");
+      setProgress(0, "Redrawing…");
+      try {
+        const payload = { stale: true, format: lastFormat };
+        const style = $("styleGuide").value.trim();
+        if (style) payload.style_guide = style;
+        const res = await fetch("/api/project/" + currentProjectId + "/regen", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+        poll(data.job_id);
+      } catch (e) {
+        fail(e.message);
+      }
+    }
+
+    async function regenKeys(keys) {
+      if (!currentProjectId) return fail("No project id");
+      $("go").disabled = true;
+      $("progressWrap").classList.remove("hidden");
+      setProgress(0, "Retrying…");
+      try {
+        const payload = { keys, format: lastFormat };
+        const style = $("styleGuide").value.trim();
+        if (style) payload.style_guide = style;
+        const res = await fetch("/api/project/" + currentProjectId + "/regen", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+        poll(data.job_id);
+      } catch (e) {
+        fail(e.message);
+      }
     }
 
     function fail(msg) {

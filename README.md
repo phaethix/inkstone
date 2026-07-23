@@ -121,9 +121,9 @@ AGNES_API_KEY=sk-xxx python web/server.py
 # open http://127.0.0.1:8000
 ```
 
-Paste a novel, pick webtoon/page, and hit Generate. The backend runs `creative_comic`
-in a background thread and streams progress + panels to the browser (polls every 2s).
-Artifacts land in `comic_out/` (gitignored). The key is read from the environment or `.env`.
+Paste a novel, optionally set a **project id** (resume the same `comic_out/<id>/`), pick webtoon/page, and hit Generate. The backend runs `creative_comic` in a background thread and streams progress + panels to the browser (polls every 1.5s). Artifacts land under `comic_out/<project_id>/`. After generation, the UI surfaces **alias review** (merge / dismiss — never silent), **skipped** panels with retry, and **redraw affected** after a merge.
+
+The key is read from the environment or `.env`.
 
 **The same `web/index.html` is also deployed to GitHub Pages.** The SPA auto-detects
 whether a backend is present: locally it generates your comic; on the static site it
@@ -148,7 +148,7 @@ Inkstone is configured through environment variables (copy `.env.example` → `.
 
 ## How it works
 
-A `txt` novel is split into segments → characters & scenes are extracted with `agnes-2.0-flash` → storyboard prompts are generated → the `ImageProvider` (Agnes by default) paints each panel → panels are laid out and exported to PDF/PNG. The core challenge — **cross-panel character consistency without a GPU** — is handled by a layered strategy (L1 prompt hard-description + L2 reference img2img; an optional L3 PIL/OpenCV face overlay exists but is off by default because it deforms stylized faces), backed by a reliability layer (rate limiting, retries, and `state.json` resumption). Full design, consistency strategy, and risk analysis live in the [whitepaper](docs/whitepaper.md).
+A `txt` novel is split into segments → characters & scenes are extracted with `agnes-2.0-flash` → storyboard prompts are generated → the `ImageProvider` (Agnes by default) paints each panel → panels are laid out and exported to PDF/PNG. The core challenge — **cross-panel character consistency without a GPU** — is handled by a layered strategy (L1 Appearance-derived prompt hard-description + L2 reference img2img; optional L3 face overlay is off by default), backed by a reliability layer (rate limiting, retries, and `state.json` resumption). Alias variants are flagged for **human merge/dismiss** (never silent); merges mark affected panels stale for selective redraw. Full design lives in the [whitepaper](docs/whitepaper.md) and the [product redesign spec](docs/superpowers/specs/2026-07-23-inkstone-product-redesign.md).
 
 ## Resources
 

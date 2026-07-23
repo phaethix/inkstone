@@ -53,7 +53,8 @@ class CharacterAsset(BaseModel):
     name: str
     role: str = ""
     appearance: Appearance = Field(default_factory=Appearance)
-    # English hardened description inlined into every panel prompt.
+    # Hardened description inlined into every panel prompt. Prefer deriving from
+    # ``appearance`` via ``build_l1_from_appearance``; the model may still fill this.
     l1_prompt: str = ""
     # t2i prompt for the character design sheet (portrait).
     portrait_prompt: str = Field(
@@ -63,6 +64,8 @@ class CharacterAsset(BaseModel):
             f"illustration; {_COMIC_STYLE_HINT}"
         ),
     )
+    # Names merged into this identity (alias ledger). Runtime-maintained.
+    aliases: SkipJsonSchema[list[str]] = Field(default_factory=list)
     # Runtime-only: local path of the generated portrait. Filled by the pipeline,
     # never requested from the model, so it is hidden from the tool schema.
     portrait_local: SkipJsonSchema[str | None] = None
@@ -104,14 +107,10 @@ class Panel(BaseModel):
     setting_ref: str = ""
     action: str = ""
     dialogue: str | None = None
-    # Built from CharacterAsset.l1_prompt + setting.scene_prompt + action + comic style.
-    panel_prompt: str = Field(
-        default="",
-        description=(
-            "t2i prompt for this panel, assembled from scene + characters + "
-            f"action; {_COMIC_STYLE_HINT}"
-        ),
-    )
+    # Pipeline-owned prompt text. Hidden from the tool schema so the model does
+    # not invent a competing prompt; ``ConsistencyEngine.build_panel_prompt`` is
+    # the sole authority at render time. Kept for legacy state.json compatibility.
+    panel_prompt: SkipJsonSchema[str] = ""
     reference_characters: list[str] = Field(default_factory=list)
     size: str = "1024x1024"
 
@@ -156,6 +155,9 @@ class CharacterAliasSuggestion(BaseModel):
     new_name: str
     candidate: str
     reason: str = ""
+    # True for high-confidence heuristics (substring / normalized equality).
+    # Never auto-merged — UI may highlight as "suggested one-click merge".
+    suggested: bool = False
 
 
 class ModelSnapshot(BaseModel):
@@ -207,9 +209,13 @@ class ProjectState(BaseModel):
     model_snapshot: ModelSnapshot = Field(default_factory=ModelSnapshot)
     stage: Stage = "extract"
     characters: dict[str, CharacterAsset] = Field(default_factory=dict)
+    # Cross-chunk scene/location registry (exact-name merge).
+    settings: dict[str, Setting] = Field(default_factory=dict)
     chunks_done: list[str] = Field(default_factory=list)
-    # Dedup key set for resume: already-generated panel_ids are skipped on rerun.
+    # Dedup key set for resume: already-generated panel state keys are skipped on rerun.
     panels_done: list[str] = Field(default_factory=list)
+    # Panel state keys that must be redrawn (e.g. after an alias merge).
+    stale_panels: list[str] = Field(default_factory=list)
     # Panels rejected by the upstream content filter; recorded (not regenerated)
     # so a rerun stays honest about what was skipped instead of retrying blindly.
     skipped: list[str] = Field(default_factory=list)

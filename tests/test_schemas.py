@@ -3,9 +3,8 @@
 Verifies the three JSON contracts:
 - StoryElements / CharacterAsset parse the extraction payload (appearance,
   l1_prompt) and reuse-by-name shape.
-- Storyboard / Panel parse the planning payload; panel_prompt carries the hardened
-  character description.
-  and dialogue is optional.
+- Storyboard / Panel parse the planning payload; dialogue is optional.
+  ``panel_prompt`` is runtime-only (ignored for generation; hidden from tools).
 - ProjectState round-trips through save/load and preserves the resume dedup key.
 - to_tool_schema emits a valid function-tool definition and hides runtime-only
   fields (SkipJsonSchema) from the model-facing schema.
@@ -13,8 +12,11 @@ Verifies the three JSON contracts:
 """
 
 from core.schemas import (
+    CharacterAliasSuggestion,
     CharacterAsset,
+    Panel,
     ProjectState,
+    Setting,
     Storyboard,
     StoryElements,
     to_tool_schema,
@@ -91,7 +93,7 @@ def test_storyboard_parses_panels_and_dialogue():
     assert sb.chapter_id == "ch01"
     assert len(sb.panels) == 2
     p1, p2 = sb.panels
-    # panel_prompt carries the hardened character description.
+    # Legacy panel_prompt may still parse from cached JSON but is not tool-facing.
     assert "metal-framed glasses" in p1.panel_prompt
     assert p1.dialogue is None
     assert p2.dialogue == "这海上的日子，倒也清静。"
@@ -105,6 +107,7 @@ def test_character_defaults_and_size_default():
     assert char.role == ""
     assert char.appearance.hair == ""
     assert char.l1_prompt == ""
+    assert char.aliases == []
 
 
 def test_project_state_round_trip(tmp_path):
@@ -112,9 +115,21 @@ def test_project_state_round_trip(tmp_path):
         project_id="weicheng-ch01",
         source_file="scene1.txt",
         stage="panels",
-        characters={"方鸿渐": CharacterAsset(name="方鸿渐", l1_prompt="x")},
+        characters={
+            "方鸿渐": CharacterAsset(name="方鸿渐", l1_prompt="x", aliases=["鸿渐"])
+        },
+        settings={"甲板": Setting(name="甲板", scene_prompt="deck at dawn")},
         chunks_done=["ch01"],
         panels_done=["ch01_p01", "ch01_p02"],
+        stale_panels=["ch01_p02"],
+        needs_review=[
+            CharacterAliasSuggestion(
+                new_name="鸿渐",
+                candidate="方鸿渐",
+                reason="name variant (normalized/substring match)",
+                suggested=True,
+            )
+        ],
     )
     path = tmp_path / "state.json"
     state.save(path)
@@ -126,6 +141,10 @@ def test_project_state_round_trip(tmp_path):
     # Resume dedup key survives the round trip.
     assert loaded.panels_done == ["ch01_p01", "ch01_p02"]
     assert loaded.characters["方鸿渐"].l1_prompt == "x"
+    assert loaded.characters["方鸿渐"].aliases == ["鸿渐"]
+    assert loaded.settings["甲板"].scene_prompt == "deck at dawn"
+    assert loaded.stale_panels == ["ch01_p02"]
+    assert loaded.needs_review[0].suggested is True
 
 
 def test_project_state_save_creates_parent_dirs(tmp_path):
@@ -148,6 +167,11 @@ def test_to_tool_schema_shape_and_hides_runtime_fields():
     char_props = char_tool["function"]["parameters"]["properties"]
     assert "portrait_local" not in char_props
     assert "l1_prompt" in char_props
+
+    # panel_prompt is pipeline-owned — must not be requested from the model.
+    panel_tool = to_tool_schema(Panel, "panel", "one panel")
+    panel_props = panel_tool["function"]["parameters"]["properties"]
+    assert "panel_prompt" not in panel_props
 
 
 def test_unknown_fields_are_ignored():

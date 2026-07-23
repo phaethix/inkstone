@@ -41,16 +41,17 @@ from PIL import Image
 from core.api import get_chat_provider, get_image_provider
 from core.comic.consistency import DEFAULT_PORTRAIT_STYLE, ConsistencyEngine
 from core.comic.export import ExportEngine
+from core.comic.identity import ensure_character_l1, merge_settings, suggestion_from_alias
 from core.comic.layout import LayoutEngine, PanelImage
 from core.comic.segmentation import detect_character_aliases, merge_characters, segment_text
 from core.config import ImageConfig
 from core.perf import PerfCollector
 from core.schemas import (
-    CharacterAliasSuggestion,
     ChunkCache,
     GeneratedPanel,
     ModelSnapshot,
     ProjectState,
+    Setting,
     Storyboard,
     StoryElements,
 )
@@ -185,6 +186,53 @@ def _setting_of(elements: StoryElements, ref: str | None):
     return None
 
 
+def _resolve_setting(
+    state: ProjectState,
+    elements: StoryElements | None,
+    ref: str | None,
+) -> Setting | None:
+    """Prefer the project-level settings registry, then the current chunk."""
+    if not ref:
+        return None
+    if ref in state.settings:
+        return state.settings[ref]
+    if elements is not None:
+        return _setting_of(elements, ref)
+    return None
+
+
+def _panel_needs_generation(state: ProjectState, state_key: str) -> bool:
+    """True when a panel must be (re)generated this run."""
+    if state_key in state.stale_panels:
+        return True
+    if state_key in state.panels_done or state_key in state.skipped:
+        return False
+    return True
+
+
+def _mark_panel_done(state: ProjectState, state_key: str) -> None:
+    if state_key in state.stale_panels:
+        state.stale_panels = [k for k in state.stale_panels if k != state_key]
+    if state_key not in state.panels_done:
+        state.panels_done.append(state_key)
+
+
+def _mark_chunk_done_if_complete(
+    state: ProjectState,
+    key: str,
+    board: Storyboard,
+    chunk_index: int,
+) -> None:
+    """Record chunks_done only after every panel is done or skipped."""
+    for panel_index, _panel in enumerate(board.panels):
+        state_key = _panel_state_key(chunk_index, panel_index)
+        if state_key in state.stale_panels:
+            return
+        if state_key not in state.panels_done and state_key not in state.skipped:
+            return
+    if key not in state.chunks_done:
+        state.chunks_done.append(key)
+
 def _reconcile_state(state: ProjectState, state_path: Path, output_dir: Path) -> None:
     """Remove every missing or escaped persisted asset before a resume trusts it."""
     changed = False
@@ -232,6 +280,8 @@ def _chunk_complete(
     """True when every planned panel is generated, contained, and present on disk."""
     for panel_index, _panel in enumerate(board.panels):
         state_key = _stored_panel_key(state, chunk_index, panel_index)
+        if state_key in state.stale_panels:
+            return False
         rec = state.generated.panels.get(state_key)
         if (
             rec is None
@@ -267,6 +317,7 @@ def _ordered_generated_panels(state: ProjectState) -> list[tuple[str, GeneratedP
     return ordered
 
 
+
 async def creative_comic(
     source_txt: str,
     *,
@@ -277,6 +328,7 @@ async def creative_comic(
     style_guide: str | None = None,
     output_format: str = "page",
     progress_callback: Callable[[str, float | None], None] | None = None,
+    panel_keys: list[str] | None = None,
 ) -> ComicProject:
     """Generate a project while holding its process-level mutation lock."""
     with _project_lock(Path(output_dir)):
@@ -289,6 +341,7 @@ async def creative_comic(
             style_guide=style_guide,
             output_format=output_format,
             progress_callback=progress_callback,
+            panel_keys=panel_keys,
         )
 
 
@@ -302,6 +355,7 @@ async def _creative_comic(
     style_guide: str | None = None,
     output_format: str = "page",
     progress_callback: Callable[[str, float | None], None] | None = None,
+    panel_keys: list[str] | None = None,
 ) -> ComicProject:
     """Generate a comic from ``source_txt`` into ``output_dir``.
 
@@ -316,6 +370,8 @@ async def _creative_comic(
         progress_callback: optional ``callback(stage, percent)`` invoked during
             generation. ``percent`` is ``None`` when the stage has no reliable
             completion percentage; otherwise it ranges from 0.0 to 1.0.
+        panel_keys: when set, only these panel state keys are (re)generated;
+            layout/export still run over the full project.
 
     Returns:
         A ``ComicProject`` with the final state, produced page paths, and PDF.
@@ -324,6 +380,7 @@ async def _creative_comic(
     (output_dir / "panels").mkdir(parents=True, exist_ok=True)
     (output_dir / "assets" / "portraits").mkdir(parents=True, exist_ok=True)
     pages_dir = output_dir / "pages"
+    panel_key_filter = set(panel_keys) if panel_keys is not None else None
 
     perf = PerfCollector()
 
@@ -334,6 +391,11 @@ async def _creative_comic(
     project_id = project_id or output_dir.name or "comic"
     _report("init", 0.0)
     state_path = output_dir / "state.json"
+    # Persist source so Web/CLI regen can resume without re-uploading text.
+    (output_dir / "source.txt").write_text(
+        source_txt.replace("\r\n", "\n").replace("\r", "\n"),
+        encoding="utf-8",
+    )
     image_config = ImageConfig()
     chat = chat or get_chat_provider()
     image = image or get_image_provider()
@@ -370,6 +432,7 @@ async def _creative_comic(
             source_fingerprint=fingerprint,
             model_snapshot=snapshot,
         )
+    state.project_id = project_id
 
     image_semaphore = asyncio.Semaphore(image_config.image_concurrency)
     engine = ConsistencyEngine()
@@ -397,6 +460,7 @@ async def _creative_comic(
             board is not None
             and key in set(state.chunks_done)
             and _chunk_complete(state, board, output_dir, ci)
+            and panel_key_filter is None
         ):
             if image_config.panel_continuity and board.panels:
                 last_index = len(board.panels) - 1
@@ -427,12 +491,13 @@ async def _creative_comic(
 
         # Merge characters; generate a portrait only for first-seen names.
         state.characters, new_names = merge_characters(state.characters, elements.characters)
+        for name in new_names:
+            ensure_character_l1(state.characters[name])
+        state.settings = merge_settings(state.settings, elements.settings)
 
-        # Surface likely alias variants for human review (never auto-merged, so a
-        # person called by a variant name is not silently forked into a second
-        # character that would fracture cross-chapter consistency).
+        # Surface likely alias variants for human review (never auto-merged).
         for name, cand, reason in detect_character_aliases(state.characters, new_names):
-            sugg = CharacterAliasSuggestion(new_name=name, candidate=cand, reason=reason)
+            sugg = suggestion_from_alias(name, cand, reason)
             if sugg not in state.needs_review:
                 state.needs_review.append(sugg)
         effective_style = style_guide or elements.style_guide
@@ -440,6 +505,7 @@ async def _creative_comic(
 
         async def _render_portrait(name: str, *, style: str = portrait_style) -> tuple[str, str]:
             asset = state.characters[name]
+            ensure_character_l1(asset)
             prompt = asset.portrait_prompt or asset.l1_prompt
             comic_style = f"{style}, {DEFAULT_PORTRAIT_STYLE}" if style else DEFAULT_PORTRAIT_STYLE
             async with image_semaphore:
@@ -487,8 +553,6 @@ async def _creative_comic(
                 state.skipped_chunks.append(key)
             state.save(state_path)
             continue
-        if key not in state.chunks_done:
-            state.chunks_done.append(key)
         state.save(state_path)
         _report("portrait", 0.30 + 0.10 * (ci + 1) / total_chunks)
 
@@ -508,7 +572,6 @@ async def _creative_comic(
                     state.save(state_path)
                     continue
                 raise
-            # Cache the planned storyboard so resume reuses it (no re-planning call).
             state.chunk_cache.setdefault(key, ChunkCache()).storyboard = board
             state.save(state_path)
             _report("storyboard", 0.40 + 0.10 * (ci + 1) / total_chunks)
@@ -522,7 +585,9 @@ async def _creative_comic(
                 raise ValueError(f"duplicate panel_id in storyboard: {panel.panel_id!r}")
             seen_ids.add(panel.panel_id)
             state_key = _stored_panel_key(state, ci, panel_index)
-            if state_key not in state.panels_done and state_key not in state.skipped:
+            if panel_key_filter is not None and state_key not in panel_key_filter:
+                continue
+            if _panel_needs_generation(state, state_key):
                 pending.append((state_key, panel_index, panel))
 
         panel_elements = elements
@@ -542,7 +607,7 @@ async def _creative_comic(
             chars = [state.characters[n] for n in panel.characters_present if n in state.characters]
             prompt = engine.build_panel_prompt(
                 characters=chars,
-                setting=_setting_of(elements_for_panel, panel.setting_ref),
+                setting=_resolve_setting(state, elements_for_panel, panel.setting_ref),
                 action=panel.action,
                 style_guide=style_for_panel,
             )
@@ -587,10 +652,13 @@ async def _creative_comic(
         if image_config.panel_continuity:
             for panel_index, panel in enumerate(board.panels):
                 state_key = _stored_panel_key(state, ci, panel_index)
-                if state_key in state.panels_done:
-                    prev_panel_local = state.generated.panels[state_key].local
+                if panel_key_filter is not None and state_key not in panel_key_filter:
+                    if state_key in state.panels_done and state_key in state.generated.panels:
+                        prev_panel_local = state.generated.panels[state_key].local
                     continue
-                if state_key in state.skipped:
+                if not _panel_needs_generation(state, state_key):
+                    if state_key in state.panels_done and state_key in state.generated.panels:
+                        prev_panel_local = state.generated.panels[state_key].local
                     continue
                 try:
                     generated = await _render_panel(state_key, panel_index, panel, prev_panel_local)
@@ -602,10 +670,12 @@ async def _creative_comic(
                     )
                     if state_key not in state.skipped:
                         state.skipped.append(state_key)
+                    if state_key in state.stale_panels:
+                        state.stale_panels = [k for k in state.stale_panels if k != state_key]
                     state.save(state_path)
                     continue
                 state.generated.panels[state_key] = generated
-                state.panels_done.append(state_key)
+                _mark_panel_done(state, state_key)
                 prev_panel_local = generated.local
                 state.save(state_path)
                 _report("panel", None)
@@ -615,7 +685,7 @@ async def _creative_comic(
                 for state_key, panel_index, panel in pending
             )
             rendered = await asyncio.gather(*tasks, return_exceptions=True)
-            operational_error: Exception | None = None
+            operational_error = None
             for (state_key, _panel_index, panel), result in zip(pending, rendered, strict=True):
                 if isinstance(result, Exception):
                     if not is_content_policy_rejection(result):
@@ -626,13 +696,18 @@ async def _creative_comic(
                     )
                     if state_key not in state.skipped:
                         state.skipped.append(state_key)
+                    if state_key in state.stale_panels:
+                        state.stale_panels = [k for k in state.stale_panels if k != state_key]
                     continue
                 state.generated.panels[state_key] = result
-                state.panels_done.append(state_key)
+                _mark_panel_done(state, state_key)
                 _report("panel", None)
             state.save(state_path)
             if operational_error is not None:
                 raise operational_error
+
+        _mark_chunk_done_if_complete(state, key, board, ci)
+        state.save(state_path)
 
     state.stage = "layout"
     _report("layout", 0.90)
