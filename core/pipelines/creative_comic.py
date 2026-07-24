@@ -46,6 +46,7 @@ from core.comic.layout import LayoutEngine, PanelImage
 from core.comic.segmentation import detect_character_aliases, merge_characters, segment_text
 from core.config import ImageConfig
 from core.perf import PerfCollector
+from core.pipelines.cancel import check_cancel
 from core.schemas import (
     ChunkCache,
     GeneratedPanel,
@@ -370,6 +371,7 @@ async def creative_comic(
     output_format: str = "page",
     progress_callback: Callable[[str, float | None], None] | None = None,
     panel_keys: list[str] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
 ) -> ComicProject:
     """Generate a project while holding its process-level mutation lock."""
     with _project_lock(Path(output_dir)):
@@ -383,6 +385,7 @@ async def creative_comic(
             output_format=output_format,
             progress_callback=progress_callback,
             panel_keys=panel_keys,
+            cancel_check=cancel_check,
         )
 
 
@@ -397,6 +400,7 @@ async def _creative_comic(
     output_format: str = "page",
     progress_callback: Callable[[str, float | None], None] | None = None,
     panel_keys: list[str] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
 ) -> ComicProject:
     """Generate a comic from ``source_txt`` into ``output_dir``.
 
@@ -413,6 +417,8 @@ async def _creative_comic(
             completion percentage; otherwise it ranges from 0.0 to 1.0.
         panel_keys: when set, only these panel state keys are (re)generated;
             layout/export still run over the full project.
+        cancel_check: optional callable polled at chunk/panel checkpoints;
+            raises ``PipelineCancelled`` when it returns true.
 
     Returns:
         A ``ComicProject`` with the final state, produced page paths, and PDF.
@@ -492,6 +498,7 @@ async def _creative_comic(
     prev_panel_local: str | None = None
 
     for ci, chunk in enumerate(chunks):
+        check_cancel(cancel_check)
         key = str(ci)
         if key in state.skipped_chunks:
             logger.info("chunk %s skipped: previously rejected by content filter", key)
@@ -700,6 +707,7 @@ async def _creative_comic(
             )
 
         state.stage = "panels"
+        check_cancel(cancel_check)
         if image_config.panel_continuity:
             for panel_index, panel in enumerate(board.panels):
                 state_key = _stored_panel_key(state, ci, panel_index)
@@ -711,6 +719,7 @@ async def _creative_comic(
                     if state_key in state.panels_done and state_key in state.generated.panels:
                         prev_panel_local = state.generated.panels[state_key].local
                     continue
+                check_cancel(cancel_check)
                 try:
                     generated = await _render_panel(state_key, panel_index, panel, prev_panel_local)
                 except Exception as exc:  # noqa: BLE001 — preserve policy skip behavior

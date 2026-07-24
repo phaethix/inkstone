@@ -15,6 +15,7 @@ from dataclasses import dataclass
 
 import requests
 
+from core.pipelines.cancel import PipelineCancelled, check_cancel
 from core.pipelines.creative_comic import ComicProject, creative_comic
 from core.schemas import ProjectState
 
@@ -116,6 +117,7 @@ async def run_until_complete(
     deadline_hours: float | None = None,
     backoff_base: float | None = None,
     backoff_cap: float | None = None,
+    cancel_check: Callable[[], bool] | None = None,
 ) -> ComicProject | PausedRun:
     """Run ``creative_comic`` until success or wall-clock pause.
 
@@ -157,6 +159,17 @@ async def run_until_complete(
                 output_format=output_format,
                 progress_callback=progress_callback,
                 panel_keys=panel_keys,
+                cancel_check=cancel_check,
+            )
+        except PipelineCancelled as exc:
+            elapsed = time.monotonic() - start
+            logger.info("run cancelled by user: %s", exc.reason)
+            return PausedRun(
+                project_id=pid,
+                output_dir=output_dir,
+                reason=exc.reason,
+                state=_load_state(output_dir),
+                elapsed_seconds=elapsed,
             )
         except Exception as exc:
             if not is_transient_error(exc):
@@ -188,5 +201,16 @@ async def run_until_complete(
             )
             if progress_callback is not None:
                 progress_callback("retry", None)
+            try:
+                check_cancel(cancel_check)
+            except PipelineCancelled as cancel_exc:
+                logger.info("run cancelled by user during retry backoff: %s", cancel_exc.reason)
+                return PausedRun(
+                    project_id=pid,
+                    output_dir=output_dir,
+                    reason=cancel_exc.reason,
+                    state=_load_state(output_dir),
+                    elapsed_seconds=time.monotonic() - start,
+                )
             await asyncio.sleep(delay)
             attempt += 1
