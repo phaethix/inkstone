@@ -863,6 +863,8 @@
       try {
         res = await fetch("/api/job/" + saved.job_id);
       } catch (e) {
+        $("progressWrap").classList.add("hidden");
+        $("go").disabled = false;
         return;
       }
       if (!res.ok) {
@@ -1288,7 +1290,6 @@
     function fail(msg) {
       clearInterval(pollTimer);
       stopTimingTick();
-      clearActiveJob();
       setStopVisible(false);
       $("progressWrap").classList.add("hidden");
       $("go").disabled = false;
