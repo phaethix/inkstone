@@ -391,9 +391,16 @@
       transition: width .4s ease;
     }
     .progress-meta {
-      display: flex; justify-content: space-between;
+      display: flex; justify-content: space-between; align-items: center;
+      flex-wrap: wrap; gap: 4px 12px;
       font-size: 12px; color: var(--muted); margin-bottom: 8px;
     }
+    .progress-meta #timing {
+      flex: 1 1 auto;
+      text-align: center;
+      min-width: 140px;
+    }
+    .muted { color: var(--dim); }
     .log {
       background: var(--bg); border: 1px solid var(--border); border-radius: 12px;
       padding: 12px; font-size: 12px; color: var(--muted); font-family: ui-monospace, monospace;
@@ -592,7 +599,11 @@
           </div>
 
           <div id="progressWrap" class="progress-area hidden">
-            <div class="progress-meta"><span id="status">Preparing…</span><span id="pct">0%</span></div>
+            <div class="progress-meta">
+              <span id="status">Preparing…</span>
+              <span id="timing" class="muted">已用 — · 预计还剩 估算中</span>
+              <span id="pct">0%</span>
+            </div>
             <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
             <pre id="log" class="log"></pre>
           </div>
@@ -665,6 +676,54 @@
 
     let mode = "demo";
     let pollTimer = null;
+    let timingTimer = null;
+    let timingElapsed = 0;
+    let timingRemaining = null; // number | null
+    let timingRunning = false;
+
+    function formatDuration(sec) {
+      sec = Math.max(0, Math.floor(Number(sec) || 0));
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      const s = sec % 60;
+      if (h > 0) return h + "h " + m + "m";
+      if (m > 0) return m + "m " + s + "s";
+      return s + "s";
+    }
+
+    function renderTiming() {
+      const el = $("timing");
+      if (!el) return;
+      const left = (timingRemaining == null)
+        ? "估算中"
+        : formatDuration(timingRemaining);
+      el.textContent = "已用 " + formatDuration(timingElapsed) + " · 预计还剩 " + left;
+    }
+
+    function startTimingTick() {
+      stopTimingTick();
+      timingRunning = true;
+      timingTimer = setInterval(() => {
+        if (!timingRunning) return;
+        timingElapsed += 1;
+        if (timingRemaining != null && timingRemaining > 0) {
+          timingRemaining = Math.max(0, timingRemaining - 1);
+        }
+        renderTiming();
+      }, 1000);
+    }
+
+    function stopTimingTick() {
+      timingRunning = false;
+      if (timingTimer) clearInterval(timingTimer);
+      timingTimer = null;
+    }
+
+    function syncTimingFromJob(job) {
+      if (job.elapsed_seconds != null) timingElapsed = Number(job.elapsed_seconds);
+      timingRemaining = (job.remaining_seconds == null) ? null : Number(job.remaining_seconds);
+      renderTiming();
+    }
 
     // tabs with sliding indicator
     function moveSlider(tab) {
@@ -758,6 +817,9 @@
       $("go").disabled = true;
       $("progressWrap").classList.remove("hidden");
       $("log").textContent = "";
+      timingElapsed = 0;
+      timingRemaining = null;
+      renderTiming();
       const existingPid = $("projectId").value.trim();
       if (existingPid) {
         const cur = parseInt(String($("pct").textContent || "0").replace("%", ""), 10);
@@ -830,16 +892,32 @@
             : Math.min(95, 8 + (job.log || []).length * 8);
           const stage = job.stage ? (" · " + job.stage) : "";
           setProgress(pct, "Generating" + stage + "…");
+          syncTimingFromJob(job);
+          if (!timingRunning) startTimingTick();
           return;
         }
         clearInterval(pollTimer);
-        $("progressWrap").classList.add("hidden");
+        syncTimingFromJob(job);
+        stopTimingTick();
         if (job.project_id) {
           currentProjectId = job.project_id;
           $("projectId").value = currentProjectId;
         }
-        if (job.status === "error") return fail(job.error || "Generation failed");
+        if (job.status === "error") {
+          const pct = (job.progress != null)
+            ? Math.max(0, Math.min(99, Math.round(Number(job.progress) * 100)))
+            : 0;
+          setProgress(pct, "Error");
+          $("go").disabled = false;
+          $("errorWrap").textContent = job.error || "Generation failed";
+          $("errorWrap").classList.remove("hidden");
+          return;
+        }
         if (job.status === "paused") {
+          const pct = (job.progress != null)
+            ? Math.max(0, Math.min(99, Math.round(Number(job.progress) * 100)))
+            : 0;
+          setProgress(pct, "Paused");
           render(job);
           const msg = job.pause_reason
             || "Paused after the time limit; progress is saved. Click Generate again with the same project id to continue.";
@@ -983,6 +1061,9 @@
       if (!currentProjectId) return fail("No project id");
       $("go").disabled = true;
       $("progressWrap").classList.remove("hidden");
+      timingElapsed = 0;
+      timingRemaining = null;
+      renderTiming();
       setProgress(0, "Redrawing…");
       try {
         const payload = { stale: true, format: lastFormat };
@@ -1005,6 +1086,9 @@
       if (!currentProjectId) return fail("No project id");
       $("go").disabled = true;
       $("progressWrap").classList.remove("hidden");
+      timingElapsed = 0;
+      timingRemaining = null;
+      renderTiming();
       setProgress(0, "Retrying…");
       try {
         const payload = { keys, format: lastFormat };
@@ -1025,6 +1109,7 @@
 
     function fail(msg) {
       clearInterval(pollTimer);
+      stopTimingTick();
       $("progressWrap").classList.add("hidden");
       $("go").disabled = false;
       const e = $("errorWrap");

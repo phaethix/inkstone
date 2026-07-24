@@ -115,3 +115,55 @@ def test_seed_job_progress_from_checkpoint(tmp_path, monkeypatch):
     progress, stage = server._seed_job_progress(project_id)
     assert stage == "resume"
     assert progress > 0.3
+
+
+def test_seed_job_timing_from_checkpoint(tmp_path, monkeypatch):
+    import web.server as server
+    from core.schemas import ProjectState
+
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    project_id = "timing01"
+    (tmp_path / project_id).mkdir()
+    state = ProjectState(project_id=project_id, active_elapsed_seconds=3600.0)
+    state.save(tmp_path / project_id / "state.json")
+    assert server._seed_job_timing(project_id) == 3600.0
+
+
+def test_job_elapsed_adds_session(monkeypatch):
+
+    import web.server as server
+
+    fixed = {"t": 1000.0}
+    monkeypatch.setattr(server.time, "monotonic", lambda: fixed["t"])
+    job = {"base_elapsed": 100.0, "session_started_at": 1000.0, "status": "running"}
+    assert server._job_elapsed(job) == 100.0
+    fixed["t"] = 1005.0
+    assert server._job_elapsed(job) == 105.0
+
+
+def test_refresh_job_timing_sets_remaining(monkeypatch):
+    import web.server as server
+
+    monkeypatch.setattr(server.time, "monotonic", lambda: 1100.0)
+    job = {
+        "base_elapsed": 100.0,
+        "session_started_at": 1000.0,
+        "progress": 0.25,
+        "status": "running",
+    }
+    server._refresh_job_timing(job)
+    assert job["elapsed_seconds"] == 200.0
+    assert job["remaining_seconds"] == 600.0
+
+
+def test_persist_active_elapsed(tmp_path, monkeypatch):
+    import web.server as server
+    from core.schemas import ProjectState
+
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    project_id = "timing02"
+    (tmp_path / project_id).mkdir()
+    ProjectState(project_id=project_id).save(tmp_path / project_id / "state.json")
+    server._persist_active_elapsed(project_id, 42.0)
+    loaded = ProjectState.load(tmp_path / project_id / "state.json")
+    assert loaded.active_elapsed_seconds == 42.0

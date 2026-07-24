@@ -172,6 +172,18 @@ def test_to_tool_schema_shape_and_hides_runtime_fields():
     assert "panel_prompt" not in panel_props
 
 
+def test_active_elapsed_seconds_default_and_roundtrip(tmp_path):
+    from core.schemas import ProjectState
+
+    state = ProjectState(project_id="t1")
+    assert state.active_elapsed_seconds == 0.0
+    path = tmp_path / "state.json"
+    state.active_elapsed_seconds = 125.5
+    state.save(path)
+    loaded = ProjectState.load(path)
+    assert loaded.active_elapsed_seconds == 125.5
+
+
 def test_unknown_fields_are_ignored():
     payload = dict(STORY_ELEMENTS_PAYLOAD)
     payload["unexpected_top_level"] = "whatever"

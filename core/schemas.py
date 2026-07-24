@@ -231,6 +231,7 @@ class ProjectState(BaseModel):
     chunk_cache: dict[str, ChunkCache] = Field(default_factory=dict)
     generated: GeneratedAssets = Field(default_factory=GeneratedAssets)
     errors: str = "logs/errors.jsonl"
+    active_elapsed_seconds: float = 0.0
 
     def save(self, path: str | Path) -> None:
         """Persist state atomically, so interruption cannot truncate ``state.json``."""

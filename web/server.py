@@ -32,6 +32,7 @@ import os
 import re
 import sys
 import threading
+import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -48,7 +49,10 @@ from core.comic.identity import (  # noqa: E402
 )
 from core.pipelines.creative_comic import estimate_progress  # noqa: E402
 from core.pipelines.run_until_complete import PausedRun, run_until_complete  # noqa: E402
+from core.pipelines.timing import estimate_remaining  # noqa: E402
 from core.schemas import ProjectState  # noqa: E402
+
+logger = logging.getLogger(__name__)
 
 OUTPUT_DIR = ROOT / "comic_out"
 HOST = os.environ.get("INKSTONE_UI_HOST", "127.0.0.1")
@@ -156,7 +160,9 @@ def _fill_job_from_project(job: dict, proj) -> None:
 def _fill_job_from_paused(job: dict, paused: PausedRun) -> None:
     job["project_id"] = paused.project_id
     job["pause_reason"] = paused.reason
-    job["elapsed_seconds"] = paused.elapsed_seconds
+    # `paused.elapsed_seconds` is this run's session-only wall time, not the
+    # job's cumulative elapsed_seconds — leave that to _refresh_job_timing.
+    job["log"].append(f"session wall time: {paused.elapsed_seconds:.1f}s")
     if paused.state is not None:
         job.update(_state_snapshot(paused.state))
         ordered_panels = sorted(
@@ -182,6 +188,49 @@ def _seed_job_progress(project_id: str) -> tuple[float, str]:
     return estimate_progress(state), "resume"
 
 
+def _seed_job_timing(project_id: str) -> float:
+    """Seed a job's cumulative elapsed time from an existing checkpoint."""
+    state_path = OUTPUT_DIR / project_id / "state.json"
+    if not state_path.is_file():
+        return 0.0
+    try:
+        return float(ProjectState.load(state_path).active_elapsed_seconds or 0.0)
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
+def _job_elapsed(job: dict) -> float:
+    """Cumulative elapsed seconds: checkpointed base plus the current session."""
+    base = float(job.get("base_elapsed") or 0.0)
+    started = job.get("session_started_at")
+    if started is None:
+        return base
+    return base + max(0.0, time.monotonic() - float(started))
+
+
+def _refresh_job_timing(job: dict) -> None:
+    """Recompute a job's cumulative elapsed/remaining fields in place."""
+    elapsed = _job_elapsed(job)
+    job["elapsed_seconds"] = elapsed
+    progress = float(job.get("progress") or 0.0)
+    job["remaining_seconds"] = estimate_remaining(elapsed, progress)
+
+
+def _persist_active_elapsed(project_id: str, elapsed: float) -> None:
+    """Persist cumulative elapsed time onto the project's checkpoint."""
+    state_path = OUTPUT_DIR / project_id / "state.json"
+    if not state_path.is_file():
+        return
+    try:
+        state = ProjectState.load(state_path)
+        # Never decrease if an older write races a newer checkpoint.
+        prev = float(state.active_elapsed_seconds or 0.0)
+        state.active_elapsed_seconds = max(prev, float(elapsed))
+        state.save(state_path)
+    except Exception:  # noqa: BLE001
+        logger.warning("could not persist active_elapsed_seconds for %s", project_id)
+
+
 def _run_job(
     job_id: str,
     text: str,
@@ -203,6 +252,8 @@ def _run_job(
                 # Never let a resume tick go backwards on the UI bar.
                 prev = float(job.get("progress") or 0.0)
                 job["progress"] = max(prev, float(percent))
+            _refresh_job_timing(job)
+        _persist_active_elapsed(project_id, float(job["elapsed_seconds"]))
 
     try:
         out_dir = _project_dir(project_id)
@@ -231,6 +282,8 @@ def _run_job(
         job["error"] = str(exc)
         job["log"].append(f"ERROR: {exc}")
     finally:
+        _refresh_job_timing(job)
+        _persist_active_elapsed(project_id, float(job["elapsed_seconds"]))
         root.removeHandler(handler)
 
 
@@ -244,6 +297,7 @@ def _start_job(
     pid = validate_project_id(project_id) if project_id else uuid.uuid4().hex[:12]
     job_id = uuid.uuid4().hex[:12]
     seeded_progress, seeded_stage = _seed_job_progress(pid)
+    base_elapsed = _seed_job_timing(pid)
     with JOBS_LOCK:
         JOBS[job_id] = {
             "status": "running",
@@ -257,7 +311,10 @@ def _start_job(
             "stale_panels": [],
             "project_id": pid,
             "pause_reason": None,
-            "elapsed_seconds": None,
+            "base_elapsed": base_elapsed,
+            "session_started_at": time.monotonic(),
+            "elapsed_seconds": base_elapsed,
+            "remaining_seconds": estimate_remaining(base_elapsed, seeded_progress),
             "progress": seeded_progress,
             "stage": seeded_stage,
             "error": None,
@@ -386,11 +443,12 @@ class Handler(BaseHTTPRequestHandler):
             job_id = self.path.split("/")[-1]
             with JOBS_LOCK:
                 job = JOBS.get(job_id)
-            if job is None:
-                self._send_json({"error": "unknown job"}, status=404)
-            else:
-                self._send_json(
-                    {
+                if job is not None and job["status"] == "running":
+                    _refresh_job_timing(job)
+                if job is None:
+                    payload = None
+                else:
+                    payload = {
                         "status": job["status"],
                         "log": job["log"][-200:],
                         "panels": job["panels"],
@@ -403,11 +461,15 @@ class Handler(BaseHTTPRequestHandler):
                         "project_id": job.get("project_id"),
                         "pause_reason": job.get("pause_reason"),
                         "elapsed_seconds": job.get("elapsed_seconds"),
+                        "remaining_seconds": job.get("remaining_seconds"),
                         "progress": job.get("progress"),
                         "stage": job.get("stage"),
                         "error": job["error"],
                     }
-                )
+            if payload is None:
+                self._send_json({"error": "unknown job"}, status=404)
+            else:
+                self._send_json(payload)
             return
         self._send_json({"error": "not found"}, status=404)
 
