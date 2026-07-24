@@ -15,6 +15,7 @@ Routes:
     POST /api/generate            -> {text, format?, style_guide?, project_id?}
                                     -> {job_id, project_id}
     GET  /api/job/<job_id>        -> job status + panels + review fields
+    POST /api/job/<job_id>/stop   -> cooperative cancel -> {ok: true} or 404
     POST /api/project/<id>/review -> {action: merge|dismiss, new_name, candidate}
     POST /api/project/<id>/regen  -> {stale?: true, keys?: [...]} -> {job_id, project_id}
     GET  /files/<path>            -> serves generated artifacts (path-safe)
@@ -257,6 +258,7 @@ def _run_job(
 
     try:
         out_dir = _project_dir(project_id)
+        cancel_event: threading.Event = job["cancel_event"]
         result = asyncio.run(
             run_until_complete(
                 text,
@@ -266,6 +268,7 @@ def _run_job(
                 style_guide=style_guide,
                 panel_keys=panel_keys,
                 progress_callback=_on_progress,
+                cancel_check=cancel_event.is_set,
             )
         )
         if isinstance(result, PausedRun):
@@ -318,6 +321,8 @@ def _start_job(
             "progress": seeded_progress,
             "stage": seeded_stage,
             "error": None,
+            "cancel_event": threading.Event(),
+            "cancel_requested": False,
         }
     threading.Thread(
         target=_run_job,
@@ -325,6 +330,19 @@ def _start_job(
         daemon=True,
     ).start()
     return job_id, pid
+
+
+def request_stop(job_id: str) -> bool:
+    """Signal a running job's cancel_event; returns False for unknown jobs."""
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if job is None:
+            return False
+        job["cancel_requested"] = True
+        ev = job.get("cancel_event")
+        if isinstance(ev, threading.Event):
+            ev.set()
+        return True
 
 
 def _load_project_state(project_id: str) -> tuple[Path, ProjectState]:
@@ -465,6 +483,7 @@ class Handler(BaseHTTPRequestHandler):
                         "progress": job.get("progress"),
                         "stage": job.get("stage"),
                         "error": job["error"],
+                        "cancel_requested": bool(job.get("cancel_requested")),
                     }
             if payload is None:
                 self._send_json({"error": "unknown job"}, status=404)
@@ -477,6 +496,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if self.path == "/api/generate":
                 self._post_generate()
+                return
+            if self.path.startswith("/api/job/") and self.path.endswith("/stop"):
+                self._post_stop()
                 return
             if self.path.startswith("/api/project/") and self.path.endswith("/review"):
                 self._post_review()
@@ -519,6 +541,18 @@ class Handler(BaseHTTPRequestHandler):
             validate_project_id(project_id)
         job_id, pid = _start_job(text, fmt, style_guide, project_id=project_id)
         self._send_json({"job_id": job_id, "project_id": pid})
+
+    def _post_stop(self) -> None:
+        # /api/job/<id>/stop
+        parts = self.path.strip("/").split("/")
+        if len(parts) != 4:
+            self._send_json({"error": "not found"}, status=404)
+            return
+        job_id = parts[2]
+        if request_stop(job_id):
+            self._send_json({"ok": True})
+        else:
+            self._send_json({"error": "unknown job"}, status=404)
 
     def _post_review(self) -> None:
         # /api/project/<id>/review

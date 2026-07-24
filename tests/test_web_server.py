@@ -1,5 +1,13 @@
 """Web server configuration, project helpers, and artifact-boundary tests."""
 
+import json
+import threading
+import time
+import urllib.error
+import urllib.request
+from contextlib import contextmanager
+from http.server import ThreadingHTTPServer
+
 from core.schemas import (
     CharacterAliasSuggestion,
     CharacterAsset,
@@ -167,3 +175,105 @@ def test_persist_active_elapsed(tmp_path, monkeypatch):
     server._persist_active_elapsed(project_id, 42.0)
     loaded = ProjectState.load(tmp_path / project_id / "state.json")
     assert loaded.active_elapsed_seconds == 42.0
+
+
+def _base_job(**overrides) -> dict:
+    job = {
+        "status": "running",
+        "log": [],
+        "error": None,
+        "progress": 0.1,
+        "stage": "panels",
+        "project_id": "p",
+        "panels": [],
+        "webtoon": None,
+        "pdf": None,
+        "skipped": [],
+        "skipped_chunks": [],
+        "needs_review": [],
+        "stale_panels": [],
+        "pause_reason": None,
+        "elapsed_seconds": 1,
+        "remaining_seconds": None,
+        "base_elapsed": 0,
+        "session_started_at": time.monotonic(),
+        "cancel_event": threading.Event(),
+        "cancel_requested": False,
+    }
+    job.update(overrides)
+    return job
+
+
+@contextmanager
+def _register_job(job_id: str, **overrides):
+    with server.JOBS_LOCK:
+        server.JOBS[job_id] = _base_job(**overrides)
+    try:
+        yield server.JOBS[job_id]
+    finally:
+        with server.JOBS_LOCK:
+            server.JOBS.pop(job_id, None)
+
+
+def test_request_stop_sets_cancel_event_and_flag():
+    with _register_job("jobstop1") as job:
+        assert server.request_stop("jobstop1") is True
+        assert job["cancel_event"].is_set()
+        assert job["cancel_requested"] is True
+
+
+def test_request_stop_unknown_job_returns_false():
+    assert server.request_stop("does-not-exist-xyz") is False
+
+
+@contextmanager
+def _running_server():
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield httpd
+    finally:
+        httpd.shutdown()
+        thread.join(timeout=5)
+
+
+def _request(port: int, path: str, method: str) -> tuple[int, dict]:
+    data = b"{}" if method == "POST" else None
+    req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=data, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return resp.status, json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        return exc.code, json.loads(exc.read())
+
+
+def test_post_stop_unknown_job_returns_404():
+    with _running_server() as httpd:
+        status, payload = _request(httpd.server_port, "/api/job/does-not-exist-xyz/stop", "POST")
+    assert status == 404
+    assert "error" in payload
+
+
+def test_post_stop_known_job_returns_ok_and_sets_event():
+    with _register_job("jobstop2") as job:
+        with _running_server() as httpd:
+            status, payload = _request(httpd.server_port, "/api/job/jobstop2/stop", "POST")
+        assert status == 200
+        assert payload == {"ok": True}
+        assert job["cancel_event"].is_set()
+
+
+def test_job_status_reflects_cancel_requested_without_leaking_event():
+    with _register_job("jobstop3"):
+        with _running_server() as httpd:
+            status, before = _request(httpd.server_port, "/api/job/jobstop3", "GET")
+            assert status == 200
+            assert before["cancel_requested"] is False
+
+            post_status, _ = _request(httpd.server_port, "/api/job/jobstop3/stop", "POST")
+            assert post_status == 200
+
+            status, after = _request(httpd.server_port, "/api/job/jobstop3", "GET")
+    assert after["cancel_requested"] is True
+    assert "cancel_event" not in after
