@@ -130,8 +130,8 @@ def test_seed_job_timing_from_checkpoint(tmp_path, monkeypatch):
 
 
 def test_job_elapsed_adds_session(monkeypatch):
+
     import web.server as server
-    import time
 
     fixed = {"t": 1000.0}
     monkeypatch.setattr(server.time, "monotonic", lambda: fixed["t"])
