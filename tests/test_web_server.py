@@ -95,3 +95,23 @@ def test_apply_review_merge_marks_stale(tmp_path, monkeypatch):
     loaded = ProjectState.load(out / "state.json")
     assert "鸿渐" not in loaded.characters
     assert "鸿渐" in loaded.characters["方鸿渐"].aliases
+
+
+def test_seed_job_progress_from_checkpoint(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    project_id = "resume1"
+    out = tmp_path / project_id
+    out.mkdir()
+    board = Storyboard(
+        chapter_id="0",
+        panels=[Panel(panel_id=str(i), action="a") for i in range(10)],
+    )
+    state = ProjectState(
+        project_id=project_id,
+        chunk_cache={"0": ChunkCache(storyboard=board)},
+        panels_done=[f"c0000-p{i:04d}" for i in range(5)],
+    )
+    state.save(out / "state.json")
+    progress, stage = server._seed_job_progress(project_id)
+    assert stage == "resume"
+    assert progress > 0.3

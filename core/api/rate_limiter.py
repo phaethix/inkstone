@@ -1,43 +1,108 @@
 """core.api.rate_limiter — Global token-bucket rate limiter (thread-safe).
 
-All Agnes API calls share a token bucket so the total call rate never exceeds
-the upstream free-tier limit. The limit is **size-aware** (free-tier RPM
-1K ≈ 20 / 2K ≈ 10) — generating larger images automatically downshifts to a
-lower RPM to avoid 429s.
+Matches Agnes Free/Default RPM ceilings (official table):
+
+- Text (chat):              20 RPM
+- Image 1K (max side ≤1024): 20 RPM
+- Image 2K (max side ≤2048): 10 RPM
+- Image 3K/4K (larger):      1 RPM
+
+A 0.8 safety factor is applied so we stay under the published ceiling.
+Image limiters are keyed by **resolution tier** (1k/2k/3k), not by exact
+``WxH`` string, so all 1K sizes share one budget and cannot stack.
 
 Usage::
 
     from core.api.rate_limiter import get_rate_limiter
-    get_rate_limiter().acquire()                 # blocking acquire (size-aware)
-    await get_rate_limiter("1024x1024").acquire_async()
+    get_rate_limiter().acquire()                      # image 1K default
+    get_rate_limiter("2048x2048").acquire()           # image 2K tier
+    get_rate_limiter(bucket="chat").acquire()         # text / chat
 """
 
+from __future__ import annotations
+
 import asyncio
+import os
 import threading
 import time
 
-# Safety factor so we stay comfortably under the upstream ceiling.
+# Stay under the published free-tier ceiling.
 _SAFETY_FACTOR = 0.8
 
-# Free-tier RPM by output size (1K ≈ 20/min, 2K ≈ 10/min).
-_RPM_BY_SIZE = {
-    "1024x1024": 20,
-    "1792x1024": 20,
-    "1024x1792": 20,
-    "1536x1024": 10,
-    "1024x1536": 10,
-    "2048x2048": 10,
-    "2048x1024": 10,
-    "1024x2048": 10,
-}
-_DEFAULT_RPM = 20
+# Free/Default RPM from Agnes docs (Token Plan is higher; we target free).
+_FREE_TEXT_RPM = 20
+_FREE_IMAGE_2K_RPM = 10
+_FREE_IMAGE_3K_RPM = 1
 
 
-def select_rpm(size: str | None, default: int = _DEFAULT_RPM) -> int:
-    """Return the RPM ceiling for ``size`` (defaults to the 1K tier)."""
-    if not size:
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or not str(raw).strip():
         return default
-    return _RPM_BY_SIZE.get(size, default)
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return default
+
+
+# Widescreen sizes Agnes still bills under the 1K image RPM.
+_ONE_K_WIDESCREEN = frozenset(
+    {
+        "1024x1792",
+        "1792x1024",
+    }
+)
+
+
+def _parse_dims(size: str | None) -> tuple[int, int] | None:
+    """Parse ``WIDTHxHEIGHT``; return ``None`` if unparsable."""
+    if not size:
+        return None
+    cleaned = size.lower().replace(" ", "")
+    if "x" not in cleaned:
+        return None
+    left, _, right = cleaned.partition("x")
+    try:
+        return int(left), int(right)
+    except ValueError:
+        return None
+
+
+def image_tier(size: str | None) -> str:
+    """Map an image size to free-tier bucket: ``1k`` / ``2k`` / ``3k``.
+
+    Free/Default image RPM: 1K=20, 2K=10, 3K/4K=1. Square ≤1024 and the
+    documented 1024×1792 widescreen variants count as 1K; anything with a
+    longer side up to 2048 is 2K; larger is 3K/4K.
+    """
+    dims = _parse_dims(size)
+    if dims is None:
+        return "1k"
+    w, h = dims
+    key = f"{w}x{h}"
+    if key in _ONE_K_WIDESCREEN or max(w, h) <= 1024:
+        return "1k"
+    if max(w, h) <= 2048:
+        return "2k"
+    return "3k"
+
+
+def select_rpm(size: str | None = None, *, bucket: str = "image") -> int:
+    """Return the Free/Default RPM ceiling for this call.
+
+    ``AGNES_RATE_LIMIT`` overrides the text and image-1K ceilings (default 20).
+    2K/3K image ceilings stay at the published 10 / 1 unless overridden via
+    ``AGNES_IMAGE_2K_RPM`` / ``AGNES_IMAGE_3K_RPM``.
+    """
+    text_or_1k = _env_int("AGNES_RATE_LIMIT", _FREE_TEXT_RPM)
+    if bucket == "chat":
+        return text_or_1k
+    tier = image_tier(size)
+    if tier == "1k":
+        return text_or_1k
+    if tier == "2k":
+        return _env_int("AGNES_IMAGE_2K_RPM", _FREE_IMAGE_2K_RPM)
+    return _env_int("AGNES_IMAGE_3K_RPM", _FREE_IMAGE_3K_RPM)
 
 
 class RateLimiter:
@@ -77,14 +142,17 @@ _instances_lock = threading.Lock()
 
 
 def get_rate_limiter(size: str | None = None, bucket: str = "image") -> RateLimiter:
-    """Return the (size-aware) global rate-limiter singleton (thread-safe).
+    """Return the (tier-aware) global rate-limiter singleton (thread-safe).
 
-    Buckets are keyed by ``(bucket, size)`` so distinct API surfaces — e.g.
-    ``"image"`` vs ``"chat"`` — get independent token budgets and never starve
-    each other, while still downshifting RPM for larger image sizes.
+    Chat uses an independent ``chat`` budget (text RPM). Image calls share a
+    limiter per resolution tier so concurrent 1K sizes cannot exceed the 1K
+    ceiling by opening separate WxH buckets.
     """
-    rpm = select_rpm(size) * _SAFETY_FACTOR
-    key = f"{bucket}:{size or '<default>'}"
+    rpm = select_rpm(size, bucket=bucket) * _SAFETY_FACTOR
+    if bucket == "chat":
+        key = "chat"
+    else:
+        key = f"image:{image_tier(size)}"
     with _instances_lock:
         inst = _instances.get(key)
         if inst is None:

@@ -318,6 +318,47 @@ def _ordered_generated_panels(state: ProjectState) -> list[tuple[str, GeneratedP
     return ordered
 
 
+_DEFAULT_PANELS_PER_CHUNK = 8
+
+
+def estimate_progress(state: ProjectState, total_chunks: int | None = None) -> float:
+    """Estimate overall completion in ``[0, 1)`` from checkpointed panels.
+
+    Used so a resume does not reset the UI progress bar to near-zero. Reserves
+    the last 10% for layout/export.
+    """
+    if total_chunks is None:
+        # Infer from cache keys + skipped, at least 1.
+        keys = {int(k) for k in state.chunk_cache if str(k).isdigit()}
+        keys.update(int(k) for k in state.skipped_chunks if str(k).isdigit())
+        total_chunks = (max(keys) + 1) if keys else 1
+    total_chunks = max(1, total_chunks)
+
+    planned = 0
+    accounted: set[str] = set()
+    for key in state.skipped_chunks:
+        accounted.add(str(key))
+    panel_counts: list[int] = []
+    for key, cache in state.chunk_cache.items():
+        if cache.storyboard is not None:
+            n = len(cache.storyboard.panels)
+            planned += n
+            panel_counts.append(n)
+            accounted.add(str(key))
+
+    avg = (
+        sum(panel_counts) / len(panel_counts) if panel_counts else float(_DEFAULT_PANELS_PER_CHUNK)
+    )
+    for i in range(total_chunks):
+        if str(i) not in accounted:
+            planned += avg
+
+    finished = len(state.panels_done) + len(state.skipped)
+    if planned <= 0:
+        return 0.0
+    return min(0.95, 0.9 * finished / planned)
+
+
 async def creative_comic(
     source_txt: str,
     *,
@@ -442,13 +483,19 @@ async def _creative_comic(
     with perf.measure("segment"):
         chunks = segment_text(source_txt)
     total_chunks = len(chunks) or 1
-    _report("segment", 1.0)
+
+    def _pct() -> float:
+        return estimate_progress(state, total_chunks)
+
+    # Resume: jump the bar to checkpointed completion instead of restarting at 0.
+    _report("resume" if (state.panels_done or state.chunk_cache) else "segment", _pct())
     prev_panel_local: str | None = None
 
     for ci, chunk in enumerate(chunks):
         key = str(ci)
         if key in state.skipped_chunks:
             logger.info("chunk %s skipped: previously rejected by content filter", key)
+            _report("skip", _pct())
             continue
         cached = state.chunk_cache.get(key)
         board = cached.storyboard if cached else None
@@ -466,6 +513,7 @@ async def _creative_comic(
                 last_index = len(board.panels) - 1
                 state_key = _stored_panel_key(state, ci, last_index)
                 prev_panel_local = state.generated.panels[state_key].local
+            _report("resume", _pct())
             continue
 
         # ---- extraction (only when not cached) ----
@@ -482,12 +530,13 @@ async def _creative_comic(
                     if key not in state.skipped_chunks:
                         state.skipped_chunks.append(key)
                     state.save(state_path)
+                    _report("skip", _pct())
                     continue
                 raise
             # Cache so a later resume does not re-pay for extraction.
             state.chunk_cache.setdefault(key, ChunkCache()).elements = elements
             state.save(state_path)
-            _report("extract", 0.05 + 0.20 * (ci + 1) / total_chunks)
+            _report("extract", _pct())
 
         # Merge characters; generate a portrait only for first-seen names.
         state.characters, new_names = merge_characters(state.characters, elements.characters)
@@ -540,7 +589,7 @@ async def _creative_comic(
             _, path = result
             state.characters[name].portrait_local = path
             state.generated.portraits[name] = path
-            _report("portrait", None)
+            _report("portrait", _pct())
 
         if operational_error is not None:
             state.save(state_path)
@@ -552,9 +601,10 @@ async def _creative_comic(
             if key not in state.skipped_chunks:
                 state.skipped_chunks.append(key)
             state.save(state_path)
+            _report("skip", _pct())
             continue
         state.save(state_path)
-        _report("portrait", 0.30 + 0.10 * (ci + 1) / total_chunks)
+        _report("portrait", _pct())
 
         # ---- storyboard (only when not cached) ----
         if board is None:
@@ -570,14 +620,15 @@ async def _creative_comic(
                     if key not in state.skipped_chunks:
                         state.skipped_chunks.append(key)
                     state.save(state_path)
+                    _report("skip", _pct())
                     continue
                 raise
             state.chunk_cache.setdefault(key, ChunkCache()).storyboard = board
             state.save(state_path)
-            _report("storyboard", 0.40 + 0.10 * (ci + 1) / total_chunks)
+            _report("storyboard", _pct())
 
         # ---- panels ----
-        _report("panels", 0.50 + 0.10 * ci / total_chunks)
+        _report("panels", _pct())
         seen_ids: set[str] = set()
         pending: list[tuple[str, int, object]] = []
         for panel_index, panel in enumerate(board.panels):
@@ -678,7 +729,7 @@ async def _creative_comic(
                 _mark_panel_done(state, state_key)
                 prev_panel_local = generated.local
                 state.save(state_path)
-                _report("panel", None)
+                _report("panel", _pct())
         else:
             tasks = (
                 _render_panel(state_key, panel_index, panel, None)
@@ -701,16 +752,17 @@ async def _creative_comic(
                     continue
                 state.generated.panels[state_key] = result
                 _mark_panel_done(state, state_key)
-                _report("panel", None)
+                _report("panel", _pct())
             state.save(state_path)
             if operational_error is not None:
                 raise operational_error
 
         _mark_chunk_done_if_complete(state, key, board, ci)
         state.save(state_path)
+        _report("panels", _pct())
 
     state.stage = "layout"
-    _report("layout", 0.90)
+    _report("layout", max(0.90, _pct()))
     items = _ordered_generated_panels(state)
     panel_imgs = []
     for panel_id, generated in items:

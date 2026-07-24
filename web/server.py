@@ -46,7 +46,8 @@ from core.comic.identity import (  # noqa: E402
     force_regen_panels,
     merge_character_alias,
 )
-from core.pipelines.creative_comic import creative_comic  # noqa: E402
+from core.pipelines.creative_comic import estimate_progress  # noqa: E402
+from core.pipelines.run_until_complete import PausedRun, run_until_complete  # noqa: E402
 from core.schemas import ProjectState  # noqa: E402
 
 OUTPUT_DIR = ROOT / "comic_out"
@@ -152,6 +153,35 @@ def _fill_job_from_project(job: dict, proj) -> None:
     job["project_id"] = proj.project_id
 
 
+def _fill_job_from_paused(job: dict, paused: PausedRun) -> None:
+    job["project_id"] = paused.project_id
+    job["pause_reason"] = paused.reason
+    job["elapsed_seconds"] = paused.elapsed_seconds
+    if paused.state is not None:
+        job.update(_state_snapshot(paused.state))
+        ordered_panels = sorted(
+            paused.state.generated.panels.items(),
+            key=lambda item: (item[1].chunk_index, item[1].panel_index),
+        )
+        job["panels"] = [
+            {"id": generated.source_panel_id or panel_key, "url": _file_url(generated.local)}
+            for panel_key, generated in ordered_panels
+            if _is_output_file(generated.local)
+        ]
+
+
+def _seed_job_progress(project_id: str) -> tuple[float, str]:
+    """Seed UI progress from an existing checkpoint so resume does not flash 0%."""
+    state_path = OUTPUT_DIR / project_id / "state.json"
+    if not state_path.is_file():
+        return 0.0, "init"
+    try:
+        state = ProjectState.load(state_path)
+    except Exception:  # noqa: BLE001
+        return 0.0, "init"
+    return estimate_progress(state), "resume"
+
+
 def _run_job(
     job_id: str,
     text: str,
@@ -165,20 +195,37 @@ def _run_job(
     handler.setLevel(logging.INFO)
     root = logging.getLogger()
     root.addHandler(handler)
+
+    def _on_progress(stage: str, percent: float | None) -> None:
+        with JOBS_LOCK:
+            job["stage"] = stage
+            if percent is not None:
+                # Never let a resume tick go backwards on the UI bar.
+                prev = float(job.get("progress") or 0.0)
+                job["progress"] = max(prev, float(percent))
+
     try:
         out_dir = _project_dir(project_id)
-        proj = asyncio.run(
-            creative_comic(
+        result = asyncio.run(
+            run_until_complete(
                 text,
                 output_dir=str(out_dir),
                 project_id=project_id,
                 output_format=fmt,
                 style_guide=style_guide,
                 panel_keys=panel_keys,
+                progress_callback=_on_progress,
             )
         )
-        _fill_job_from_project(job, proj)
-        job["status"] = "done"
+        if isinstance(result, PausedRun):
+            _fill_job_from_paused(job, result)
+            job["status"] = "paused"
+            job["log"].append(f"PAUSED: {result.reason}")
+        else:
+            _fill_job_from_project(job, result)
+            job["status"] = "done"
+            job["progress"] = 1.0
+            job["stage"] = "done"
     except Exception as exc:  # noqa: BLE001 — surface any failure to the UI
         job["status"] = "error"
         job["error"] = str(exc)
@@ -196,6 +243,7 @@ def _start_job(
 ) -> tuple[str, str]:
     pid = validate_project_id(project_id) if project_id else uuid.uuid4().hex[:12]
     job_id = uuid.uuid4().hex[:12]
+    seeded_progress, seeded_stage = _seed_job_progress(pid)
     with JOBS_LOCK:
         JOBS[job_id] = {
             "status": "running",
@@ -208,6 +256,10 @@ def _start_job(
             "needs_review": [],
             "stale_panels": [],
             "project_id": pid,
+            "pause_reason": None,
+            "elapsed_seconds": None,
+            "progress": seeded_progress,
+            "stage": seeded_stage,
             "error": None,
         }
     threading.Thread(
@@ -349,6 +401,10 @@ class Handler(BaseHTTPRequestHandler):
                         "needs_review": job.get("needs_review", []),
                         "stale_panels": job.get("stale_panels", []),
                         "project_id": job.get("project_id"),
+                        "pause_reason": job.get("pause_reason"),
+                        "elapsed_seconds": job.get("elapsed_seconds"),
+                        "progress": job.get("progress"),
+                        "stage": job.get("stage"),
                         "error": job["error"],
                     }
                 )

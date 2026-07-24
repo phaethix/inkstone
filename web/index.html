@@ -758,7 +758,13 @@
       $("go").disabled = true;
       $("progressWrap").classList.remove("hidden");
       $("log").textContent = "";
-      setProgress(0, "Preparing…");
+      const existingPid = $("projectId").value.trim();
+      if (existingPid) {
+        const cur = parseInt(String($("pct").textContent || "0").replace("%", ""), 10);
+        setProgress(Number.isFinite(cur) && cur > 0 ? cur : 1, "Resuming…");
+      } else {
+        setProgress(0, "Preparing…");
+      }
 
       if (mode === "demo") return demoRun();
       liveRun(text, $("format").value);
@@ -812,24 +818,41 @@
 
     function poll(jobId) {
       clearInterval(pollTimer);
-      pollTimer = setInterval(async () => {
+      const tick = async () => {
         let job;
         try { job = await (await fetch("/api/job/" + jobId)).json(); }
         catch (e) { return; }
-        $("log").textContent = job.log.join("\n");
+        $("log").textContent = (job.log || []).join("\n");
         $("log").scrollTop = $("log").scrollHeight;
-        const base = job.status === "done" ? 100 : Math.min(95, 8 + job.log.length * 8);
-        setProgress(base, job.status === "done" ? "Done" : "Generating…");
-        if (job.status === "running") return;
+        if (job.status === "running") {
+          const pct = (job.progress != null)
+            ? Math.max(0, Math.min(99, Math.round(Number(job.progress) * 100)))
+            : Math.min(95, 8 + (job.log || []).length * 8);
+          const stage = job.stage ? (" · " + job.stage) : "";
+          setProgress(pct, "Generating" + stage + "…");
+          return;
+        }
         clearInterval(pollTimer);
         $("progressWrap").classList.add("hidden");
-        if (job.status === "error") return fail(job.error || "Generation failed");
         if (job.project_id) {
           currentProjectId = job.project_id;
           $("projectId").value = currentProjectId;
         }
+        if (job.status === "error") return fail(job.error || "Generation failed");
+        if (job.status === "paused") {
+          render(job);
+          const msg = job.pause_reason
+            || "Paused after the time limit; progress is saved. Click Generate again with the same project id to continue.";
+          $("errorWrap").textContent = msg;
+          $("errorWrap").classList.remove("hidden");
+          $("go").disabled = false;
+          return;
+        }
+        setProgress(100, "Done");
         render(job);
-      }, 1500);
+      };
+      tick();
+      pollTimer = setInterval(tick, 1500);
     }
 
     function render(job) {

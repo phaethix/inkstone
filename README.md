@@ -121,7 +121,7 @@ AGNES_API_KEY=sk-xxx python web/server.py
 # open http://127.0.0.1:8000
 ```
 
-Paste a novel, optionally set a **project id** (resume the same `comic_out/<id>/`), pick webtoon/page, and hit Generate. The backend runs `creative_comic` in a background thread and streams progress + panels to the browser (polls every 1.5s). Artifacts land under `comic_out/<project_id>/`. After generation, the UI surfaces **alias review** (merge / dismiss — never silent), **skipped** panels with retry, and **redraw affected** after a merge.
+Paste a novel, optionally set a **project id** (resume the same `comic_out/<id>/`), pick webtoon/page, and hit Generate. The backend runs an **unattended supervisor** around `creative_comic`: timeouts and free-tier 503s are retried automatically with backoff until the comic finishes, or until the wall-clock deadline (`INKSTONE_RUN_DEADLINE_HOURS`, default **24h**) pauses the job with progress saved — same project id continues later. Artifacts land under `comic_out/<project_id>/`. After generation, the UI surfaces **alias review** (merge / dismiss — never silent), **skipped** panels with retry, and **redraw affected** after a merge.
 
 The key is read from the environment or `.env`.
 
@@ -138,7 +138,9 @@ Inkstone is configured through environment variables (copy `.env.example` → `.
 | Variable | Required | Default | Description |
 |----------|:---:|---|---|
 | `AGNES_API_KEY` | ✅ | — | Free Access tier key; the only thing ordinary users need. |
-| `AGNES_RATE_LIMIT` | | `20` | Requests/min ceiling (× 0.8 safety factor applied). |
+| `AGNES_RATE_LIMIT` | | `20` | Free-tier text + image-1K RPM ceiling (× 0.8 safety factor). Official free: text 20, image 1K 20, 2K 10, 3K/4K 1. |
+| `AGNES_IMAGE_2K_RPM` | | `10` | Free-tier image 2K RPM (max side ≤2048). |
+| `AGNES_IMAGE_3K_RPM` | | `1` | Free-tier image 3K/4K RPM. |
 | `AGNES_IMAGE_I2I_MODEL` | | `agnes-image-2.1-flash` | Model used for consistency img2img. |
 | `AGNES_IMAGE_MAX_RETRIES` | | `8` | Image calls retry this many times; the free image tier is often 503 "Service busy", so this is patient by default. |
 | `AGNES_IMAGE_RETRY_BASE_DELAY` | | `15.0` | Image retry backoff base (seconds, exponential, capped at 120s). |

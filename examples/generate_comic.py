@@ -26,7 +26,7 @@ from tqdm import tqdm
 # Allow running as a standalone script from the repo root (python examples/...).
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core.pipelines.creative_comic import creative_comic
+from core.pipelines.run_until_complete import PausedRun, run_until_complete
 
 _DEFAULT_SCENE = Path(__file__).resolve().parent / "scene1.txt"
 
@@ -48,7 +48,7 @@ async def _run(source: str, out: str, fmt: str, project_id: str | None = None) -
                 pbar.update(0)
             pbar.refresh()
 
-        proj = await creative_comic(
+        result = await run_until_complete(
             text,
             output_dir=out,
             project_id=project_id,
@@ -56,6 +56,13 @@ async def _run(source: str, out: str, fmt: str, project_id: str | None = None) -
             progress_callback=_on_progress,
         )
 
+    if isinstance(result, PausedRun):
+        print(f"PAUSED project {result.project_id}: {result.reason}")
+        print(f"  progress saved under {result.output_dir}")
+        print("  re-run with the same --project to continue")
+        sys.exit(2)
+
+    proj = result
     print(f"project {proj.project_id}: {len(proj.pages)} page(s)")
     if proj.pdf:
         print(f"  PDF     -> {proj.pdf}")
