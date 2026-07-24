@@ -596,7 +596,7 @@
             <input type="text" id="styleGuide" placeholder="Art style override (optional)" />
             <input type="text" id="projectId" placeholder="project id (optional, resume)" />
             <div class="gen-actions">
-              <button id="stop" class="btn btn-secondary hidden" type="button">停止生成</button>
+              <button id="stop" class="btn btn-secondary hidden" type="button">Stop</button>
               <button id="go" class="btn btn-primary">Generate Comic</button>
             </div>
           </div>
@@ -604,7 +604,7 @@
           <div id="progressWrap" class="progress-area hidden">
             <div class="progress-meta">
               <span id="status">Preparing…</span>
-              <span id="timing" class="muted">已用 — · 预计还剩 估算中</span>
+              <span id="timing" class="muted">Elapsed — · Est. remaining estimating…</span>
               <span id="pct">0%</span>
             </div>
             <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
@@ -705,7 +705,7 @@
       btn.classList.toggle("hidden", !running);
       if (running) {
         btn.disabled = false;
-        btn.textContent = "停止生成";
+        btn.textContent = "Stop";
       }
     }
 
@@ -723,9 +723,9 @@
       const el = $("timing");
       if (!el) return;
       const left = (timingRemaining == null)
-        ? "估算中"
+        ? "estimating…"
         : formatDuration(timingRemaining);
-      el.textContent = "已用 " + formatDuration(timingElapsed) + " · 预计还剩 " + left;
+      el.textContent = "Elapsed " + formatDuration(timingElapsed) + " · Est. remaining " + left;
     }
 
     function startTimingTick() {
@@ -1278,12 +1278,12 @@
       if (!currentJobId) return;
       const btn = $("stop");
       btn.disabled = true;
-      btn.textContent = "正在停止…";
+      btn.textContent = "Stopping…";
       try {
         await fetch("/api/job/" + currentJobId + "/stop", { method: "POST" });
       } catch (e) {
         btn.disabled = false;
-        btn.textContent = "停止生成";
+        btn.textContent = "Stop";
       }
     }
 
