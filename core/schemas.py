@@ -15,14 +15,40 @@ Runtime-only fields (populated by the pipeline, not the model) are annotated wit
 ``SkipJsonSchema`` so they never leak into the tool schema shown to the model.
 """
 
+import json
 import os
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.json_schema import SkipJsonSchema
+
+
+def coerce_jsonish(value: Any) -> Any:
+    """If ``value`` is a JSON object/array string, parse it; otherwise return as-is.
+
+    Some chat providers stringify nested structures inside tool-call arguments
+    even after the top-level ``arguments`` blob has been ``json.loads``'d.
+    """
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text or text[0] not in "[{":
+        return value
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return value
+
+
+def coerce_list(value: Any) -> Any:
+    """Coerce a stringified JSON list (or a lone object) into a list."""
+    value = coerce_jsonish(value)
+    if isinstance(value, dict):
+        return [value]
+    return value
 
 _COMIC_STYLE_HINT = "manhua/comic style: clean black ink line art, soft cel shading, flat colors"
 
@@ -53,6 +79,12 @@ class CharacterAsset(BaseModel):
     name: str
     role: str = ""
     appearance: Appearance = Field(default_factory=Appearance)
+
+    @field_validator("appearance", mode="before")
+    @classmethod
+    def _coerce_appearance(cls, value: Any) -> Any:
+        return coerce_jsonish(value)
+
     # Hardened description inlined into every panel prompt. Prefer deriving from
     # ``appearance`` via ``build_l1_from_appearance``; the model may still fill this.
     l1_prompt: str = ""
@@ -96,6 +128,11 @@ class StoryElements(BaseModel):
         ),
     )
 
+    @field_validator("characters", "settings", mode="before")
+    @classmethod
+    def _coerce_asset_lists(cls, value: Any) -> Any:
+        return coerce_list(value)
+
 
 class Panel(BaseModel):
     """A single comic panel within a storyboard."""
@@ -114,6 +151,11 @@ class Panel(BaseModel):
     reference_characters: list[str] = Field(default_factory=list)
     size: str = "1024x1024"
 
+    @field_validator("characters_present", "reference_characters", mode="before")
+    @classmethod
+    def _coerce_name_lists(cls, value: Any) -> Any:
+        return coerce_list(value)
+
 
 class Storyboard(BaseModel):
     """Return payload of the ``plan_storyboard`` forced function call (one chunk)."""
@@ -122,6 +164,11 @@ class Storyboard(BaseModel):
 
     chapter_id: str
     panels: list[Panel] = Field(default_factory=list)
+
+    @field_validator("panels", mode="before")
+    @classmethod
+    def _coerce_panels(cls, value: Any) -> Any:
+        return coerce_list(value)
 
 
 class ChunkCache(BaseModel):

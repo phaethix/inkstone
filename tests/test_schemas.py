@@ -22,6 +22,35 @@ from core.schemas import (
     to_tool_schema,
 )
 
+
+def test_story_elements_coerces_stringified_lists():
+    """Agnes sometimes JSON-stringifies nested arrays inside tool arguments."""
+    elements = StoryElements.model_validate(
+        {
+            "characters": '[{"name": "张一新", "role": "protagonist", '
+            '"l1_prompt": "conflict and reflection."}]',
+            "settings": "[]",
+            "style_guide": "manhua style",
+        }
+    )
+    assert len(elements.characters) == 1
+    assert elements.characters[0].name == "张一新"
+    assert elements.settings == []
+
+
+def test_storyboard_coerces_stringified_panels_and_char_lists():
+    board = Storyboard.model_validate(
+        {
+            "chapter_id": "c1",
+            "panels": (
+                '[{"panel_id": "c1_p01", "action": "looks up", '
+                '"characters_present": "[\\"张一新\\"]"}]'
+            ),
+        }
+    )
+    assert board.panels[0].panel_id == "c1_p01"
+    assert board.panels[0].characters_present == ["张一新"]
+
 STORY_ELEMENTS_PAYLOAD = {
     "characters": [
         {

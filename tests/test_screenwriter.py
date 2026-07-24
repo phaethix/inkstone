@@ -28,6 +28,17 @@ def test_extract_story_elements_parses_payload():
     assert result.style_guide == "manhua style"
 
 
+def test_extract_story_elements_accepts_stringified_character_list():
+    payload = {
+        "characters": '[{"name": "张一新", "l1_prompt": "conflict and reflection."}]',
+        "settings": "[]",
+        "style_guide": "manhua style",
+    }
+    result = asyncio.run(extract_story_elements("text", chat=FakeChat(payload)))
+    assert result.characters[0].name == "张一新"
+    assert result.settings == []
+
+
 def test_plan_storyboard_parses_payload():
     payload = {
         "chapter_id": "ch01",
