@@ -377,7 +377,7 @@
     }
     .gen-row input[type="text"] { flex: 1; min-width: 160px; }
     .gen-row input[type="text"]::placeholder { color: var(--dim); }
-    .gen-row .btn { margin-left: auto; }
+    .gen-actions { display: flex; align-items: center; gap: 12px; margin-left: auto; }
 
     /* progress */
     .progress-area { margin-top: 22px; }
@@ -595,7 +595,10 @@
             </select>
             <input type="text" id="styleGuide" placeholder="Art style override (optional)" />
             <input type="text" id="projectId" placeholder="project id (optional, resume)" />
-            <button id="go" class="btn btn-primary">Generate Comic</button>
+            <div class="gen-actions">
+              <button id="stop" class="btn btn-secondary hidden" type="button">停止生成</button>
+              <button id="go" class="btn btn-primary">Generate Comic</button>
+            </div>
           </div>
 
           <div id="progressWrap" class="progress-area hidden">
@@ -680,6 +683,31 @@
     let timingElapsed = 0;
     let timingRemaining = null; // number | null
     let timingRunning = false;
+    let currentJobId = null;
+    let demoTimer = null;
+    let demoAborted = false;
+
+    const ACTIVE_JOB_KEY = "inkstone.activeJob";
+
+    function saveActiveJob(partial) {
+      const prev = loadActiveJob() || {};
+      localStorage.setItem(ACTIVE_JOB_KEY, JSON.stringify({ ...prev, ...partial }));
+    }
+    function loadActiveJob() {
+      try { return JSON.parse(localStorage.getItem(ACTIVE_JOB_KEY) || "null"); }
+      catch { return null; }
+    }
+    function clearActiveJob() { localStorage.removeItem(ACTIVE_JOB_KEY); }
+
+    function setStopVisible(running) {
+      const btn = $("stop");
+      if (!btn) return;
+      btn.classList.toggle("hidden", !running);
+      if (running) {
+        btn.disabled = false;
+        btn.textContent = "停止生成";
+      }
+    }
 
     function formatDuration(sec) {
       sec = Math.max(0, Math.floor(Number(sec) || 0));
@@ -783,6 +811,7 @@
           el.textContent = "Local";
           el.className = "badge live";
           $("modeHint").textContent = "Connected to local backend — paste your novel text to generate";
+          await restoreActiveJobIfAny();
           return;
         }
         console.warn("Local backend responded but not OK:", r.status);
@@ -798,6 +827,97 @@
       } else {
         $("modeHint").innerHTML = `Demo mode: backend not found at this origin. Make sure <code>python web/server.py</code> is running, then refresh.`;
       }
+    }
+
+    function jobProgressPct(job) {
+      return (job.progress != null)
+        ? Math.max(0, Math.min(99, Math.round(Number(job.progress) * 100)))
+        : Math.min(95, 8 + (job.log || []).length * 8);
+    }
+
+    function jobStageLabel(job, suffix) {
+      const stage = job.stage ? (" · " + job.stage) : "";
+      return "Generating" + stage + suffix;
+    }
+
+    async function restoreActiveJobIfAny() {
+      if (mode !== "live") return;
+      const saved = loadActiveJob();
+      if (!saved || !saved.job_id) return;
+
+      if (saved.text) $("text").value = saved.text;
+      if (saved.format) $("format").value = saved.format;
+      if (saved.style_guide != null) $("styleGuide").value = saved.style_guide;
+      if (saved.project_id) {
+        $("projectId").value = saved.project_id;
+        currentProjectId = saved.project_id;
+      }
+      if (saved.format) lastFormat = saved.format;
+
+      showTab("generate");
+      $("progressWrap").classList.remove("hidden");
+      $("go").disabled = true;
+      $("errorWrap").classList.add("hidden");
+
+      let res;
+      try {
+        res = await fetch("/api/job/" + saved.job_id);
+      } catch (e) {
+        return;
+      }
+      if (!res.ok) {
+        clearActiveJob();
+        if (res.status === 404 && saved.project_id) {
+          $("modeHint").textContent = "Previous job not found (server may have restarted). Resume with project id: " + saved.project_id;
+        }
+        $("progressWrap").classList.add("hidden");
+        $("go").disabled = false;
+        return;
+      }
+
+      const job = await res.json();
+      currentJobId = saved.job_id;
+      $("log").textContent = (job.log || []).join("\n");
+      syncTimingFromJob(job);
+      if (job.project_id) {
+        currentProjectId = job.project_id;
+        $("projectId").value = job.project_id;
+      }
+
+      if (job.status === "running") {
+        setProgress(jobProgressPct(job), jobStageLabel(job, "…"));
+        startTimingTick();
+        setStopVisible(true);
+        poll(saved.job_id);
+        return;
+      }
+
+      stopTimingTick();
+      if (job.status === "paused") {
+        setProgress(jobProgressPct(job), "Paused");
+        render(job);
+        const msg = job.pause_reason
+          || "Paused after the time limit; progress is saved. Click Generate again with the same project id to continue.";
+        $("errorWrap").textContent = msg;
+        $("errorWrap").classList.remove("hidden");
+        $("go").disabled = false;
+        setStopVisible(false);
+        return;
+      }
+      if (job.status === "error") {
+        clearActiveJob();
+        setProgress(jobProgressPct(job), "Error");
+        $("errorWrap").textContent = job.error || "Generation failed";
+        $("errorWrap").classList.remove("hidden");
+        $("go").disabled = false;
+        setStopVisible(false);
+        return;
+      }
+      setProgress(100, "Done");
+      render(job);
+      clearActiveJob();
+      $("go").disabled = false;
+      setStopVisible(false);
     }
 
     function setProgress(pct, msg) {
@@ -833,23 +953,37 @@
     }
 
     function demoRun() {
+      demoAborted = false;
+      setStopVisible(true);
       let i = 0;
       const tick = () => {
+        if (demoAborted) return;
         const step = DEMO_STEPS[i];
         logLine("✓ " + step.msg);
         setProgress(step.pct, step.msg);
         i++;
         if (i >= DEMO_STEPS.length) {
-          setTimeout(() => {
+          demoTimer = setTimeout(() => {
+            if (demoAborted) return;
             $("progressWrap").classList.add("hidden");
             render(DEMO);
             $("go").disabled = false;
+            setStopVisible(false);
           }, 400);
           return;
         }
-        setTimeout(tick, 320);
+        demoTimer = setTimeout(tick, 320);
       };
       tick();
+    }
+
+    function stopDemo() {
+      demoAborted = true;
+      if (demoTimer) clearTimeout(demoTimer);
+      demoTimer = null;
+      setStopVisible(false);
+      $("go").disabled = false;
+      $("progressWrap").classList.add("hidden");
     }
 
     let currentProjectId = null;
@@ -872,6 +1006,15 @@
         if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
         currentProjectId = data.project_id || null;
         if (currentProjectId) $("projectId").value = currentProjectId;
+        currentJobId = data.job_id;
+        saveActiveJob({
+          job_id: data.job_id,
+          project_id: currentProjectId || pid || null,
+          format,
+          text,
+          style_guide: style,
+        });
+        setStopVisible(true);
         poll(data.job_id);
       } catch (e) {
         fail(e.message);
@@ -880,6 +1023,7 @@
 
     function poll(jobId) {
       clearInterval(pollTimer);
+      currentJobId = jobId;
       const tick = async () => {
         let job;
         try { job = await (await fetch("/api/job/" + jobId)).json(); }
@@ -887,11 +1031,8 @@
         $("log").textContent = (job.log || []).join("\n");
         $("log").scrollTop = $("log").scrollHeight;
         if (job.status === "running") {
-          const pct = (job.progress != null)
-            ? Math.max(0, Math.min(99, Math.round(Number(job.progress) * 100)))
-            : Math.min(95, 8 + (job.log || []).length * 8);
-          const stage = job.stage ? (" · " + job.stage) : "";
-          setProgress(pct, "Generating" + stage + "…");
+          const pct = jobProgressPct(job);
+          setProgress(pct, jobStageLabel(job, "…"));
           syncTimingFromJob(job);
           if (!timingRunning) startTimingTick();
           return;
@@ -902,30 +1043,30 @@
         if (job.project_id) {
           currentProjectId = job.project_id;
           $("projectId").value = currentProjectId;
+          saveActiveJob({ project_id: currentProjectId });
         }
         if (job.status === "error") {
-          const pct = (job.progress != null)
-            ? Math.max(0, Math.min(99, Math.round(Number(job.progress) * 100)))
-            : 0;
-          setProgress(pct, "Error");
+          clearActiveJob();
+          setStopVisible(false);
+          setProgress(jobProgressPct(job), "Error");
           $("go").disabled = false;
           $("errorWrap").textContent = job.error || "Generation failed";
           $("errorWrap").classList.remove("hidden");
           return;
         }
         if (job.status === "paused") {
-          const pct = (job.progress != null)
-            ? Math.max(0, Math.min(99, Math.round(Number(job.progress) * 100)))
-            : 0;
-          setProgress(pct, "Paused");
+          setProgress(jobProgressPct(job), "Paused");
           render(job);
           const msg = job.pause_reason
             || "Paused after the time limit; progress is saved. Click Generate again with the same project id to continue.";
           $("errorWrap").textContent = msg;
           $("errorWrap").classList.remove("hidden");
           $("go").disabled = false;
+          setStopVisible(false);
           return;
         }
+        clearActiveJob();
+        setStopVisible(false);
         setProgress(100, "Done");
         render(job);
       };
@@ -1076,6 +1217,16 @@
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+        currentJobId = data.job_id;
+        const text = $("text").value.trim();
+        saveActiveJob({
+          job_id: data.job_id,
+          project_id: currentProjectId,
+          format: lastFormat,
+          text,
+          style_guide: style,
+        });
+        setStopVisible(true);
         poll(data.job_id);
       } catch (e) {
         fail(e.message);
@@ -1101,15 +1252,44 @@
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+        currentJobId = data.job_id;
+        const text = $("text").value.trim();
+        saveActiveJob({
+          job_id: data.job_id,
+          project_id: currentProjectId,
+          format: lastFormat,
+          text,
+          style_guide: style,
+        });
+        setStopVisible(true);
         poll(data.job_id);
       } catch (e) {
         fail(e.message);
       }
     }
 
+    async function stopJob() {
+      if (mode === "demo") {
+        stopDemo();
+        return;
+      }
+      if (!currentJobId) return;
+      const btn = $("stop");
+      btn.disabled = true;
+      btn.textContent = "正在停止…";
+      try {
+        await fetch("/api/job/" + currentJobId + "/stop", { method: "POST" });
+      } catch (e) {
+        btn.disabled = false;
+        btn.textContent = "停止生成";
+      }
+    }
+
     function fail(msg) {
       clearInterval(pollTimer);
       stopTimingTick();
+      clearActiveJob();
+      setStopVisible(false);
       $("progressWrap").classList.add("hidden");
       $("go").disabled = false;
       const e = $("errorWrap");
@@ -1154,6 +1334,7 @@
     });
 
     $("go").addEventListener("click", generate);
+    $("stop").addEventListener("click", stopJob);
     $("mode").addEventListener("click", detectMode);
     detectMode();
   </script>
