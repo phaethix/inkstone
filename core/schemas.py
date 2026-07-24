@@ -50,6 +50,7 @@ def coerce_list(value: Any) -> Any:
         return [value]
     return value
 
+
 _COMIC_STYLE_HINT = "manhua/comic style: clean black ink line art, soft cel shading, flat colors"
 
 # Six resumable pipeline stages.

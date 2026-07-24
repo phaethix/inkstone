@@ -51,6 +51,7 @@ def test_storyboard_coerces_stringified_panels_and_char_lists():
     assert board.panels[0].panel_id == "c1_p01"
     assert board.panels[0].characters_present == ["张一新"]
 
+
 STORY_ELEMENTS_PAYLOAD = {
     "characters": [
         {
