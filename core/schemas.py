@@ -27,20 +27,33 @@ from pydantic.json_schema import SkipJsonSchema
 
 
 def coerce_jsonish(value: Any) -> Any:
-    """If ``value`` is a JSON object/array string, parse it; otherwise return as-is.
+    """If ``value`` is a JSON object/array (or JSON-encoded string), parse it.
 
     Some chat providers stringify nested structures inside tool-call arguments
     even after the top-level ``arguments`` blob has been ``json.loads``'d.
+    Unwrap repeatedly so double-encoded payloads still become objects/lists.
     """
-    if not isinstance(value, str):
-        return value
-    text = value.strip()
-    if not text or text[0] not in "[{":
-        return value
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return value
+    for _ in range(3):
+        if not isinstance(value, str):
+            return value
+        text = value.strip()
+        if not text:
+            return value
+        # Markdown fences occasionally wrap tool JSON.
+        if text.startswith("```"):
+            lines = text.splitlines()
+            if lines and lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            text = "\n".join(lines).strip()
+        if not text or text[0] not in "[{'\"":
+            return value
+        try:
+            value = json.loads(text)
+        except json.JSONDecodeError:
+            return value
+    return value
 
 
 def coerce_list(value: Any) -> Any:

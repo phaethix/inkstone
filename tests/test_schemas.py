@@ -11,6 +11,8 @@ Verifies the three JSON contracts:
 - Unknown fields from the model are ignored, not fatal.
 """
 
+import json
+
 from core.schemas import (
     CharacterAliasSuggestion,
     CharacterAsset,
@@ -50,6 +52,19 @@ def test_storyboard_coerces_stringified_panels_and_char_lists():
     )
     assert board.panels[0].panel_id == "c1_p01"
     assert board.panels[0].characters_present == ["张一新"]
+
+
+def test_storyboard_coerces_double_encoded_panels_string():
+    """Providers sometimes JSON-encode the array string a second time."""
+    inner = '[{"panel_id": "1", "action": "walk", "size": "1024x1024"}]'
+    board = Storyboard.model_validate(
+        {
+            "chapter_id": "c1",
+            "panels": json.dumps(inner),
+        }
+    )
+    assert board.panels[0].panel_id == "1"
+    assert board.panels[0].size == "1024x1024"
 
 
 STORY_ELEMENTS_PAYLOAD = {
