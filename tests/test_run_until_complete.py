@@ -33,7 +33,18 @@ def test_is_transient_runtime_max_retries():
         is_transient_error(RuntimeError("AgnesImageAPI max retries (5) exceeded, last status 503"))
         is True
     )
+    assert (
+        is_transient_error(RuntimeError("AgnesImageAPI max retries (5) exceeded, last status 520"))
+        is True
+    )
     assert is_transient_error(RuntimeError("image queue is full")) is True
+
+
+def test_is_transient_cloudflare_520_http_error():
+    resp = requests.models.Response()
+    resp.status_code = 520
+    exc = requests.HTTPError("520 Server Error", response=resp)
+    assert is_transient_error(exc) is True
 
 
 def test_is_not_transient_value_error():

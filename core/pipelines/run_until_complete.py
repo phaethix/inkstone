@@ -28,6 +28,11 @@ _TRANSIENT_MARKERS = (
     "last status 502",
     "last status 503",
     "last status 504",
+    "last status 520",
+    "last status 521",
+    "last status 522",
+    "last status 523",
+    "last status 524",
     "service busy",
     "queue is full",
     "timed out",
@@ -64,7 +69,7 @@ def is_transient_error(exc: BaseException) -> bool:
     if isinstance(exc, requests.HTTPError):
         resp = getattr(exc, "response", None)
         code = getattr(resp, "status_code", None)
-        return code in (429, 500, 502, 503, 504)
+        return code in (429, 500, 502, 503, 504, 520, 521, 522, 523, 524)
     return False
 
 

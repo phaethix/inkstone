@@ -34,7 +34,9 @@ CONNECT_TIMEOUT_SECONDS = 30.0
 READ_TIMEOUT_SECONDS = 180.0
 
 # Transient statuses worth retrying (shared by both providers).
-RETRYABLE_STATUS = (429, 500, 502, 503, 504)
+# 520–524 are Cloudflare gateway failures (origin empty/down/timeout) that
+# Agnes free tier surfaces frequently; treat them like other 5xx.
+RETRYABLE_STATUS = (429, 500, 502, 503, 504, 520, 521, 522, 523, 524)
 
 
 def compute_backoff(attempt: int, base_delay: float, cap: float = BACKOFF_CAP_SECONDS) -> float:

@@ -168,7 +168,7 @@ def test_compute_backoff_exponential_capped_with_jitter(monkeypatch):
     # Early attempts are strictly smaller than later ones (exponential growth
     # dominates before the cap is hit).
     assert vals[0] < vals[3]
-    assert RETRYABLE_STATUS == (429, 500, 502, 503, 504)
+    assert RETRYABLE_STATUS == (429, 500, 502, 503, 504, 520, 521, 522, 523, 524)
 
 
 def test_agnes_retries_on_503(patch_async, monkeypatch):
