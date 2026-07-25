@@ -5,15 +5,16 @@
 # installs the runtime + dev dependencies, loads your AGNES_API_KEY from .env,
 # and runs the end-to-end comic generator on a txt novel.
 #
-# Usage:
-#   ./start.sh                              # runs examples/scene1.txt -> comic_out (page)
-#   ./start.sh my_novel.txt --out out --format webtoon
-#   ./start.sh examples/sample_novel.txt --format webtoon
+# Usage (from repo root):
+#   ./scripts/start.sh                              # examples/scene1.txt -> comic_out
+#   ./scripts/start.sh my_novel.txt --out out --format webtoon
+#   ./scripts/start.sh examples/sample_novel.txt --format webtoon
 #
-# Conda users: `conda activate inkstone` first, then `./start.sh` reuses that env.
+# Conda users: `conda activate inkstone` first, then run this script — it reuses that env.
 set -euo pipefail
 
-cd "$(dirname "$0")"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
 
 # Reuse the active environment instead of nesting a venv inside one.
 if [ -z "${VIRTUAL_ENV:-}" ] && [ -z "${CONDA_DEFAULT_ENV:-}" ]; then

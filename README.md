@@ -98,11 +98,11 @@ $ python -m pytest
 Prefer a single command? The launcher sets up the environment, installs deps, loads your key from `.env`, and runs the generator:
 
 ```bash
-./start.sh                                   # runs examples/scene1.txt -> comic_out (page PDF)
-./start.sh examples/sample_novel.txt --format webtoon
+./scripts/start.sh                                   # runs examples/scene1.txt -> comic_out (page PDF)
+./scripts/start.sh examples/sample_novel.txt --format webtoon
 ```
 
-On Windows use `.\start.ps1`. Both reuse an already-active `venv`/`conda` env instead of nesting one. Sample inputs ship in `examples/` (`scene1.txt`, `sample_novel.txt`).
+On Windows use `.\scripts\start.ps1`. Both reuse an already-active `venv`/`conda` env instead of nesting one. Sample inputs ship in `examples/` (`scene1.txt`, `sample_novel.txt`).
 
 ## Gallery
 
@@ -154,6 +154,7 @@ A `txt` novel is split into segments → characters & scenes are extracted with 
 
 ## Resources
 
+- **Colab CLI (close the laptop)** — [docs/colab-cli.md](docs/colab-cli.md) + [`scripts/colab_run.sh`](scripts/colab_run.sh)
 - **Design & risk analysis** — [docs/whitepaper.md](docs/whitepaper.md)
 - **Milestone plan** — [docs/ROADMAP.md](docs/ROADMAP.md)
 - **Contributing guide** — [CONTRIBUTING.md](CONTRIBUTING.md)

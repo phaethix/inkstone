@@ -10,15 +10,16 @@
   Forwarded to examples/generate_comic.py (e.g. my_novel.txt --out out --format webtoon).
 
 .EXAMPLE
-  .\start.ps1
-  .\start.ps1 examples/scene1.txt --out comic_out --format webtoon
+  .\scripts\start.ps1
+  .\scripts\start.ps1 examples/scene1.txt --out comic_out --format webtoon
 #>
 [CmdletBinding()]
 param()
 
 $ErrorActionPreference = "Stop"
 
-Set-Location $PSScriptRoot
+$Root = Resolve-Path (Join-Path $PSScriptRoot "..")
+Set-Location $Root
 
 # ------------------------------------------------------------------ #
 # Virtual environment
