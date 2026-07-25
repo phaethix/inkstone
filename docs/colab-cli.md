@@ -49,12 +49,28 @@ If `status` times out, the Colab kernel may be stuck after a long `exec`:
 ./scripts/colab_run.sh status
 ```
 
-# 5) Pull artifacts home
+If `status`/`exec` prints `appears to be lost (404/401)` but `colab sessions`
+still shows `[?] m-s-…`, the VM is alive — only the local alias was pruned:
+
+```bash
+./scripts/colab_run.sh adopt
+./scripts/colab_run.sh status
+```
+
+# 5) Pull artifacts home (shows download % / MB; stock `colab download` has no progress)
 ./scripts/colab_run.sh download --project my-novel-01
 
-# 6) Tear down the VM when finished
+# 6) Tear down the VM when finished (`pause` stops the job but keeps the VM)
 ./scripts/colab_run.sh stop
 ```
+
+| Command | Stops `generate_comic` | Keeps Colab VM |
+|---------|:--------------------:|:--------------:|
+| `pause` | yes | yes |
+| `stop` | yes | no |
+| `adopt` | no | re-binds local name to orphan `[?]` VM |
+
+Resume after `pause`: run again with the same `--project` (uses `state.json` on the VM).
 
 `run` uploads the novel, then starts:
 

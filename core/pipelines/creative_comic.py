@@ -322,14 +322,11 @@ def _ordered_generated_panels(state: ProjectState) -> list[tuple[str, GeneratedP
 _DEFAULT_PANELS_PER_CHUNK = 8
 
 
-def estimate_progress(state: ProjectState, total_chunks: int | None = None) -> float:
-    """Estimate overall completion in ``[0, 1)`` from checkpointed panels.
-
-    Used so a resume does not reset the UI progress bar to near-zero. Reserves
-    the last 10% for layout/export.
-    """
+def panel_progress_counts(
+    state: ProjectState, total_chunks: int | None = None
+) -> tuple[int, int]:
+    """Return ``(finished, planned)`` panel counts for progress display."""
     if total_chunks is None:
-        # Infer from cache keys + skipped, at least 1.
         keys = {int(k) for k in state.chunk_cache if str(k).isdigit()}
         keys.update(int(k) for k in state.skipped_chunks if str(k).isdigit())
         total_chunks = (max(keys) + 1) if keys else 1
@@ -355,6 +352,17 @@ def estimate_progress(state: ProjectState, total_chunks: int | None = None) -> f
             planned += avg
 
     finished = len(state.panels_done) + len(state.skipped)
+    planned_i = max(finished, int(round(planned)))
+    return finished, planned_i
+
+
+def estimate_progress(state: ProjectState, total_chunks: int | None = None) -> float:
+    """Estimate overall completion in ``[0, 1)`` from checkpointed panels.
+
+    Used so a resume does not reset the UI progress bar to near-zero. Reserves
+    the last 10% for layout/export.
+    """
+    finished, planned = panel_progress_counts(state, total_chunks)
     if planned <= 0:
         return 0.0
     return min(0.95, 0.9 * finished / planned)
@@ -431,9 +439,15 @@ async def _creative_comic(
 
     perf = PerfCollector()
 
+    def _progress_label(stage: str) -> str:
+        if stage in ("panel", "panels"):
+            done, planned = panel_progress_counts(state, total_chunks)
+            return f"panels {done}/{planned}"
+        return stage
+
     def _report(stage: str, percent: float | None = None) -> None:
         if progress_callback is not None:
-            progress_callback(stage, percent)
+            progress_callback(_progress_label(stage), percent)
 
     project_id = project_id or output_dir.name or "comic"
     _report("init", 0.0)

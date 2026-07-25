@@ -20,7 +20,7 @@ import asyncio
 import logging
 import os
 import sys
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 from pathlib import Path
 
 from tqdm import tqdm
@@ -35,37 +35,24 @@ _DEFAULT_SCENE = Path(__file__).resolve().parent / "scene1.txt"
 
 @contextmanager
 def _progress_display(stream=None):
-    """TTY: tqdm bar. Background/nohup: one line per stage or +1% change."""
+    """Always use tqdm (including nohup/Colab) so status log tail shows % + stage."""
     stream = stream or sys.stderr
-    if stream.isatty():
-        with tqdm(
-            total=100,
-            unit="%",
-            bar_format="{l_bar}{bar}| {n:3.0f}% [{postfix}]",
-            desc="generating comic",
-            file=stream,
-        ) as pbar:
-
-            def on_progress(stage: str, percent: float | None) -> None:
-                pbar.set_postfix(stage=stage)
-                if percent is not None:
-                    pbar.n = percent * 100
-                    pbar.update(0)
-                pbar.refresh()
-
-            yield on_progress
-    else:
-        last = {"stage": None, "pct": -1}
+    with tqdm(
+        total=100,
+        unit="%",
+        bar_format="{l_bar}{bar}| [{postfix}]",
+        desc="generating comic",
+        file=stream,
+    ) as pbar:
 
         def on_progress(stage: str, percent: float | None) -> None:
-            pct = int(round((percent or 0.0) * 100))
-            if stage != last["stage"] or pct >= last["pct"] + 1:
-                print(f"[{pct:3d}%] stage={stage}", file=stream, flush=True)
-                last["stage"] = stage
-                last["pct"] = pct
+            pbar.set_postfix_str(stage, refresh=False)
+            if percent is not None:
+                pbar.n = percent * 100
+                pbar.update(0)
+            pbar.refresh()
 
-        with nullcontext():
-            yield on_progress
+        yield on_progress
 
 
 async def _run(source: str, out: str, fmt: str, project_id: str | None = None) -> None:
@@ -133,11 +120,11 @@ def _parse_args(argv=None) -> argparse.Namespace:
 
 
 def _configure_background_logging() -> None:
-    """Emit INFO/WARNING to stderr when not attached to a TTY (nohup / Colab)."""
+    """Warnings/errors only when not a TTY — keeps Colab status log tail readable."""
     if sys.stderr.isatty():
         return
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.WARNING,
         format="%(levelname)s %(name)s: %(message)s",
         stream=sys.stderr,
         force=True,
