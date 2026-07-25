@@ -17,8 +17,10 @@ Usage:
 
 import argparse
 import asyncio
+import logging
 import os
 import sys
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 from tqdm import tqdm
@@ -31,29 +33,51 @@ from core.pipelines.run_until_complete import PausedRun, run_until_complete
 _DEFAULT_SCENE = Path(__file__).resolve().parent / "scene1.txt"
 
 
+@contextmanager
+def _progress_display(stream=None):
+    """TTY: tqdm bar. Background/nohup: one line per stage or +1% change."""
+    stream = stream or sys.stderr
+    if stream.isatty():
+        with tqdm(
+            total=100,
+            unit="%",
+            bar_format="{l_bar}{bar}| {n:3.0f}% [{postfix}]",
+            desc="generating comic",
+            file=stream,
+        ) as pbar:
+
+            def on_progress(stage: str, percent: float | None) -> None:
+                pbar.set_postfix(stage=stage)
+                if percent is not None:
+                    pbar.n = percent * 100
+                    pbar.update(0)
+                pbar.refresh()
+
+            yield on_progress
+    else:
+        last = {"stage": None, "pct": -1}
+
+        def on_progress(stage: str, percent: float | None) -> None:
+            pct = int(round((percent or 0.0) * 100))
+            if stage != last["stage"] or pct >= last["pct"] + 1:
+                print(f"[{pct:3d}%] stage={stage}", file=stream, flush=True)
+                last["stage"] = stage
+                last["pct"] = pct
+
+        with nullcontext():
+            yield on_progress
+
+
 async def _run(source: str, out: str, fmt: str, project_id: str | None = None) -> None:
     text = Path(source).read_text(encoding="utf-8")
 
-    with tqdm(
-        total=100,
-        unit="%",
-        bar_format="{l_bar}{bar}| {n:3.0f}% [{postfix}]",
-        desc="generating comic",
-    ) as pbar:
-
-        def _on_progress(stage: str, percent: float | None) -> None:
-            pbar.set_postfix(stage=stage)
-            if percent is not None:
-                pbar.n = percent * 100
-                pbar.update(0)
-            pbar.refresh()
-
+    with _progress_display() as on_progress:
         result = await run_until_complete(
             text,
             output_dir=out,
             project_id=project_id,
             output_format=fmt,
-            progress_callback=_on_progress,
+            progress_callback=on_progress,
         )
 
     if isinstance(result, PausedRun):
@@ -108,8 +132,21 @@ def _parse_args(argv=None) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
+def _configure_background_logging() -> None:
+    """Emit INFO/WARNING to stderr when not attached to a TTY (nohup / Colab)."""
+    if sys.stderr.isatty():
+        return
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s %(name)s: %(message)s",
+        stream=sys.stderr,
+        force=True,
+    )
+
+
 def main() -> None:
     args = _parse_args()
+    _configure_background_logging()
     if not os.environ.get("AGNES_API_KEY"):
         sys.exit("AGNES_API_KEY is not set. Export it (e.g. `export AGNES_API_KEY=sk-xxx`) first.")
     if not Path(args.source).exists():

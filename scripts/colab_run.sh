@@ -81,6 +81,77 @@ py_str() {
   python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"
 }
 
+# Python helpers for cmd_logs (injected into colab_py).
+_colab_logs_py_helpers() {
+  cat <<'PY'
+import json
+import re
+from pathlib import Path
+
+_TQDM_RE = re.compile(r'^generating comic:\s*\d+%')
+_INFO_PROGRESS_RE = re.compile(r'^\[\d{1,3}%\] stage=')
+_INFO_MARKERS = (
+    'PAUSED project',
+    'Traceback',
+    ' ERROR ',
+    'WARNING',
+    'ErrorCollector',
+    '⏱',
+    'started pid=',
+    're-run with the same',
+)
+
+
+def tail_jsonl_records(path: Path, limit: int) -> list[dict]:
+    if not path.is_file():
+        return []
+    records: list[dict] = []
+    for ln in path.read_text(encoding='utf-8', errors='replace').splitlines():
+        s = ln.strip()
+        if not s:
+            continue
+        try:
+            records.append(json.loads(s))
+        except json.JSONDecodeError:
+            continue
+    return records[-limit:]
+
+
+def format_api_error(rec: dict) -> str:
+    ts = str(rec.get('timestamp', ''))[:19]
+    model = rec.get('model_type', '?')
+    method = rec.get('api_method', '?')
+    sc = rec.get('status_code')
+    msg = str(rec.get('error_message', ''))[:240]
+    retry = rec.get('retry_count', 0)
+    sc_s = f' HTTP {sc}' if sc else ''
+    return f'[ERROR] {ts} {model}.{method}{sc_s} retry={retry}: {msg}'
+
+
+def meaningful_info_lines(lines: list[str]) -> list[str]:
+    out: list[str] = []
+    for ln in lines:
+        s = ln.strip()
+        if not s or _TQDM_RE.match(s):
+            continue
+        if _INFO_PROGRESS_RE.match(s):
+            out.append(s)
+            continue
+        if s.startswith('project ') or s.startswith('  PDF') or s.startswith('  WEBTOON'):
+            out.append(s)
+            continue
+        if s.startswith('  panels') or s.startswith('  review') or s.startswith('  stale'):
+            out.append(s)
+            continue
+        if any(m in s for m in _INFO_MARKERS):
+            out.append(s)
+            continue
+        if s.startswith('INFO ') or s.startswith('WARNING ') or s.startswith('ERROR '):
+            out.append(s)
+    return out
+PY
+}
+
 # Run Python on the Colab session via stdin. Default timeout is only 30s —
 # long Inkstone jobs must be started with nohup (see cmd_run), not foreground exec.
 colab_py() {
@@ -286,8 +357,25 @@ cmd_restart() {
 
 cmd_logs() {
   need_colab
-  local lines="${1:-80}"
-  colab_sh 60 "tail -n $lines $(remote_q "$REMOTE_LOG") 2>/dev/null || echo no log yet: $(remote_q "$REMOTE_LOG")"
+  local lines="${1:-50}"
+  colab_py 60 "$(_colab_logs_py_helpers)
+from pathlib import Path
+
+root = Path($(py_str "$REMOTE_ROOT"))
+error_log = root / 'logs' / 'errors.jsonl'
+run_log = Path($(py_str "$REMOTE_LOG"))
+
+errs = tail_jsonl_records(error_log, $lines)
+for rec in errs:
+    print(format_api_error(rec))
+
+if run_log.is_file():
+    info = meaningful_info_lines(
+        run_log.read_text(encoding='utf-8', errors='replace').splitlines()
+    )
+    for line in info[-$lines:]:
+        print(line)
+"
 }
 
 cmd_download() {
