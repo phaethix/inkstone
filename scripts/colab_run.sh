@@ -68,6 +68,19 @@ load_key() {
   fi
 }
 
+# Embed a local value as a shell-quoted literal in remote scripts. Expansion
+# happens here before colab_sh/colab_py — not on the VM. (Writing '$var' inside
+# the double-quoted colab_sh argument also expands locally; remote_q is explicit
+# and safe for paths containing spaces or shell metacharacters.)
+remote_q() {
+  python3 -c 'import shlex,sys; print(shlex.quote(sys.argv[1]))' "$1"
+}
+
+# Embed a local value as a Python string literal for colab_py snippets.
+py_str() {
+  python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"
+}
+
 # Run Python on the Colab session via stdin. Default timeout is only 30s —
 # long Inkstone jobs must be started with nohup (see cmd_run), not foreground exec.
 colab_py() {
@@ -136,10 +149,10 @@ cmd_bootstrap() {
     rm -f "$tarball"
     colab_sh 300 "
 set -e
-rm -rf '$REMOTE_ROOT'
-mkdir -p '$REMOTE_ROOT'
-tar -xzf /content/inkstone-src.tgz -C '$REMOTE_ROOT'
-cd '$REMOTE_ROOT'
+rm -rf $(remote_q "$REMOTE_ROOT")
+mkdir -p $(remote_q "$REMOTE_ROOT")
+tar -xzf /content/inkstone-src.tgz -C $(remote_q "$REMOTE_ROOT")
+cd $(remote_q "$REMOTE_ROOT")
 python -m pip install -q -U pip
 python -m pip install -q -e '.[dev]'
 python -c 'import core, json_repair; print(\"bootstrap ok\", core.__file__)'
@@ -148,9 +161,9 @@ python -c 'import core, json_repair; print(\"bootstrap ok\", core.__file__)'
     echo "[colab] Cloning $REPO_URL ($BRANCH) on the VM..."
     colab_sh 300 "
 set -e
-rm -rf '$REMOTE_ROOT'
-git clone --depth 1 --branch '$BRANCH' '$REPO_URL' '$REMOTE_ROOT'
-cd '$REMOTE_ROOT'
+rm -rf $(remote_q "$REMOTE_ROOT")
+git clone --depth 1 --branch $(remote_q "$BRANCH") $(remote_q "$REPO_URL") $(remote_q "$REMOTE_ROOT")
+cd $(remote_q "$REMOTE_ROOT")
 python -m pip install -q -U pip
 python -m pip install -q -e '.[dev]'
 python -c 'import core, json_repair; print(\"bootstrap ok\", core.__file__)'
@@ -197,22 +210,22 @@ cmd_run() {
   # Start nohup quickly; do not keep the local CLI attached to the long job.
   colab_sh 120 "
 set -e
-cd '$REMOTE_ROOT'
-test -f '$REMOTE_KEY' || { echo 'missing API key on VM; run bootstrap'; exit 1; }
-export AGNES_API_KEY=\$(cat '$REMOTE_KEY')
-mkdir -p '$remote_out'
-if [ -f '$REMOTE_PID' ] && kill -0 \"\$(cat '$REMOTE_PID')\" 2>/dev/null; then
-  echo \"stopping previous pid \$(cat '$REMOTE_PID')\"
-  kill \"\$(cat '$REMOTE_PID')\" || true
+cd $(remote_q "$REMOTE_ROOT")
+test -f $(remote_q "$REMOTE_KEY") || { echo 'missing API key on VM; run bootstrap'; exit 1; }
+export AGNES_API_KEY=\$(cat $(remote_q "$REMOTE_KEY"))
+mkdir -p $(remote_q "$remote_out")
+if [ -f $(remote_q "$REMOTE_PID") ] && kill -0 \"\$(cat $(remote_q "$REMOTE_PID"))\" 2>/dev/null; then
+  echo \"stopping previous pid \$(cat $(remote_q "$REMOTE_PID"))\"
+  kill \"\$(cat $(remote_q "$REMOTE_PID"))\" || true
   sleep 1
 fi
-nohup python examples/generate_comic.py '$remote_novel' \
-  --project '$project' \
-  --format '$format' \
-  --out '$remote_out' \
-  > '$REMOTE_LOG' 2>&1 &
-echo \$! > '$REMOTE_PID'
-echo started pid=\$(cat '$REMOTE_PID') out='$remote_out'
+nohup python examples/generate_comic.py $(remote_q "$remote_novel") \
+  --project $(remote_q "$project") \
+  --format $(remote_q "$format") \
+  --out $(remote_q "$remote_out") \
+  > $(remote_q "$REMOTE_LOG") 2>&1 &
+echo \$! > $(remote_q "$REMOTE_PID")
+echo started pid=\$(cat $(remote_q "$REMOTE_PID")) out=$(remote_q "$remote_out")
 "
   echo "[colab] Job started in the background on session '$SESSION'."
   echo "  You can close the laptop. Check later with:"
@@ -225,16 +238,15 @@ echo started pid=\$(cat '$REMOTE_PID') out='$remote_out'
 cmd_status() {
   need_colab
   colab status -s "$SESSION" || true
-  echo "--- remote job ---"
   if ! colab_py 90 "
 import os
 from pathlib import Path
 
-root = Path('$REMOTE_ROOT')
-pid_path = Path('$REMOTE_PID')
-log_path = Path('$REMOTE_LOG')
+root = Path($(py_str "$REMOTE_ROOT"))
+pid_path = Path($(py_str "$REMOTE_PID"))
+log_path = Path($(py_str "$REMOTE_LOG"))
 print('inkstone checkout:', root.is_dir())
-print('api key file:', Path('$REMOTE_KEY').is_file())
+print('api key file:', Path($(py_str "$REMOTE_KEY")).is_file())
 if pid_path.is_file():
     pid = int(pid_path.read_text().strip())
     try:
@@ -275,7 +287,7 @@ cmd_restart() {
 cmd_logs() {
   need_colab
   local lines="${1:-80}"
-  colab_sh 60 "tail -n $lines '$REMOTE_LOG' 2>/dev/null || echo 'no log yet: $REMOTE_LOG'"
+  colab_sh 60 "tail -n $lines $(remote_q "$REMOTE_LOG") 2>/dev/null || echo no log yet: $(remote_q "$REMOTE_LOG")"
 }
 
 cmd_download() {
@@ -300,9 +312,9 @@ cmd_download() {
   echo "[colab] Packing remote $remote_out ..."
   colab_sh 300 "
 set -e
-test -d '$remote_out' || { echo 'missing remote project dir'; exit 1; }
-tar -czf '$remote_tar' -C '$REMOTE_ROOT/comic_out' '$project'
-ls -lh '$remote_tar'
+test -d $(remote_q "$remote_out") || { echo 'missing remote project dir'; exit 1; }
+tar -czf $(remote_q "$remote_tar") -C $(remote_q "$REMOTE_ROOT/comic_out") $(remote_q "$project")
+ls -lh $(remote_q "$remote_tar")
 "
   mkdir -p "$ROOT/comic_out"
   echo "[colab] Downloading -> $local_tar"
@@ -318,9 +330,9 @@ cmd_stop() {
   echo "[colab] Stopping remote job (if any), then session '$SESSION'..."
   colab_sh 60 "
 set +e
-if [ -f '$REMOTE_PID' ]; then
-  kill \"\$(cat '$REMOTE_PID')\" 2>/dev/null || true
-  rm -f '$REMOTE_PID'
+if [ -f $(remote_q "$REMOTE_PID") ]; then
+  kill \"\$(cat $(remote_q "$REMOTE_PID"))\" 2>/dev/null || true
+  rm -f $(remote_q "$REMOTE_PID")
 fi
 true
 " || true
