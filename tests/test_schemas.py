@@ -91,9 +91,7 @@ def test_panel_coerces_dialogue_speaker_dict():
                 {
                     "panel_id": "1",
                     "action": "looks worried",
-                    "dialogue": {
-                        "Passepartout": "What is that? News stops a locomotive!"
-                    },
+                    "dialogue": {"Passepartout": "What is that? News stops a locomotive!"},
                 },
                 {
                     "panel_id": "2",
@@ -103,9 +101,7 @@ def test_panel_coerces_dialogue_speaker_dict():
             ],
         }
     )
-    assert board.panels[0].dialogue == (
-        "Passepartout: What is that? News stops a locomotive!"
-    )
+    assert board.panels[0].dialogue == ("Passepartout: What is that? News stops a locomotive!")
     assert board.panels[1].dialogue == "Fogg: Patience is key.\nPassepartout: Sir!"
 
 
@@ -171,7 +167,6 @@ def test_llm_payload_coerces_common_shape_drifts():
     assert "Fogg: Patience." in (p0.dialogue or "")
     assert board.panels[1].panel_id == "2"
     assert board.panels[1].characters_present == ["Fogg"]
-
 
 
 STORY_ELEMENTS_PAYLOAD = {

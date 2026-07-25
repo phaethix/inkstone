@@ -244,15 +244,12 @@ def decode_tool_arguments(args_raw: Any) -> dict:
         try:
             parsed = json.loads(parsed)
         except json.JSONDecodeError as exc:
-            raise RuntimeError(
-                f"chat: tool arguments not valid JSON: {args_raw[:300]}"
-            ) from exc
+            raise RuntimeError(f"chat: tool arguments not valid JSON: {args_raw[:300]}") from exc
     if not isinstance(parsed, dict):
         raise RuntimeError(
             f"chat: tool arguments must be a JSON object, got {type(parsed).__name__}"
         )
     return parsed
-
 
 
 _COMIC_STYLE_HINT = "manhua/comic style: clean black ink line art, soft cel shading, flat colors"
