@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from json_repair import repair_json
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.json_schema import SkipJsonSchema
 
 
@@ -295,6 +295,31 @@ class CharacterAsset(BaseModel):
     name: str
     role: str = ""
     appearance: Appearance = Field(default_factory=Appearance)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _ensure_name(cls, value: Any) -> Any:
+        """Fill missing/blank ``name`` from role (or common aliases).
+
+        Extract sometimes returns ``{"role": "Antagonist, …"}`` with no name;
+        without this, ``StoryElements.model_validate`` aborts the whole job.
+        """
+        value = coerce_jsonish(value)
+        if not isinstance(value, dict):
+            return value
+        name = value.get("name", None)
+        if name is not None and coerce_str(name).strip():
+            return value
+        for key in ("character_name", "character", "label"):
+            alt = value.get(key)
+            if alt is not None and coerce_str(alt).strip():
+                return {**value, "name": coerce_str(alt).strip()}
+        role_text = coerce_str(value.get("role")).strip()
+        if role_text:
+            # Prefer the first comma-segment so "Antagonist, ETO Enforcer" → "Antagonist".
+            stand_in = role_text.split(",", 1)[0].strip() or role_text
+            return {**value, "name": stand_in}
+        return {**value, "name": "unnamed"}
 
     @field_validator("appearance", mode="before")
     @classmethod

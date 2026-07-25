@@ -257,6 +257,23 @@ def test_character_defaults_and_size_default():
     assert char.aliases == []
 
 
+def test_character_missing_name_falls_back_to_role():
+    """LLM sometimes omits name and only sends role — must not crash extract."""
+    char = CharacterAsset.model_validate({"role": "Antagonist, ETO Enforcer"})
+    assert char.name == "Antagonist"
+    assert "ETO Enforcer" in char.role
+
+    elements = StoryElements.model_validate(
+        {
+            "characters": [
+                {"name": "Ye Wenjie", "role": "physicist"},
+                {"role": "Antagonist, ETO Enforcer"},
+            ]
+        }
+    )
+    assert elements.characters[1].name == "Antagonist"
+
+
 def test_project_state_round_trip(tmp_path):
     state = ProjectState(
         project_id="weicheng-ch01",
