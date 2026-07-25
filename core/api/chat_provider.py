@@ -26,6 +26,7 @@ from abc import ABC, abstractmethod
 from requests import Response
 
 from core.api.retry import collect_provider_error, retryable_post
+from core.schemas import decode_tool_arguments
 
 logger = logging.getLogger(__name__)
 
@@ -147,14 +148,10 @@ class AgnesChatAPI(ChatProvider):
         if not calls:
             raise RuntimeError(f"Agnes chat: no tool_calls in response: {json.dumps(msg)[:300]}")
         args_raw = calls[0]["function"]["arguments"]
-        if isinstance(args_raw, dict):
-            return args_raw
         try:
-            return json.loads(args_raw)
-        except json.JSONDecodeError as e:
-            raise RuntimeError(
-                f"Agnes chat: tool arguments not valid JSON: {args_raw[:300]}"
-            ) from e
+            return decode_tool_arguments(args_raw)
+        except RuntimeError as e:
+            raise RuntimeError(str(e).replace("chat:", "Agnes chat:", 1)) from e
 
 
 class OpenAICompatChatProvider(ChatProvider):

@@ -223,6 +223,7 @@ logs/
 output/
 comic_out/
 .playwright-cli/
+.workbuddy/
 # Internal design docs — not for public commit.
 docs/whitepaper.md
 docs/M1-code-review.md

@@ -15,6 +15,7 @@ Runtime-only fields (populated by the pipeline, not the model) are annotated wit
 ``SkipJsonSchema`` so they never leak into the tool schema shown to the model.
 """
 
+import ast
 import json
 import os
 import tempfile
@@ -22,6 +23,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
+from json_repair import repair_json
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.json_schema import SkipJsonSchema
 
@@ -32,6 +34,9 @@ def coerce_jsonish(value: Any) -> Any:
     Some chat providers stringify nested structures inside tool-call arguments
     even after the top-level ``arguments`` blob has been ``json.loads``'d.
     Unwrap repeatedly so double-encoded payloads still become objects/lists.
+
+    When the string is almost-JSON (unescaped quotes in dialogue, Python
+    literals), fall back to ``json_repair`` / ``ast.literal_eval`` before giving up.
     """
     for _ in range(3):
         if not isinstance(value, str):
@@ -51,17 +56,203 @@ def coerce_jsonish(value: Any) -> Any:
             return value
         try:
             value = json.loads(text)
+            continue
         except json.JSONDecodeError:
+            pass
+        try:
+            value = ast.literal_eval(text)
+            continue
+        except (ValueError, SyntaxError, MemoryError):
+            pass
+        try:
+            repaired = repair_json(text, return_objects=True)
+        except Exception:
             return value
+        if repaired is None or repaired == "" or repaired == text:
+            return value
+        value = repaired
     return value
+
+
+def coerce_str(value: Any) -> Any:
+    """Normalize free-text LLM fields to a string.
+
+    Handles scalars, lists, and small dicts (``{"shot": "wide"}`` →
+    ``"shot: wide"``) so Pydantic ``str`` fields do not raise ``string_type``.
+    """
+    value = coerce_jsonish(value)
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, dict):
+        parts: list[str] = []
+        for key, item in value.items():
+            text = coerce_str(item).strip()
+            if not text:
+                continue
+            name = str(key).strip()
+            parts.append(f"{name}: {text}" if name else text)
+        return "; ".join(parts)
+    if isinstance(value, list):
+        parts = [coerce_str(item).strip() for item in value]
+        return ", ".join(part for part in parts if part)
+    return str(value)
+
+
+def coerce_str_list(value: Any) -> Any:
+    """Normalize name/tag lists (``list[str]``) from common LLM shapes."""
+    value = coerce_jsonish(value)
+    if value is None or value == "":
+        return []
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return []
+        if "," in text:
+            return [part.strip() for part in text.split(",") if part.strip()]
+        return [text]
+    if isinstance(value, dict):
+        # Prefer values when they look like names; else use keys
+        # (e.g. ``{"Fogg": true}`` or ``{"0": "Fogg"}``).
+        values = [coerce_str(v).strip() for v in value.values()]
+        values = [v for v in values if v and v not in {"true", "false", "1", "0"}]
+        if values:
+            return values
+        return [str(k).strip() for k in value if str(k).strip()]
+    if isinstance(value, list):
+        names: list[str] = []
+        for item in value:
+            item = coerce_jsonish(item)
+            if isinstance(item, dict):
+                if "name" in item:
+                    name = coerce_str(item.get("name")).strip()
+                    if name:
+                        names.append(name)
+                else:
+                    names.extend(coerce_str_list(item))
+            else:
+                name = coerce_str(item).strip()
+                if name:
+                    names.append(name)
+        return names
+    text = coerce_str(value).strip()
+    return [text] if text else []
+
+
+def coerce_object_list(value: Any) -> Any:
+    """Normalize lists of nested models (characters / settings / panels).
+
+    Decodes stringified elements and wraps a lone object into a one-item list.
+    Keeps already-constructed Pydantic models (constructor / resume paths).
+    Non-object entries that cannot be decoded are dropped.
+    """
+    value = coerce_jsonish(value)
+    if value is None or value == "":
+        return []
+    if isinstance(value, BaseModel):
+        return [value]
+    if isinstance(value, dict):
+        value = [value]
+    if not isinstance(value, list):
+        return value
+    objects: list[Any] = []
+    for item in value:
+        item = coerce_jsonish(item)
+        if isinstance(item, (dict, BaseModel)):
+            objects.append(item)
+    return objects
 
 
 def coerce_list(value: Any) -> Any:
-    """Coerce a stringified JSON list (or a lone object) into a list."""
+    """Backward-compatible alias used by older call sites / tests."""
+    return coerce_object_list(value)
+
+
+def coerce_dialogue(value: Any) -> Any:
+    """Normalize panel dialogue to ``str | None``.
+
+    Chat models often emit speaker maps (``{"Name": "line"}``) or lists of
+    lines instead of a single string. Layout only draws a string bubble, so
+    flatten those shapes here.
+    """
     value = coerce_jsonish(value)
+    if value is None or value == "":
+        return None
+    if isinstance(value, str):
+        return value
     if isinstance(value, dict):
-        return [value]
-    return value
+        lines: list[str] = []
+        for speaker, line in value.items():
+            text = coerce_str(line).strip()
+            if not text:
+                continue
+            name = str(speaker).strip()
+            lines.append(f"{name}: {text}" if name else text)
+        return "\n".join(lines) or None
+    if isinstance(value, list):
+        parts: list[str] = []
+        for item in value:
+            coerced = coerce_dialogue(item)
+            if coerced:
+                parts.append(coerced)
+        return "\n".join(parts) or None
+    text = coerce_str(value).strip()
+    return text or None
+
+
+def coerce_size(value: Any) -> Any:
+    """Normalize panel size to ``WxH`` (default ``1024x1024``)."""
+    value = coerce_jsonish(value)
+    if isinstance(value, list) and len(value) >= 2:
+        width = coerce_str(value[0]).strip()
+        height = coerce_str(value[1]).strip()
+        if width and height:
+            return f"{width}x{height}"
+    text = coerce_str(value).strip()
+    if not text:
+        return "1024x1024"
+    if "," in text and "x" not in text.lower():
+        parts = [part.strip() for part in text.split(",") if part.strip()]
+        if len(parts) == 2:
+            return f"{parts[0]}x{parts[1]}"
+    return text
+
+
+def decode_tool_arguments(args_raw: Any) -> dict:
+    """Parse a provider tool-call ``arguments`` blob into a dict.
+
+    Accepts an already-decoded mapping, or a JSON / almost-JSON string. Uses the
+    same repair path as ``coerce_jsonish`` so a single broken quote in the outer
+    payload does not fail the whole pipeline before field validators run.
+    """
+    if isinstance(args_raw, dict):
+        return args_raw
+    if args_raw is None:
+        raise RuntimeError("chat: tool arguments missing")
+    if not isinstance(args_raw, str):
+        kind = type(args_raw).__name__
+        raise RuntimeError(f"chat: tool arguments must be a JSON object, got {kind}")
+    parsed = coerce_jsonish(args_raw)
+    if isinstance(parsed, dict):
+        return parsed
+    if isinstance(parsed, str):
+        try:
+            parsed = json.loads(parsed)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"chat: tool arguments not valid JSON: {args_raw[:300]}"
+            ) from exc
+    if not isinstance(parsed, dict):
+        raise RuntimeError(
+            f"chat: tool arguments must be a JSON object, got {type(parsed).__name__}"
+        )
+    return parsed
+
 
 
 _COMIC_STYLE_HINT = "manhua/comic style: clean black ink line art, soft cel shading, flat colors"
@@ -84,6 +275,20 @@ class Appearance(BaseModel):
     body_type: str = ""
     distinguishing: str = ""
 
+    @field_validator(
+        "hair",
+        "eyewear",
+        "outfit_top",
+        "outfit_bottom",
+        "shoes",
+        "body_type",
+        "distinguishing",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_text_fields(cls, value: Any) -> Any:
+        return coerce_str(value)
+
 
 class CharacterAsset(BaseModel):
     """A character extracted from the source text; reused across chunks by name."""
@@ -97,7 +302,13 @@ class CharacterAsset(BaseModel):
     @field_validator("appearance", mode="before")
     @classmethod
     def _coerce_appearance(cls, value: Any) -> Any:
-        return coerce_jsonish(value)
+        value = coerce_jsonish(value)
+        if value is None or value == "" or value == []:
+            return {}
+        if isinstance(value, str):
+            # Non-JSON prose — stash as distinguishing rather than crash.
+            return {"distinguishing": value}
+        return value
 
     # Hardened description inlined into every panel prompt. Prefer deriving from
     # ``appearance`` via ``build_l1_from_appearance``; the model may still fill this.
@@ -116,6 +327,24 @@ class CharacterAsset(BaseModel):
     # never requested from the model, so it is hidden from the tool schema.
     portrait_local: SkipJsonSchema[str | None] = None
 
+    @field_validator("name", "role", "l1_prompt", "portrait_prompt", mode="before")
+    @classmethod
+    def _coerce_text_fields(cls, value: Any) -> Any:
+        return coerce_str(value)
+
+    @field_validator("aliases", mode="before")
+    @classmethod
+    def _coerce_aliases(cls, value: Any) -> Any:
+        return coerce_str_list(value)
+
+    @field_validator("portrait_local", mode="before")
+    @classmethod
+    def _coerce_portrait_local(cls, value: Any) -> Any:
+        if value is None or value == "":
+            return None
+        text = coerce_str(value).strip()
+        return text or None
+
 
 class Setting(BaseModel):
     """A scene/location extracted from the source text."""
@@ -125,6 +354,11 @@ class Setting(BaseModel):
     name: str
     description: str = ""
     scene_prompt: str = ""
+
+    @field_validator("name", "description", "scene_prompt", mode="before")
+    @classmethod
+    def _coerce_text_fields(cls, value: Any) -> Any:
+        return coerce_str(value)
 
 
 class StoryElements(BaseModel):
@@ -145,7 +379,12 @@ class StoryElements(BaseModel):
     @field_validator("characters", "settings", mode="before")
     @classmethod
     def _coerce_asset_lists(cls, value: Any) -> Any:
-        return coerce_list(value)
+        return coerce_object_list(value)
+
+    @field_validator("style_guide", mode="before")
+    @classmethod
+    def _coerce_style_guide(cls, value: Any) -> Any:
+        return coerce_str(value)
 
 
 class Panel(BaseModel):
@@ -165,10 +404,31 @@ class Panel(BaseModel):
     reference_characters: list[str] = Field(default_factory=list)
     size: str = "1024x1024"
 
+    @field_validator(
+        "panel_id",
+        "setting_ref",
+        "action",
+        "panel_prompt",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_text_fields(cls, value: Any) -> Any:
+        return coerce_str(value)
+
+    @field_validator("size", mode="before")
+    @classmethod
+    def _coerce_size(cls, value: Any) -> Any:
+        return coerce_size(value)
+
     @field_validator("characters_present", "reference_characters", mode="before")
     @classmethod
     def _coerce_name_lists(cls, value: Any) -> Any:
-        return coerce_list(value)
+        return coerce_str_list(value)
+
+    @field_validator("dialogue", mode="before")
+    @classmethod
+    def _coerce_dialogue(cls, value: Any) -> Any:
+        return coerce_dialogue(value)
 
 
 class Storyboard(BaseModel):
@@ -179,10 +439,15 @@ class Storyboard(BaseModel):
     chapter_id: str
     panels: list[Panel] = Field(default_factory=list)
 
+    @field_validator("chapter_id", mode="before")
+    @classmethod
+    def _coerce_chapter_id(cls, value: Any) -> Any:
+        return coerce_str(value)
+
     @field_validator("panels", mode="before")
     @classmethod
     def _coerce_panels(cls, value: Any) -> Any:
-        return coerce_list(value)
+        return coerce_object_list(value)
 
 
 class ChunkCache(BaseModel):
@@ -243,6 +508,11 @@ class GeneratedPanel(BaseModel):
     dialogue: str | None = None
     url: str | None = None
     expires_at: str | None = None
+
+    @field_validator("dialogue", mode="before")
+    @classmethod
+    def _coerce_dialogue(cls, value: Any) -> Any:
+        return coerce_dialogue(value)
 
 
 class GeneratedAssets(BaseModel):

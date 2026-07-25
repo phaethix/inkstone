@@ -67,6 +67,113 @@ def test_storyboard_coerces_double_encoded_panels_string():
     assert board.panels[0].size == "1024x1024"
 
 
+def test_storyboard_coerces_panels_with_unescaped_quotes():
+    """LLM tool strings often break JSON with raw quotes inside action/dialogue."""
+    broken = '[{"panel_id": "1", "action": "says "hi"", "size": "1024x1024"}]'
+    board = Storyboard.model_validate({"chapter_id": "c1", "panels": broken})
+    assert board.panels[0].panel_id == "1"
+    assert "hi" in board.panels[0].action
+
+
+def test_storyboard_coerces_python_repr_panels_string():
+    """Some providers emit Python-literal lists instead of JSON."""
+    broken = "[{'panel_id': '1', 'action': 'walk', 'size': '1024x1024'}]"
+    board = Storyboard.model_validate({"chapter_id": "c1", "panels": broken})
+    assert board.panels[0].panel_id == "1"
+
+
+def test_panel_coerces_dialogue_speaker_dict():
+    """Models often return dialogue as {speaker: line} instead of a string."""
+    board = Storyboard.model_validate(
+        {
+            "chapter_id": "c1",
+            "panels": [
+                {
+                    "panel_id": "1",
+                    "action": "looks worried",
+                    "dialogue": {
+                        "Passepartout": "What is that? News stops a locomotive!"
+                    },
+                },
+                {
+                    "panel_id": "2",
+                    "action": "calm",
+                    "dialogue": {"Fogg": "Patience is key.", "Passepartout": "Sir!"},
+                },
+            ],
+        }
+    )
+    assert board.panels[0].dialogue == (
+        "Passepartout: What is that? News stops a locomotive!"
+    )
+    assert board.panels[1].dialogue == "Fogg: Patience is key.\nPassepartout: Sir!"
+
+
+def test_llm_payload_coerces_common_shape_drifts():
+    """Regression: Agnes freely mutates field shapes; validate must not crash."""
+    elements = StoryElements.model_validate(
+        {
+            "style_guide": ["manhua", "ink"],
+            "characters": [
+                {
+                    "name": 7,
+                    "role": ["protagonist", "narrator"],
+                    "l1_prompt": ["tall man", "black hair"],
+                    "appearance": {
+                        "hair": ["short", "black"],
+                        "distinguishing": {"scar": "left cheek"},
+                    },
+                },
+                '{"name": "Fogg", "role": "lead"}',
+            ],
+            "settings": {
+                "name": "Train",
+                "description": {"mood": "tense"},
+                "scene_prompt": ["steam", "night"],
+            },
+        }
+    )
+    assert elements.style_guide == "manhua, ink"
+    assert elements.characters[0].name == "7"
+    assert "protagonist" in elements.characters[0].role
+    assert "tall man" in elements.characters[0].l1_prompt
+    assert "short" in elements.characters[0].appearance.hair
+    assert elements.characters[1].name == "Fogg"
+    assert elements.settings[0].name == "Train"
+    assert "tense" in elements.settings[0].description
+
+    board = Storyboard.model_validate(
+        {
+            "chapter_id": 3,
+            "panels": [
+                {
+                    "panel_id": 1,
+                    "action": {"shot": "wide", "verb": "run"},
+                    "setting_ref": {"name": "Train"},
+                    "characters_present": "Fogg, Passepartout",
+                    "reference_characters": "Fogg",
+                    "size": ["1024", "1024"],
+                    "dialogue": [{"Fogg": "Patience."}, "Keep calm."],
+                },
+                '{"panel_id": "2", "action": "waits", "characters_present": ["Fogg"]}',
+            ],
+        }
+    )
+    assert board.chapter_id == "3"
+    p0 = board.panels[0]
+    assert p0.panel_id == "1"
+    assert "wide" in p0.action and "run" in p0.action
+    assert "Train" in p0.setting_ref
+    assert p0.characters_present == ["Fogg", "Passepartout"]
+    assert p0.reference_characters == ["Fogg"]
+    assert "1024" in p0.size
+    assert "x" in p0.size.lower()
+    assert "Fogg: Patience." in (p0.dialogue or "")
+    assert board.panels[1].panel_id == "2"
+    assert board.panels[1].characters_present == ["Fogg"]
+
+
+
 STORY_ELEMENTS_PAYLOAD = {
     "characters": [
         {

@@ -116,6 +116,24 @@ def test_agnes_chat_returns_parsed_args(patch_async, monkeypatch):
     assert fake_post.calls["n"] == 1
 
 
+def test_agnes_chat_repairs_broken_outer_arguments(patch_async, monkeypatch):
+    """Unescaped quotes in the outer arguments blob should still parse."""
+    broken = '{"characters": [{"name": "Fogg", "role": "says "go""}]}'
+    body = _tool_call_body(broken)
+    fake_post = _fake_chat_post([200], body)
+    monkeypatch.setattr(requests, "post", fake_post)
+    api = AgnesChatAPI(api_key="k")
+    out = asyncio.run(
+        api.chat_function_call(
+            messages=[{"role": "user", "content": "x"}],
+            tools=[{"type": "function", "function": {"name": "extract"}}],
+            tool_choice={"type": "function", "function": {"name": "extract"}},
+        )
+    )
+    assert out["characters"][0]["name"] == "Fogg"
+    assert "go" in out["characters"][0]["role"]
+
+
 def test_agnes_chat_returns_dict_args_as_is(patch_async, monkeypatch):
     body = _tool_call_body({"characters": [{"name": "方鸿渐"}]})  # already a dict
     fake_post = _fake_chat_post([200], body)
