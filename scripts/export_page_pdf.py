@@ -84,8 +84,11 @@ def rebuild_page_pdf(project_dir: Path, *, keep_webtoon: bool = True) -> Path:
     if not panel_imgs:
         raise RuntimeError(f"no panel images found under {project_dir / 'panels'}")
 
-    print(f"composing {len(panel_imgs)} panel(s) into page grid"
-          + (f" ({missing} missing)" if missing else "") + "...")
+    print(
+        f"composing {len(panel_imgs)} panel(s) into page grid"
+        + (f" ({missing} missing)" if missing else "")
+        + "..."
+    )
     page_paths = LayoutEngine().compose(panel_imgs, pages_dir, layout_mode="page")
     print(f"wrote {len(page_paths)} page image(s) under {pages_dir}")
 

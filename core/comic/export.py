@@ -47,9 +47,7 @@ class ExportEngine:
         pages = sorted(page_dir.glob("page_*.png"))
         if not pages:
             # Ignore vertical webtoon strips sitting alongside page sheets.
-            pages = sorted(
-                p for p in page_dir.glob("*.png") if p.name.lower() != "webtoon.png"
-            )
+            pages = sorted(p for p in page_dir.glob("*.png") if p.name.lower() != "webtoon.png")
         if not pages:
             raise RuntimeError(f"no page images found in {page_dir}")
 
