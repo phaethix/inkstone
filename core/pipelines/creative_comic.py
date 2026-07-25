@@ -322,9 +322,7 @@ def _ordered_generated_panels(state: ProjectState) -> list[tuple[str, GeneratedP
 _DEFAULT_PANELS_PER_CHUNK = 8
 
 
-def panel_progress_counts(
-    state: ProjectState, total_chunks: int | None = None
-) -> tuple[int, int]:
+def panel_progress_counts(state: ProjectState, total_chunks: int | None = None) -> tuple[int, int]:
     """Return ``(finished, planned)`` panel counts for progress display."""
     if total_chunks is None:
         keys = {int(k) for k in state.chunk_cache if str(k).isdigit()}
