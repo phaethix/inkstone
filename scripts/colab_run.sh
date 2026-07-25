@@ -320,25 +320,22 @@ PY
 
 # Run Python on the Colab session via stdin. Default timeout is only 30s —
 # long Inkstone jobs must be started with nohup (see cmd_run), not foreground exec.
-# Sets COLAB_PY_ERR to captured stderr (also printed).
+# Sets COLAB_PY_ERR to combined stdout+stderr on failure (colab prints 404 on stdout).
 colab_py() {
   local timeout="${1:-60}"
   shift
   local code="$1"
-  local err_file
-  err_file="$(mktemp)"
+  local out_file
+  out_file="$(mktemp)"
   # shellcheck disable=SC2064
-  trap "rm -f '$err_file'" RETURN
+  trap "rm -f '$out_file'" RETURN
   COLAB_PY_ERR=""
-  if printf '%s\n' "$code" | colab exec -s "$SESSION" --timeout "$timeout" 2>"$err_file"; then
-    # colab may still print warnings to stderr on success
-    if [[ -s "$err_file" ]]; then
-      cat "$err_file" >&2
-    fi
+  if printf '%s\n' "$code" | colab exec -s "$SESSION" --timeout "$timeout" >"$out_file" 2>&1; then
+    cat "$out_file"
     return 0
   fi
-  COLAB_PY_ERR="$(cat "$err_file")"
-  cat "$err_file" >&2
+  COLAB_PY_ERR="$(cat "$out_file")"
+  cat "$out_file" >&2
   return 1
 }
 
