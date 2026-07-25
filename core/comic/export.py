@@ -44,7 +44,12 @@ class ExportEngine:
                 nor Pillow can produce the PDF.
         """
         page_dir = Path(page_dir)
-        pages = sorted(page_dir.glob("page_*.png")) or sorted(page_dir.glob("*.png"))
+        pages = sorted(page_dir.glob("page_*.png"))
+        if not pages:
+            # Ignore vertical webtoon strips sitting alongside page sheets.
+            pages = sorted(
+                p for p in page_dir.glob("*.png") if p.name.lower() != "webtoon.png"
+            )
         if not pages:
             raise RuntimeError(f"no page images found in {page_dir}")
 

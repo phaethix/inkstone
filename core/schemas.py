@@ -417,8 +417,18 @@ class Panel(BaseModel):
     panel_id: str
     characters_present: list[str] = Field(default_factory=list)
     setting_ref: str = ""
-    action: str = ""
-    dialogue: str | None = None
+    action: str = Field(
+        default="",
+        description="visual action for the panel; English OK for image models",
+    )
+    dialogue: str | None = Field(
+        default=None,
+        description=(
+            "speech-bubble / narration text shown to readers; MUST use the same "
+            "language as the source novel excerpt (Chinese source → Chinese "
+            "dialogue). Prefer short quotes close to the source; do not translate."
+        ),
+    )
     # Pipeline-owned prompt text. Hidden from the tool schema so the model does
     # not invent a competing prompt; ``ConsistencyEngine.build_panel_prompt`` is
     # the sole authority at render time. Kept for legacy state.json compatibility.

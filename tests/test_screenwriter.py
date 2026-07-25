@@ -49,6 +49,39 @@ def test_plan_storyboard_parses_payload():
     assert result.panels[0].panel_id == "ch01_p01"
 
 
+def test_plan_storyboard_instructs_source_language_for_dialogue():
+    """Chinese novels must not silently become English speech bubbles."""
+    seen: dict = {}
+
+    class CaptureChat(ChatProvider):
+        async def chat_function_call(self, messages, tools, tool_choice, **kwargs):
+            seen["messages"] = messages
+            return {
+                "chapter_id": "ch01",
+                "panels": [
+                    {
+                        "panel_id": "p1",
+                        "action": "look at the sea",
+                        "dialogue": "这海上的日子，倒也清静。",
+                    }
+                ],
+            }
+
+    text = "刘慈欣 三体\n叶文洁望着天线。"
+    result = asyncio.run(plan_storyboard(text, StoryElements(), chat=CaptureChat()))
+    blob = " ".join(m["content"] for m in seen["messages"])
+    assert "same language" in blob.lower() or "Chinese" in blob
+    assert "never English" in blob or "do not translate" in blob.lower()
+    assert result.panels[0].dialogue and "海上" in result.panels[0].dialogue
+
+
+def test_system_prompt_forbids_translating_dialogue():
+    from core.screenwriter import SYSTEM_PROMPT
+
+    assert "dialogue" in SYSTEM_PROMPT.lower()
+    assert "same language" in SYSTEM_PROMPT.lower() or "Chinese" in SYSTEM_PROMPT
+
+
 def test_sanitize_text_redacts_banned_terms():
     assert "抹胸" not in sanitize_text("wear a 抹胸", banned=["抹胸"])
     assert "■" in sanitize_text("wear a 抹胸", banned=["抹胸"])

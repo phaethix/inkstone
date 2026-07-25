@@ -22,7 +22,12 @@ SYSTEM_PROMPT = (
     "as structured data. Every image prompt you write must target a manhua/comic "
     "art style: clean black ink line art, soft cel shading, flat colors, and "
     "cinematic panel composition. Follow content policy: depict characters decently; "
-    "avoid nudity, sexual content, smoking, graphic violence, or other prohibited themes."
+    "avoid nudity, sexual content, smoking, graphic violence, or other prohibited themes. "
+    "Language rules: keep character names as they appear in the source text; "
+    "write every dialogue / narration / speech-bubble line in the same language as "
+    "the source excerpt (do not translate Chinese source into English dialogue). "
+    "Art-direction fields (style_guide, scene_prompt, action, l1_prompt) may stay "
+    "in English when that helps image models."
 )
 
 EXTRACT_TOOL = to_tool_schema(
@@ -98,7 +103,9 @@ async def plan_storyboard(text: str, elements: StoryElements, *, chat=None) -> S
     context = (
         f"{sanitize_text(text)}\n\n"
         "Extracted story elements (reuse these names and descriptions):\n"
-        f"{elements.model_dump_json()}"
+        f"{elements.model_dump_json()}\n\n"
+        "Reminder: dialogue and narration must match the source language "
+        "(if the excerpt is Chinese, dialogue must be Chinese — never English translation)."
     )
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
