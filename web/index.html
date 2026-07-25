@@ -928,6 +928,19 @@
       $("status").textContent = msg;
     }
 
+    function clearError() {
+      $("errorWrap").textContent = "";
+      $("errorWrap").classList.add("hidden");
+    }
+
+    function friendlyFetchError(err) {
+      const raw = (err && err.message) ? err.message : String(err || "Request failed");
+      if (raw === "Failed to fetch" || /NetworkError|Load failed|network/i.test(raw)) {
+        return "Could not reach the server (network blip or web/server.py not running). If a job was already started, progress is still saved — refresh or reuse the same project id.";
+      }
+      return raw;
+    }
+
     function generate() {
       const text = $("text").value.trim();
       if (mode === "live" && !text) {
@@ -935,7 +948,7 @@
         $("errorWrap").classList.remove("hidden");
         return;
       }
-      $("errorWrap").classList.add("hidden");
+      clearError();
       $("go").disabled = true;
       $("progressWrap").classList.remove("hidden");
       $("log").textContent = "";
@@ -1019,17 +1032,32 @@
         setStopVisible(true);
         poll(data.job_id);
       } catch (e) {
-        fail(e.message);
+        fail(friendlyFetchError(e));
       }
     }
 
     function poll(jobId) {
       clearInterval(pollTimer);
       currentJobId = jobId;
+      let pollMisses = 0;
+      clearError();
       const tick = async () => {
         let job;
-        try { job = await (await fetch("/api/job/" + jobId)).json(); }
-        catch (e) { return; }
+        try {
+          const res = await fetch("/api/job/" + jobId);
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          job = await res.json();
+          pollMisses = 0;
+        } catch (e) {
+          // Transient network blips must not look like a hard failure or stop the job.
+          pollMisses += 1;
+          if (pollMisses >= 3) {
+            $("errorWrap").textContent = "Polling interrupted (" + friendlyFetchError(e) + "). Job may still be running — waiting to reconnect…";
+            $("errorWrap").classList.remove("hidden");
+          }
+          return;
+        }
+        clearError();
         $("log").textContent = (job.log || []).join("\n");
         $("log").scrollTop = $("log").scrollHeight;
         if (job.status === "running") {
@@ -1196,12 +1224,13 @@
           $("reviewWrap").classList.remove("hidden");
         }
       } catch (e) {
-        fail(e.message);
+        fail(friendlyFetchError(e));
       }
     }
 
     async function regenStale() {
       if (!currentProjectId) return fail("No project id");
+      clearError();
       $("go").disabled = true;
       $("progressWrap").classList.remove("hidden");
       timingElapsed = 0;
@@ -1231,12 +1260,13 @@
         setStopVisible(true);
         poll(data.job_id);
       } catch (e) {
-        fail(e.message);
+        fail(friendlyFetchError(e));
       }
     }
 
     async function regenKeys(keys) {
       if (!currentProjectId) return fail("No project id");
+      clearError();
       $("go").disabled = true;
       $("progressWrap").classList.remove("hidden");
       timingElapsed = 0;
@@ -1266,7 +1296,7 @@
         setStopVisible(true);
         poll(data.job_id);
       } catch (e) {
-        fail(e.message);
+        fail(friendlyFetchError(e));
       }
     }
 
