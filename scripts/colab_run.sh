@@ -74,6 +74,12 @@ colab_ensure_session() {
   return 0
 }
 
+# True when colab_py / CLI output indicates a pruned local alias (VM may still be up).
+colab_err_is_session_lost() {
+  local err="${1:-}"
+  [[ "$err" == *"404"* ]] || [[ "$err" == *"401"* ]] || [[ "$err" == *"appears to be lost"* ]]
+}
+
 load_key() {
   if [ -z "${AGNES_API_KEY:-}" ] && [ -f "$ROOT/.env" ]; then
     set -a
@@ -505,10 +511,10 @@ echo started pid=\$(cat $(remote_q "$REMOTE_PID")) out=$(remote_q "$remote_out")
   echo "    ./scripts/colab_run.sh download --project $project"
 }
 
-cmd_status() {
-  need_colab
-  colab_ensure_session || return 1
-  if ! colab_py 90 "$(_colab_logs_py_helpers)
+# Remote Python body for cmd_status (reused after auto-adopt retry).
+_status_remote_py() {
+  cat <<EOF
+$(_colab_logs_py_helpers)
 import os
 from pathlib import Path
 
@@ -540,7 +546,7 @@ if stats:
         print(' ', row)
     done, planned = panel_counts_from_state(st, n_chunks)
     print(
-        f'project {name}: state.stage={st.get(\"stage\", \"?\")} '
+        f'project {name}: state.stage={st.get("stage", "?")} '
         f'panels {done}/{planned} on_disk={n_files}'
         + (f' chunks={n_chunks}' if n_chunks else '')
     )
@@ -551,10 +557,41 @@ else:
     else:
         print('  (no progress yet)')
     print('comic_out: none yet')
-"; then
-    colab_py_fail_hint "status"
-    return 1
+EOF
+}
+
+cmd_status() {
+  need_colab
+  local adopted=0
+  # Alias may already be gone from a prior prune — reclaim before first exec.
+  if ! colab_ensure_session; then
+    echo "[colab] Trying adopt before status..." >&2
+    if ! cmd_adopt --quiet; then
+      return 1
+    fi
+    adopted=1
+    colab_ensure_session || return 1
   fi
+
+  local code
+  code="$(_status_remote_py)"
+  if colab_py 90 "$code"; then
+    return 0
+  fi
+
+  # Colab CLI prunes local url/token on transient kernel 404/401 even when the
+  # VM assignment still exists. Re-bind once and retry status.
+  if colab_err_is_session_lost "${COLAB_PY_ERR:-}" && [ "$adopted" -eq 0 ]; then
+    echo "[colab] status hit 404/401; adopting orphan VM and retrying once..." >&2
+    if cmd_adopt --quiet && colab_ensure_session --quiet; then
+      code="$(_status_remote_py)"
+      if colab_py 90 "$code"; then
+        return 0
+      fi
+    fi
+  fi
+  colab_py_fail_hint "status"
+  return 1
 }
 
 cmd_restart() {
@@ -726,8 +763,16 @@ cmd_adopt() {
   # Re-bind SESSION to an orphan server assignment ([?] in `colab sessions`).
   # Colab CLI prunes local url/token on 404/401 even when the VM still exists.
   need_colab
-  local endpoint="${1:-}"
-  "$(colab_python)" - "$SESSION" "$endpoint" <<'PY'
+  local quiet=0
+  local endpoint=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --quiet) quiet=1; shift ;;
+      -h|--help) usage 0 ;;
+      *) endpoint="$1"; shift; break ;;
+    esac
+  done
+  "$(colab_python)" - "$SESSION" "$endpoint" "$quiet" <<'PY'
 import sys
 
 from colab_cli.commands.session import spawn_keep_alive
@@ -736,6 +781,7 @@ from colab_cli.state import SessionState
 
 name = sys.argv[1]
 want = sys.argv[2].strip() or None
+quiet = sys.argv[3] == "1"
 
 existing = state.store.get(name)
 if existing:
@@ -782,7 +828,8 @@ s.keep_alive_pid = spawn_keep_alive(
 )
 state.store.add(s)
 print(f"[colab] Adopted {a.endpoint} as session '{name}'.")
-print("  Next: ./scripts/colab_run.sh status")
+if not quiet:
+    print("  Next: ./scripts/colab_run.sh status")
 PY
 }
 

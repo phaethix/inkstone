@@ -49,8 +49,9 @@ If `status` times out, the Colab kernel may be stuck after a long `exec`:
 ./scripts/colab_run.sh status
 ```
 
-If `status`/`exec` prints `appears to be lost (404/401)` but `colab sessions`
-still shows `[?] m-s-…`, the VM is alive — only the local alias was pruned:
+If `status`/`exec` hits `appears to be lost (404/401)`, Colab CLI often pruned
+only the **local** alias while the VM (`[?] m-s-…`) and background job are still
+alive. `status` will **auto-`adopt` and retry once**. Manual reclaim:
 
 ```bash
 ./scripts/colab_run.sh adopt
