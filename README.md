@@ -88,10 +88,11 @@ Verify the install — the test suite runs fully offline:
 
 ```console
 $ python -m pytest
-67 passed   # validates the ImageProvider/ChatProvider abstractions, schemas, layout/export, consistency, screenwriter, and the full creative_comic orchestration (incl. resume + content-safety skip)
+# validates providers, schemas, layout/export, consistency, screenwriter,
+# pipeline resume and content-safety behavior without real API calls
 ```
 
-> **Status:** M1 (the `ImageProvider` abstraction foundation), M2 (the comic-specific pipeline — `creative_comic`, layout/export, long-novel segmentation & resumption, character consistency L1/L2/L3, content-safety skip, and webtoon/page output), and M3 (long-form + consistency hardening — cross-chapter character reuse, alias detection, and billing-free resume) have shipped. M4 (open-source release) is in progress — see [Roadmap](docs/ROADMAP.md).
+> **Status:** M1–M4 (provider foundation, comic pipeline, long-form hardening and open-source release) have shipped. See the [Roadmap](docs/ROADMAP.md) for released capability, local prototypes and the approved long-form plan.
 
 ### One-click launch
 
@@ -142,21 +143,21 @@ Inkstone is configured through environment variables (copy `.env.example` → `.
 | `AGNES_IMAGE_2K_RPM` | | `10` | Free-tier image 2K RPM (max side ≤2048). |
 | `AGNES_IMAGE_3K_RPM` | | `1` | Free-tier image 3K/4K RPM. |
 | `AGNES_IMAGE_I2I_MODEL` | | `agnes-image-2.1-flash` | Model used for consistency img2img. |
-| `AGNES_IMAGE_MAX_RETRIES` | | `8` | Image calls retry this many times; the free image tier is often 503 "Service busy", so this is patient by default. |
-| `AGNES_IMAGE_RETRY_BASE_DELAY` | | `15.0` | Image retry backoff base (seconds, exponential, capped at 120s). |
+| `AGNES_IMAGE_MAX_RETRIES` | | `5` | Image calls retry this many times; the free image tier is often 503 "Service busy". |
+| `AGNES_IMAGE_RETRY_BASE_DELAY` | | `5.0` | Image retry backoff base in seconds. |
 | `PROVIDER` | | `agnes` | Set to `openai_compat` to route to any OpenAI-compatible image endpoint. |
 | `OPENAI_COMPAT_*` | | — | Base URL / key / models, used only when `PROVIDER=openai_compat`. |
 | `INKSTONE_L3` | | `0` | Enable the experimental L3 PIL/OpenCV face overlay (`1` to turn on). Off by default — it tends to deform stylized faces, so consistency relies on L1+L2. |
 
 ## How it works
 
-A `txt` novel is split into segments → characters & scenes are extracted with `agnes-2.0-flash` → storyboard prompts are generated → the `ImageProvider` (Agnes by default) paints each panel → panels are laid out and exported to PDF/PNG. The core challenge — **cross-panel character consistency without a GPU** — is handled by a layered strategy (L1 Appearance-derived prompt hard-description + L2 reference img2img; optional L3 face overlay is off by default), backed by a reliability layer (rate limiting, retries, and `state.json` resumption). Alias variants are flagged for **human merge/dismiss** (never silent); merges mark affected panels stale for selective redraw. Full design lives in the [whitepaper](docs/whitepaper.md) and the [product redesign spec](docs/superpowers/specs/2026-07-23-inkstone-product-redesign.md).
+A `txt` novel is split into segments → characters & scenes are extracted with `agnes-2.0-flash` → storyboard prompts are generated → the `ImageProvider` (Agnes by default) paints each panel → panels are laid out and exported to PDF/PNG. The core challenge — **cross-panel character consistency without a GPU** — is handled by a layered strategy (L1 Appearance-derived prompt hard-description + L2 reference img2img; optional L3 face overlay is off by default), backed by a reliability layer (rate limiting, retries, and `state.json` resumption). Alias variants are flagged for **human merge/dismiss** (never silent); merges mark affected panels stale for selective redraw. Longer-form adaptation work is tracked in the [roadmap](docs/ROADMAP.md).
 
 ## Resources
 
-- **Colab CLI (close the laptop)** — [docs/colab-cli.md](docs/colab-cli.md) + [`scripts/colab_run.sh`](scripts/colab_run.sh)
-- **Design & risk analysis** — [docs/whitepaper.md](docs/whitepaper.md)
-- **Milestone plan** — [docs/ROADMAP.md](docs/ROADMAP.md)
+- **Implementation status** — [docs/ROADMAP.md](docs/ROADMAP.md)
+- **Colab CLI (close the laptop)** — [docs/guides/colab-cli.md](docs/guides/colab-cli.md) + [`scripts/colab_run.sh`](scripts/colab_run.sh)
+- **Historical plans / specs** — [docs/superpowers/](docs/superpowers/)
 - **Contributing guide** — [CONTRIBUTING.md](CONTRIBUTING.md)
 - **Issues & feedback** — [GitHub Issues](https://github.com/phaethix/inkstone/issues)
 

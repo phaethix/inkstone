@@ -35,12 +35,15 @@ pytest
 | `core/api/` | Image Provider abstraction, Agnes wrapper, rate limiter, error collector |
 | `utils/` | Cross-cutting helpers (e.g. image download) |
 | `tests/` | Unit tests (network-free where possible) |
-| `docs/ROADMAP.md` | Public milestone plan (M1–M4) |
+| `docs/ROADMAP.md` | Current shipped / prototype / planned work and milestone history |
+| `docs/guides/colab-cli.md` | Colab remote runner operations |
+| `docs/superpowers/` | Historical completed plans / specs |
 
-> **Note on design documents:** `docs/whitepaper.md` and `docs/M2-design.md`
-> are maintainer-only working notes and are intentionally **not** part of the
-> repository. Architecture decisions are summarized in `docs/ROADMAP.md` and the
-> issue/PR discussions.
+> **Note on design documents:** only the roadmap, Colab guide, and
+> `docs/superpowers/` are versioned on `main` for now. Other local drafts under
+> `docs/` (architecture, onboarding, product brief, archive) stay untracked
+> until deliberately published. Put temporary discussion and unapproved research
+> in `.issue/`, not in the versioned documentation set.
 
 ## Development workflow
 

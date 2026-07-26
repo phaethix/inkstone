@@ -223,12 +223,7 @@ logs/
 output/
 comic_out/
 .playwright-cli/
-.workbuddy/
-# Internal design docs — not for public commit.
-docs/whitepaper.md
-docs/M1-code-review.md
-docs/M2-design.md
-docs/hosting-options.md
+.issue/
 state.json
 task_state.json
 panel*.png
@@ -236,3 +231,14 @@ webtoon*.png
 # Sample webtoon preview used on the GitHub Pages gallery.
 !assets/samples/webtoon_preview.png
 comic*.pdf
+
+# Docs versioned on main for now:
+#   docs/ROADMAP.md
+#   docs/guides/colab-cli.md
+#   docs/superpowers/**
+# Everything else under docs/ stays local until deliberately published.
+docs/README.md
+docs/architecture/
+docs/archive/
+docs/product/
+docs/guides/developer-onboarding.md
