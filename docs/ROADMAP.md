@@ -11,6 +11,7 @@
 Status definitions:
 
 - **Released**: committed to `main` and CI is green.
+- **Prototype on `main`**: committed code that is experimental or estimate-only; not a product capability or quality gate.
 - **Local prototype**: present only in a working tree; not a product capability.
 - **Planned**: approved direction, not yet implemented.
 
@@ -37,14 +38,14 @@ When completing a change:
 | Web UI and unattended supervisor | Released | Local browser UI, cancel, retry, review, deadline pause / resume |
 | Colab operations | Released | Background jobs, download progress, alias adopt after 404/401 |
 | Page-PDF recovery and source-language dialogue prompt | Released | Existing panels can be re-exported to PDF; new runs request dialogue in source language |
-| Density estimate (D1) | Local prototype | Has a CLI estimator but does not yet constrain planning, state or fingerprint |
-| Old PageScript / coverage (D2) | Local prototype — do not release | Post-storyboard metadata; cannot prove readable or complete adaptation |
+| Density estimate (D1) | Prototype on `main` | CLI estimator only; A/B/C labels match product brief; does not constrain generate |
+| Old PageScript / coverage (D2) | Prototype on `main` — do not treat as gate | Opt-in via `INKSTONE_PAGE_SCRIPT=1`; coverage never vacuous-passes skips |
 | Chapter-complete adaptation | Planned | SourceUnit → NarrativeBeat → constrained storyboard / lettering → structural coverage |
 | CBZ, chapter reader, identity CLI | Planned | Follow the chapter-complete MVP; not current blockers |
 
-### Local prototype guardrail
+### Prototype guardrail (D1/D2 on `main`)
 
-Do **not** present the current local D1/D2 code as a completed quality feature:
+Do **not** present the current D1/D2 code as a completed quality feature:
 
 - density tiers currently estimate cost/pages only; they do not control actual panel count;
 - PageScript is created after storyboard, so it cannot restore omitted narrative beats;

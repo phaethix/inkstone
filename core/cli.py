@@ -45,14 +45,20 @@ def _build_parser() -> argparse.ArgumentParser:
         help="page=竖版PDF / webtoon=长条PNG",
     )
 
-    # plan：D1 纯本地预估。
-    p_plan = sub.add_parser("plan", help="预估密度/格数/页数/成本/时长（纯本地，不调 API）")
+    # plan：D1 纯本地预估（不约束 generate）。
+    p_plan = sub.add_parser(
+        "plan",
+        help="Offline density/cost/duration estimate (does not control generate).",
+    )
     p_plan.add_argument("--book", required=True, help="小说 txt 路径")
     p_plan.add_argument(
         "--density",
         choices=["A", "B", "C"],
         default="B",
-        help="密度档位 A/B/C（默认 B）",
+        help=(
+            "A=主线概览(少格) B=章级完整(默认) C=近原著(多格); "
+            "estimate only, does not control generate"
+        ),
     )
     p_plan.add_argument(
         "--format",
@@ -84,7 +90,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p_id.add_argument("--view", action="store_true", help="打印 alias/影响范围树")
     p_id.add_argument("--merge", default=None, help="合并 alias：'new:keep'")
 
-    p_cov = sub.add_parser("coverage", help="page-script 三指标覆盖率报告（D2）")
+    p_cov = sub.add_parser(
+        "coverage",
+        help="Legacy PageScript field report (prototype; not a readability/quality gate).",
+    )
     p_cov.add_argument(
         "--out",
         default="comic_out",
@@ -162,6 +171,10 @@ def _run_plan(args: argparse.Namespace) -> None:
     except ValueError as exc:
         sys.exit(f"ERROR: {exc}")
     _print_plan(est)
+    print(
+        "Note: uncalibrated estimate only; generate ignores --density "
+        "until the density contract lands."
+    )
     # D2 预期（不依赖实际渲染）：以布局分页常数 4 估出信息完备分镜页数与必含信息条数。
     d2_pages = -(-est.panels // 4)  # ceil(panels / PANELS_PER_PAGE)
     print(f"D2 预期 : 信息完备分镜约 {d2_pages} 页，必含信息约 {d2_pages} 条（需 coverage 验收）")
@@ -197,6 +210,13 @@ def _run_coverage(args: argparse.Namespace) -> None:
     page_scripts = [
         cc.page_script for cc in state.chunk_cache.values() if cc.page_script is not None
     ]
+    if not page_scripts:
+        print(
+            "Note: no PageScript metadata in state.json. "
+            "Re-run generate with INKSTONE_PAGE_SCRIPT=1 if you need legacy "
+            "PageScript fields for this prototype report."
+        )
+        sys.exit(0)
 
     src_path = Path(args.source) if args.source else (out / "source.txt")
     if not src_path.exists():

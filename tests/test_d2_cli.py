@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from core.cli import _run_coverage, _run_plan
+from core.cli import _build_parser, _run_coverage, _run_plan
 from core.schemas import (
     CausalLink,
     ChunkCache,
@@ -109,6 +109,56 @@ def test_cli_coverage_no_strict_exits_0_with_warning(tmp_path, capsys):
     _run_coverage(_cov_args(tmp_path, strict=False))  # 不应抛 SystemExit
     out = capsys.readouterr().out
     assert "警告" in out  # 告警行
+
+
+def test_cli_help_marks_prototypes_honestly():
+    parser = _build_parser()
+    top_help = parser.format_help()
+    assert "estimate" in top_help.lower() or "预估" in top_help
+    assert (
+        "not a quality gate" in top_help.lower()
+        or "非质量闸门" in top_help
+        or "原型" in top_help
+        or "prototype" in top_help.lower()
+    )
+    plan = parser._subparsers._group_actions[0].choices["plan"]
+    dens_help = next(a.help for a in plan._actions if "--density" in a.option_strings)
+    assert (
+        "主线概览" in dens_help
+        or "A=" in dens_help
+        or "overview" in dens_help.lower()
+        or "概览" in dens_help
+    )
+
+
+def test_cli_plan_prints_estimate_only_warning(tmp_path, capsys):
+    book = tmp_path / "book.txt"
+    book.write_text("第一章\n方鸿渐在甲板上。", encoding="utf-8")
+    _run_plan(
+        argparse.Namespace(
+            book=str(book),
+            density="B",
+            format="page",
+            api="agnes",
+            concurrency=4,
+            price_per_panel=None,
+        )
+    )
+    out = capsys.readouterr().out
+    assert "uncalibrated estimate" in out.lower() or "未校准" in out
+
+
+def test_cli_coverage_no_page_script_hints_env(tmp_path, capsys):
+    """无 page_script 时不应 vacuous 通过，应提示 INKSTONE_PAGE_SCRIPT。"""
+    state = ProjectState(project_id="t", chunk_cache={"0": ChunkCache()})
+    state.save(tmp_path / "state.json")
+    (tmp_path / "source.txt").write_text(SOURCE, encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        _run_coverage(_cov_args(tmp_path))
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert "INKSTONE_PAGE_SCRIPT" in out
+    assert "全部达标" not in out
 
 
 def test_cli_plan_prints_d2_expectation(tmp_path, capsys):
