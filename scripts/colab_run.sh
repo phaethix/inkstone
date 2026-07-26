@@ -20,7 +20,7 @@
 #   ./scripts/colab_run.sh adopt                 # re-bind local name to orphan [?] VM
 #   ./scripts/colab_run.sh stop                  # stop job + destroy Colab session
 #
-# See docs/colab-cli.md for details and limitations.
+# See docs/guides/colab-cli.md for details and limitations.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -417,7 +417,7 @@ cmd_bootstrap() {
       --exclude='comic_out' \
       --exclude='logs' \
       --exclude='.DS_Store' \
-      --exclude='.workbuddy' \
+      --exclude='.issue' \
       .
     echo "[colab] Uploading source tarball..."
     colab upload -s "$SESSION" "$tarball" /content/inkstone-src.tgz
