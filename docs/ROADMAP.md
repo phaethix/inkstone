@@ -1,8 +1,89 @@
 # Inkstone Roadmap
 
-> This file is the **execution-layer** milestone plan, paired with the (internal) architecture notes.
+> This file is the **single progress-control document** for humans and AI.
+> It records what is released, what only exists locally, and what is approved next.
+> Update it whenever implementation status changes.
 > Inkstone is an independent, from-scratch implementation (not a fork), so we do not carry over the
 > upstream `server.py` / video / audio modules; the comic-specific layer is written to this project's standard.
+
+## How to read and update this roadmap
+
+Status definitions:
+
+- **Released**: committed to `main` and CI is green.
+- **Local prototype**: present only in a working tree; not a product capability.
+- **Planned**: approved direction, not yet implemented.
+
+Long-form target architecture and developer onboarding notes currently live as
+**local working drafts** under `docs/architecture/` and `docs/guides/` (not yet
+versioned on `main`). Until they are published, treat this roadmap plus the
+released code as the source of truth for status.
+
+When completing a change:
+
+1. update the relevant item below;
+2. do not mark an item Released until it is committed and CI passes;
+3. explicitly record unfinished local experiments as Local prototype;
+4. if the developer workflow or system boundary changes, update the local
+   onboarding draft (and this roadmap) in the same change.
+
+## Current implementation status
+
+| Area | Status | Notes |
+|---|---|---|
+| Core TXT → comic pipeline | Released | Segmentation, extraction, portraits, storyboard, panels, layout, PDF / Webtoon export, `state.json` resume |
+| Providers and reliability | Released | Agnes + OpenAI-compatible routing, rate limit, retry and JSONL error collection |
+| Cross-chapter identity | Released | L1/L2 consistency, alias review, stale-only redraw; L3 is experimental and off by default |
+| Web UI and unattended supervisor | Released | Local browser UI, cancel, retry, review, deadline pause / resume |
+| Colab operations | Released | Background jobs, download progress, alias adopt after 404/401 |
+| Page-PDF recovery and source-language dialogue prompt | Released | Existing panels can be re-exported to PDF; new runs request dialogue in source language |
+| Density estimate (D1) | Local prototype | Has a CLI estimator but does not yet constrain planning, state or fingerprint |
+| Old PageScript / coverage (D2) | Local prototype — do not release | Post-storyboard metadata; cannot prove readable or complete adaptation |
+| Chapter-complete adaptation | Planned | SourceUnit → NarrativeBeat → constrained storyboard / lettering → structural coverage |
+| CBZ, chapter reader, identity CLI | Planned | Follow the chapter-complete MVP; not current blockers |
+
+### Local prototype guardrail
+
+Do **not** present the current local D1/D2 code as a completed quality feature:
+
+- density tiers currently estimate cost/pages only; they do not control actual panel count;
+- PageScript is created after storyboard, so it cannot restore omitted narrative beats;
+- coverage currently checks non-empty fields and substring matches, not reader-visible information;
+- policy-rejected pages must not be excluded from a final completeness denominator.
+
+Keep these prototypes only as migration material until they conform to the target architecture.
+
+## Next approved work
+
+### P0 — Make the current state honest and deterministic
+
+- [ ] Make density a real contract: persist it in `ProjectState`, include it in
+  the input fingerprint, pass a budget to planning, and invalidate affected caches.
+- [ ] Reconcile README, configuration defaults, CLI help and historical docs so
+  they do not contradict released behavior.
+- [ ] Isolate, rename or remove the old PageScript / coverage prototype so it
+  cannot be mistaken for a release-quality gate.
+- [ ] Calibrate estimates with a public sample; do not promise fixed panels per
+  chunk without evidence.
+
+### P1 — Chapter-complete adaptation MVP
+
+- [ ] Introduce normalized, globally addressable `SourceUnit` records.
+- [ ] Generate per-chapter `AdaptationPlan` and `NarrativeBeat` records with
+  required / optional status and causal dependencies.
+- [ ] Generate beat-constrained storyboard panels with explicit `beat_ids`.
+- [ ] Add a reader-visible lettering layer: separate caption, dialogue and SFX.
+- [ ] Add structural coverage gates for source traceability, beat coverage,
+  visible text, causal order and blocked content.
+- [ ] Validate one public-domain chapter end-to-end before attempting a whole book.
+
+### P2 — Delivery experience and proof
+
+- [ ] Add CBZ export and improve PDF typography, including CJK caption support.
+- [ ] Publish a public-domain *Journey to the West* chapter showcase with source,
+  plan, coverage report and PDF.
+- [ ] Add chapter navigation / browser reader and an identity-ledger CLI or view.
+- [ ] Rewrite README and contributor experience around the validated long-form workflow.
 
 ## M1 — Image Provider abstraction foundation ✅ done
 
@@ -60,14 +141,15 @@ Verified: `pytest` → 64 passed (1 cv2-dependent test skipped), CI green on Pyt
   (avoids L3 mis-overlay) and **L4** multi-round iterative refinement. The whitepaper scopes these as local-GPU-only and out
   of the default zero-cost path; revisit only if a GPU branch is added.
 
-Verified: `pytest` → 67 passed (1 cv2-dependent test skipped), CI green on Python 3.10–3.12.
+Historical verification at M3 completion: `pytest` → 67 passed (1 cv2-dependent test skipped), CI green on Python 3.10–3.12. Current verification commands and status are defined above.
 
 ## M4 — Open-source release ✅ done
 
 Goal: make Inkstone genuinely runnable and reviewable by an outside contributor.
 
 - [x] `comic_out/` added to `.gitignore` (generated artifacts no longer committable by accident).
-- [x] Design docs committed: `whitepaper.md`, `M1-code-review.md`, `M2-design.md`, `hosting-options.md`.
+- [x] Initial design, review and hosting notes created; historical copies may
+  live under local `docs/archive/` until deliberately republished.
 - [x] One-click launch script (`scripts/start.sh` / `scripts/start.ps1`) — sets up env, installs deps, runs the demo.
 - [x] Sample-novel demo — runnable `txt` inputs ship in `examples/` (`scene1.txt` + `sample_novel.txt`).
 - [x] README gallery — committed 3 sample panels + a downscaled webtoon under `assets/samples/` and referenced them.
