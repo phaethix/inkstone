@@ -3,6 +3,9 @@
 Covers all three tiers, the webtoon size guard, both billing backends, and the
 empty / tiny-file boundaries, plus custom concurrency and threshold overrides.
 
+A/B/C tiers follow the product brief (A overview → B chapter-complete → C
+near-original), not the old inverted prototype where A was densest.
+
 Run with: ``python -m pytest tests/test_density.py -q`` (from the repo root).
 """
 
@@ -15,7 +18,6 @@ from core.density import (
     PANELS_PER_CHUNK_C,
     PANELS_PER_PAGE,
     DensityEstimate,
-    DensityPlan,
     estimate,
     get_density_plan,
 )
@@ -39,11 +41,12 @@ def test_get_density_plan_constants():
     a = get_density_plan("A")
     b = get_density_plan("B")
     c = get_density_plan("C")
-    assert isinstance(a, DensityPlan)
-    assert a.panels_per_chunk == PANELS_PER_CHUNK_A == 14
+    assert a.panels_per_chunk == PANELS_PER_CHUNK_A == 3
     assert b.panels_per_chunk == PANELS_PER_CHUNK_B == 8
-    assert c.panels_per_chunk == PANELS_PER_CHUNK_C == 3
-    assert a.tier == "A" and a.description == "主线完备"
+    assert c.panels_per_chunk == PANELS_PER_CHUNK_C == 14
+    assert a.description == "主线概览"
+    assert b.description == "章级完整"
+    assert c.description == "近原著"
 
 
 def test_tier_a_b_c_panel_counts(tmp_path):
@@ -51,13 +54,12 @@ def test_tier_a_b_c_panel_counts(tmp_path):
     est_a = estimate(book, density="A")
     est_b = estimate(book, density="B")
     est_c = estimate(book, density="C")
-    # Same source → same chunk count, so panels scale with panels_per_chunk.
     assert est_a.chunks == est_b.chunks == est_c.chunks
     assert est_a.panels == est_a.chunks * PANELS_PER_CHUNK_A
     assert est_b.panels == est_b.chunks * PANELS_PER_CHUNK_B
     assert est_c.panels == est_c.chunks * PANELS_PER_CHUNK_C
-    # Monotonic: more panels for denser tiers.
-    assert est_a.panels > est_b.panels > est_c.panels
+    # Product order: A overview < B chapter-complete < C near-original
+    assert est_a.panels < est_b.panels < est_c.panels
 
 
 def test_pages_follow_panels_per_page(tmp_path):

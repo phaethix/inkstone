@@ -15,6 +15,9 @@ Design notes for the next milestones:
 
 The panel-per-chunk numbers (A/B/C) and the per-page / per-minute rates are
 **experience values** awaiting calibration against a real 《三体》 sample.
+
+Product brief alignment (not yet a generation contract — estimate only):
+A 主线概览 (sparser) → B 章级完整 (default) → C 近原著 (denser).
 """
 
 from dataclasses import dataclass
@@ -28,10 +31,12 @@ from core.comic.segmentation import segment_text
 # Experience constants (to be calibrated against a real 《三体》 sample)
 # --------------------------------------------------------------------------- #
 
-# Panels planned per source-text chunk for each density tier.
-PANELS_PER_CHUNK_A = 14  # 主线完备：每 chunk 拆出最多格，叙事最完整
-PANELS_PER_CHUNK_B = 8  # 标准密度
-PANELS_PER_CHUNK_C = 3  # 极简示意：每 chunk 仅关键格
+# Product brief alignment (not yet a generation contract — estimate only):
+# A 主线概览 (sparser) → B 章级完整 (default) → C 近原著 (denser).
+# Numbers remain uncalibrated experience values.
+PANELS_PER_CHUNK_A = 3  # 主线概览
+PANELS_PER_CHUNK_B = 8  # 章级完整 / 标准
+PANELS_PER_CHUNK_C = 14  # 近原著
 
 # Throughput used only for wall-clock estimation (panels generated per minute,
 # per worker). Experience value — real numbers depend on the t2i endpoint.
@@ -98,12 +103,12 @@ def get_density_plan(tier: DensityTier) -> DensityPlan:
     """Return the experience-tuned panel-density plan for ``tier``.
 
     Args:
-        tier: one of ``"A"`` (主线完备), ``"B"`` (标准), ``"C"`` (极简).
+        tier: one of ``"A"`` (主线概览), ``"B"`` (章级完整), ``"C"`` (近原著).
     """
     mapping: dict[DensityTier, tuple[str, int]] = {
-        "A": ("主线完备", PANELS_PER_CHUNK_A),
-        "B": ("标准密度", PANELS_PER_CHUNK_B),
-        "C": ("极简示意", PANELS_PER_CHUNK_C),
+        "A": ("主线概览", PANELS_PER_CHUNK_A),
+        "B": ("章级完整", PANELS_PER_CHUNK_B),
+        "C": ("近原著", PANELS_PER_CHUNK_C),
     }
     description, panels_per_chunk = mapping[tier]
     return DensityPlan(tier=tier, panels_per_chunk=panels_per_chunk, description=description)

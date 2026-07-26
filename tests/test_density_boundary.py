@@ -91,7 +91,7 @@ def test_chinese_and_space_filename(tmp_path):
 def test_path_object_input(tmp_path):
     book = _write(tmp_path, _BODY)
     est = estimate(Path(book), density="C")  # 直接传 Path 对象
-    assert est.panels == est.chunks * 3
+    assert est.panels == est.chunks * 14
 
 
 # --------------------------------------------------------------------------- #
@@ -100,8 +100,8 @@ def test_path_object_input(tmp_path):
 def test_custom_low_threshold_1mb_triggers(tmp_path, monkeypatch):
     monkeypatch.setenv(ENV_WEBTOON_WARN_MB, "1")
     book = _write(tmp_path, _BODY)
-    est = estimate(book, density="A", output_format="webtoon")
-    # A 档 14 格 → 4 页 → 1.2MB > 1MB → 触发
+    # C 档 14 格 → 4 页 → 1.2MB > 1MB → 触发
+    est = estimate(book, density="C", output_format="webtoon")
     assert est.webtoon_warning is True
     assert isinstance(est.warnings, list) and est.warnings
 
