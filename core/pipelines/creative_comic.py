@@ -397,6 +397,15 @@ async def creative_comic(
         )
 
 
+def _page_script_enabled() -> bool:
+    return os.environ.get("INKSTONE_PAGE_SCRIPT", "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 async def _creative_comic(
     source_txt: str,
     *,
@@ -648,14 +657,18 @@ async def _creative_comic(
             state.save(state_path)
             _report("storyboard", _pct())
 
-        # ---- page-script (D2 信息完备闸门；仅当未缓存时调用) ----
-        if state.chunk_cache.get(key, ChunkCache()).page_script is None:
+        # ---- page-script ----
+        # Optional legacy PageScript metadata (NOT a quality gate). Off by default.
+        if _page_script_enabled() and state.chunk_cache.get(key, ChunkCache()).page_script is None:
             try:
                 with perf.measure("page_script"):
                     ps = await plan_page_script(board, elements, chunk, chat=chat)
-            except Exception as exc:  # noqa: BLE001 — 内容拒绝不得阻断 panels
+            except Exception as exc:  # noqa: BLE001
                 if is_content_policy_rejection(exc):
-                    logger.warning("chunk %s 信息闸门被策略拒绝，标记页跳过", ci)
+                    logger.warning(
+                        "chunk %s legacy page_script rejected by policy; recording empty script",
+                        ci,
+                    )
                     ps = PageScript(
                         chapter_id=board.chapter_id,
                         pages=[],
