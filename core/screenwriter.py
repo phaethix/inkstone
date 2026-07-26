@@ -122,20 +122,20 @@ async def plan_storyboard(text: str, elements: StoryElements, *, chat=None) -> S
 PAGE_SCRIPT_TOOL = to_tool_schema(
     PageScript,
     "plan_page_script",
-    "为单个 chunk 的每一页分镜补全必含信息/因果链/原文回链。",
+    "为单个 chunk 的每一页分镜填写可选遗留审计字段（必含信息/因果链/原文回链；非质量闸门）。",
 )
 
 
 async def plan_page_script(
     board: Storyboard, elements: StoryElements, chunk: str, *, chat=None
 ) -> PageScript:
-    """为 storyboard 后的单个 chunk 补全信息完备分镜（page-script 阶段）。
+    """为 storyboard 后的单个 chunk 生成可选遗留 PageScript 审计元数据（page-script 阶段）。
 
     复用既有强制函数调用机制：把 ``board`` / ``elements`` / ``chunk`` 组装为上下
     文，强制模型以 ``PageScript`` 工具回传每页的 ``required_information`` /
     ``causal_links`` / ``source_spans``（span 偏移基于同一段 ``chunk`` 文本）。模型
     回传后，``span.text`` 由服务端反推为 ``chunk[start:end]``，保证与切片自洽
-    （模型偏移略偏也不破坏一致性）。
+    （模型偏移略偏也不破坏一致性）。产物仅供原型审计，不是可读性/质量闸门。
     """
     chat = chat or get_chat_provider()
     context = (

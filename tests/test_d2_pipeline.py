@@ -133,7 +133,7 @@ def test_d2_pipeline_skipped_pages_on_policy_rejection(tmp_path, monkeypatch):
     src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
     chat = RejectPageScriptChat()
     proj = asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=chat, image=FakeImage()))
-    # 信息闸门失效但不阻断整块：panels 仍产出
+    # page_script 被拒绝但不阻断整块：panels 仍产出
     assert set(proj.state.panels_done) == {"c0000-p0000", "c0001-p0000"}
     state = ProjectState.load(tmp_path / "state.json")
     for key in ("0", "1"):
@@ -144,7 +144,7 @@ def test_d2_pipeline_skipped_pages_on_policy_rejection(tmp_path, monkeypatch):
 
 
 def test_d2_pipeline_extension_block_is_small():
-    """creative_comic.py 在 storyboard 后、panels 前仅插入一个扩展块（净增 ≤20 行）。"""
+    """creative_comic.py 在 storyboard 后、panels 前仅插入一个扩展块（净增 ≤22 行）。"""
     path = Path(__file__).resolve().parents[1] / "core" / "pipelines" / "creative_comic.py"
     text = path.read_text(encoding="utf-8")
     start = text.index("# ---- page-script")

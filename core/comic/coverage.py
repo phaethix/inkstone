@@ -1,10 +1,11 @@
-"""core.comic.coverage — D2 三指标覆盖率定量门禁（纯本地，不调任何 chat API）。
+"""core.comic.coverage — D2 遗留 PageScript 字段审计指标（纯本地，不调任何 chat API）。
 
 ``compute_coverage_report`` 接收一份 ``PageScript`` 列表与原文 ``source_text``，
 核算三指标（必含信息覆盖率 / 因果链完整率 / 原文回溯率）并产出 ``CoverageReport``。
+这些指标仅供可选原型审计，不是可读性/质量闸门。
 原文回溯率不依赖全局偏移，而用「子串归属」证明：``span.text.strip() in normalize(
-source_text)`` 即视为可回溯到《Journey to the West》原文，规避 ``segment_text`` 的
-overlap / 换行归一化破坏，且可被单测数学化证明。
+source_text)`` 即视为可回溯到原文，规避 ``segment_text`` 的 overlap / 换行归一化破坏，
+且可被单测数学化证明。
 """
 
 from pathlib import Path

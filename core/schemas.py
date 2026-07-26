@@ -511,19 +511,19 @@ class CausalLink(BaseModel):
 
 
 class PageScriptPage(BaseModel):
-    """一页分镜的信息完备闸门内容。"""
+    """一页分镜的可选遗留审计元数据（非质量闸门）。"""
 
     model_config = ConfigDict(extra="ignore")
 
     page_index: int = 0
-    required_information: str = ""  # 读完该页须保留的关键信息
+    required_information: str = ""  # 该页声称覆盖的关键信息（遗留审计字段）
     causal_links: list[CausalLink] = Field(default_factory=list)
     source_spans: list[SourceSpan] = Field(default_factory=list)
     panel_ids: list[str] = Field(default_factory=list)  # 引用 Storyboard.panel_id
 
 
 class PageScript(BaseModel):
-    """一个 chunk 的信息完备分镜产物（storyboard 之后生成）。"""
+    """一个 chunk 的可选遗留 PageScript 审计产物（storyboard 之后生成；非质量闸门）。"""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -547,7 +547,7 @@ class ChunkCache(BaseModel):
 
     elements: StoryElements | None = None
     storyboard: Storyboard | None = None
-    # D2 信息完备分镜产物；resume 跳过已生成块（不重复计费）。
+    # D2 遗留 PageScript 审计元数据；resume 跳过已生成块（不重复计费）。
     page_script: PageScript | None = None
 
 
@@ -688,7 +688,7 @@ def to_tool_schema(model: type[BaseModel], name: str, description: str) -> dict:
 
 
 class CoverageMetric(BaseModel):
-    """单指标的量化闸门（required/causal/span 复用此结构）。
+    """单指标的原型覆盖率统计（required/causal/span 复用此结构；非质量闸门）。
 
     ``coverage_ratio = covered / total``；当 ``total == 0``（无条目）时置 ``1.0``
     表示 vacuous 通过；``passed`` 当且仅当 ``coverage_ratio >= threshold``。
@@ -706,7 +706,7 @@ class CoverageMetric(BaseModel):
 
 
 class CoverageReport(BaseModel):
-    """D2 三指标覆盖率报告，落盘 ``coverage_report.json``。
+    """D2 遗留 PageScript 字段审计报告，落盘 ``coverage_report.json``（原型；非质量闸门）。
 
     三指标（必含信息覆盖率 / 因果链完整率 / 原文回溯率）各自承载一个
     ``CoverageMetric``；顶层保留兼容字段 ``threshold`` / ``below_threshold_pages``

@@ -6,7 +6,7 @@
 - 纯空白文件不崩溃
 - 中文 / 含空格路径的 book 参数
 - 自定义低阈值 INKSTONE_WEBTOON_WARN_MB=1 触发 webtoon 警告
-- 默认阈值下大样本（三体）webtoon 不误报
+- 默认阈值下合成大样本 webtoon 不误报
 - estimate() 直接以 Path 对象入参
 - CLI 实际仅暴露 --book/--density/--format（记录交付报告与代码差异）
 
@@ -107,7 +107,7 @@ def test_custom_low_threshold_1mb_triggers(tmp_path, monkeypatch):
 
 
 def test_default_threshold_no_false_warn_on_threebody(tmp_path, monkeypatch):
-    """默认 50MB 阈值下，三体(A/webtoon)约 23MB 不应误报。"""
+    """默认 50MB 阈值下，合成大样本(A/webtoon)不应误报。"""
     monkeypatch.delenv(ENV_WEBTOON_WARN_MB, raising=False)
     book = _write(tmp_path, _BODY)
     est = estimate(book, density="A", output_format="webtoon")
