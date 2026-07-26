@@ -215,9 +215,7 @@ def estimate(
     if total_chars == 0:
         warnings.append("源文件为空（0 字符），预估不可靠")
     elif total_chars < _TINY_FILE_CHARS:
-        warnings.append(
-            f"源文件过小（{total_chars} 字符），仅 {chunks} 段，预估仅供参考"
-        )
+        warnings.append(f"源文件过小（{total_chars} 字符），仅 {chunks} 段，预估仅供参考")
     if webtoon_msg:
         warnings.append(webtoon_msg)
 

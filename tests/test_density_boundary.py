@@ -131,8 +131,11 @@ def test_cli_plan_exposes_api_concurrency_price_flags():
     from core.cli import _build_parser
 
     parser = _build_parser()
-    plan = next(s for s in parser._subparsers._group_actions[0]._name_parser_map.values()
-                if getattr(s, "prog", "").endswith("plan"))
+    plan = next(
+        s
+        for s in parser._subparsers._group_actions[0]._name_parser_map.values()
+        if getattr(s, "prog", "").endswith("plan")
+    )
     arg_names = {a.option_strings[0] for a in plan._actions if a.option_strings}
     for flag in ("--book", "--density", "--format", "--api", "--concurrency", "--price-per-panel"):
         assert flag in arg_names

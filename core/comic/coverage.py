@@ -83,8 +83,7 @@ def compute_coverage_report(
                 (not req_ok)
                 or span_bad
                 or any(
-                    not (link.cause.strip() and link.effect.strip())
-                    for link in page.causal_links
+                    not (link.cause.strip() and link.effect.strip()) for link in page.causal_links
                 )
             ):
                 below.append(key)
