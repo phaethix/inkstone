@@ -482,6 +482,57 @@ class Storyboard(BaseModel):
         return coerce_object_list(value)
 
 
+class SourceSpan(BaseModel):
+    """原文回链：chunk 文本内的字符偏移 + 自洽 text + 章节标识。
+
+    ``start``/``end`` 是传入 ``plan_page_script`` 的同一段 ``chunk`` 文本内字符
+    偏移（含/不含），``text`` 由 screenwriter 在 ``PageScript.model_validate`` 后
+    服务端反推为 ``chunk[start:end]``，保证与切片自洽；``chapter_id`` 来自
+    ``Storyboard.chapter_id``。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    start: int  # chunk 文本字符偏移（含）
+    end: int  # chunk 文本字符偏移（不含）
+    text: str = ""  # 服务端反推 = chunk[start:end]
+    chapter_id: str = ""  # 来自 board.chapter_id
+
+
+class CausalLink(BaseModel):
+    """单条因果：cause/effect 两端语义 + 可选原文 span。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    cause: str = ""
+    effect: str = ""
+    cause_span: SourceSpan | None = None
+    effect_span: SourceSpan | None = None
+
+
+class PageScriptPage(BaseModel):
+    """一页分镜的信息完备闸门内容。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    page_index: int = 0
+    required_information: str = ""  # 读完该页须保留的关键信息
+    causal_links: list[CausalLink] = Field(default_factory=list)
+    source_spans: list[SourceSpan] = Field(default_factory=list)
+    panel_ids: list[str] = Field(default_factory=list)  # 引用 Storyboard.panel_id
+
+
+class PageScript(BaseModel):
+    """一个 chunk 的信息完备分镜产物（storyboard 之后生成）。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    chapter_id: str = ""
+    pages: list[PageScriptPage] = Field(default_factory=list)
+    # 内容审核拒绝页，不阻断整块；coverage 将其排除出三项分母（vacuous 通过）。
+    skipped_pages: list[int] = Field(default_factory=list)
+
+
 class ChunkCache(BaseModel):
     """Per-chunk cache of the billable chat-API results.
 
@@ -496,6 +547,8 @@ class ChunkCache(BaseModel):
 
     elements: StoryElements | None = None
     storyboard: Storyboard | None = None
+    # D2 信息完备分镜产物；resume 跳过已生成块（不重复计费）。
+    page_script: PageScript | None = None
 
 
 class CharacterAliasSuggestion(BaseModel):
@@ -632,3 +685,37 @@ def to_tool_schema(model: type[BaseModel], name: str, description: str) -> dict:
             "parameters": model.model_json_schema(),
         },
     }
+
+
+class CoverageMetric(BaseModel):
+    """单指标的量化闸门（required/causal/span 复用此结构）。
+
+    ``coverage_ratio = covered / total``；当 ``total == 0``（无条目）时置 ``1.0``
+    表示 vacuous 通过；``passed`` 当且仅当 ``coverage_ratio >= threshold``。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    total: int = 0
+    covered: int = 0
+    coverage_ratio: float = 0.0  # covered/total；total==0 时置 1.0（vacuous）
+    threshold: float = 0.0
+    passed: bool = False  # coverage_ratio >= threshold
+
+
+class CoverageReport(BaseModel):
+    """D2 三指标覆盖率报告，落盘 ``coverage_report.json``。
+
+    三指标（必含信息覆盖率 / 因果链完整率 / 原文回溯率）各自承载一个
+    ``CoverageMetric``；顶层保留兼容字段 ``threshold`` / ``below_threshold_pages``
+    / ``overall_passed``。``overall_passed`` 在构造后由调用方按三项 ``passed`` 赋值。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    required_coverage: CoverageMetric
+    causal_coverage: CoverageMetric
+    span_coverage: CoverageMetric
+    threshold: float = 0.95  # 单值覆盖时代表统一阈值，否则为 span 阈值
+    below_threshold_pages: list[str] = Field(default_factory=list)  # "c0001#chapter_N#p2"
+    overall_passed: bool = False  # 三项均 passed
