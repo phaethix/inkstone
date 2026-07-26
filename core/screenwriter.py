@@ -13,7 +13,7 @@ import logging
 import requests
 
 from core.api import get_chat_provider
-from core.schemas import Storyboard, StoryElements, to_tool_schema
+from core.schemas import PageScript, Storyboard, StoryElements, to_tool_schema
 
 logger = logging.getLogger(__name__)
 
@@ -117,3 +117,48 @@ async def plan_storyboard(text: str, elements: StoryElements, *, chat=None) -> S
         _tool_choice("plan_storyboard"),
     )
     return Storyboard.model_validate(args)
+
+
+PAGE_SCRIPT_TOOL = to_tool_schema(
+    PageScript,
+    "plan_page_script",
+    "为单个 chunk 的每一页分镜补全必含信息/因果链/原文回链。",
+)
+
+
+async def plan_page_script(
+    board: Storyboard, elements: StoryElements, chunk: str, *, chat=None
+) -> PageScript:
+    """为 storyboard 后的单个 chunk 补全信息完备分镜（page-script 阶段）。
+
+    复用既有强制函数调用机制：把 ``board`` / ``elements`` / ``chunk`` 组装为上下
+    文，强制模型以 ``PageScript`` 工具回传每页的 ``required_information`` /
+    ``causal_links`` / ``source_spans``（span 偏移基于同一段 ``chunk`` 文本）。模型
+    回传后，``span.text`` 由服务端反推为 ``chunk[start:end]``，保证与切片自洽
+    （模型偏移略偏也不破坏一致性）。
+    """
+    chat = chat or get_chat_provider()
+    context = (
+        f"{sanitize_text(chunk)}\n\n"
+        "Extracted story elements:\n"
+        f"{elements.model_dump_json()}\n\n"
+        f"Storyboard (chapter_id={board.chapter_id}):\n"
+        f"{board.model_dump_json()}\n\n"
+        "Instructions: group consecutive panels into layout pages (≈4 panels/page, "
+        "in source order); emit one PageScriptPage per page with panel_ids; fill "
+        "required_information / causal_links / source_spans quoted VERBATIM from the "
+        "chunk text (char offsets into the chunk)."
+    )
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": context},
+    ]
+    args = await chat.chat_function_call(
+        messages, [PAGE_SCRIPT_TOOL], _tool_choice("plan_page_script")
+    )
+    ps = PageScript.model_validate(args)
+    # 服务端反推 span.text，保证与 chunk 切片自洽（模型偏移略偏也不破坏一致性）。
+    for page in ps.pages:
+        for sp in page.source_spans:
+            sp.text = chunk[sp.start : sp.end] if 0 <= sp.start <= sp.end <= len(chunk) else ""
+    return ps
