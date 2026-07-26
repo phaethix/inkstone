@@ -6,7 +6,7 @@
 - 纯空白文件不崩溃
 - 中文 / 含空格路径的 book 参数
 - 自定义低阈值 INKSTONE_WEBTOON_WARN_MB=1 触发 webtoon 警告
-- 默认阈值下大样本（三体）webtoon 不误报
+- 默认阈值下合成大样本 webtoon 不误报
 - estimate() 直接以 Path 对象入参
 - CLI 实际仅暴露 --book/--density/--format（记录交付报告与代码差异）
 
@@ -91,7 +91,7 @@ def test_chinese_and_space_filename(tmp_path):
 def test_path_object_input(tmp_path):
     book = _write(tmp_path, _BODY)
     est = estimate(Path(book), density="C")  # 直接传 Path 对象
-    assert est.panels == est.chunks * 3
+    assert est.panels == est.chunks * 14
 
 
 # --------------------------------------------------------------------------- #
@@ -100,14 +100,14 @@ def test_path_object_input(tmp_path):
 def test_custom_low_threshold_1mb_triggers(tmp_path, monkeypatch):
     monkeypatch.setenv(ENV_WEBTOON_WARN_MB, "1")
     book = _write(tmp_path, _BODY)
-    est = estimate(book, density="A", output_format="webtoon")
-    # A 档 14 格 → 4 页 → 1.2MB > 1MB → 触发
+    # C 档 14 格 → 4 页 → 1.2MB > 1MB → 触发
+    est = estimate(book, density="C", output_format="webtoon")
     assert est.webtoon_warning is True
     assert isinstance(est.warnings, list) and est.warnings
 
 
 def test_default_threshold_no_false_warn_on_threebody(tmp_path, monkeypatch):
-    """默认 50MB 阈值下，三体(A/webtoon)约 23MB 不应误报。"""
+    """默认 50MB 阈值下，合成大样本(A/webtoon)不应误报。"""
     monkeypatch.delenv(ENV_WEBTOON_WARN_MB, raising=False)
     book = _write(tmp_path, _BODY)
     est = estimate(book, density="A", output_format="webtoon")

@@ -82,25 +82,42 @@ def test_pure_function_deterministic():
     assert a.model_dump() == b.model_dump()
 
 
-def test_skipped_pages_excluded_from_denominator():
+def test_skipped_pages_count_as_uncovered():
     ps = [
         PageScript(
-            chapter_id="chapter_1",
+            chapter_id="c1",
             pages=[
                 PageScriptPage(
-                    page_index=0, required_information="", causal_links=[], source_spans=[]
+                    page_index=0,
+                    required_information="x",
+                    causal_links=[CausalLink(cause="a", effect="b")],
+                    source_spans=[SourceSpan(start=0, end=3, text="方鸿渐")],
                 )
             ],
-            skipped_pages=[0],  # 该页被策略拒绝，排除分母
+            skipped_pages=[0],
         )
     ]
     report = compute_coverage_report(ps, SOURCE)
-    # 分母三项 total 均为 0 → vacuous 1.0，不阻断整块
-    assert report.required_coverage.coverage_ratio == 1.0
-    assert report.causal_coverage.coverage_ratio == 1.0
-    assert report.span_coverage.coverage_ratio == 1.0
-    assert report.overall_passed is True
-    assert report.below_threshold_pages == []
+    # Still in the denominator; skipped ≠ success
+    assert report.required_coverage.total == 1
+    assert report.required_coverage.covered == 0
+    assert report.required_coverage.coverage_ratio == 0.0
+    assert report.required_coverage.passed is False
+    assert report.causal_coverage.total >= 1
+    assert report.causal_coverage.covered == 0
+    assert report.span_coverage.total >= 1
+    assert report.span_coverage.covered == 0
+    assert report.overall_passed is False
+    assert any("p0" in k for k in report.below_threshold_pages)
+
+
+def test_orphan_skipped_pages_count_as_uncovered():
+    ps = [PageScript(chapter_id="c1", pages=[], skipped_pages=[0])]
+    report = compute_coverage_report(ps, SOURCE)
+    assert report.required_coverage.total == 1
+    assert report.required_coverage.covered == 0
+    assert report.required_coverage.passed is False
+    assert any("p0" in k for k in report.below_threshold_pages)
 
 
 def test_threshold_override_unifies():

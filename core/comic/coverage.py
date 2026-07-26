@@ -1,10 +1,11 @@
-"""core.comic.coverage — D2 三指标覆盖率定量门禁（纯本地，不调任何 chat API）。
+"""core.comic.coverage — D2 遗留 PageScript 字段审计指标（纯本地，不调任何 chat API）。
 
 ``compute_coverage_report`` 接收一份 ``PageScript`` 列表与原文 ``source_text``，
 核算三指标（必含信息覆盖率 / 因果链完整率 / 原文回溯率）并产出 ``CoverageReport``。
+这些指标仅供可选原型审计，不是可读性/质量闸门。
 原文回溯率不依赖全局偏移，而用「子串归属」证明：``span.text.strip() in normalize(
-source_text)`` 即视为可回溯到《Journey to the West》原文，规避 ``segment_text`` 的
-overlap / 换行归一化破坏，且可被单测数学化证明。
+source_text)`` 即视为可回溯到原文，规避 ``segment_text`` 的 overlap / 换行归一化破坏，
+且可被单测数学化证明。
 """
 
 from pathlib import Path
@@ -33,7 +34,7 @@ def compute_coverage_report(
     - 因果链完整率   = complete_causal / total_causal（每条 causal_link 需 cause&effect 非空）
     - 原文回溯率     = traceable_span / total_span（每个 source_span 的 text 需可子串归属原文）
 
-    ``skipped_pages`` 中的页被排除出三项分母（vacuous 通过，不阻断整块）。
+    ``skipped_pages`` 中的页仍计入三项分母，视为未覆盖（不 vacuous 通过）。
     ``threshold`` 若非 ``None`` 则统一覆盖三项阈值。
 
     Args:
@@ -58,9 +59,16 @@ def compute_coverage_report(
     for ci, ps in enumerate(page_scripts):
         skipped = set(ps.skipped_pages)
         for pi, page in enumerate(ps.pages):
-            if pi in skipped:
-                continue  # 内容拒绝页：排除出分母，vacuous 通过
             key = f"c{ci:04d}#{ps.chapter_id}#p{pi}"
+            if pi in skipped:
+                req_total += 1
+                below.append(key)
+                # Skipped: causal/span in denominator, no credit.
+                for _link in page.causal_links:
+                    cau_total += 1
+                for _sp in page.source_spans:
+                    spa_total += 1
+                continue
             # 必含信息
             req_total += 1
             req_ok = bool(page.required_information.strip())
@@ -86,6 +94,13 @@ def compute_coverage_report(
                     not (link.cause.strip() and link.effect.strip()) for link in page.causal_links
                 )
             ):
+                below.append(key)
+
+        # After iterating pages, for any skipped index with no page object:
+        for pi in sorted(skipped):
+            if pi >= len(ps.pages):
+                key = f"c{ci:04d}#{ps.chapter_id}#p{pi}"
+                req_total += 1
                 below.append(key)
 
     def _metric(total: int, covered: int, th: float) -> CoverageMetric:

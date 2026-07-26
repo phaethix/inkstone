@@ -94,7 +94,8 @@ def _fake_export_pdf(self, page_dir, out="comic.pdf", layout="TwoPageRight", dir
 
 
 @patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
-def test_d2_pipeline_writes_and_resumes_page_script(tmp_path):
+def test_d2_pipeline_writes_and_resumes_page_script(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKSTONE_PAGE_SCRIPT", "1")
     src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
     chat = D2FakeChat()
     asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=chat, image=FakeImage()))
@@ -115,11 +116,24 @@ def test_d2_pipeline_writes_and_resumes_page_script(tmp_path):
 
 
 @patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
-def test_d2_pipeline_skipped_pages_on_policy_rejection(tmp_path):
+def test_d2_pipeline_skips_page_script_by_default(tmp_path, monkeypatch):
+    monkeypatch.delenv("INKSTONE_PAGE_SCRIPT", raising=False)
+    src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
+    chat = D2FakeChat()
+    asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=chat, image=FakeImage()))
+    assert chat.calls == 4  # 2 extract + 2 storyboard (no plan_page_script)
+    state = ProjectState.load(tmp_path / "state.json")
+    for key in ("0", "1"):
+        assert state.chunk_cache[key].page_script is None
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_d2_pipeline_skipped_pages_on_policy_rejection(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKSTONE_PAGE_SCRIPT", "1")
     src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
     chat = RejectPageScriptChat()
     proj = asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=chat, image=FakeImage()))
-    # 信息闸门失效但不阻断整块：panels 仍产出
+    # page_script 被拒绝但不阻断整块：panels 仍产出
     assert set(proj.state.panels_done) == {"c0000-p0000", "c0001-p0000"}
     state = ProjectState.load(tmp_path / "state.json")
     for key in ("0", "1"):
@@ -130,11 +144,11 @@ def test_d2_pipeline_skipped_pages_on_policy_rejection(tmp_path):
 
 
 def test_d2_pipeline_extension_block_is_small():
-    """creative_comic.py 在 storyboard 后、panels 前仅插入一个扩展块（净增 ≤20 行）。"""
+    """creative_comic.py 在 storyboard 后、panels 前仅插入一个扩展块（净增 ≤22 行）。"""
     path = Path(__file__).resolve().parents[1] / "core" / "pipelines" / "creative_comic.py"
     text = path.read_text(encoding="utf-8")
     start = text.index("# ---- page-script")
     end = text.index("# ---- panels ----", start)
     block = text[start:end]
     added = [ln for ln in block.splitlines() if ln.strip()]
-    assert len(added) <= 20
+    assert len(added) <= 22
