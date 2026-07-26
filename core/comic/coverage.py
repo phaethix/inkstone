@@ -33,7 +33,7 @@ def compute_coverage_report(
     - 因果链完整率   = complete_causal / total_causal（每条 causal_link 需 cause&effect 非空）
     - 原文回溯率     = traceable_span / total_span（每个 source_span 的 text 需可子串归属原文）
 
-    ``skipped_pages`` 中的页被排除出三项分母（vacuous 通过，不阻断整块）。
+    ``skipped_pages`` 中的页仍计入三项分母，视为未覆盖（不 vacuous 通过）。
     ``threshold`` 若非 ``None`` 则统一覆盖三项阈值。
 
     Args:
@@ -58,9 +58,21 @@ def compute_coverage_report(
     for ci, ps in enumerate(page_scripts):
         skipped = set(ps.skipped_pages)
         for pi, page in enumerate(ps.pages):
-            if pi in skipped:
-                continue  # 内容拒绝页：排除出分母，vacuous 通过
             key = f"c{ci:04d}#{ps.chapter_id}#p{pi}"
+            if pi in skipped:
+                req_total += 1
+                # covered stays 0
+                # still attribute failure
+                below.append(key)
+                # Do not score causal/span entries on skipped pages as successes;
+                # if the page has causal/span lists, count them in totals with 0 covered,
+                # OR treat the whole page as a single required failure only.
+                # Prefer: page-level required failure + still iterate links/spans as uncovered.
+                for _link in page.causal_links:
+                    cau_total += 1
+                for _sp in page.source_spans:
+                    spa_total += 1
+                continue
             # 必含信息
             req_total += 1
             req_ok = bool(page.required_information.strip())
@@ -86,6 +98,13 @@ def compute_coverage_report(
                     not (link.cause.strip() and link.effect.strip()) for link in page.causal_links
                 )
             ):
+                below.append(key)
+
+        # After iterating pages, for any skipped index with no page object:
+        for pi in sorted(skipped):
+            if pi >= len(ps.pages):
+                key = f"c{ci:04d}#{ps.chapter_id}#p{pi}"
+                req_total += 1
                 below.append(key)
 
     def _metric(total: int, covered: int, th: float) -> CoverageMetric:

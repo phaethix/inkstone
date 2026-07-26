@@ -529,7 +529,7 @@ class PageScript(BaseModel):
 
     chapter_id: str = ""
     pages: list[PageScriptPage] = Field(default_factory=list)
-    # 内容审核拒绝页，不阻断整块；coverage 将其排除出三项分母（vacuous 通过）。
+    # 内容审核拒绝页；coverage 仍计入分母，视为未覆盖。
     skipped_pages: list[int] = Field(default_factory=list)
 
 
@@ -692,6 +692,7 @@ class CoverageMetric(BaseModel):
 
     ``coverage_ratio = covered / total``；当 ``total == 0``（无条目）时置 ``1.0``
     表示 vacuous 通过；``passed`` 当且仅当 ``coverage_ratio >= threshold``。
+    策略跳过的页面计入 ``total``、不计入 ``covered``。
     """
 
     model_config = ConfigDict(extra="ignore")
