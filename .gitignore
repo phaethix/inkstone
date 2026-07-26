@@ -218,6 +218,7 @@ __marimo__/
 .streamlit/secrets.toml
 
 # --- Inkstone project-specific ---
+.DS_Store
 .agnes_config/
 logs/
 output/
