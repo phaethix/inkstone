@@ -61,13 +61,8 @@ def compute_coverage_report(
             key = f"c{ci:04d}#{ps.chapter_id}#p{pi}"
             if pi in skipped:
                 req_total += 1
-                # covered stays 0
-                # still attribute failure
                 below.append(key)
-                # Do not score causal/span entries on skipped pages as successes;
-                # if the page has causal/span lists, count them in totals with 0 covered,
-                # OR treat the whole page as a single required failure only.
-                # Prefer: page-level required failure + still iterate links/spans as uncovered.
+                # Skipped: causal/span in denominator, no credit.
                 for _link in page.causal_links:
                     cau_total += 1
                 for _sp in page.source_spans:

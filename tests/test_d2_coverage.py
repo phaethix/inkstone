@@ -103,6 +103,20 @@ def test_skipped_pages_count_as_uncovered():
     assert report.required_coverage.covered == 0
     assert report.required_coverage.coverage_ratio == 0.0
     assert report.required_coverage.passed is False
+    assert report.causal_coverage.total >= 1
+    assert report.causal_coverage.covered == 0
+    assert report.span_coverage.total >= 1
+    assert report.span_coverage.covered == 0
+    assert report.overall_passed is False
+    assert any("p0" in k for k in report.below_threshold_pages)
+
+
+def test_orphan_skipped_pages_count_as_uncovered():
+    ps = [PageScript(chapter_id="c1", pages=[], skipped_pages=[0])]
+    report = compute_coverage_report(ps, SOURCE)
+    assert report.required_coverage.total == 1
+    assert report.required_coverage.covered == 0
+    assert report.required_coverage.passed is False
     assert any("p0" in k for k in report.below_threshold_pages)
 
 

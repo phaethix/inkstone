@@ -699,7 +699,7 @@ class CoverageMetric(BaseModel):
 
     total: int = 0
     covered: int = 0
-    coverage_ratio: float = 0.0  # covered/total；total==0 时置 1.0（vacuous）
+    coverage_ratio: float = 0.0  # covered/total；total==0 时 1.0（vacuous）；skipped 页计入 total 不计 covered
     threshold: float = 0.0
     passed: bool = False  # coverage_ratio >= threshold
 
