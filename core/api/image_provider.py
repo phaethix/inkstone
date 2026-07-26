@@ -216,8 +216,8 @@ def get_image_provider(
         OPENAI_COMPAT_API_KEY=...
         OPENAI_COMPAT_MODEL_T2I=...
         OPENAI_COMPAT_MODEL_I2I=...
-        AGNES_IMAGE_MAX_RETRIES=8          # image service is often 503 "Service busy"
-        AGNES_IMAGE_RETRY_BASE_DELAY=15.0  # backoff base (s); capped at 120s
+        AGNES_IMAGE_MAX_RETRIES=5          # image service is often 503 "Service busy"
+        AGNES_IMAGE_RETRY_BASE_DELAY=5.0   # backoff base (s)
 
     Default path: when ``PROVIDER`` is unset or empty => ``agnes``, using only
     ``AGNES_API_KEY`` — realizing the "fill one line and it just works" goal.
