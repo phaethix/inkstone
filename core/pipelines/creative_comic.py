@@ -51,6 +51,7 @@ from core.schemas import (
     ChunkCache,
     GeneratedPanel,
     ModelSnapshot,
+    PageScript,
     ProjectState,
     Setting,
     Storyboard,
@@ -59,6 +60,7 @@ from core.schemas import (
 from core.screenwriter import (
     extract_story_elements,
     is_content_policy_rejection,
+    plan_page_script,
     plan_storyboard,
 )
 
@@ -645,6 +647,25 @@ async def _creative_comic(
             state.chunk_cache.setdefault(key, ChunkCache()).storyboard = board
             state.save(state_path)
             _report("storyboard", _pct())
+
+        # ---- page-script (D2 信息完备闸门；仅当未缓存时调用) ----
+        if state.chunk_cache.get(key, ChunkCache()).page_script is None:
+            try:
+                with perf.measure("page_script"):
+                    ps = await plan_page_script(board, elements, chunk, chat=chat)
+            except Exception as exc:  # noqa: BLE001 — 内容拒绝不得阻断 panels
+                if is_content_policy_rejection(exc):
+                    logger.warning("chunk %s 信息闸门被策略拒绝，标记页跳过", ci)
+                    ps = PageScript(
+                        chapter_id=board.chapter_id,
+                        pages=[],
+                        skipped_pages=list(range((len(board.panels) + 3) // 4)),
+                    )
+                else:
+                    raise
+            state.chunk_cache[key].page_script = ps
+            state.save(state_path)
+            _report("page_script", _pct())
 
         # ---- panels ----
         _report("panels", _pct())
