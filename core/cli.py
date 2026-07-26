@@ -175,9 +175,12 @@ def _run_plan(args: argparse.Namespace) -> None:
         "Note: uncalibrated estimate only; generate ignores --density "
         "until the density contract lands."
     )
-    # D2 预期（不依赖实际渲染）：以布局分页常数 4 估出信息完备分镜页数与必含信息条数。
+    # PageScript 粗估（不依赖实际渲染）：以布局分页常数 4 估出分镜页数与必含信息条数。
     d2_pages = -(-est.panels // 4)  # ceil(panels / PANELS_PER_PAGE)
-    print(f"D2 预期 : 信息完备分镜约 {d2_pages} 页，必含信息约 {d2_pages} 条（需 coverage 验收）")
+    print(
+        f"PageScript 预估（原型，可选）: "
+        f"信息完备分镜约 {d2_pages} 页，必含信息约 {d2_pages} 条"
+    )
 
 
 def _print_coverage(report) -> None:

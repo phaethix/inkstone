@@ -175,5 +175,8 @@ def test_cli_plan_prints_d2_expectation(tmp_path, capsys):
         )
     )
     out = capsys.readouterr().out
-    assert "D2" in out
+    assert "PageScript" in out
+    assert "原型" in out or "optional" in out.lower()
     assert "信息完备分镜" in out
+    assert "需 coverage 验收" not in out
+    assert "D2 预期" not in out
