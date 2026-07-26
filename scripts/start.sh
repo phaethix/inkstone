@@ -41,4 +41,7 @@ if [ -z "${AGNES_API_KEY:-}" ]; then
   exit 1
 fi
 
-exec python examples/generate_comic.py "$@"
+# Delegate to the unified CLI entry point (backward compatible: a bare source
+# path is treated as `generate`). `inkstone plan` also works here, though it
+# still requires AGNES_API_KEY because this launcher guards on it above.
+exec python -m core.cli "$@"
