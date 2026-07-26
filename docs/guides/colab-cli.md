@@ -8,7 +8,7 @@ to run the **headless** pipeline on a remote VM, then download `comic_out/`.
 Inkstone does **not** need a GPU — generation calls Agnes over the network.
 Prefer a **CPU** Colab runtime to save quota.
 
-Helper script: [`scripts/colab_run.sh`](../scripts/colab_run.sh).
+Helper script: [`scripts/colab_run.sh`](../../scripts/colab_run.sh).
 
 ## Prerequisites
 
@@ -36,11 +36,12 @@ colab stop
 ./scripts/colab_run.sh bootstrap --from-local
 
 # 3) Start the job in the background (safe to close the laptop after this)
-./scripts/colab_run.sh run path/to/novel.txt --project my-novel-01 --format webtoon
+./scripts/colab_run.sh run path/to/novel.txt --project my-novel-01 --format page
 
 # 4) Later — from any machine with Colab CLI auth
 ./scripts/colab_run.sh status
 ./scripts/colab_run.sh logs
+```
 
 If `status` times out, the Colab kernel may be stuck after a long `exec`:
 
@@ -58,6 +59,7 @@ alive. `status` will **auto-`adopt` and retry once**. Manual reclaim:
 ./scripts/colab_run.sh status
 ```
 
+```bash
 # 5) Pull artifacts home (shows download % / MB; stock `colab download` has no progress)
 ./scripts/colab_run.sh download --project my-novel-01
 
@@ -87,9 +89,8 @@ the comic finishes). That is what lets you close the laptop.
 Use the **same** `--project` id (same `comic_out/<id>/state.json`):
 
 ```bash
-./scripts/colab_run.sh new
-./scripts/colab_run.sh bootstrap --from-local   # or bootstrap + re-upload state
-./scripts/colab_run.sh run novel.txt --project my-novel-01 --format webtoon
+# If the existing VM still has comic_out/<id>, do NOT bootstrap; just rerun:
+./scripts/colab_run.sh run novel.txt --project my-novel-01 --format page
 ```
 
 If the previous VM still exists and still has `comic_out/<id>`, just `run` again
@@ -103,6 +104,11 @@ tar -czf /tmp/my-novel-01.tgz -C comic_out my-novel-01
 colab upload -s inkstone /tmp/my-novel-01.tgz /content/my-novel-01.tgz
 # then extract under /content/inkstone/comic_out/ on the VM (see script or colab exec)
 ```
+
+> **Important:** `bootstrap` and `bootstrap --from-local` rebuild
+> `/content/inkstone`; the local source archive intentionally excludes
+> `comic_out`. Download or upload the project artifacts before bootstrapping, or
+> the only remote `state.json` / panels may be lost.
 
 ## Why not `web/server.py` on Colab?
 
@@ -154,6 +160,8 @@ colab stop -s inkstone
 
 ## Related
 
-- Local one-click: [`scripts/start.sh`](../scripts/start.sh) / `examples/generate_comic.py`
+- Local one-click: [`scripts/start.sh`](../../scripts/start.sh) / `examples/generate_comic.py`
 - Unattended supervisor: `core/pipelines/run_until_complete.py`
+- Rebuild page PDF from existing panels: `scripts/export_page_pdf.py`
+- Status / next work: [`../ROADMAP.md`](../ROADMAP.md)
 - Colab CLI announcement: <https://developers.googleblog.com/introducing-the-google-colab-cli/>
