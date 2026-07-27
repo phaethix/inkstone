@@ -84,9 +84,9 @@ class AgnesImageAPI(ImageProvider):
 
         logger.info(f"[AgnesImage] Generating ({'i2i' if use_i2i else 't2i'}): {prompt[:80]}...")
 
-        async def _collect(*, status_code, response, attempt, exc=None, final=False):
+        def _collect(*, status_code, response, attempt, exc=None, final=False):
             # Identical error-collection semantics for every provider (P0-2).
-            await collect_provider_error(
+            collect_provider_error(
                 prompt,
                 status_code=status_code,
                 response=response,

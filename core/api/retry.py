@@ -52,7 +52,7 @@ def compute_backoff(attempt: int, base_delay: float, cap: float = BACKOFF_CAP_SE
     return capped * random.uniform(0.5, 1.0)
 
 
-async def collect_provider_error(
+def collect_provider_error(
     prompt: str,
     *,
     status_code: int | None,
@@ -68,8 +68,8 @@ async def collect_provider_error(
     ``"chat"``) so chat and image calls share one collection path without
     cross-contaminating their records.
 
-    Wrapped in ``asyncio.to_thread`` by callers so the disk write never blocks
-    the event loop.
+    Synchronous: :func:`retryable_post` invokes this via ``asyncio.to_thread``
+    so the disk write never blocks the event loop.
     """
     from core.api.error_collector import (
         collect_error,
@@ -119,8 +119,9 @@ async def retryable_post(
     - Acquires the (size-aware) global rate limiter before each attempt.
     - Retries on transport errors (``ConnectionError`` / ``Timeout``) and on
       retryable HTTP statuses (429 / 5xx) with exponential + jitter backoff.
-    - ``collect`` (async callable) is invoked on every retryable failure so both
-      providers record errors with identical semantics.
+    - ``collect`` (sync callable) is invoked on every retryable failure via
+      ``asyncio.to_thread`` so both providers record errors with identical
+      semantics without blocking the event loop.
     - Raises the underlying error after exhaustion, or ``RuntimeError`` if no
       response was ever obtained.
 
@@ -142,7 +143,13 @@ async def retryable_post(
             )
         except (requests.ConnectionError, requests.Timeout) as e:
             if collect is not None:
-                await collect(status_code=None, response=None, attempt=attempt, exc=e)
+                await asyncio.to_thread(
+                    collect,
+                    status_code=None,
+                    response=None,
+                    attempt=attempt,
+                    exc=e,
+                )
             if attempt < max_retries - 1:
                 delay = compute_backoff(attempt, retry_base_delay)
                 logger.info(
@@ -155,7 +162,12 @@ async def retryable_post(
 
         if resp.status_code in RETRYABLE_STATUS and attempt < max_retries - 1:
             if collect is not None:
-                await collect(status_code=resp.status_code, response=resp, attempt=attempt)
+                await asyncio.to_thread(
+                    collect,
+                    status_code=resp.status_code,
+                    response=resp,
+                    attempt=attempt,
+                )
             delay = compute_backoff(attempt, retry_base_delay)
             logger.info(
                 f"{provider_tag} HTTP {resp.status_code}, "
@@ -168,7 +180,8 @@ async def retryable_post(
         # (instead of leaking the raw 5xx/429 as if it were a terminal failure).
         if resp.status_code in RETRYABLE_STATUS:
             if collect is not None:
-                await collect(
+                await asyncio.to_thread(
+                    collect,
                     status_code=resp.status_code,
                     response=resp,
                     attempt=attempt,
@@ -184,7 +197,8 @@ async def retryable_post(
             resp.raise_for_status()
         except requests.HTTPError:
             if collect is not None:
-                await collect(
+                await asyncio.to_thread(
+                    collect,
                     status_code=resp.status_code,
                     response=resp,
                     attempt=attempt,

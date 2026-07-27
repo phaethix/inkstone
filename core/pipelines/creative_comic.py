@@ -362,7 +362,11 @@ def _ordered_generated_panels(state: ProjectState) -> list[tuple[str, GeneratedP
     """Recover canonical panel metadata from cached storyboards, including old state files."""
     ordered: list[tuple[str, GeneratedPanel]] = []
     seen: set[str] = set()
-    for chunk_index, key in enumerate(sorted(state.chunk_cache, key=lambda value: int(value))):
+    digit_keys = sorted(
+        (k for k in state.chunk_cache if str(k).isdigit()),
+        key=lambda value: int(value),
+    )
+    for chunk_index, key in enumerate(digit_keys):
         board = state.chunk_cache[key].storyboard
         if board is None:
             continue
