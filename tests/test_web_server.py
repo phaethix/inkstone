@@ -173,8 +173,38 @@ def test_persist_active_elapsed(tmp_path, monkeypatch):
     (tmp_path / project_id).mkdir()
     ProjectState(project_id=project_id).save(tmp_path / project_id / "state.json")
     server._persist_active_elapsed(project_id, 42.0)
+    # Elapsed time now lives in timing.json, owned solely by the web layer.
+    data = json.loads((tmp_path / project_id / "timing.json").read_text(encoding="utf-8"))
+    assert data["active_elapsed_seconds"] == 42.0
+    # state.json must stay untouched (the pipeline owns it; no more racing writes).
     loaded = ProjectState.load(tmp_path / project_id / "state.json")
-    assert loaded.active_elapsed_seconds == 42.0
+    assert not loaded.active_elapsed_seconds  # stays at the default (None/0.0)
+
+
+def test_seed_job_timing_prefers_timing_json(tmp_path, monkeypatch):
+    import web.server as server
+    from core.schemas import ProjectState
+
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    project_id = "timing03"
+    (tmp_path / project_id).mkdir()
+    # Legacy checkpoint field says 3600; the newer timing.json wins.
+    ProjectState(project_id=project_id, active_elapsed_seconds=3600.0).save(
+        tmp_path / project_id / "state.json"
+    )
+    server._persist_active_elapsed(project_id, 7200.0)
+    assert server._seed_job_timing(project_id) == 7200.0
+
+
+def test_persist_active_elapsed_never_decreases(tmp_path, monkeypatch):
+    import web.server as server
+
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    project_id = "timing04"
+    (tmp_path / project_id).mkdir()
+    server._persist_active_elapsed(project_id, 100.0)
+    server._persist_active_elapsed(project_id, 50.0)
+    assert server._seed_job_timing(project_id) == 100.0
 
 
 def _base_job(**overrides) -> dict:

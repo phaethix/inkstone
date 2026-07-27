@@ -32,6 +32,7 @@ import logging
 import os
 import re
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -189,15 +190,33 @@ def _seed_job_progress(project_id: str) -> tuple[float, str]:
     return estimate_progress(state), "resume"
 
 
-def _seed_job_timing(project_id: str) -> float:
-    """Seed a job's cumulative elapsed time from an existing checkpoint."""
+def _timing_path(project_id: str) -> Path:
+    """Web-layer-owned timing file for a project (kept out of state.json)."""
+    return OUTPUT_DIR / project_id / "timing.json"
+
+
+def _load_timing_elapsed(project_id: str) -> float:
+    """Cumulative elapsed seconds: timing.json first, legacy checkpoint field as fallback."""
+    path = _timing_path(project_id)
+    if path.is_file():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return float(data.get("active_elapsed_seconds") or 0.0)
+        except Exception:  # noqa: BLE001
+            return 0.0
+    # Backward compat: checkpoints written before the timing split.
     state_path = OUTPUT_DIR / project_id / "state.json"
-    if not state_path.is_file():
-        return 0.0
-    try:
-        return float(ProjectState.load(state_path).active_elapsed_seconds or 0.0)
-    except Exception:  # noqa: BLE001
-        return 0.0
+    if state_path.is_file():
+        try:
+            return float(ProjectState.load(state_path).active_elapsed_seconds or 0.0)
+        except Exception:  # noqa: BLE001
+            return 0.0
+    return 0.0
+
+
+def _seed_job_timing(project_id: str) -> float:
+    """Seed a job's cumulative elapsed time from prior runs."""
+    return _load_timing_elapsed(project_id)
 
 
 def _job_elapsed(job: dict) -> float:
@@ -218,18 +237,31 @@ def _refresh_job_timing(job: dict) -> None:
 
 
 def _persist_active_elapsed(project_id: str, elapsed: float) -> None:
-    """Persist cumulative elapsed time onto the project's checkpoint."""
-    state_path = OUTPUT_DIR / project_id / "state.json"
-    if not state_path.is_file():
+    """Persist cumulative elapsed time to timing.json (single-writer, atomic).
+
+    Deliberately not state.json: the pipeline owns that file and full-dumps it,
+    so a web-layer load-modify-save there raced and lost updates, at O(state
+    size) IO per panel. timing.json is tiny and owned solely by this layer.
+    """
+    path = _timing_path(project_id)
+    if not path.parent.is_dir():
         return
     try:
-        state = ProjectState.load(state_path)
-        # Never decrease if an older write races a newer checkpoint.
-        prev = float(state.active_elapsed_seconds or 0.0)
-        state.active_elapsed_seconds = max(prev, float(elapsed))
-        state.save(state_path)
+        # Never decrease if an older write races a newer one.
+        prev = _load_timing_elapsed(project_id)
+        value = max(prev, float(elapsed))
+        fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".timing-", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump({"active_elapsed_seconds": value}, f)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
+        finally:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
     except Exception:  # noqa: BLE001
-        logger.warning("could not persist active_elapsed_seconds for %s", project_id)
+        logger.warning("could not persist timing.json for %s", project_id)
 
 
 def _run_job(
@@ -599,11 +631,20 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json({"job_id": job_id, "project_id": pid})
 
 
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
 def main() -> None:
     _load_dotenv()
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     if not os.environ.get("AGNES_API_KEY"):
         print("WARNING: AGNES_API_KEY is not set. Set it (or add to .env) before generating.")
+    if HOST not in _LOOPBACK_HOSTS:
+        print(
+            f"WARNING: binding to {HOST!r} exposes this unauthenticated UI to the network — "
+            "anyone who can reach this port can spend your API quota and read your projects.",
+            file=sys.stderr,
+        )
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"Inkstone UI running at http://{HOST}:{PORT}  (Ctrl+C to stop)")
     try:
