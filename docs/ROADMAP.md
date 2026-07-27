@@ -64,6 +64,10 @@ Keep these prototypes only as migration material until they conform to the targe
   - **Local (v0.1.2):** structure/render fingerprint split landed — style, model,
     and L3 changes soft-invalidate panels/portraits only; `chunk_cache` is reused.
     Legacy states still compare the combined hash until migrated.
+  - **Local (v0.1.3):** defect-review patch — sparse chunk panel ordering, preserve
+    content-policy `skipped` across soft-invalidate, Latin word-wrap, unique
+    `unnamed_*` identities, fill empty appearance on merge (see
+    `docs/superpowers/plans/2026-07-27-v0.1.3-defect-review-fixes.md`).
 - [ ] Reconcile README, configuration defaults, CLI help and historical docs so
   they do not contradict released behavior.
 - [ ] Isolate, rename or remove the old PageScript / coverage prototype so it

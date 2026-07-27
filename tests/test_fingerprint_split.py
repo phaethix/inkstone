@@ -118,7 +118,8 @@ def test_soft_invalidate_render_clears_panels_keeps_chunk_cache():
     _soft_invalidate_render(state)
     assert state.panels_done == []
     assert state.stale_panels == []
-    assert state.skipped == []
+    # Content-policy skips must survive render invalidation (style/model change).
+    assert state.skipped == ["c0000-p0002"]
     assert state.generated.panels == {}
     assert state.generated.portraits == {}
     assert state.characters["方鸿渐"].portrait_local is None

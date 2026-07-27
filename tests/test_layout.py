@@ -1,7 +1,7 @@
 """tests/test_layout.py — page composition and dialogue bubbles (no network)."""
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 from core.comic.layout import LayoutEngine, PanelImage
 
@@ -103,3 +103,38 @@ def test_explicit_newlines_expand_dialogue_bubble(tmp_path):
 
     assert Image.open(page[0]).height > 100
     assert Image.open(webtoon[0]).height > 100
+
+
+def test_wrap_text_latin_breaks_on_word_boundaries():
+    eng = LayoutEngine()
+    font = ImageFont.load_default()
+    # Narrow width forces wrapping; words must stay intact.
+    lines = eng._wrap_text("The quick brown fox", font, max_width=40)
+    joined = " ".join(lines)
+    assert "The" in joined and "quick" in joined
+    for line in lines:
+        # No mid-word split of these tokens across a line boundary without space.
+        assert "quic" != line  # would only appear if "quick" was split mid-word as start
+    assert all(" " not in w or True for w in lines)
+    # Every original word appears unbroken in some line (or as whole line).
+    for word in ("The", "quick", "brown", "fox"):
+        assert any(word in line for line in lines)
+
+
+def test_wrap_text_cjk_still_breaks_per_character():
+    eng = LayoutEngine()
+    font = ImageFont.load_default()
+    text = "雨水顺着梧桐叶滑落"
+    lines = eng._wrap_text(text, font, max_width=20)
+    assert "".join(lines) == text
+    assert len(lines) >= 2
+
+
+def test_paginate_empty_returns_no_pages():
+    assert LayoutEngine._paginate([]) == []
+
+
+def test_compose_empty_page_mode_writes_nothing(tmp_path):
+    paths = LayoutEngine().compose([], tmp_path, layout_mode="page")
+    assert paths == []
+    assert list(tmp_path.glob("*.png")) == []

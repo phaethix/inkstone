@@ -16,6 +16,36 @@ def test_merge_characters_dedups_by_exact_name():
     assert created == ["b"]
 
 
+def test_merge_characters_mints_unique_unnamed():
+    first = CharacterAsset(name="unnamed", appearance={"outfit_top": "tray"})
+    second = CharacterAsset(name="unnamed", appearance={"outfit_top": "rifle"})
+    merged, created = merge_characters({}, [first, second])
+    assert "unnamed" in merged
+    assert any(n.startswith("unnamed_") for n in merged)
+    assert len(merged) == 2
+    assert len(created) == 2
+    tops = {a.appearance.outfit_top for a in merged.values()}
+    assert tops == {"tray", "rifle"}
+
+
+def test_merge_characters_fills_empty_appearance_fields():
+    existing = {
+        "Da Shi": CharacterAsset(name="Da Shi", appearance={"hair": "short"}),
+    }
+    new = [
+        CharacterAsset(
+            name="Da Shi",
+            role="detective",
+            appearance={"hair": "ignored", "eyewear": "aviator sunglasses"},
+        )
+    ]
+    merged, created = merge_characters(existing, new)
+    assert created == []
+    assert merged["Da Shi"].appearance.hair == "short"
+    assert merged["Da Shi"].appearance.eyewear == "aviator sunglasses"
+    assert merged["Da Shi"].role == "detective"
+
+
 def test_segment_text_respects_chapter_headings():
     text = "第一章\nintro.\n第二章\nmore text here."
     chunks = segment_text(text)

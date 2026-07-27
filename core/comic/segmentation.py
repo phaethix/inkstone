@@ -109,6 +109,35 @@ def segment_text(
     return chunks
 
 
+def _mint_unnamed(merged: dict[str, CharacterAsset]) -> str:
+    """Allocate a unique fallback name for nameless extracts."""
+    if "unnamed" not in merged:
+        return "unnamed"
+    index = 2
+    while f"unnamed_{index}" in merged:
+        index += 1
+    return f"unnamed_{index}"
+
+
+def _fill_empty_appearance(target: CharacterAsset, source: CharacterAsset) -> None:
+    """Copy non-empty role/appearance fields from ``source`` into empty slots on ``target``."""
+    if not (target.role or "").strip() and (source.role or "").strip():
+        target.role = source.role
+    for field in (
+        "hair",
+        "eyewear",
+        "outfit_top",
+        "outfit_bottom",
+        "shoes",
+        "body_type",
+        "distinguishing",
+    ):
+        cur = getattr(target.appearance, field) or ""
+        nxt = getattr(source.appearance, field) or ""
+        if not str(cur).strip() and str(nxt).strip():
+            setattr(target.appearance, field, nxt)
+
+
 def merge_characters(
     existing: dict[str, CharacterAsset],
     new: "Iterable[CharacterAsset]",
@@ -116,8 +145,9 @@ def merge_characters(
     """Merge extracted characters into the running character table by name.
 
     Characters already present (exact name match) are kept and reused so the
-    same portrait is not regenerated. New names are added and reported so the
-    pipeline can generate their portraits.
+    same portrait is not regenerated; empty appearance/role fields are filled
+    from later extractions. Multiple nameless extracts become ``unnamed``,
+    ``unnamed_2``, … so they do not share one identity.
 
     Args:
         existing: the project's current ``name -> CharacterAsset`` table.
@@ -129,9 +159,15 @@ def merge_characters(
     merged = dict(existing)
     created: list[str] = []
     for char in new:
-        if char.name not in merged:
-            merged[char.name] = char
-            created.append(char.name)
+        name = char.name
+        if name == "unnamed" and name in merged:
+            name = _mint_unnamed(merged)
+            char = char.model_copy(update={"name": name})
+        if name not in merged:
+            merged[name] = char
+            created.append(name)
+        else:
+            _fill_empty_appearance(merged[name], char)
     return merged, created
 
 
