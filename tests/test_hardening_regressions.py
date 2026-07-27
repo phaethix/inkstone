@@ -98,6 +98,8 @@ def test_model_identity_change_invalidates_generated_assets(tmp_path):
             image=CapturingImage(),
         )
     )
+    state = ProjectState.load(tmp_path / "state.json")
+    cache_keys = set(state.chunk_cache)
 
     class ChangedModelImage(CapturingImage):
         model = "image-model-b"
@@ -106,8 +108,10 @@ def test_model_identity_change_invalidates_generated_assets(tmp_path):
     chat, image = TwoPanelChat(), ChangedModelImage()
     asyncio.run(creative_comic(source, output_dir=str(tmp_path), chat=chat, image=image))
 
-    assert chat.calls > 0
+    assert chat.calls == 0
     assert image.calls > 0
+    state2 = ProjectState.load(tmp_path / "state.json")
+    assert set(state2.chunk_cache) == cache_keys
 
 
 @patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
@@ -122,13 +126,17 @@ def test_continuity_setting_invalidates_generated_assets(tmp_path, monkeypatch):
             image=CapturingImage(),
         )
     )
+    state = ProjectState.load(tmp_path / "state.json")
+    cache_keys = set(state.chunk_cache)
 
     monkeypatch.setenv("INKSTONE_PANEL_CONTINUITY", "0")
     chat, image = TwoPanelChat(), CapturingImage()
     asyncio.run(creative_comic(source, output_dir=str(tmp_path), chat=chat, image=image))
 
-    assert chat.calls > 0
+    assert chat.calls == 0
     assert image.calls > 0
+    state2 = ProjectState.load(tmp_path / "state.json")
+    assert set(state2.chunk_cache) == cache_keys
 
 
 @patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
