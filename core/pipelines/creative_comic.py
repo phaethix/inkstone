@@ -287,6 +287,17 @@ def _mark_chunk_done_if_complete(
         state.chunks_done.append(key)
 
 
+def _soft_invalidate_render(state: ProjectState) -> None:
+    """Drop render-owned assets while keeping structural cache (extract/storyboard)."""
+    state.panels_done = []
+    state.stale_panels = []
+    state.skipped = []
+    state.generated.panels = {}
+    state.generated.portraits = {}
+    for asset in state.characters.values():
+        asset.portrait_local = None
+
+
 def _reconcile_state(state: ProjectState, state_path: Path, output_dir: Path) -> None:
     """Remove every missing or escaped persisted asset before a resume trusts it."""
     changed = False
@@ -533,25 +544,45 @@ async def _creative_comic(
         panel_continuity=image_config.panel_continuity,
         l3_enabled=l3_enabled,
     )
-    if state_path.exists():
-        persisted = ProjectState.load(state_path)
-        state = (
-            persisted
-            if persisted.source_fingerprint == fingerprint
-            else ProjectState(
-                project_id=project_id,
-                source_file=str(output_dir),
-                source_fingerprint=fingerprint,
-                model_snapshot=snapshot,
-            )
-        )
-    else:
-        state = ProjectState(
+    struct = _structure_fingerprint(source_txt)
+    render = _render_fingerprint(
+        style_guide,
+        snapshot=snapshot,
+        panel_continuity=image_config.panel_continuity,
+        l3_enabled=l3_enabled,
+    )
+
+    def _fresh_state() -> ProjectState:
+        return ProjectState(
             project_id=project_id,
             source_file=str(output_dir),
-            source_fingerprint=fingerprint,
+            source_fingerprint=struct,
+            structure_fingerprint=struct,
+            render_fingerprint=render,
             model_snapshot=snapshot,
         )
+
+    if state_path.exists():
+        persisted = ProjectState.load(state_path)
+        if not persisted.structure_fingerprint and not persisted.render_fingerprint:
+            if persisted.source_fingerprint == fingerprint:
+                state = persisted
+                state.structure_fingerprint = struct
+                state.render_fingerprint = render
+                state.source_fingerprint = struct
+            else:
+                state = _fresh_state()
+        elif persisted.structure_fingerprint != struct:
+            state = _fresh_state()
+        elif persisted.render_fingerprint != render:
+            state = persisted
+            _soft_invalidate_render(state)
+            state.render_fingerprint = render
+            state.model_snapshot = snapshot
+        else:
+            state = persisted
+    else:
+        state = _fresh_state()
     state.project_id = project_id
 
     image_semaphore = asyncio.Semaphore(image_config.image_concurrency)
