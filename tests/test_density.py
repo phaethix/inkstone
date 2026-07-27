@@ -11,8 +11,8 @@ Run with: ``python -m pytest tests/test_density.py -q`` (from the repo root).
 
 from pathlib import Path
 
+from core.config import ENV_WEBTOON_WARN_MB
 from core.density import (
-    ENV_WEBTOON_WARN_MB,
     PANELS_PER_CHUNK_A,
     PANELS_PER_CHUNK_B,
     PANELS_PER_CHUNK_C,
