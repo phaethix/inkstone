@@ -47,6 +47,24 @@ def test_webtoon_guard_env_override_and_disable(monkeypatch):
     assert _webtoon_max_pixels() == DEFAULT_WEBTOON_MAX_PIXELS
 
 
+def test_webtoon_over_limit_fails_before_resize(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKSTONE_WEBTOON_MAX_PIXELS", "1000")
+    eng = LayoutEngine(page_width=400)
+    panels = [PanelImage(Image.new("RGB", (400, 300), (200, 200, 200))) for _ in range(3)]
+    resize_calls = 0
+    original_resize = Image.Image.resize
+
+    def _counting_resize(self, size, *args, **kwargs):
+        nonlocal resize_calls
+        resize_calls += 1
+        return original_resize(self, size, *args, **kwargs)
+
+    monkeypatch.setattr(Image.Image, "resize", _counting_resize)
+    with pytest.raises(ValueError, match="format page"):
+        eng.compose(panels, tmp_path, layout_mode="webtoon")
+    assert resize_calls == 0
+
+
 def test_webtoon_over_limit_fails_with_actionable_message(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_WEBTOON_MAX_PIXELS", "1000")
     eng = LayoutEngine(page_width=400)

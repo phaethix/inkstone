@@ -150,8 +150,23 @@ class LayoutEngine:
         if not panels:
             return []
         width = self.page_width
-        scaled: list[Image.Image] = []
+        limit = _webtoon_max_pixels()
         total_h = 0
+        for panel in panels:
+            img_w, img_h = panel.image.size
+            h = int(width * img_h / img_w) if img_w else width
+            if panel.dialogue:
+                bubble_w = int(width * 0.8)
+                h += self._bubble_height(panel.dialogue, bubble_w) + 40
+            total_h += h
+        if limit and width * total_h > limit:
+            raise ValueError(
+                f"webtoon canvas would be {width}x{total_h}px "
+                f"({width * total_h / 1e6:.0f}MP, over the {limit / 1e6:.0f}MP limit); "
+                "re-run with --format page, or raise INKSTONE_WEBTOON_MAX_PIXELS "
+                "(0 disables the guard)"
+            )
+        scaled: list[Image.Image] = []
         for panel in panels:
             img = panel.image.convert("RGB")
             h = int(width * img.height / img.width) if img.width else width
@@ -170,15 +185,6 @@ class LayoutEngine:
                 )
                 scaled_panel = with_caption
             scaled.append(scaled_panel)
-            total_h += scaled_panel.height
-        limit = _webtoon_max_pixels()
-        if limit and width * total_h > limit:
-            raise ValueError(
-                f"webtoon canvas would be {width}x{total_h}px "
-                f"({width * total_h / 1e6:.0f}MP, over the {limit / 1e6:.0f}MP limit); "
-                "re-run with --format page, or raise INKSTONE_WEBTOON_MAX_PIXELS "
-                "(0 disables the guard)"
-            )
         canvas = Image.new("RGB", (width, total_h), self.bg)
         y = 0
         for s in scaled:
