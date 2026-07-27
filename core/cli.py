@@ -25,11 +25,17 @@ from core.schemas import ProjectState
 
 def _build_parser() -> argparse.ArgumentParser:
     """构造带 4 个子命令的顶层解析器。"""
-    parser = argparse.ArgumentParser(prog="inkstone", description="Inkstone novel-to-comic generator")
+    parser = argparse.ArgumentParser(
+        prog="inkstone",
+        description="Inkstone novel-to-comic generator",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     # generate：复用既有 examples/generate_comic.py，不改其逻辑。
-    p_gen = sub.add_parser("generate", help="Run the full comic generation pipeline (calls Agnes API)")
+    p_gen = sub.add_parser(
+        "generate",
+        help="Run the full comic generation pipeline (calls Agnes API)",
+    )
     p_gen.add_argument(
         "source",
         nargs="?",
@@ -110,7 +116,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--format",
         choices=["text", "json"],
         default="text",
-        help="Output format: text=human-readable three metrics / json=machine-readable (default text)",
+        help=(
+            "Output format: text=human-readable three metrics / "
+            "json=machine-readable (default text)"
+        ),
     )
     p_cov.add_argument(
         "--strict",

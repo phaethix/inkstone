@@ -26,8 +26,7 @@ def test_pdf_export_warns_on_pil_fallback(tmp_path, monkeypatch, caplog):
         out = ExportEngine().export_pdf(tmp_path, out=str(tmp_path / "comic.pdf"))
     assert out.endswith("comic.pdf")
     assert any(
-        "manga2pdf" in r.message and "plain multi-page PDF" in r.message
-        for r in caplog.records
+        "manga2pdf" in r.message and "plain multi-page PDF" in r.message for r in caplog.records
     )
 
 

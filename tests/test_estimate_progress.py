@@ -5,7 +5,14 @@ from core.pipelines.creative_comic import (
     estimate_progress,
     panel_progress_counts,
 )
-from core.schemas import ChunkCache, GeneratedAssets, GeneratedPanel, Panel, ProjectState, Storyboard
+from core.schemas import (
+    ChunkCache,
+    GeneratedAssets,
+    GeneratedPanel,
+    Panel,
+    ProjectState,
+    Storyboard,
+)
 
 
 def test_panel_progress_counts_matches_estimate():

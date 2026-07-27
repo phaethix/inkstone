@@ -8,7 +8,6 @@ speech bubble rendered on top.
 Pure PIL — no network, no external services.
 """
 
-from core.config import webtoon_max_pixels
 from dataclasses import dataclass
 from math import ceil
 from pathlib import Path
@@ -16,6 +15,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 from core.comic.fonts import resolve_font
+from core.config import webtoon_max_pixels
 
 # Upper bound for a single webtoon canvas, in pixels. A webtoon strip is one
 # giant RGB buffer (3 bytes/px), so an unbounded strip OOMs on long books:

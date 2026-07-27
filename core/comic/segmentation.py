@@ -26,9 +26,7 @@ _HEADING_RE = re.compile(
     r"^\s*(?:"
     r"第\s*[0-9一二三四五六七八九十百千]+\s*[章节卷]"
     r"|(?:序章|楔子|尾声|番外|终章)(?:[0-9一二三四五六七八九十百千]+|\s+[^\n]+)?"
-    r"|chapter\s+(?:[0-9]+|"
-    + _ENGLISH_NUMBERS
-    + r")"
+    r"|chapter\s+(?:[0-9]+|" + _ENGLISH_NUMBERS + r")"
     r"|volume\s+[0-9]+"
     r"|(?:part|section)\s+[0-9]+"
     r")",

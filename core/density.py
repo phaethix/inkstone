@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Literal
 
 from core.comic.segmentation import segment_text
-from core.config import ENV_WEBTOON_WARN_MB, webtoon_warn_mb
+from core.config import webtoon_warn_mb
 
 # --------------------------------------------------------------------------- #
 # Experience constants (to be calibrated against a real 《三体》 sample)

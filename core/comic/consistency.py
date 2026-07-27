@@ -23,11 +23,10 @@ import logging
 import math
 from collections.abc import Iterable
 
-from core.config import l3_enabled
-
 from PIL import Image
 
 from core.comic.identity import ensure_character_l1
+from core.config import l3_enabled
 from core.schemas import CharacterAsset, Panel, Setting
 
 logger = logging.getLogger(__name__)

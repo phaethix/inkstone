@@ -12,13 +12,14 @@ flow.
 
 import json
 import logging
-from core.config import error_log_name
 import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import requests
+
+from core.config import error_log_name
 
 logger = logging.getLogger(__name__)
 

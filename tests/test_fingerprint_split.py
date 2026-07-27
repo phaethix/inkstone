@@ -183,9 +183,7 @@ def test_source_change_drops_chunk_cache(tmp_path):
 @patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
 def test_legacy_state_with_matching_combined_fingerprint_migrates(tmp_path):
     src = "第一章\n方鸿渐在甲板上。"
-    asyncio.run(
-        creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage())
-    )
+    asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage()))
     state = ProjectState.load(tmp_path / "state.json")
     cache_keys = set(state.chunk_cache)
     image_config = ImageConfig()

@@ -17,9 +17,9 @@ import logging
 import os
 import threading
 
-from core.config import font_path as env_font_path
-
 from PIL import Image, ImageDraw, ImageFont
+
+from core.config import font_path as env_font_path
 
 logger = logging.getLogger(__name__)
 
