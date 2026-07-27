@@ -12,13 +12,13 @@ Usage via CLI: ``inkstone generate <source> [--out DIR] [--project ID] [--format
 import argparse
 import asyncio
 import logging
-import os
 import sys
 from contextlib import contextmanager
 from pathlib import Path
 
 from tqdm import tqdm
 
+from core.config import ImageConfig
 from core.pipelines.run_until_complete import PausedRun, run_until_complete
 
 logger = logging.getLogger(__name__)
@@ -112,7 +112,7 @@ def run_generate(
     project_id: str | None,
 ) -> int:
     """Validate inputs and run the pipeline. Returns a process exit code."""
-    if not os.environ.get("AGNES_API_KEY"):
+    if not ImageConfig().agnes_api_key:
         print(
             "AGNES_API_KEY is not set. Export it (e.g. `export AGNES_API_KEY=sk-xxx`) first.",
             file=sys.stderr,

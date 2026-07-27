@@ -12,7 +12,7 @@ flow.
 
 import json
 import logging
-import os
+from core.config import error_log_name
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -28,7 +28,7 @@ _DEFAULT_LOG = "logs/errors.jsonl"
 
 def _log_path() -> Path:
     # Allow a project-scoped override via env; default to a single shared JSONL.
-    name = os.environ.get("INKSTONE_ERROR_LOG")
+    name = error_log_name()
     p = Path(name) if name else Path(_DEFAULT_LOG)
     p.parent.mkdir(parents=True, exist_ok=True)
     return p

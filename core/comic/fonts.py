@@ -17,6 +17,8 @@ import logging
 import os
 import threading
 
+from core.config import font_path as env_font_path
+
 from PIL import Image, ImageDraw, ImageFont
 
 logger = logging.getLogger(__name__)
@@ -120,7 +122,7 @@ def _find_cjk_font(size: int, font_path: str | None) -> tuple[ImageFont.FreeType
     candidates: list[tuple[str, str]] = []
     if font_path:
         candidates.append((font_path, f"font_path:{font_path}"))
-    env_path = os.environ.get("INKSTONE_FONT_PATH", "").strip()
+    env_path = env_font_path()
     if env_path:
         candidates.append((env_path, f"INKSTONE_FONT_PATH:{env_path}"))
     candidates.extend((p, p) for p in _CJK_FONT_CANDIDATES)

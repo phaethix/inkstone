@@ -20,7 +20,6 @@ import asyncio
 import hashlib
 import json
 import logging
-import os
 from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -44,7 +43,7 @@ from core.comic.export import ExportEngine
 from core.comic.identity import ensure_character_l1, merge_settings, suggestion_from_alias
 from core.comic.layout import LayoutEngine, PanelImage
 from core.comic.segmentation import detect_character_aliases, merge_characters, segment_text
-from core.config import ImageConfig
+from core.config import ImageConfig, l3_enabled, page_script_enabled
 from core.perf import PerfCollector
 from core.pipelines.cancel import check_cancel
 from core.schemas import (
@@ -463,12 +462,7 @@ async def creative_comic(
 
 
 def _page_script_enabled() -> bool:
-    return os.environ.get("INKSTONE_PAGE_SCRIPT", "0").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    return page_script_enabled()
 
 
 async def _creative_comic(
@@ -535,25 +529,20 @@ async def _creative_comic(
     chat = chat or get_chat_provider()
     image = image or get_image_provider()
     snapshot = _model_snapshot(chat, image)
-    l3_enabled = os.environ.get("INKSTONE_L3", "0").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    l3_on = l3_enabled()
     fingerprint = _input_fingerprint(
         source_txt,
         style_guide,
         snapshot=snapshot,
         panel_continuity=image_config.panel_continuity,
-        l3_enabled=l3_enabled,
+        l3_enabled=l3_on,
     )
     struct = _structure_fingerprint(source_txt)
     render = _render_fingerprint(
         style_guide,
         snapshot=snapshot,
         panel_continuity=image_config.panel_continuity,
-        l3_enabled=l3_enabled,
+        l3_enabled=l3_on,
     )
 
     def _fresh_state() -> ProjectState:

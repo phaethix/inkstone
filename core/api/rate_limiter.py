@@ -22,29 +22,15 @@ Usage::
 from __future__ import annotations
 
 import asyncio
-import os
 import threading
 import time
+
+from core.config import agnes_image_2k_rpm, agnes_image_3k_rpm, agnes_rate_limit_rpm
 
 # Stay under the published free-tier ceiling.
 _SAFETY_FACTOR = 0.8
 
 # Free/Default RPM from Agnes docs (Token Plan is higher; we target free).
-_FREE_TEXT_RPM = 20
-_FREE_IMAGE_2K_RPM = 10
-_FREE_IMAGE_3K_RPM = 1
-
-
-def _env_int(name: str, default: int) -> int:
-    raw = os.environ.get(name)
-    if raw is None or not str(raw).strip():
-        return default
-    try:
-        return max(1, int(raw))
-    except ValueError:
-        return default
-
-
 # Widescreen sizes Agnes still bills under the 1K image RPM.
 _ONE_K_WIDESCREEN = frozenset(
     {
@@ -94,15 +80,15 @@ def select_rpm(size: str | None = None, *, bucket: str = "image") -> int:
     2K/3K image ceilings stay at the published 10 / 1 unless overridden via
     ``AGNES_IMAGE_2K_RPM`` / ``AGNES_IMAGE_3K_RPM``.
     """
-    text_or_1k = _env_int("AGNES_RATE_LIMIT", _FREE_TEXT_RPM)
+    text_or_1k = agnes_rate_limit_rpm()
     if bucket == "chat":
         return text_or_1k
     tier = image_tier(size)
     if tier == "1k":
         return text_or_1k
     if tier == "2k":
-        return _env_int("AGNES_IMAGE_2K_RPM", _FREE_IMAGE_2K_RPM)
-    return _env_int("AGNES_IMAGE_3K_RPM", _FREE_IMAGE_3K_RPM)
+        return agnes_image_2k_rpm()
+    return agnes_image_3k_rpm()
 
 
 class RateLimiter:

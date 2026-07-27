@@ -8,7 +8,7 @@ speech bubble rendered on top.
 Pure PIL — no network, no external services.
 """
 
-import os
+from core.config import webtoon_max_pixels
 from dataclasses import dataclass
 from math import ceil
 from pathlib import Path
@@ -25,15 +25,7 @@ DEFAULT_WEBTOON_MAX_PIXELS = 200_000_000
 
 
 def _webtoon_max_pixels() -> int:
-    raw = os.environ.get("INKSTONE_WEBTOON_MAX_PIXELS", "").strip()
-    if raw:
-        try:
-            value = int(raw)
-            if value >= 0:
-                return value
-        except ValueError:
-            pass
-    return DEFAULT_WEBTOON_MAX_PIXELS
+    return webtoon_max_pixels()
 
 
 @dataclass
