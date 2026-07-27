@@ -2,7 +2,7 @@
 
 Both ``AgnesImageAPI`` and ``OpenAICompatProvider`` funnel their HTTP retry loop
 through :func:`retryable_post` so that retry semantics, the backoff policy
-(exponential, capped at 120s, with jitter), and error collection stay identical
+(exponential, capped at 30s, with jitter), and error collection stay identical
 across providers.
 
 Previously the ~100-line retry block was copy-pasted into each provider with
@@ -43,9 +43,9 @@ def compute_backoff(attempt: int, base_delay: float, cap: float = BACKOFF_CAP_SE
     """Exponential backoff with a hard cap and full jitter.
 
     ``attempt`` is 0-based (the current retry index). The raw delay grows as
-    ``base_delay * 2**attempt``, is clamped to ``cap`` (120s), then multiplied
-    by a uniform random factor in ``[0.5, 1.0]`` so that many clients do not
-    synchronize their retries into a collective spike.
+    ``base_delay * 2**attempt``, is clamped to ``cap`` (30s by default), then
+    multiplied by a uniform random factor in ``[0.5, 1.0]`` so that many
+    clients do not synchronize their retries into a collective spike.
     """
     raw = base_delay * (2**attempt)
     capped = min(raw, cap)

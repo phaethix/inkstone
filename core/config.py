@@ -89,7 +89,12 @@ def webtoon_warn_mb(*, default: float = 50.0) -> float:
         return default
 
 
-def webtoon_max_pixels(*, default: int = 200_000_000) -> int:
+# Upper bound for a single webtoon canvas, in pixels. A webtoon strip is one
+# giant RGB buffer (3 bytes/px), so an unbounded strip OOMs on long books.
+DEFAULT_WEBTOON_MAX_PIXELS = 200_000_000
+
+
+def webtoon_max_pixels(*, default: int = DEFAULT_WEBTOON_MAX_PIXELS) -> int:
     raw = _get(ENV_WEBTOON_MAX_PIXELS, "").strip()
     if raw:
         try:

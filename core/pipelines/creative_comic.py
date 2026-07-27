@@ -287,10 +287,13 @@ def _mark_chunk_done_if_complete(
 
 
 def _soft_invalidate_render(state: ProjectState) -> None:
-    """Drop render-owned assets while keeping structural cache (extract/storyboard)."""
+    """Drop render-owned assets while keeping structural cache (extract/storyboard).
+
+    Content-policy ``skipped`` entries are preserved: the source text did not
+    change, so re-attempting those panels only burns quota.
+    """
     state.panels_done = []
     state.stale_panels = []
-    state.skipped = []
     state.generated.panels = {}
     state.generated.portraits = {}
     for asset in state.characters.values():
@@ -341,11 +344,13 @@ def _reconcile_state(state: ProjectState, state_path: Path, output_dir: Path) ->
 def _chunk_complete(
     state: ProjectState, board: Storyboard, output_dir: Path, chunk_index: int
 ) -> bool:
-    """True when every planned panel is generated, contained, and present on disk."""
+    """True when every planned panel is generated or policy-skipped."""
     for panel_index, _panel in enumerate(board.panels):
         state_key = _stored_panel_key(state, chunk_index, panel_index)
         if state_key in state.stale_panels:
             return False
+        if state_key in state.skipped:
+            continue
         rec = state.generated.panels.get(state_key)
         if (
             rec is None
@@ -365,7 +370,8 @@ def _ordered_generated_panels(state: ProjectState) -> list[tuple[str, GeneratedP
         (k for k in state.chunk_cache if str(k).isdigit()),
         key=lambda value: int(value),
     )
-    for chunk_index, key in enumerate(digit_keys):
+    for key in digit_keys:
+        chunk_index = int(key)
         board = state.chunk_cache[key].storyboard
         if board is None:
             continue

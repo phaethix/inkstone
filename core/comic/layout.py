@@ -14,14 +14,12 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-from core.comic.fonts import resolve_font
-from core.config import webtoon_max_pixels
+from core.comic.fonts import resolve_font, text_requires_cjk
+from core.config import DEFAULT_WEBTOON_MAX_PIXELS, webtoon_max_pixels
 
-# Upper bound for a single webtoon canvas, in pixels. A webtoon strip is one
-# giant RGB buffer (3 bytes/px), so an unbounded strip OOMs on long books:
-# 180 panels at 1400x1500 each would need >1GB in a single allocation.
+# Re-export for callers/tests that historically imported from this module.
 # Override with INKSTONE_WEBTOON_MAX_PIXELS; set it to 0 to disable the guard.
-DEFAULT_WEBTOON_MAX_PIXELS = 200_000_000
+__all__ = ["DEFAULT_WEBTOON_MAX_PIXELS", "LayoutEngine", "PanelImage"]
 
 
 def _webtoon_max_pixels() -> int:
@@ -102,7 +100,7 @@ class LayoutEngine:
     @staticmethod
     def _paginate(panels: list[PanelImage], per_page: int = 4) -> list[list[PanelImage]]:
         if not panels:
-            return [[]]
+            return []
         return [panels[i : i + per_page] for i in range(0, len(panels), per_page)]
 
     @staticmethod
@@ -225,13 +223,44 @@ class LayoutEngine:
             if not paragraph:
                 lines.append("")
                 continue
-            cur = ""
-            for char in paragraph:
-                if font.getlength(cur + char) <= max_width:
-                    cur += char
-                else:
+            if text_requires_cjk(paragraph):
+                lines.extend(LayoutEngine._wrap_chars(paragraph, font, max_width))
+            else:
+                lines.extend(LayoutEngine._wrap_words(paragraph, font, max_width))
+        return lines or [""]
+
+    @staticmethod
+    def _wrap_chars(text: str, font: ImageFont.ImageFont, max_width: int) -> list[str]:
+        lines: list[str] = []
+        cur = ""
+        for char in text:
+            if font.getlength(cur + char) <= max_width:
+                cur += char
+            else:
+                if cur:
                     lines.append(cur)
-                    cur = char
+                cur = char
+        if cur:
+            lines.append(cur)
+        return lines
+
+    @staticmethod
+    def _wrap_words(text: str, font: ImageFont.ImageFont, max_width: int) -> list[str]:
+        lines: list[str] = []
+        cur = ""
+        for word in text.split(" "):
+            candidate = word if not cur else f"{cur} {word}"
+            if font.getlength(candidate) <= max_width:
+                cur = candidate
+                continue
             if cur:
                 lines.append(cur)
-        return lines or [""]
+            if font.getlength(word) <= max_width:
+                cur = word
+            else:
+                # Oversized token: fall back to character wrap for that word only.
+                lines.extend(LayoutEngine._wrap_chars(word, font, max_width))
+                cur = ""
+        if cur:
+            lines.append(cur)
+        return lines

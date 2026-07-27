@@ -163,11 +163,12 @@ def test_compute_backoff_exponential_capped_with_jitter(monkeypatch):
     # the production code still multiplies by random.uniform, we only fix the value.
     monkeypatch.setattr("core.api.retry.random.uniform", lambda _a, _b: 0.75)
     vals = [compute_backoff(i, 20.0) for i in range(10)]
-    # Every value is positive and clamped to the 120s cap.
-    assert all(0 < v <= 120.0 for v in vals)
+    # Every value is positive and clamped to the 30s cap.
+    assert all(0 < v <= 30.0 for v in vals)
     # Early attempts are strictly smaller than later ones (exponential growth
     # dominates before the cap is hit).
     assert vals[0] < vals[3]
+    assert "30" in compute_backoff.__doc__
     assert RETRYABLE_STATUS == (429, 500, 502, 503, 504, 520, 521, 522, 523, 524)
 
 
