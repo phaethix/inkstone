@@ -60,6 +60,8 @@ logger = logging.getLogger(__name__)
 OUTPUT_DIR = ROOT / "comic_out"
 HOST = os.environ.get("INKSTONE_UI_HOST", "127.0.0.1")
 PORT = int(os.environ.get("INKSTONE_UI_PORT", "8000"))
+# Cap novel-paste / JSON POSTs (three-body-scale text is ~0.5–1 MB; 8 MB is ample).
+MAX_JSON_BODY_BYTES = int(os.environ.get("INKSTONE_UI_MAX_BODY_BYTES", str(8 * 1024 * 1024)))
 
 _PROJECT_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
 
@@ -71,6 +73,10 @@ JOBS_LOCK = threading.Lock()
 
 _TERMINAL_JOB_STATUSES = frozenset({"done", "error", "paused"})
 _JOB_LOG_MAX_LINES = 500
+
+
+class _BodyTooLarge(ValueError):
+    """Raised when a POST body exceeds ``MAX_JSON_BODY_BYTES``."""
 
 
 def _job_ttl_seconds() -> int:
@@ -123,9 +129,13 @@ def _resolve_job(job_id: str) -> tuple[dict | None, str | None]:
 
 
 def _load_dotenv() -> None:
-    """Best-effort .env loader (no python-dotenv dependency)."""
+    """Best-effort .env loader (no python-dotenv dependency).
+
+    Never overrides keys already present in the environment. Having
+    ``AGNES_API_KEY`` set must not skip loading the rest of ``.env``.
+    """
     env_path = ROOT / ".env"
-    if not env_path.exists() or os.environ.get("AGNES_API_KEY"):
+    if not env_path.exists():
         return
     for line in env_path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
@@ -551,10 +561,6 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args) -> None:  # quieter default logging
         pass
 
-    def _read_json(self) -> dict:
-        length = int(self.headers.get("Content-Length", "0"))
-        return json.loads(self.rfile.read(length) or b"{}")
-
     def do_GET(self) -> None:
         if self.path == "/" or self.path == "/index.html":
             self._send_file(Path(__file__).resolve().parent / "index.html")
@@ -620,6 +626,23 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json({"error": "not found"}, status=404)
 
     def do_POST(self) -> None:
+        if not self._post_origin_allowed():
+            self._send_json(
+                {"error": "cross-origin POST blocked (open the UI from this server)"},
+                status=403,
+            )
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self._send_json({"error": "invalid Content-Length"}, status=400)
+            return
+        if length > MAX_JSON_BODY_BYTES:
+            self._send_json(
+                {"error": f"request body too large (max {MAX_JSON_BODY_BYTES} bytes)"},
+                status=413,
+            )
+            return
         try:
             if self.path == "/api/generate":
                 self._post_generate()
@@ -633,6 +656,9 @@ class Handler(BaseHTTPRequestHandler):
             if self.path.startswith("/api/project/") and self.path.endswith("/regen"):
                 self._post_regen()
                 return
+        except _BodyTooLarge as exc:
+            self._send_json({"error": str(exc)}, status=413)
+            return
         except ValueError as exc:
             self._send_json({"error": str(exc)}, status=400)
             return
@@ -643,6 +669,36 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": "invalid JSON"}, status=400)
             return
         self._send_json({"error": "not found"}, status=404)
+
+    def _post_origin_allowed(self) -> bool:
+        """Block browser CSRF from other sites; allow curl (no Origin / Fetch metadata)."""
+        site = (self.headers.get("Sec-Fetch-Site") or "").strip().lower()
+        if site == "cross-site":
+            return False
+        origin = (self.headers.get("Origin") or "").strip()
+        if not origin:
+            return True
+        host = (self.headers.get("Host") or "").strip()
+        if not host:
+            return False
+        allowed = {f"http://{host}", f"https://{host}"}
+        # Also accept loopback aliases when bound locally.
+        if HOST in _LOOPBACK_HOSTS:
+            for loop in ("127.0.0.1", "localhost", "::1"):
+                allowed.add(f"http://{loop}:{PORT}")
+                allowed.add(f"https://{loop}:{PORT}")
+        return origin in allowed
+
+    def _read_json(self) -> dict:
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError as exc:
+            raise ValueError("invalid Content-Length") from exc
+        if length < 0:
+            raise ValueError("invalid Content-Length")
+        if length > MAX_JSON_BODY_BYTES:
+            raise _BodyTooLarge(f"request body too large (max {MAX_JSON_BODY_BYTES} bytes)")
+        return json.loads(self.rfile.read(length) or b"{}")
 
     def _post_generate(self) -> None:
         payload = self._read_json()

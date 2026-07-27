@@ -68,6 +68,10 @@ Keep these prototypes only as migration material until they conform to the targe
     content-policy `skipped` across soft-invalidate, Latin word-wrap, unique
     `unnamed_*` identities, fill empty appearance on merge (see
     `docs/superpowers/plans/2026-07-27-v0.1.3-defect-review-fixes.md`).
+  - **Local (post-0.1.3):** page layout letterbox (no aspect squash), README
+    provider honesty, web Origin/body caps, dotenv no longer skips on preset
+    `AGNES_API_KEY`, `inkstone plan` marked `[experimental]` (see
+    `docs/superpowers/plans/2026-07-27-deep-dive-layout-web-fixes.md`).
 - [ ] Reconcile README, configuration defaults, CLI help and historical docs so
   they do not contradict released behavior.
 - [ ] Isolate, rename or remove the old PageScript / coverage prototype so it
@@ -82,6 +86,8 @@ Keep these prototypes only as migration material until they conform to the targe
   required / optional status and causal dependencies.
 - [ ] Generate beat-constrained storyboard panels with explicit `beat_ids`.
 - [ ] Add a reader-visible lettering layer: separate caption, dialogue and SFX.
+  - **Local:** MVP lettering fields + layout drawers shipped (caption bar /
+    dialogue bubble / sfx outline). Face-aware placement still open.
 - [ ] Add structural coverage gates for source traceability, beat coverage,
   visible text, causal order and blocked content.
 - [ ] Validate one public-domain chapter end-to-end before attempting a whole book.
@@ -89,8 +95,13 @@ Keep these prototypes only as migration material until they conform to the targe
 ### P2 — Delivery experience and proof
 
 - [ ] Add CBZ export and improve PDF typography, including CJK caption support.
+  - **Local:** Pillow PDF export is memory-bounded (batched + `pypdf` merge;
+    optional `img2pdf`).
 - [ ] Publish a public-domain *Journey to the West* chapter showcase with source,
   plan, coverage report and PDF.
+  - **Local (scaffold):** `examples/showcase/journey-west-ch1/` +
+    `scripts/run_showcase.sh` (source + plan recipe; generated artifacts not
+    committed — option C).
 - [ ] Add chapter navigation / browser reader and an identity-ledger CLI or view.
 - [ ] Rewrite README and contributor experience around the validated long-form workflow.
 

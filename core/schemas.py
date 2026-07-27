@@ -424,9 +424,23 @@ class Panel(BaseModel):
     dialogue: str | None = Field(
         default=None,
         description=(
-            "speech-bubble / narration text shown to readers; MUST use the same "
-            "language as the source novel excerpt (Chinese source → Chinese "
-            "dialogue). Prefer short quotes close to the source; do not translate."
+            "speech-bubble text shown to readers; MUST use the same language as "
+            "the source novel excerpt (Chinese source → Chinese dialogue). "
+            "Prefer short quotes close to the source; do not translate."
+        ),
+    )
+    caption: str | None = Field(
+        default=None,
+        description=(
+            "narration / caption bar text (not speech). Same language as the source. "
+            "Use for time/place/narrator lines; leave null when unused."
+        ),
+    )
+    sfx: str | None = Field(
+        default=None,
+        description=(
+            "sound-effect / onomatopoeia lettering (e.g. 轰隆). Same language as source. "
+            "Leave null when unused."
         ),
     )
     # Pipeline-owned prompt text. Hidden from the tool schema so the model does
@@ -444,23 +458,26 @@ class Panel(BaseModel):
         mode="before",
     )
     @classmethod
-    def _coerce_text_fields(cls, value: Any) -> Any:
+    def _coerce_text(cls, value: Any) -> Any:
         return coerce_str(value)
-
-    @field_validator("size", mode="before")
-    @classmethod
-    def _coerce_size(cls, value: Any) -> Any:
-        return coerce_size(value)
 
     @field_validator("characters_present", "reference_characters", mode="before")
     @classmethod
     def _coerce_name_lists(cls, value: Any) -> Any:
         return coerce_str_list(value)
 
-    @field_validator("dialogue", mode="before")
+    @field_validator("dialogue", "caption", "sfx", mode="before")
     @classmethod
-    def _coerce_dialogue(cls, value: Any) -> Any:
-        return coerce_dialogue(value)
+    def _coerce_lettering(cls, value: Any) -> Any:
+        text = coerce_dialogue(value)
+        if isinstance(text, str):
+            text = text.strip() or None
+        return text
+
+    @field_validator("size", mode="before")
+    @classmethod
+    def _coerce_size(cls, value: Any) -> Any:
+        return coerce_size(value)
 
 
 class Storyboard(BaseModel):
@@ -591,13 +608,18 @@ class GeneratedPanel(BaseModel):
     panel_index: int = 0
     source_panel_id: str = ""
     dialogue: str | None = None
+    caption: str | None = None
+    sfx: str | None = None
     url: str | None = None
     expires_at: str | None = None
 
-    @field_validator("dialogue", mode="before")
+    @field_validator("dialogue", "caption", "sfx", mode="before")
     @classmethod
-    def _coerce_dialogue(cls, value: Any) -> Any:
-        return coerce_dialogue(value)
+    def _coerce_lettering(cls, value: Any) -> Any:
+        text = coerce_dialogue(value)
+        if isinstance(text, str):
+            text = text.strip() or None
+        return text
 
 
 class GeneratedAssets(BaseModel):

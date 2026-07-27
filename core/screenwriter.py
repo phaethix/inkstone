@@ -24,8 +24,10 @@ SYSTEM_PROMPT = (
     "cinematic panel composition. Follow content policy: depict characters decently; "
     "avoid nudity, sexual content, smoking, graphic violence, or other prohibited themes. "
     "Language rules: keep character names as they appear in the source text; "
-    "write every dialogue / narration / speech-bubble line in the same language as "
-    "the source excerpt (do not translate Chinese source into English dialogue). "
+    "write every caption / dialogue / sfx line in the same language as "
+    "the source excerpt (do not translate Chinese source into English). "
+    "Lettering: put narration/time-place in caption, spoken lines in dialogue, "
+    "and onomatopoeia in sfx — leave a field null when unused. "
     "Art-direction fields (style_guide, scene_prompt, action, l1_prompt) may stay "
     "in English when that helps image models."
 )
@@ -104,8 +106,9 @@ async def plan_storyboard(text: str, elements: StoryElements, *, chat=None) -> S
         f"{sanitize_text(text)}\n\n"
         "Extracted story elements (reuse these names and descriptions):\n"
         f"{elements.model_dump_json()}\n\n"
-        "Reminder: dialogue and narration must match the source language "
-        "(if the excerpt is Chinese, dialogue must be Chinese — never English translation)."
+        "Reminder: caption / dialogue / sfx must match the source language "
+        "(if the excerpt is Chinese, lettering must be Chinese — never English translation). "
+        "Split narration into caption, speech into dialogue, and onomatopoeia into sfx."
     )
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},

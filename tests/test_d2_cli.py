@@ -136,6 +136,7 @@ def test_cli_plan_prints_estimate_only_warning(tmp_path, capsys):
     )
     out = capsys.readouterr().out
     assert "uncalibrated estimate" in out.lower() or "未校准" in out
+    assert "[experimental]" in out.lower()
 
 
 def test_cli_coverage_no_page_script_hints_env(tmp_path, capsys):

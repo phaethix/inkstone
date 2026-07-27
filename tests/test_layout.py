@@ -18,6 +18,23 @@ def test_compose_single_panel_is_one_page(tmp_path):
     assert out.size == (1400, 1000)
 
 
+def test_place_panel_preserves_aspect_with_letterbox():
+    """Page cells must not squash panels — contain + center on cell bg."""
+    eng = LayoutEngine(bg=(255, 255, 255))
+    # Tall portrait art into a wide 2-up cell (700×1000): letterbox left/right.
+    portrait = Image.new("RGB", (100, 200), (0, 128, 0))
+    canvas = Image.new("RGB", (1400, 1000), (255, 255, 255))
+    eng._place_panel(canvas, PanelImage(portrait), (0, 0, 700, 1000))
+    assert canvas.getpixel((50, 500)) == (255, 255, 255)
+    assert canvas.getpixel((350, 500)) == (0, 128, 0)
+    # Wide landscape into a narrow 3-up cell (466×1000): letterbox top/bottom.
+    landscape = Image.new("RGB", (200, 100), (0, 0, 200))
+    canvas2 = Image.new("RGB", (1400, 1000), (255, 255, 255))
+    eng._place_panel(canvas2, PanelImage(landscape), (0, 0, 466, 1000))
+    assert canvas2.getpixel((233, 20)) == (255, 255, 255)
+    assert canvas2.getpixel((233, 500)) == (0, 0, 200)
+
+
 def test_compose_four_panels_fill_one_page_2x2(tmp_path):
     eng = LayoutEngine()
     panels = [PanelImage(_img()) for _ in range(4)]
@@ -128,6 +145,24 @@ def test_wrap_text_cjk_still_breaks_per_character():
     lines = eng._wrap_text(text, font, max_width=20)
     assert "".join(lines) == text
     assert len(lines) >= 2
+
+
+def test_caption_lettering_draws_pixels():
+    eng = LayoutEngine()
+    canvas = Image.new("RGB", (400, 400), (255, 255, 255))
+    panel = PanelImage(_img(200, 200), caption="次日清晨")
+    eng._place_panel(canvas, panel, (0, 0, 400, 400))
+    arr = np.array(canvas)
+    assert int((arr != (255, 255, 255)).any(axis=2).sum()) > 0
+
+
+def test_sfx_lettering_draws_pixels():
+    eng = LayoutEngine()
+    canvas = Image.new("RGB", (400, 400), (255, 255, 255))
+    panel = PanelImage(_img(200, 200), sfx="轰隆！")
+    eng._place_panel(canvas, panel, (0, 0, 400, 400))
+    arr = np.array(canvas)
+    assert int((arr != (255, 255, 255)).any(axis=2).sum()) > 0
 
 
 def test_paginate_empty_returns_no_pages():

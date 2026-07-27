@@ -19,7 +19,7 @@
 
 > *"Grind your novel into comics."*
 
-**Inkstone** is a local-first, open-source **novel → series comic** generator. It reads a local `txt` novel and, through the free **Agnes** multimodal API, produces comic pages with cross-panel character consistency — exported as **PDF / PNG**. No GPU, no paid plan: just one free API key. Image generation sits behind a pluggable `ImageProvider`, so you can switch to any OpenAI-compatible endpoint with a single line.
+**Inkstone** is a local-first, open-source **novel → series comic** generator. It reads a local `txt` novel and, through the free **Agnes** multimodal API, produces comic pages with cross-panel character consistency — exported as **PDF / PNG**. No GPU, no paid plan: just one free API key. Image generation sits behind a pluggable `ImageProvider` (Agnes by default; `PROVIDER=openai_compat` targets Agnes-protocol-compatible gateways — see Configuration).
 
 ## Table of Contents
 
@@ -39,7 +39,7 @@
 
 - **Free & local-first** — one `AGNES_API_KEY`, no GPU, no paid plan.
 - **Agnes-native multimodal** — `agnes-2.0-flash` for scripting, `agnes-image-2.1-flash` for t2i and i2i consistency.
-- **Pluggable `ImageProvider`** — Agnes by default; one line switches to any OpenAI-compatible endpoint.
+- **Pluggable `ImageProvider`** — Agnes by default; `PROVIDER=openai_compat` for Agnes-protocol-compatible `/images/generations` gateways (i2i uses `extra_body.image`). Vanilla OpenAI/Gemini need a small `_build_payload` subclass.
 - **Character consistency engine** — L1 prompt hard-description + L2 reference img2img, the robust path under no-GPU. An optional L3 PIL/OpenCV face overlay exists but is **off by default** (it deforms stylized faces when pose/lighting differ, so it's opt-in via `INKSTONE_L3=1`).
 - **Reliability layer** — token-bucket rate limiting, exponential-backoff retries, and error collection against 429/503.
 - **Resumable long-form runs** — chapter-split generation with a persisted `state.json` checkpoint.
@@ -145,8 +145,8 @@ Inkstone is configured through environment variables (copy `.env.example` → `.
 | `AGNES_IMAGE_I2I_MODEL` | | `agnes-image-2.1-flash` | Model used for consistency img2img. |
 | `AGNES_IMAGE_MAX_RETRIES` | | `5` | Image calls retry this many times; the free image tier is often 503 "Service busy". |
 | `AGNES_IMAGE_RETRY_BASE_DELAY` | | `5.0` | Image retry backoff base in seconds. |
-| `PROVIDER` | | `agnes` | Set to `openai_compat` to route to any OpenAI-compatible image endpoint. |
-| `OPENAI_COMPAT_*` | | — | Base URL / key / models, used only when `PROVIDER=openai_compat`. |
+| `PROVIDER` | | `agnes` | `openai_compat` routes image/chat to configured OpenAI-style base URLs. Image i2i still uses the **Agnes** `extra_body.image` protocol — not vanilla OpenAI Images. |
+| `OPENAI_COMPAT_*` | | — | Base URL / key / models when `PROVIDER=openai_compat`. |
 | `INKSTONE_L3` | | `0` | Enable the experimental L3 PIL/OpenCV face overlay (`1` to turn on). Off by default — it tends to deform stylized faces, so consistency relies on L1+L2. |
 | `INKSTONE_FONT_PATH` | | (auto) | TrueType/OpenType font for dialogue bubbles. Auto-discovers PingFang / YaHei / Noto CJK; set this if Chinese dialogue renders as □□□. |
 | `INKSTONE_WEBTOON_MAX_PIXELS` | | `200000000` | Refuse single-strip webtoon compose above this pixel budget (use `--format page` instead). `0` disables. |

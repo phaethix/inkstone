@@ -384,6 +384,8 @@ def _ordered_generated_panels(state: ProjectState) -> list[tuple[str, GeneratedP
             generated.panel_index = panel_index
             generated.source_panel_id = panel.panel_id
             generated.dialogue = panel.dialogue
+            generated.caption = panel.caption
+            generated.sfx = panel.sfx
             ordered.append((state_key, generated))
             seen.add(state_key)
     extras = [item for item in state.generated.panels.items() if item[0] not in seen]
@@ -835,6 +837,8 @@ async def _creative_comic(
                 panel_index=panel_index,
                 source_panel_id=panel.panel_id,
                 dialogue=panel.dialogue,
+                caption=panel.caption,
+                sfx=panel.sfx,
             )
 
         state.stage = "panels"
@@ -909,7 +913,14 @@ async def _creative_comic(
         if not _is_within(generated.local, output_dir) or not Path(generated.local).exists():
             logger.warning("layout: panel %s missing or outside project; omitting", panel_id)
             continue
-        panel_imgs.append(PanelImage(Image.open(generated.local), dialogue=generated.dialogue))
+        panel_imgs.append(
+            PanelImage(
+                Image.open(generated.local),
+                dialogue=generated.dialogue,
+                caption=generated.caption,
+                sfx=generated.sfx,
+            )
+        )
 
     pdf: str | None = None
     webtoon: str | None = None

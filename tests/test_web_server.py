@@ -1,6 +1,7 @@
 """Web server configuration, project helpers, and artifact-boundary tests."""
 
 import json
+import os
 import threading
 import time
 import urllib.error
@@ -273,9 +274,18 @@ def _running_server():
         thread.join(timeout=5)
 
 
-def _request(port: int, path: str, method: str) -> tuple[int, dict]:
-    data = b"{}" if method == "POST" else None
-    req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=data, method=method)
+def _request(
+    port: int,
+    path: str,
+    method: str,
+    *,
+    data: bytes | None = None,
+    headers: dict[str, str] | None = None,
+) -> tuple[int, dict]:
+    body = data if data is not None else (b"{}" if method == "POST" else None)
+    req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=body, method=method)
+    for key, value in (headers or {}).items():
+        req.add_header(key, value)
     try:
         with urllib.request.urlopen(req, timeout=5) as resp:
             return resp.status, json.loads(resp.read())
@@ -287,7 +297,65 @@ def test_post_stop_unknown_job_returns_404():
     with _running_server() as httpd:
         status, payload = _request(httpd.server_port, "/api/job/does-not-exist-xyz/stop", "POST")
     assert status == 404
-    assert "error" in payload
+    assert "unknown" in payload["error"].lower() or "not found" in payload["error"].lower()
+
+
+def test_post_rejects_cross_site_origin():
+    with _running_server() as httpd:
+        status, payload = _request(
+            httpd.server_port,
+            "/api/job/x/stop",
+            "POST",
+            headers={"Origin": "https://evil.example"},
+        )
+    assert status == 403
+    assert "origin" in payload["error"].lower() or "cross" in payload["error"].lower()
+
+
+def test_post_rejects_sec_fetch_site_cross_site():
+    with _running_server() as httpd:
+        status, payload = _request(
+            httpd.server_port,
+            "/api/job/x/stop",
+            "POST",
+            headers={"Sec-Fetch-Site": "cross-site"},
+        )
+    assert status == 403
+
+
+def test_post_allows_missing_origin_for_local_tools():
+    """curl / scripts omit Origin — still allowed on loopback UI."""
+    with _running_server() as httpd:
+        status, payload = _request(httpd.server_port, "/api/job/x/stop", "POST")
+    assert status == 404
+
+
+def test_post_rejects_oversized_body(monkeypatch):
+    monkeypatch.setattr(server, "MAX_JSON_BODY_BYTES", 64)
+    with _running_server() as httpd:
+        status, payload = _request(
+            httpd.server_port,
+            "/api/job/x/stop",
+            "POST",
+            data=b'{"x":"' + b"a" * 200 + b'"}',
+            headers={"Content-Type": "application/json"},
+        )
+    assert status == 413
+    assert "too large" in payload["error"].lower() or "body" in payload["error"].lower()
+
+
+def test_load_dotenv_still_loads_other_keys_when_agnes_key_set(tmp_path, monkeypatch):
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "AGNES_API_KEY=from-file\nINKSTONE_FONT_PATH=/tmp/font.ttf\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(server, "ROOT", tmp_path)
+    monkeypatch.setenv("AGNES_API_KEY", "already-set")
+    monkeypatch.delenv("INKSTONE_FONT_PATH", raising=False)
+    server._load_dotenv()
+    assert os.environ["AGNES_API_KEY"] == "already-set"
+    assert os.environ["INKSTONE_FONT_PATH"] == "/tmp/font.ttf"
 
 
 def test_post_stop_known_job_returns_ok_and_sets_event():
