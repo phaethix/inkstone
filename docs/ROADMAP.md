@@ -59,7 +59,11 @@ Keep these prototypes only as migration material until they conform to the targe
 ### P0 — Make the current state honest and deterministic
 
 - [ ] Make density a real contract: persist it in `ProjectState`, include it in
-  the input fingerprint, pass a budget to planning, and invalidate affected caches.
+  the structure fingerprint (`render_fingerprint` covers style/model/L3), pass a
+  budget to planning, and invalidate affected caches.
+  - **Local (v0.1.2):** structure/render fingerprint split landed — style, model,
+    and L3 changes soft-invalidate panels/portraits only; `chunk_cache` is reused.
+    Legacy states still compare the combined hash until migrated.
 - [ ] Reconcile README, configuration defaults, CLI help and historical docs so
   they do not contradict released behavior.
 - [ ] Isolate, rename or remove the old PageScript / coverage prototype so it

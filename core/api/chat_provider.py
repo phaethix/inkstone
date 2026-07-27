@@ -107,9 +107,9 @@ class AgnesChatAPI(ChatProvider):
         )
         logger.info(f"[AgnesChat] function call -> {fn_name}")
 
-        async def _collect(*, status_code, response, attempt, exc=None, final=False):
+        def _collect(*, status_code, response, attempt, exc=None, final=False):
             # Same collection semantics as the image layer, tagged "chat".
-            await collect_provider_error(
+            collect_provider_error(
                 "",
                 status_code=status_code,
                 response=response,
@@ -200,8 +200,8 @@ class OpenAICompatChatProvider(ChatProvider):
         )
         logger.info(f"[OpenAICompatChat] function call -> {fn_name}")
 
-        async def _collect(*, status_code, response, attempt, exc=None, final=False):
-            await collect_provider_error(
+        def _collect(*, status_code, response, attempt, exc=None, final=False):
+            collect_provider_error(
                 "",
                 status_code=status_code,
                 response=response,

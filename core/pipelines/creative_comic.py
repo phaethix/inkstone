@@ -20,7 +20,6 @@ import asyncio
 import hashlib
 import json
 import logging
-import os
 from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -44,7 +43,7 @@ from core.comic.export import ExportEngine
 from core.comic.identity import ensure_character_l1, merge_settings, suggestion_from_alias
 from core.comic.layout import LayoutEngine, PanelImage
 from core.comic.segmentation import detect_character_aliases, merge_characters, segment_text
-from core.config import ImageConfig
+from core.config import ImageConfig, l3_enabled, page_script_enabled
 from core.perf import PerfCollector
 from core.pipelines.cancel import check_cancel
 from core.schemas import (
@@ -96,7 +95,39 @@ def _model_snapshot(chat, image) -> ModelSnapshot:
     )
 
 
-def _input_fingerprint(
+def _structure_fingerprint(source_txt: str) -> str:
+    canonical = source_txt.replace("\r\n", "\n").replace("\r", "\n")
+    payload = json.dumps(
+        {"pipeline": _PIPELINE_STATE_VERSION, "source": canonical},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _render_fingerprint(
+    style_guide: str | None,
+    *,
+    snapshot: ModelSnapshot,
+    panel_continuity: bool,
+    l3_enabled: bool,
+) -> str:
+    payload = json.dumps(
+        {
+            "style_guide": style_guide or "",
+            "model_snapshot": snapshot.model_dump(),
+            "panel_continuity": panel_continuity,
+            "l3_enabled": l3_enabled,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _legacy_combined_fingerprint(
     source_txt: str,
     style_guide: str | None,
     *,
@@ -104,7 +135,7 @@ def _input_fingerprint(
     panel_continuity: bool,
     l3_enabled: bool,
 ) -> str:
-    """Fingerprint normalized source and every option that changes generated assets."""
+    """Legacy combined fingerprint (source + render inputs) for migration comparison."""
     canonical_source = source_txt.replace("\r\n", "\n").replace("\r", "\n")
     payload = json.dumps(
         {
@@ -120,6 +151,24 @@ def _input_fingerprint(
         separators=(",", ":"),
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _input_fingerprint(
+    source_txt: str,
+    style_guide: str | None,
+    *,
+    snapshot: ModelSnapshot,
+    panel_continuity: bool,
+    l3_enabled: bool,
+) -> str:
+    """Fingerprint normalized source and every option that changes generated assets."""
+    return _legacy_combined_fingerprint(
+        source_txt,
+        style_guide,
+        snapshot=snapshot,
+        panel_continuity=panel_continuity,
+        l3_enabled=l3_enabled,
+    )
 
 
 def _is_within(path: str | Path, root: Path) -> bool:
@@ -237,6 +286,17 @@ def _mark_chunk_done_if_complete(
         state.chunks_done.append(key)
 
 
+def _soft_invalidate_render(state: ProjectState) -> None:
+    """Drop render-owned assets while keeping structural cache (extract/storyboard)."""
+    state.panels_done = []
+    state.stale_panels = []
+    state.skipped = []
+    state.generated.panels = {}
+    state.generated.portraits = {}
+    for asset in state.characters.values():
+        asset.portrait_local = None
+
+
 def _reconcile_state(state: ProjectState, state_path: Path, output_dir: Path) -> None:
     """Remove every missing or escaped persisted asset before a resume trusts it."""
     changed = False
@@ -301,7 +361,11 @@ def _ordered_generated_panels(state: ProjectState) -> list[tuple[str, GeneratedP
     """Recover canonical panel metadata from cached storyboards, including old state files."""
     ordered: list[tuple[str, GeneratedPanel]] = []
     seen: set[str] = set()
-    for chunk_index, key in enumerate(sorted(state.chunk_cache, key=lambda value: int(value))):
+    digit_keys = sorted(
+        (k for k in state.chunk_cache if str(k).isdigit()),
+        key=lambda value: int(value),
+    )
+    for chunk_index, key in enumerate(digit_keys):
         board = state.chunk_cache[key].storyboard
         if board is None:
             continue
@@ -398,12 +462,7 @@ async def creative_comic(
 
 
 def _page_script_enabled() -> bool:
-    return os.environ.get("INKSTONE_PAGE_SCRIPT", "0").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    return page_script_enabled()
 
 
 async def _creative_comic(
@@ -470,38 +529,58 @@ async def _creative_comic(
     chat = chat or get_chat_provider()
     image = image or get_image_provider()
     snapshot = _model_snapshot(chat, image)
-    l3_enabled = os.environ.get("INKSTONE_L3", "0").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    l3_on = l3_enabled()
     fingerprint = _input_fingerprint(
         source_txt,
         style_guide,
         snapshot=snapshot,
         panel_continuity=image_config.panel_continuity,
-        l3_enabled=l3_enabled,
+        l3_enabled=l3_on,
     )
-    if state_path.exists():
-        persisted = ProjectState.load(state_path)
-        state = (
-            persisted
-            if persisted.source_fingerprint == fingerprint
-            else ProjectState(
-                project_id=project_id,
-                source_file=str(output_dir),
-                source_fingerprint=fingerprint,
-                model_snapshot=snapshot,
-            )
-        )
-    else:
-        state = ProjectState(
+    struct = _structure_fingerprint(source_txt)
+    render = _render_fingerprint(
+        style_guide,
+        snapshot=snapshot,
+        panel_continuity=image_config.panel_continuity,
+        l3_enabled=l3_on,
+    )
+
+    def _fresh_state() -> ProjectState:
+        return ProjectState(
             project_id=project_id,
             source_file=str(output_dir),
-            source_fingerprint=fingerprint,
+            source_fingerprint=struct,
+            structure_fingerprint=struct,
+            render_fingerprint=render,
             model_snapshot=snapshot,
         )
+
+    soft_invalidated_this_run = False
+    if state_path.exists():
+        persisted = ProjectState.load(state_path)
+        if not persisted.structure_fingerprint and not persisted.render_fingerprint:
+            if persisted.source_fingerprint == fingerprint:
+                state = persisted
+                state.structure_fingerprint = struct
+                state.render_fingerprint = render
+                state.source_fingerprint = struct
+            else:
+                state = _fresh_state()
+        elif persisted.structure_fingerprint != struct:
+            state = _fresh_state()
+        elif persisted.render_fingerprint != render:
+            state = persisted
+            _soft_invalidate_render(state)
+            soft_invalidated_this_run = True
+            state.render_fingerprint = render
+            state.model_snapshot = snapshot
+        else:
+            state = persisted
+    else:
+        state = _fresh_state()
+    if soft_invalidated_this_run and panel_key_filter is not None:
+        logger.info("render fingerprint changed: ignoring panel_keys filter, redrawing all panels")
+        panel_key_filter = None
     state.project_id = project_id
 
     image_semaphore = asyncio.Semaphore(image_config.image_concurrency)

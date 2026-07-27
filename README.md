@@ -148,6 +148,11 @@ Inkstone is configured through environment variables (copy `.env.example` → `.
 | `PROVIDER` | | `agnes` | Set to `openai_compat` to route to any OpenAI-compatible image endpoint. |
 | `OPENAI_COMPAT_*` | | — | Base URL / key / models, used only when `PROVIDER=openai_compat`. |
 | `INKSTONE_L3` | | `0` | Enable the experimental L3 PIL/OpenCV face overlay (`1` to turn on). Off by default — it tends to deform stylized faces, so consistency relies on L1+L2. |
+| `INKSTONE_FONT_PATH` | | (auto) | TrueType/OpenType font for dialogue bubbles. Auto-discovers PingFang / YaHei / Noto CJK; set this if Chinese dialogue renders as □□□. |
+| `INKSTONE_WEBTOON_MAX_PIXELS` | | `200000000` | Refuse single-strip webtoon compose above this pixel budget (use `--format page` instead). `0` disables. |
+| `INKSTONE_UI_HOST` / `INKSTONE_UI_PORT` | | `127.0.0.1` / `8000` | Web UI bind address. Binding a non-loopback host exposes an **unauthenticated** API to the network — only do this on trusted LANs. |
+
+PDF export prefers the optional `manga2pdf` CLI for two-page / right-to-left manga layout. If it is missing, Inkstone falls back to a plain multi-page PDF and logs a warning (`pip install manga2pdf` to restore the gallery layout).
 
 ## How it works
 

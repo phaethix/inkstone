@@ -621,6 +621,8 @@ class ProjectState(BaseModel):
     project_id: str
     source_file: str = ""
     source_fingerprint: str = ""
+    structure_fingerprint: str = ""
+    render_fingerprint: str = ""
     created_at: str = Field(default_factory=_now_iso)
     model_snapshot: ModelSnapshot = Field(default_factory=ModelSnapshot)
     stage: Stage = "extract"

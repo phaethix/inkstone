@@ -152,8 +152,8 @@ class OpenAICompatProvider(ImageProvider):
             f"{prompt[:80]}..."
         )
 
-        async def _collect(*, status_code, response, attempt, exc=None, final=False):
-            await collect_provider_error(
+        def _collect(*, status_code, response, attempt, exc=None, final=False):
+            collect_provider_error(
                 prompt,
                 status_code=status_code,
                 response=response,

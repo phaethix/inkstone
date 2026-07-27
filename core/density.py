@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Literal
 
 from core.comic.segmentation import segment_text
+from core.config import webtoon_warn_mb
 
 # --------------------------------------------------------------------------- #
 # Experience constants (to be calibrated against a real 《三体》 sample)
@@ -52,7 +53,6 @@ PANELS_PER_PAGE = 4
 # threshold is overridable via the ``INKSTONE_WEBTOON_WARN_MB`` env var.
 WEBTOON_WARN_MB = 50.0
 EST_PAGE_MB = 0.3
-ENV_WEBTOON_WARN_MB = "INKSTONE_WEBTOON_WARN_MB"
 
 # Files below this character count are too small for a meaningful estimate;
 # the estimator still returns numbers but attaches an advisory warning.
@@ -142,21 +142,11 @@ def _webtoon_warning(output_format: str, pages: int) -> tuple[bool, str | None]:
     """
     if output_format != "webtoon":
         return False, None
-    threshold_mb = float(_read_webtoon_threshold())
+    threshold_mb = webtoon_warn_mb(default=WEBTOON_WARN_MB)
     est_mb = pages * EST_PAGE_MB
     if est_mb > threshold_mb:
         return True, f"检测到 webtoon 可能超 {est_mb:.0f} MB，建议改用 --format page"
     return False, None
-
-
-def _read_webtoon_threshold() -> float:
-    raw = __import__("os").environ.get(ENV_WEBTOON_WARN_MB)
-    if raw is None or raw == "":
-        return WEBTOON_WARN_MB
-    try:
-        return float(raw)
-    except ValueError:
-        return WEBTOON_WARN_MB
 
 
 def _output_name(output_format: str) -> str:

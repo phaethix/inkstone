@@ -15,6 +15,7 @@ from dataclasses import dataclass
 
 import requests
 
+from core.config import run_deadline_hours, supervisor_backoff_base, supervisor_backoff_cap
 from core.pipelines.cancel import PipelineCancelled, check_cancel
 from core.pipelines.creative_comic import ComicProject, creative_comic
 from core.schemas import ProjectState
@@ -76,19 +77,19 @@ def is_transient_error(exc: BaseException) -> bool:
 def _deadline_hours(override: float | None) -> float:
     if override is not None:
         return max(0.0, float(override))
-    return max(0.0, float(os.environ.get("INKSTONE_RUN_DEADLINE_HOURS", "24")))
+    return run_deadline_hours()
 
 
 def _backoff_base(override: float | None) -> float:
     if override is not None:
         return max(0.1, float(override))
-    return max(0.1, float(os.environ.get("INKSTONE_SUPERVISOR_BACKOFF_BASE", "30")))
+    return supervisor_backoff_base()
 
 
 def _backoff_cap(override: float | None) -> float:
     if override is not None:
         return max(0.1, float(override))
-    return max(0.1, float(os.environ.get("INKSTONE_SUPERVISOR_BACKOFF_CAP", "300")))
+    return supervisor_backoff_cap()
 
 
 def _supervisor_backoff(attempt: int, base: float, cap: float) -> float:

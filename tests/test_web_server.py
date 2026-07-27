@@ -173,8 +173,38 @@ def test_persist_active_elapsed(tmp_path, monkeypatch):
     (tmp_path / project_id).mkdir()
     ProjectState(project_id=project_id).save(tmp_path / project_id / "state.json")
     server._persist_active_elapsed(project_id, 42.0)
+    # Elapsed time now lives in timing.json, owned solely by the web layer.
+    data = json.loads((tmp_path / project_id / "timing.json").read_text(encoding="utf-8"))
+    assert data["active_elapsed_seconds"] == 42.0
+    # state.json must stay untouched (the pipeline owns it; no more racing writes).
     loaded = ProjectState.load(tmp_path / project_id / "state.json")
-    assert loaded.active_elapsed_seconds == 42.0
+    assert not loaded.active_elapsed_seconds  # stays at the default (None/0.0)
+
+
+def test_seed_job_timing_prefers_timing_json(tmp_path, monkeypatch):
+    import web.server as server
+    from core.schemas import ProjectState
+
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    project_id = "timing03"
+    (tmp_path / project_id).mkdir()
+    # Legacy checkpoint field says 3600; the newer timing.json wins.
+    ProjectState(project_id=project_id, active_elapsed_seconds=3600.0).save(
+        tmp_path / project_id / "state.json"
+    )
+    server._persist_active_elapsed(project_id, 7200.0)
+    assert server._seed_job_timing(project_id) == 7200.0
+
+
+def test_persist_active_elapsed_never_decreases(tmp_path, monkeypatch):
+    import web.server as server
+
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    project_id = "timing04"
+    (tmp_path / project_id).mkdir()
+    server._persist_active_elapsed(project_id, 100.0)
+    server._persist_active_elapsed(project_id, 50.0)
+    assert server._seed_job_timing(project_id) == 100.0
 
 
 def _base_job(**overrides) -> dict:
@@ -213,17 +243,22 @@ def _register_job(job_id: str, **overrides):
     finally:
         with server.JOBS_LOCK:
             server.JOBS.pop(job_id, None)
+            server.JOB_TOMBSTONES.pop(job_id, None)
 
 
 def test_request_stop_sets_cancel_event_and_flag():
     with _register_job("jobstop1") as job:
-        assert server.request_stop("jobstop1") is True
+        ok, error = server.request_stop("jobstop1")
+        assert ok is True
+        assert error is None
         assert job["cancel_event"].is_set()
         assert job["cancel_requested"] is True
 
 
 def test_request_stop_unknown_job_returns_false():
-    assert server.request_stop("does-not-exist-xyz") is False
+    ok, error = server.request_stop("does-not-exist-xyz")
+    assert ok is False
+    assert error == "unknown"
 
 
 @contextmanager
@@ -277,3 +312,139 @@ def test_job_status_reflects_cancel_requested_without_leaking_event():
             status, after = _request(httpd.server_port, "/api/job/jobstop3", "GET")
     assert after["cancel_requested"] is True
     assert "cancel_event" not in after
+
+
+def test_append_job_log_caps_stored_lines():
+    job = {"log": []}
+    for i in range(600):
+        server._append_job_log(job, f"line-{i}")
+    assert len(job["log"]) == server._JOB_LOG_MAX_LINES
+    assert job["log"][0] == "line-100"
+    assert job["log"][-1] == "line-599"
+
+
+def test_finished_job_expired_returns_410(monkeypatch):
+    monkeypatch.setenv("INKSTONE_JOB_TTL_SECONDS", "3600")
+    with _register_job(
+        "jobexp1",
+        status="done",
+        finished_at=time.time() - 5000,
+    ):
+        with _running_server() as httpd:
+            status, payload = _request(httpd.server_port, "/api/job/jobexp1", "GET")
+    assert status == 410
+    assert "expired" in payload["error"].lower()
+
+
+def test_finished_job_within_ttl_returns_200(monkeypatch):
+    monkeypatch.setenv("INKSTONE_JOB_TTL_SECONDS", "3600")
+    with _register_job(
+        "jobok1",
+        status="done",
+        finished_at=time.time() - 60,
+    ):
+        with _running_server() as httpd:
+            status, payload = _request(httpd.server_port, "/api/job/jobok1", "GET")
+    assert status == 200
+    assert payload["status"] == "done"
+
+
+def test_start_job_purges_expired_jobs(monkeypatch):
+    monkeypatch.setenv("INKSTONE_JOB_TTL_SECONDS", "3600")
+    monkeypatch.setattr(
+        server.threading,
+        "Thread",
+        lambda *args, **kwargs: type("NoopThread", (), {"start": lambda self: None})(),
+    )
+    with _register_job(
+        "jobpurge1",
+        status="done",
+        finished_at=time.time() - 5000,
+    ):
+        assert "jobpurge1" in server.JOBS
+        server._start_job("text", "page", None, project_id="purgeproj")
+        assert "jobpurge1" not in server.JOBS
+        assert "jobpurge1" in server.JOB_TOMBSTONES
+    with server.JOBS_LOCK:
+        server.JOBS.clear()
+        server.JOB_TOMBSTONES.clear()
+
+
+def test_purged_job_returns_410_via_tombstone(monkeypatch):
+    monkeypatch.setenv("INKSTONE_JOB_TTL_SECONDS", "3600")
+    with _register_job(
+        "jobtomb1",
+        status="done",
+        finished_at=time.time() - 5000,
+    ):
+        with server.JOBS_LOCK:
+            server._purge_expired_jobs_locked()
+        assert "jobtomb1" not in server.JOBS
+        assert "jobtomb1" in server.JOB_TOMBSTONES
+        with _running_server() as httpd:
+            status, payload = _request(httpd.server_port, "/api/job/jobtomb1", "GET")
+    assert status == 410
+    assert "expired" in payload["error"].lower()
+
+
+def test_purged_job_returns_404_after_tombstone_ttl(monkeypatch):
+    monkeypatch.setenv("INKSTONE_JOB_TTL_SECONDS", "1")
+    with _register_job(
+        "jobtomb2",
+        status="done",
+        finished_at=time.time() - 10,
+    ):
+        with server.JOBS_LOCK:
+            server._purge_expired_jobs_locked()
+            server.JOB_TOMBSTONES["jobtomb2"] = time.time() - 10
+        with _running_server() as httpd:
+            status, payload = _request(httpd.server_port, "/api/job/jobtomb2", "GET")
+    assert status == 404
+    assert "unknown" in payload["error"].lower()
+
+
+def test_list_projects_from_disk(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    for project_id, stage, panels in [
+        ("alpha", "panels", ["c0000-p0000"]),
+        ("beta", "extract", []),
+    ]:
+        out = tmp_path / project_id
+        out.mkdir()
+        ProjectState(
+            project_id=project_id,
+            stage=stage,
+            panels_done=panels,
+        ).save(out / "state.json")
+    (tmp_path / "alpha" / "timing.json").write_text(
+        '{"active_elapsed_seconds": 10}', encoding="utf-8"
+    )
+    (tmp_path / "no_state").mkdir()
+
+    projects = server.list_projects()
+    assert len(projects) == 2
+    by_id = {p["id"]: p for p in projects}
+    assert by_id["alpha"]["stage"] == "panels"
+    assert by_id["alpha"]["panels_done"] == ["c0000-p0000"]
+    assert by_id["alpha"]["has_timing"] is True
+    assert by_id["beta"]["has_timing"] is False
+
+
+def test_get_projects_endpoint(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    out = tmp_path / "webproj"
+    out.mkdir()
+    ProjectState(project_id="webproj", stage="export", panels_done=["c0000-p0001"]).save(
+        out / "state.json"
+    )
+    with _running_server() as httpd:
+        status, payload = _request(httpd.server_port, "/api/projects", "GET")
+    assert status == 200
+    assert payload == [
+        {
+            "id": "webproj",
+            "stage": "export",
+            "panels_done": ["c0000-p0001"],
+            "has_timing": False,
+        }
+    ]

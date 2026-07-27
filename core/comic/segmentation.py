@@ -17,10 +17,19 @@ from collections.abc import Iterable
 from core.schemas import CharacterAsset
 
 # Chapter / volume headings at the start of a line.
+_ENGLISH_NUMBERS = (
+    "one|two|three|four|five|six|seven|eight|nine|ten"
+    "|eleven|twelve|thirteen|fourteen|fifteen|sixteen"
+    "|seventeen|eighteen|nineteen|twenty"
+)
 _HEADING_RE = re.compile(
-    r"^\s*(?:第\s*[0-9一二三四五六七八九十百千]+\s*[章节卷]"
-    r"|chapter\s+[0-9]+"
-    r"|volume\s+[0-9]+)",
+    r"^\s*(?:"
+    r"第\s*[0-9一二三四五六七八九十百千]+\s*[章节卷]"
+    r"|(?:序章|楔子|尾声|番外|终章)(?:[0-9一二三四五六七八九十百千]+|\s+[^\n]+)?"
+    r"|chapter\s+(?:[0-9]+|" + _ENGLISH_NUMBERS + r")"
+    r"|volume\s+[0-9]+"
+    r"|(?:part|section)\s+[0-9]+"
+    r")",
     re.IGNORECASE | re.MULTILINE,
 )
 

@@ -17,7 +17,8 @@ from pathlib import Path
 
 import pytest
 
-from core.density import ENV_WEBTOON_WARN_MB, PANELS_PER_PAGE, estimate
+from core.config import ENV_WEBTOON_WARN_MB
+from core.density import PANELS_PER_PAGE, estimate
 
 
 def _write(tmp_path: Path, text: str, name: str = "book.txt") -> Path:

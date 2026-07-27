@@ -14,6 +14,19 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+from core.comic.fonts import resolve_font
+from core.config import webtoon_max_pixels
+
+# Upper bound for a single webtoon canvas, in pixels. A webtoon strip is one
+# giant RGB buffer (3 bytes/px), so an unbounded strip OOMs on long books:
+# 180 panels at 1400x1500 each would need >1GB in a single allocation.
+# Override with INKSTONE_WEBTOON_MAX_PIXELS; set it to 0 to disable the guard.
+DEFAULT_WEBTOON_MAX_PIXELS = 200_000_000
+
+
+def _webtoon_max_pixels() -> int:
+    return webtoon_max_pixels()
+
 
 @dataclass
 class PanelImage:
@@ -23,13 +36,38 @@ class PanelImage:
     dialogue: str | None = None
 
 
+def _line_height(font) -> int:
+    """Line height for bubble text, robust across bitmap and truetype fonts."""
+    getmetrics = getattr(font, "getmetrics", None)
+    if getmetrics is not None:
+        try:
+            ascent, descent = getmetrics()
+            if ascent + descent > 0:
+                return int((ascent + descent) * 1.15)
+        except Exception:  # noqa: BLE001 — fall through to width heuristic
+            pass
+    try:
+        return int(font.getlength("Ag") * 1.2) or 12
+    except Exception:  # noqa: BLE001
+        return 12
+
+
 class LayoutEngine:
     """Compose panel images into pages or a vertical webtoon strip."""
 
-    def __init__(self, page_width: int = 1400, cell_height: int = 1000, bg=(255, 255, 255)):
+    def __init__(
+        self,
+        page_width: int = 1400,
+        cell_height: int = 1000,
+        bg=(255, 255, 255),
+        font_path: str | None = None,
+    ):
         self.page_width = page_width
         self.cell_height = cell_height
         self.bg = bg
+        # Optional CJK font override for dialogue bubbles; falls back to
+        # INKSTONE_FONT_PATH then platform-known CJK fonts when None.
+        self.font_path = font_path
 
     def compose(
         self, panels: list[PanelImage], output_dir, *, layout_mode: str = "page"
@@ -112,8 +150,23 @@ class LayoutEngine:
         if not panels:
             return []
         width = self.page_width
-        scaled: list[Image.Image] = []
+        limit = _webtoon_max_pixels()
         total_h = 0
+        for panel in panels:
+            img_w, img_h = panel.image.size
+            h = int(width * img_h / img_w) if img_w else width
+            if panel.dialogue:
+                bubble_w = int(width * 0.8)
+                h += self._bubble_height(panel.dialogue, bubble_w) + 40
+            total_h += h
+        if limit and width * total_h > limit:
+            raise ValueError(
+                f"webtoon canvas would be {width}x{total_h}px "
+                f"({width * total_h / 1e6:.0f}MP, over the {limit / 1e6:.0f}MP limit); "
+                "re-run with --format page, or raise INKSTONE_WEBTOON_MAX_PIXELS "
+                "(0 disables the guard)"
+            )
+        scaled: list[Image.Image] = []
         for panel in panels:
             img = panel.image.convert("RGB")
             h = int(width * img.height / img.width) if img.width else width
@@ -132,7 +185,6 @@ class LayoutEngine:
                 )
                 scaled_panel = with_caption
             scaled.append(scaled_panel)
-            total_h += scaled_panel.height
         canvas = Image.new("RGB", (width, total_h), self.bg)
         y = 0
         for s in scaled:
@@ -145,12 +197,10 @@ class LayoutEngine:
     # ------------------------------------------------------------------ #
     # Dialogue bubble
     # ------------------------------------------------------------------ #
-    @staticmethod
-    def _bubble_height(text: str, width: int) -> int:
-        font = ImageFont.load_default()
-        lines = LayoutEngine._wrap_text(text, font, width - 20)
-        line_h = int(font.getlength("Ag") * 1.2) or 12
-        return max(50, len(lines) * line_h + 20)
+    def _bubble_height(self, text: str, width: int) -> int:
+        font, _source = resolve_font(text, font_path=self.font_path)
+        lines = self._wrap_text(text, font, width - 20)
+        return max(50, len(lines) * _line_height(font) + 20)
 
     def _draw_bubble(
         self, draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int], text: str
@@ -160,10 +210,10 @@ class LayoutEngine:
         draw.rounded_rectangle(
             [x, y, x + w, y + h], radius=12, fill="white", outline="black", width=2
         )
-        font = ImageFont.load_default()
+        font, _source = resolve_font(text, font_path=self.font_path)
         max_w = w - 2 * pad
         ty = y + pad
-        line_h = int(font.getlength("Ag") * 1.2) or 12
+        line_h = _line_height(font)
         for line in self._wrap_text(text, font, max_w):
             draw.text((x + pad, ty), line, fill="black", font=font)
             ty += line_h

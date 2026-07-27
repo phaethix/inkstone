@@ -24,7 +24,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
+          pip install -e ".[dev]"
           pip install "pytest==9.1.1" "ruff==0.15.22"
 
       - name: Ruff lint
@@ -35,3 +35,22 @@ jobs:
 
       - name: Run tests
         run: pytest
+
+  smoke-install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Non-editable install smoke
+        run: |
+          python -m venv /tmp/inkstone-smoke
+          /tmp/inkstone-smoke/bin/pip install -U pip
+          /tmp/inkstone-smoke/bin/pip install .
+          /tmp/inkstone-smoke/bin/inkstone --help
+          /tmp/inkstone-smoke/bin/inkstone plan --book examples/sample_novel.txt

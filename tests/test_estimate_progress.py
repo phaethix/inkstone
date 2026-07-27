@@ -1,7 +1,18 @@
 """tests/test_estimate_progress.py — resume progress bar fraction."""
 
-from core.pipelines.creative_comic import estimate_progress, panel_progress_counts
-from core.schemas import ChunkCache, Panel, ProjectState, Storyboard
+from core.pipelines.creative_comic import (
+    _ordered_generated_panels,
+    estimate_progress,
+    panel_progress_counts,
+)
+from core.schemas import (
+    ChunkCache,
+    GeneratedAssets,
+    GeneratedPanel,
+    Panel,
+    ProjectState,
+    Storyboard,
+)
 
 
 def test_panel_progress_counts_matches_estimate():
@@ -50,3 +61,26 @@ def test_estimate_progress_nonzero_on_partial_project():
     )
     pct = estimate_progress(state, total_chunks=5)
     assert pct > 0.15
+
+
+def test_ordered_generated_panels_ignores_non_digit_chunk_keys():
+    board = Storyboard(
+        chapter_id="0",
+        panels=[Panel(panel_id="p0", action="a")],
+    )
+    state = ProjectState(
+        project_id="p",
+        chunk_cache={
+            "legacy-meta": ChunkCache(),
+            "1": ChunkCache(storyboard=board),
+            "0": ChunkCache(storyboard=board),
+        },
+        generated=GeneratedAssets(
+            panels={
+                "c0000-p0000": GeneratedPanel(local="/tmp/p0.png"),
+                "c0001-p0000": GeneratedPanel(local="/tmp/p1.png"),
+            }
+        ),
+    )
+    ordered = _ordered_generated_panels(state)
+    assert [key for key, _ in ordered] == ["c0000-p0000", "c0001-p0000"]

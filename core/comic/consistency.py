@@ -21,12 +21,12 @@ Three complementary techniques keep a character looking the same across panels:
 
 import logging
 import math
-import os
 from collections.abc import Iterable
 
 from PIL import Image
 
 from core.comic.identity import ensure_character_l1
+from core.config import l3_enabled
 from core.schemas import CharacterAsset, Panel, Setting
 
 logger = logging.getLogger(__name__)
@@ -58,10 +58,6 @@ MIN_SIZE_RATIO = 0.35
 MAX_SIZE_RATIO = 3.0
 
 
-def _truthy_env(name: str, default: str = "1") -> bool:
-    return os.environ.get(name, default).strip().lower() not in ("0", "false", "no", "off", "")
-
-
 def _scene_prompt_of(setting) -> str:
     """Resolve a setting-like input to its ``scene_prompt`` string."""
     if setting is None:
@@ -90,7 +86,7 @@ class ConsistencyEngine:
         # consistency is therefore carried by L1 (prompt hardening) + L2
         # (reference-image conditioning of the generation model), which is the
         # robust path. Keep L3 only for users who want to experiment.
-        self.enable_l3 = _truthy_env("INKSTONE_L3", default="0") if enable_l3 is None else enable_l3
+        self.enable_l3 = l3_enabled() if enable_l3 is None else enable_l3
 
     def build_panel_prompt(
         self,
