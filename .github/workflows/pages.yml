@@ -29,7 +29,7 @@ jobs:
           cp web/index.html _site/index.html
           cp assets/samples/* _site/assets/samples/ 2>/dev/null || true
           cp assets/logo.svg _site/assets/logo.svg 2>/dev/null || true
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: _site
 
