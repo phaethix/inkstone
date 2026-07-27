@@ -23,6 +23,46 @@ def test_segment_text_respects_chapter_headings():
     assert any("第二章" in c for c in chunks)
 
 
+def test_segment_text_special_chinese_headings():
+    text = "序章\nprologue.\n楔子\nsetup.\n尾声\nending.\n番外 特别篇\nextra.\n终章\nfinale."
+    chunks = segment_text(text)
+    assert len(chunks) >= 5
+    for heading in ("序章", "楔子", "尾声", "番外", "终章"):
+        assert any(c.lstrip().startswith(heading) for c in chunks), f"missing split at {heading}"
+
+
+def test_segment_text_special_chinese_heading_with_number():
+    text = "序章一\nbody.\n第二章\nmore."
+    chunks = segment_text(text)
+    assert len(chunks) >= 2
+    assert any(c.lstrip().startswith("序章一") for c in chunks)
+    assert any(c.lstrip().startswith("第二章") for c in chunks)
+
+
+def test_segment_text_english_chapter_word_numbers():
+    text = "Chapter One\nintro.\nChapter Twenty\noutro."
+    chunks = segment_text(text)
+    assert len(chunks) >= 2
+    assert any(c.lstrip().startswith("Chapter One") for c in chunks)
+    assert any(c.lstrip().startswith("Chapter Twenty") for c in chunks)
+
+
+def test_segment_text_part_and_section_headings():
+    text = "Part 1\nfirst.\nSection 2\nsecond."
+    chunks = segment_text(text)
+    assert len(chunks) >= 2
+    assert any(c.lstrip().startswith("Part 1") for c in chunks)
+    assert any(c.lstrip().startswith("Section 2") for c in chunks)
+
+
+def test_segment_text_no_heading_yields_single_block():
+    text = "plain paragraph one.\nplain paragraph two."
+    chunks = segment_text(text)
+    assert len(chunks) == 1
+    assert "plain paragraph one" in chunks[0]
+    assert "plain paragraph two" in chunks[0]
+
+
 def test_detect_character_aliases_substring_variant():
     existing = {"方鸿渐": _asset("方鸿渐")}
     sugg = detect_character_aliases(existing, ["鸿渐"])
