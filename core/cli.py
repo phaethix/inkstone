@@ -158,8 +158,9 @@ def _human_duration(minutes: int) -> str:
 
 
 def _print_plan(est: DensityEstimate) -> None:
-    """按 PRD 样例格式打印结构化预估（对齐 core.density 的预估结果）。"""
-    # Agnes 免费档在 PRD 文案里带 "Agnes 免费档 →" 前缀；openai-compat 直接给金额。
+    """Print a structured density estimate (experimental / uncalibrated)."""
+    print("[experimental] inkstone plan — density estimate (does not control generate)")
+    # Agnes free-tier copy prefixes "Agnes 免费档 →"; openai-compat shows a price.
     cost_line = est.cost_label
     if "R6" in cost_line:
         cost_line = f"Agnes 免费档 → {cost_line}"

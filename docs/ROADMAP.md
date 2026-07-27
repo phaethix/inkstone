@@ -68,6 +68,10 @@ Keep these prototypes only as migration material until they conform to the targe
     content-policy `skipped` across soft-invalidate, Latin word-wrap, unique
     `unnamed_*` identities, fill empty appearance on merge (see
     `docs/superpowers/plans/2026-07-27-v0.1.3-defect-review-fixes.md`).
+  - **Local (post-0.1.3):** page layout letterbox (no aspect squash), README
+    provider honesty, web Origin/body caps, dotenv no longer skips on preset
+    `AGNES_API_KEY`, `inkstone plan` marked `[experimental]` (see
+    `docs/superpowers/plans/2026-07-27-deep-dive-layout-web-fixes.md`).
 - [ ] Reconcile README, configuration defaults, CLI help and historical docs so
   they do not contradict released behavior.
 - [ ] Isolate, rename or remove the old PageScript / coverage prototype so it

@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from math import ceil
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from core.comic.fonts import resolve_font, text_requires_cjk
 from core.config import DEFAULT_WEBTOON_MAX_PIXELS, webtoon_max_pixels
@@ -131,8 +131,12 @@ class LayoutEngine:
     ) -> None:
         x0, y0, x1, y1 = box
         cw, ch = x1 - x0, y1 - y0
-        img = panel.image.convert("RGB").resize((cw, ch))
-        canvas.paste(img, (x0, y0))
+        # Contain (letterbox) — never stretch into the cell aspect. Page grids
+        # are often much taller/narrower than the square panels Agnes returns.
+        fitted = ImageOps.contain(panel.image.convert("RGB"), (cw, ch))
+        px = x0 + (cw - fitted.width) // 2
+        py = y0 + (ch - fitted.height) // 2
+        canvas.paste(fitted, (px, py))
         if panel.dialogue:
             bw = int(cw * 0.8)
             bh = self._bubble_height(panel.dialogue, bw)
