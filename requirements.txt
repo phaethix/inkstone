@@ -1,25 +1,3 @@
-# Inkstone — novel -> comic generator (M1 dependencies)
-# The current code (ImageProvider abstraction layer) needs only the lines below.
-
-requests>=2.34.2,<3.0.0      # HTTP calls to Agnes / OpenAI-compatible image endpoints
-tenacity>=9.1.4,<10.0.0      # download retries (utils.image.download_image)
-
-# L3 cross-image consistency fallback (PIL/OpenCV feature overlay)
-Pillow>=12.3.0,<13.0.0
-numpy>=2.2.6,<3.0.0
-# Haar face compositing needs OpenCV. PIN <5: cv2 5.x removed CascadeClassifier
-# and the Haar cascades this module relies on; without OpenCV, apply_l3 degrades
-# gracefully to a no-op (panel returned unchanged), so this is optional at runtime.
-opencv-python-headless>=4.5,<5
-
-# D1 structured contracts (core/schemas.py) — Pydantic models for the three JSON contracts
-pydantic>=2.13.4,<3.0.0
-json-repair>=0.30.0,<1.0.0     # coerce LLM-broken stringified tool-call lists/objects
-tqdm>=4.66.0,<5.0.0            # terminal progress bars for examples/generate_comic.py
-
-# —— M2+ to enable (uncomment when needed) ——
-# fastapi>=0.100.0,<1.0.0
-# uvicorn>=0.23.0,<1.0.0
-# python-multipart>=0.0.6,<1.0.0
-# PyYAML>=6.0,<7.0
-# manga2pdf>=0.2.0             # optional: nicer PDF layout; export_pdf falls back to a pure-PIL PDF if absent
+# Dependencies are defined in pyproject.toml (single source of truth).
+# Install runtime + dev tools:
+#   pip install -e ".[dev]"

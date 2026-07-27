@@ -114,21 +114,11 @@ def test_cli_coverage_no_strict_exits_0_with_warning(tmp_path, capsys):
 def test_cli_help_marks_prototypes_honestly():
     parser = _build_parser()
     top_help = parser.format_help()
-    assert "estimate" in top_help.lower() or "预估" in top_help
-    assert (
-        "not a quality gate" in top_help.lower()
-        or "非质量闸门" in top_help
-        or "原型" in top_help
-        or "prototype" in top_help.lower()
-    )
+    assert "estimate" in top_help.lower()
+    assert "prototype" in top_help.lower() or "not a quality gate" in top_help.lower()
     plan = parser._subparsers._group_actions[0].choices["plan"]
     dens_help = next(a.help for a in plan._actions if "--density" in a.option_strings)
-    assert (
-        "主线概览" in dens_help
-        or "A=" in dens_help
-        or "overview" in dens_help.lower()
-        or "概览" in dens_help
-    )
+    assert "overview" in dens_help.lower() or "主线概览" in dens_help
 
 
 def test_cli_plan_prints_estimate_only_warning(tmp_path, capsys):

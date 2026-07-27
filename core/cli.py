@@ -25,24 +25,24 @@ from core.schemas import ProjectState
 
 def _build_parser() -> argparse.ArgumentParser:
     """构造带 4 个子命令的顶层解析器。"""
-    parser = argparse.ArgumentParser(prog="inkstone", description="Inkstone 小说转漫画工具")
+    parser = argparse.ArgumentParser(prog="inkstone", description="Inkstone novel-to-comic generator")
     sub = parser.add_subparsers(dest="command", required=True)
 
     # generate：复用既有 examples/generate_comic.py，不改其逻辑。
-    p_gen = sub.add_parser("generate", help="运行完整漫画生成管线（调用 Agnes API）")
+    p_gen = sub.add_parser("generate", help="Run the full comic generation pipeline (calls Agnes API)")
     p_gen.add_argument(
         "source",
         nargs="?",
         default=None,
-        help="源 txt 路径（默认 examples/scene1.txt）",
+        help="Source text file path (default: examples/scene1.txt)",
     )
-    p_gen.add_argument("--out", default=None, help="输出目录")
-    p_gen.add_argument("--project", default=None, help="稳定 project id（用于续跑）")
+    p_gen.add_argument("--out", default=None, help="Output directory")
+    p_gen.add_argument("--project", default=None, help="Stable project id (for resume)")
     p_gen.add_argument(
         "--format",
         choices=["page", "webtoon"],
         default="page",
-        help="page=竖版PDF / webtoon=长条PNG",
+        help="page=vertical PDF / webtoon=long-strip PNG",
     )
 
     # plan：D1 纯本地预估（不约束 generate）。
@@ -50,13 +50,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "plan",
         help="Offline density/cost/duration estimate (does not control generate).",
     )
-    p_plan.add_argument("--book", required=True, help="小说 txt 路径")
+    p_plan.add_argument("--book", required=True, help="Novel text file path")
     p_plan.add_argument(
         "--density",
         choices=["A", "B", "C"],
         default="B",
         help=(
-            "A=主线概览(少格) B=章级完整(默认) C=近原著(多格); "
+            "A=main plot overview/主线概览 (sparse) "
+            "B=chapter-complete/章级完整 (default) "
+            "C=near-original/近原著 (dense); "
             "estimate only, does not control generate"
         ),
     )
@@ -64,31 +66,31 @@ def _build_parser() -> argparse.ArgumentParser:
         "--format",
         choices=["page", "webtoon"],
         default="page",
-        help="page=竖版PDF / webtoon=长条PNG",
+        help="page=vertical PDF / webtoon=long-strip PNG",
     )
     p_plan.add_argument(
         "--api",
         choices=["agnes", "openai-compat"],
         default="agnes",
-        help="计费后端：agnes（免费档）/ openai-compat",
+        help="Billing backend: agnes (free tier) / openai-compat",
     )
     p_plan.add_argument(
         "--concurrency",
         type=int,
         default=4,
-        help="并行渲染 worker 数（用于时长预估，默认 4）",
+        help="Parallel render workers for duration estimate (default 4)",
     )
     p_plan.add_argument(
         "--price-per-panel",
         type=float,
         default=None,
-        help="openai-compat 单价（元/格）；省略则显示「按单价」",
+        help="openai-compat unit price (CNY/panel); omit to show a price placeholder",
     )
 
     # identity：D3 占位；coverage：D2 实现。
-    p_id = sub.add_parser("identity", help="[即将到来 D3] 身份账本可视化")
-    p_id.add_argument("--view", action="store_true", help="打印 alias/影响范围树")
-    p_id.add_argument("--merge", default=None, help="合并 alias：'new:keep'")
+    p_id = sub.add_parser("identity", help="[Coming in D3] Identity ledger visualization")
+    p_id.add_argument("--view", action="store_true", help="Print alias/impact scope tree")
+    p_id.add_argument("--merge", default=None, help="Merge alias: 'new:keep'")
 
     p_cov = sub.add_parser(
         "coverage",
@@ -97,33 +99,39 @@ def _build_parser() -> argparse.ArgumentParser:
     p_cov.add_argument(
         "--out",
         default="comic_out",
-        help="生成输出目录（含 state.json 与 source.txt，默认 comic_out）",
+        help="Generation output directory (contains state.json and source.txt; default comic_out)",
     )
     p_cov.add_argument(
         "--source",
         default=None,
-        help="原文 txt 路径；缺省回退到 <out>/source.txt",
+        help="Original text path; defaults to <out>/source.txt",
     )
     p_cov.add_argument(
         "--format",
         choices=["text", "json"],
         default="text",
-        help="输出格式：text=终端可读三指标 / json=机器可读（默认 text）",
+        help="Output format: text=human-readable three metrics / json=machine-readable (default text)",
     )
     p_cov.add_argument(
         "--strict",
         action="store_true",
-        help="任一项指标不达标则退出码 1，否则仅打印告警退出码 0",
+        help="Exit code 1 if any metric fails; otherwise print warnings and exit 0",
     )
     p_cov.add_argument(
         "--threshold",
         type=float,
         default=None,
-        help="统一覆盖三项的阈值（默认 None，则用各自细分阈值）",
+        help="Unified threshold for all three metrics (default None uses per-metric thresholds)",
     )
-    p_cov.add_argument("--req-threshold", type=float, default=0.90, help="必含信息覆盖率阈值")
-    p_cov.add_argument("--causal-threshold", type=float, default=0.85, help="因果链完整率阈值")
-    p_cov.add_argument("--span-threshold", type=float, default=0.95, help="原文回溯率阈值")
+    p_cov.add_argument(
+        "--req-threshold", type=float, default=0.90, help="Required information coverage threshold"
+    )
+    p_cov.add_argument(
+        "--causal-threshold", type=float, default=0.85, help="Causal chain completeness threshold"
+    )
+    p_cov.add_argument(
+        "--span-threshold", type=float, default=0.95, help="Source span backtrace threshold"
+    )
 
     return parser
 
