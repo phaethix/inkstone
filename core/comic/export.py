@@ -8,6 +8,7 @@ dependencies. The vertical webtoon strip is produced by ``LayoutEngine``
 (pure PIL), not here.
 """
 
+import logging
 import shutil
 import subprocess
 from pathlib import Path
@@ -16,6 +17,8 @@ try:
     from PIL import Image
 except ImportError:  # pragma: no cover — Pillow is a hard dependency
     Image = None
+
+logger = logging.getLogger(__name__)
 
 
 class ExportEngine:
@@ -59,6 +62,15 @@ class ExportEngine:
             return out
 
         # Fallback: pure-PIL multi-page PDF — no external CLI required.
+        # Degradation must be loud: the user gets a plain PDF, not the
+        # manga layout the README gallery shows.
+        logger.warning(
+            "manga2pdf CLI not found; exporting a plain multi-page PDF instead "
+            "(no %s layout / %s reading direction). "
+            "Install with `pip install manga2pdf` for the full manga layout.",
+            layout,
+            direction,
+        )
         if Image is None:
             raise RuntimeError(
                 "manga2pdf CLI not found and Pillow is not installed; cannot export PDF"
