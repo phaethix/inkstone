@@ -555,6 +555,7 @@ async def _creative_comic(
             model_snapshot=snapshot,
         )
 
+    soft_invalidated_this_run = False
     if state_path.exists():
         persisted = ProjectState.load(state_path)
         if not persisted.structure_fingerprint and not persisted.render_fingerprint:
@@ -570,12 +571,16 @@ async def _creative_comic(
         elif persisted.render_fingerprint != render:
             state = persisted
             _soft_invalidate_render(state)
+            soft_invalidated_this_run = True
             state.render_fingerprint = render
             state.model_snapshot = snapshot
         else:
             state = persisted
     else:
         state = _fresh_state()
+    if soft_invalidated_this_run and panel_key_filter is not None:
+        logger.info("render fingerprint changed: ignoring panel_keys filter, redrawing all panels")
+        panel_key_filter = None
     state.project_id = project_id
 
     image_semaphore = asyncio.Semaphore(image_config.image_concurrency)

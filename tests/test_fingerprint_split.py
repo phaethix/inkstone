@@ -181,6 +181,37 @@ def test_source_change_drops_chunk_cache(tmp_path):
 
 
 @patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_style_change_ignores_panel_keys_filter(tmp_path):
+    src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
+    asyncio.run(
+        creative_comic(
+            src,
+            output_dir=str(tmp_path),
+            chat=FakeChat(),
+            image=FakeImage(),
+            style_guide="watercolor",
+        )
+    )
+    state = ProjectState.load(tmp_path / "state.json")
+    assert len(state.panels_done) == 2
+
+    chat2, img2 = FakeChat(), FakeImage()
+    asyncio.run(
+        creative_comic(
+            src,
+            output_dir=str(tmp_path),
+            chat=chat2,
+            image=img2,
+            style_guide="ink sketch",
+            panel_keys=["c0000-p0000"],
+        )
+    )
+    state2 = ProjectState.load(tmp_path / "state.json")
+    assert set(state2.panels_done) == {"c0000-p0000", "c0001-p0000"}
+    assert img2.calls == 3  # portrait + 2 panels after soft-invalidate
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
 def test_legacy_state_with_matching_combined_fingerprint_migrates(tmp_path):
     src = "第一章\n方鸿渐在甲板上。"
     asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage()))
