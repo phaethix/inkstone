@@ -244,25 +244,17 @@ def _run_coverage(args: argparse.Namespace) -> None:
 
 
 def _run_generate(args: argparse.Namespace) -> None:
-    """generate 子命令：转发到既有 examples/generate_comic.py 入口（不改逻辑）。
+    """generate 子命令：运行 core.cli_generate（实现收编于 core，任何安装方式可用）。"""
+    from core.cli_generate import run_generate
 
-    去掉我们的程序名与 ``generate`` 子命令，让示例的 argparse 看到它期望的参数。
-    已安装（examples 不在包列表）时退回直接执行脚本文件。
-    """
-    sys.argv = [sys.argv[0]] + sys.argv[2:]
-    try:
-        from examples.generate_comic import main as _generate_main
-    except ImportError:
-        import subprocess
-
-        repo = Path(__file__).resolve().parents[1]
-        sys.exit(
-            subprocess.call(
-                [sys.executable, str(repo / "examples" / "generate_comic.py"), *sys.argv[1:]],
-                cwd=repo,
-            )
+    sys.exit(
+        run_generate(
+            source=args.source,
+            out=args.out,
+            fmt=args.format,
+            project_id=args.project,
         )
-    _generate_main()
+    )
 
 
 def _not_implemented(command: str, version: str) -> None:
