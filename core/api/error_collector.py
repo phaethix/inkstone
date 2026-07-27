@@ -88,8 +88,14 @@ def collect_error(
             f.write(line + "\n")
         logger.info(f"[ErrorCollector] appended -> {path}")
         return str(path)
-    except Exception as e:  # noqa: BLE001
-        logger.error(f"[ErrorCollector] failed: {e}")
+    except OSError as e:  # Filesystem errors during writing
+        logger.error(f"[ErrorCollector] OS error when writing log: {e}")
+        return None
+    except (ValueError, TypeError, json.JSONEncodeError) as e:  # Data serialization issues
+        logger.error(f"[ErrorCollector] serialization error: {e}")
+        return None
+    except Exception as e:  # Catch-all safety net; cannot fail entirely
+        logger.error(f"[ErrorCollector] unexpected failure: {e}")
         return None
 
 
