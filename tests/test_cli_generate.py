@@ -17,8 +17,9 @@ from core import cli, cli_generate
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_run_generate_requires_api_key(monkeypatch, capsys):
+def test_run_generate_requires_provider_credentials(monkeypatch, capsys):
     monkeypatch.delenv("AGNES_API_KEY", raising=False)
+    monkeypatch.delenv("PROVIDER", raising=False)
     code = cli_generate.run_generate(
         source=str(REPO_ROOT / "examples" / "scene1.txt"),
         out=None,
@@ -27,6 +28,28 @@ def test_run_generate_requires_api_key(monkeypatch, capsys):
     )
     assert code == 1
     assert "AGNES_API_KEY" in capsys.readouterr().err
+
+
+def test_run_generate_accepts_openai_compat_without_agnes_key(monkeypatch, capsys):
+    monkeypatch.delenv("AGNES_API_KEY", raising=False)
+    monkeypatch.setenv("PROVIDER", "openai_compat")
+    monkeypatch.setenv("OPENAI_COMPAT_BASE_URL", "https://images.example/v1")
+    monkeypatch.setenv("OPENAI_COMPAT_API_KEY", "image-key")
+    monkeypatch.setenv("OPENAI_COMPAT_CHAT_BASE_URL", "https://chat.example/v1")
+    monkeypatch.setenv("OPENAI_COMPAT_CHAT_API_KEY", "chat-key")
+    monkeypatch.setattr(
+        cli_generate.asyncio,
+        "run",
+        lambda coro: coro.close(),
+    )
+    code = cli_generate.run_generate(
+        source=str(REPO_ROOT / "examples" / "scene1.txt"),
+        out=str(REPO_ROOT / "comic_out" / "cli_test"),
+        fmt="page",
+        project_id="cli_test",
+    )
+    assert code == 0
+    assert "AGNES_API_KEY" not in capsys.readouterr().err
 
 
 def test_run_generate_missing_source(monkeypatch, capsys):

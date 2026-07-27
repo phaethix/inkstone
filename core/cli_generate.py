@@ -18,6 +18,7 @@ from pathlib import Path
 
 from tqdm import tqdm
 
+from core.api import get_chat_provider, get_image_provider
 from core.config import ImageConfig
 from core.pipelines.run_until_complete import PausedRun, run_until_complete
 
@@ -105,6 +106,27 @@ def _configure_background_logging() -> None:
     )
 
 
+def _providers_configured() -> bool:
+    """Validate the selected provider pair without making an upstream request."""
+    try:
+        get_chat_provider()
+        get_image_provider()
+    except (RuntimeError, ValueError):
+        return False
+    return True
+
+
+def _missing_credentials_message() -> str:
+    provider = (ImageConfig().provider or "agnes").lower()
+    if provider in ("openai_compat", "openai-compatible", "openai", "gemini"):
+        return (
+            "OpenAI-compat credentials are incomplete. Set OPENAI_COMPAT_BASE_URL, "
+            "OPENAI_COMPAT_API_KEY, OPENAI_COMPAT_CHAT_BASE_URL, and "
+            "OPENAI_COMPAT_CHAT_API_KEY (or switch PROVIDER=agnes)."
+        )
+    return "AGNES_API_KEY is not set. Export it (e.g. `export AGNES_API_KEY=sk-xxx`) first."
+
+
 def run_generate(
     source: str | None,
     out: str | None,
@@ -112,11 +134,8 @@ def run_generate(
     project_id: str | None,
 ) -> int:
     """Validate inputs and run the pipeline. Returns a process exit code."""
-    if not ImageConfig().agnes_api_key:
-        print(
-            "AGNES_API_KEY is not set. Export it (e.g. `export AGNES_API_KEY=sk-xxx`) first.",
-            file=sys.stderr,
-        )
+    if not _providers_configured():
+        print(_missing_credentials_message(), file=sys.stderr)
         return 1
 
     if source is None:
