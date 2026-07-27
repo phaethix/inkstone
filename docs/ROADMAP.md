@@ -86,6 +86,8 @@ Keep these prototypes only as migration material until they conform to the targe
   required / optional status and causal dependencies.
 - [ ] Generate beat-constrained storyboard panels with explicit `beat_ids`.
 - [ ] Add a reader-visible lettering layer: separate caption, dialogue and SFX.
+  - **Local:** MVP lettering fields + layout drawers shipped (caption bar /
+    dialogue bubble / sfx outline). Face-aware placement still open.
 - [ ] Add structural coverage gates for source traceability, beat coverage,
   visible text, causal order and blocked content.
 - [ ] Validate one public-domain chapter end-to-end before attempting a whole book.
@@ -93,8 +95,13 @@ Keep these prototypes only as migration material until they conform to the targe
 ### P2 — Delivery experience and proof
 
 - [ ] Add CBZ export and improve PDF typography, including CJK caption support.
+  - **Local:** Pillow PDF export is memory-bounded (batched + `pypdf` merge;
+    optional `img2pdf`).
 - [ ] Publish a public-domain *Journey to the West* chapter showcase with source,
   plan, coverage report and PDF.
+  - **Local (scaffold):** `examples/showcase/journey-west-ch1/` +
+    `scripts/run_showcase.sh` (source + plan recipe; generated artifacts not
+    committed — option C).
 - [ ] Add chapter navigation / browser reader and an identity-ledger CLI or view.
 - [ ] Rewrite README and contributor experience around the validated long-form workflow.
 

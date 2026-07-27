@@ -147,6 +147,24 @@ def test_wrap_text_cjk_still_breaks_per_character():
     assert len(lines) >= 2
 
 
+def test_caption_lettering_draws_pixels():
+    eng = LayoutEngine()
+    canvas = Image.new("RGB", (400, 400), (255, 255, 255))
+    panel = PanelImage(_img(200, 200), caption="次日清晨")
+    eng._place_panel(canvas, panel, (0, 0, 400, 400))
+    arr = np.array(canvas)
+    assert int((arr != (255, 255, 255)).any(axis=2).sum()) > 0
+
+
+def test_sfx_lettering_draws_pixels():
+    eng = LayoutEngine()
+    canvas = Image.new("RGB", (400, 400), (255, 255, 255))
+    panel = PanelImage(_img(200, 200), sfx="轰隆！")
+    eng._place_panel(canvas, panel, (0, 0, 400, 400))
+    arr = np.array(canvas)
+    assert int((arr != (255, 255, 255)).any(axis=2).sum()) > 0
+
+
 def test_paginate_empty_returns_no_pages():
     assert LayoutEngine._paginate([]) == []
 
