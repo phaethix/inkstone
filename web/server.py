@@ -15,6 +15,7 @@ Routes:
     POST /api/generate            -> {text, format?, style_guide?, project_id?}
                                     -> {job_id, project_id}
     GET  /api/job/<job_id>        -> job status + panels + review fields
+    GET  /api/projects            -> list projects from comic_out/*/state.json
     POST /api/job/<job_id>/stop   -> cooperative cancel -> {ok: true} or 404
     POST /api/project/<id>/review -> {action: merge|dismiss, new_name, candidate}
     POST /api/project/<id>/regen  -> {stale?: true, keys?: [...]} -> {job_id, project_id}
@@ -66,6 +67,55 @@ _PROJECT_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = threading.Lock()
 
+_TERMINAL_JOB_STATUSES = frozenset({"done", "error", "paused"})
+_JOB_LOG_MAX_LINES = 500
+
+
+def _job_ttl_seconds() -> int:
+    return int(os.environ.get("INKSTONE_JOB_TTL_SECONDS", "3600"))
+
+
+def _append_job_log(job: dict, message: str) -> None:
+    log = job["log"]
+    log.append(message)
+    overflow = len(log) - _JOB_LOG_MAX_LINES
+    if overflow > 0:
+        del log[:overflow]
+
+
+def _mark_job_finished(job: dict) -> None:
+    if job.get("status") in _TERMINAL_JOB_STATUSES:
+        job["finished_at"] = time.time()
+
+
+def _purge_expired_jobs_locked() -> None:
+    """Drop finished jobs past TTL. Caller must hold JOBS_LOCK."""
+    now = time.time()
+    ttl = _job_ttl_seconds()
+    for job_id, job in list(JOBS.items()):
+        finished = job.get("finished_at")
+        if finished is not None and now - float(finished) > ttl:
+            del JOBS[job_id]
+
+
+def _resolve_job(job_id: str) -> tuple[dict | None, str | None]:
+    """Return (job, error) where error is 'expired', 'unknown', or None."""
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if job is None:
+            _purge_expired_jobs_locked()
+            return None, "unknown"
+        finished = job.get("finished_at")
+        if finished is not None and time.time() - float(finished) > _job_ttl_seconds():
+            del JOBS[job_id]
+            _purge_expired_jobs_locked()
+            return None, "expired"
+        _purge_expired_jobs_locked()
+        job = JOBS.get(job_id)
+        if job is None:
+            return None, "unknown"
+        return job, None
+
 
 def _load_dotenv() -> None:
     """Best-effort .env loader (no python-dotenv dependency)."""
@@ -90,7 +140,7 @@ class _JobLogHandler(logging.Handler):
         self._job = job
 
     def emit(self, record: logging.LogRecord) -> None:
-        self._job["log"].append(record.getMessage())
+        _append_job_log(self._job, record.getMessage())
 
 
 def _file_url(local_path: str) -> str:
@@ -164,7 +214,7 @@ def _fill_job_from_paused(job: dict, paused: PausedRun) -> None:
     job["pause_reason"] = paused.reason
     # `paused.elapsed_seconds` is this run's session-only wall time, not the
     # job's cumulative elapsed_seconds — leave that to _refresh_job_timing.
-    job["log"].append(f"session wall time: {paused.elapsed_seconds:.1f}s")
+    _append_job_log(job, f"session wall time: {paused.elapsed_seconds:.1f}s")
     if paused.state is not None:
         job.update(_state_snapshot(paused.state))
         ordered_panels = sorted(
@@ -306,7 +356,7 @@ def _run_job(
         if isinstance(result, PausedRun):
             _fill_job_from_paused(job, result)
             job["status"] = "paused"
-            job["log"].append(f"PAUSED: {result.reason}")
+            _append_job_log(job, f"PAUSED: {result.reason}")
         else:
             _fill_job_from_project(job, result)
             job["status"] = "done"
@@ -315,10 +365,11 @@ def _run_job(
     except Exception as exc:  # noqa: BLE001 — surface any failure to the UI
         job["status"] = "error"
         job["error"] = str(exc)
-        job["log"].append(f"ERROR: {exc}")
+        _append_job_log(job, f"ERROR: {exc}")
     finally:
         _refresh_job_timing(job)
         _persist_active_elapsed(project_id, float(job["elapsed_seconds"]))
+        _mark_job_finished(job)
         root.removeHandler(handler)
 
 
@@ -364,17 +415,23 @@ def _start_job(
     return job_id, pid
 
 
-def request_stop(job_id: str) -> bool:
-    """Signal a running job's cancel_event; returns False for unknown jobs."""
+def request_stop(job_id: str) -> tuple[bool, str | None]:
+    """Signal a running job's cancel_event.
+
+    Returns (ok, error) where error is ``expired``, ``unknown``, or None.
+    """
+    job, error = _resolve_job(job_id)
+    if error is not None:
+        return False, error
     with JOBS_LOCK:
         job = JOBS.get(job_id)
         if job is None:
-            return False
+            return False, "unknown"
         job["cancel_requested"] = True
         ev = job.get("cancel_event")
         if isinstance(ev, threading.Event):
             ev.set()
-        return True
+        return True, None
 
 
 def _load_project_state(project_id: str) -> tuple[Path, ProjectState]:
@@ -420,6 +477,32 @@ def start_regen_job(
     force_regen_panels(state, target_keys)
     state.save(out_dir / "state.json")
     return _start_job(text, fmt, style_guide, project_id=project_id, panel_keys=target_keys)
+
+
+def list_projects() -> list[dict]:
+    """Scan comic_out for state.json checkpoints (read-only, no pipeline writes)."""
+    if not OUTPUT_DIR.is_dir():
+        return []
+    projects: list[dict] = []
+    for entry in sorted(OUTPUT_DIR.iterdir()):
+        if not entry.is_dir():
+            continue
+        state_path = entry / "state.json"
+        if not state_path.is_file():
+            continue
+        try:
+            state = ProjectState.load(state_path)
+        except Exception:  # noqa: BLE001
+            continue
+        projects.append(
+            {
+                "id": entry.name,
+                "stage": state.stage,
+                "panels_done": list(state.panels_done),
+                "has_timing": (entry / "timing.json").is_file(),
+            }
+        )
+    return projects
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -489,38 +572,44 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self._send_json({"error": "not found"}, status=404)
             return
+        if self.path == "/api/projects":
+            self._send_json(list_projects())
+            return
         if self.path.startswith("/api/job/"):
             job_id = self.path.split("/")[-1]
-            with JOBS_LOCK:
-                job = JOBS.get(job_id)
-                if job is not None and job["status"] == "running":
-                    _refresh_job_timing(job)
-                if job is None:
-                    payload = None
-                else:
-                    payload = {
-                        "status": job["status"],
-                        "log": job["log"][-200:],
-                        "panels": job["panels"],
-                        "webtoon": job["webtoon"],
-                        "pdf": job["pdf"],
-                        "skipped": job.get("skipped", []),
-                        "skipped_chunks": job.get("skipped_chunks", []),
-                        "needs_review": job.get("needs_review", []),
-                        "stale_panels": job.get("stale_panels", []),
-                        "project_id": job.get("project_id"),
-                        "pause_reason": job.get("pause_reason"),
-                        "elapsed_seconds": job.get("elapsed_seconds"),
-                        "remaining_seconds": job.get("remaining_seconds"),
-                        "progress": job.get("progress"),
-                        "stage": job.get("stage"),
-                        "error": job["error"],
-                        "cancel_requested": bool(job.get("cancel_requested")),
-                    }
-            if payload is None:
+            job, error = _resolve_job(job_id)
+            if error == "expired":
+                self._send_json(
+                    {"error": "job expired (finished jobs are removed after TTL)"},
+                    status=410,
+                )
+                return
+            if job is None:
                 self._send_json({"error": "unknown job"}, status=404)
-            else:
-                self._send_json(payload)
+                return
+            with JOBS_LOCK:
+                if job["status"] == "running":
+                    _refresh_job_timing(job)
+                payload = {
+                    "status": job["status"],
+                    "log": job["log"][-200:],
+                    "panels": job["panels"],
+                    "webtoon": job["webtoon"],
+                    "pdf": job["pdf"],
+                    "skipped": job.get("skipped", []),
+                    "skipped_chunks": job.get("skipped_chunks", []),
+                    "needs_review": job.get("needs_review", []),
+                    "stale_panels": job.get("stale_panels", []),
+                    "project_id": job.get("project_id"),
+                    "pause_reason": job.get("pause_reason"),
+                    "elapsed_seconds": job.get("elapsed_seconds"),
+                    "remaining_seconds": job.get("remaining_seconds"),
+                    "progress": job.get("progress"),
+                    "stage": job.get("stage"),
+                    "error": job["error"],
+                    "cancel_requested": bool(job.get("cancel_requested")),
+                }
+            self._send_json(payload)
             return
         self._send_json({"error": "not found"}, status=404)
 
@@ -581,8 +670,14 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": "not found"}, status=404)
             return
         job_id = parts[2]
-        if request_stop(job_id):
+        ok, error = request_stop(job_id)
+        if ok:
             self._send_json({"ok": True})
+        elif error == "expired":
+            self._send_json(
+                {"error": "job expired (finished jobs are removed after TTL)"},
+                status=410,
+            )
         else:
             self._send_json({"error": "unknown job"}, status=404)
 
