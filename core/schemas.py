@@ -17,15 +17,19 @@ Runtime-only fields (populated by the pipeline, not the model) are annotated wit
 
 import ast
 import json
+import logging
 import os
+import re
 import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
 from json_repair import repair_json
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from pydantic.json_schema import SkipJsonSchema
+
+logger = logging.getLogger(__name__)
 
 
 def coerce_jsonish(value: Any) -> Any:
@@ -257,6 +261,120 @@ _COMIC_STYLE_HINT = "manhua/comic style: clean black ink line art, soft cel shad
 # Six resumable pipeline stages.
 Stage = Literal["extract", "storyboard", "portraits", "panels", "layout", "export"]
 
+# LLM sometimes fuses ``"field": "X"`` into a single key ``field："X”…`` / ``field: X``.
+_FUSED_FIELD_KEY = re.compile(
+    r"^(?P<field>[A-Za-z_][A-Za-z0-9_]*)\s*[:：]\s*(?P<rest>.*)$",
+    re.DOTALL,
+)
+
+
+def unwrap_quoted_fragment(text: str) -> str:
+    """Pull a value out of a fused-key remnant after ``field:`` / ``field：``."""
+    text = (text or "").strip()
+    if not text:
+        return ""
+    # Models often mix ASCII and curly quotes (e.g. ``"四·二八”运动现场``).
+    quoted = re.match(r'^["\'“‘「](.+?)["\'”’」]', text)
+    if quoted:
+        inner = quoted.group(1).strip()
+        if inner:
+            return inner
+    for left, right in (('"', '"'), ("'", "'"), ("“", "”"), ("「", "」")):
+        start = text.find(left)
+        if start < 0:
+            continue
+        end = text.find(right, start + 1)
+        if end > start:
+            inner = text[start + 1 : end].strip()
+            if inner:
+                return inner
+    for sep in (",", "，", "\n", ";", "；"):
+        if sep in text:
+            text = text.split(sep, 1)[0]
+            break
+    return text.strip().strip("\"'“”「」")
+
+
+# Backward-compatible alias used by earlier Setting patch / tests.
+_unwrap_quoted_name = unwrap_quoted_fragment
+_FUSED_NAME_KEY = re.compile(r"^name\s*[:：]\s*(.*)$", re.IGNORECASE | re.DOTALL)
+
+
+def repair_fused_keys(
+    obj: dict[str, Any],
+    fields: set[str] | frozenset[str],
+    *,
+    stash_value_into: str | None = None,
+) -> dict[str, Any]:
+    """Split fused LLM keys like ``name："四·二八”…`` back into real fields.
+
+    When the fused key's map-value is non-empty prose and ``stash_value_into`` is
+    set (e.g. ``description``), store that prose if the target field is blank.
+    """
+    out = dict(obj)
+    for key, val in list(out.items()):
+        key_s = str(key).strip()
+        match = _FUSED_FIELD_KEY.match(key_s)
+        if not match:
+            continue
+        field = match.group("field")
+        if field not in fields:
+            continue
+        if coerce_str(out.get(field)).strip():
+            out.pop(key, None)
+            continue
+        extracted = unwrap_quoted_fragment(match.group("rest"))
+        if not extracted:
+            extracted = match.group("rest").strip().strip("\"'“”「」")
+        if not extracted:
+            continue
+        out[field] = extracted
+        out.pop(key, None)
+        text = coerce_str(val).strip()
+        if text and stash_value_into and not coerce_str(out.get(stash_value_into)).strip():
+            out[stash_value_into] = text
+    return out
+
+
+def ensure_str_field(
+    obj: dict[str, Any],
+    field: str,
+    *,
+    aliases: tuple[str, ...] = (),
+    default: str = "unnamed",
+) -> dict[str, Any]:
+    """Ensure ``field`` is a non-empty string, using aliases then ``default``."""
+    out = dict(obj)
+    if coerce_str(out.get(field)).strip():
+        return out
+    for alias in aliases:
+        alt = out.get(alias)
+        if alt is not None and coerce_str(alt).strip():
+            out[field] = coerce_str(alt).strip()
+            return out
+    out[field] = default
+    return out
+
+
+def coerce_model_list(value: Any, model_cls: type[BaseModel]) -> list[Any]:
+    """Decode a list of objects and validate each item; drop unrecoverable ones."""
+    raw = coerce_object_list(value)
+    out: list[Any] = []
+    for index, item in enumerate(raw):
+        if isinstance(item, model_cls):
+            out.append(item)
+            continue
+        try:
+            out.append(model_cls.model_validate(item))
+        except (ValidationError, TypeError, ValueError) as exc:
+            logger.warning(
+                "dropping invalid %s at index %s: %s",
+                model_cls.__name__,
+                index,
+                exc,
+            )
+    return out
+
 
 class Appearance(BaseModel):
     """Structured character appearance — the sole information source for the
@@ -303,23 +421,27 @@ class CharacterAsset(BaseModel):
 
         Extract sometimes returns ``{"role": "Antagonist, …"}`` with no name;
         without this, ``StoryElements.model_validate`` aborts the whole job.
+        Also repairs fused keys like ``name："方鸿渐”…``.
         """
         value = coerce_jsonish(value)
         if not isinstance(value, dict):
             return value
-        name = value.get("name", None)
-        if name is not None and coerce_str(name).strip():
-            return value
+        out = repair_fused_keys(
+            value,
+            {"name", "role", "character_name", "character", "label", "l1_prompt"},
+        )
+        if coerce_str(out.get("name")).strip():
+            return out
         for key in ("character_name", "character", "label"):
-            alt = value.get(key)
+            alt = out.get(key)
             if alt is not None and coerce_str(alt).strip():
-                return {**value, "name": coerce_str(alt).strip()}
-        role_text = coerce_str(value.get("role")).strip()
+                return {**out, "name": coerce_str(alt).strip()}
+        role_text = coerce_str(out.get("role")).strip()
         if role_text:
             # Prefer the first comma-segment so "Antagonist, ETO Enforcer" → "Antagonist".
             stand_in = role_text.split(",", 1)[0].strip() or role_text
-            return {**value, "name": stand_in}
-        return {**value, "name": "unnamed"}
+            return {**out, "name": stand_in}
+        return {**out, "name": "unnamed"}
 
     @field_validator("appearance", mode="before")
     @classmethod
@@ -377,6 +499,35 @@ class Setting(BaseModel):
     description: str = ""
     scene_prompt: str = ""
 
+    @model_validator(mode="before")
+    @classmethod
+    def _ensure_name(cls, value: Any) -> Any:
+        """Fill missing ``name`` and repair fused LLM keys like ``name："四·二八”…``."""
+        value = coerce_jsonish(value)
+        if not isinstance(value, dict):
+            return value
+        out = repair_fused_keys(
+            value,
+            {"name", "description", "scene_prompt", "setting_name", "location", "place"},
+            stash_value_into="description",
+        )
+        if coerce_str(out.get("name")).strip():
+            return out
+        out = ensure_str_field(
+            out,
+            "name",
+            aliases=("setting_name", "location", "place", "label", "title", "scene"),
+            default="",
+        )
+        if coerce_str(out.get("name")).strip():
+            return out
+        desc = coerce_str(out.get("description")).strip()
+        if desc:
+            out["name"] = desc[:48]
+            return out
+        out["name"] = "unnamed"
+        return out
+
     @field_validator("name", "description", "scene_prompt", mode="before")
     @classmethod
     def _coerce_text_fields(cls, value: Any) -> Any:
@@ -398,10 +549,15 @@ class StoryElements(BaseModel):
         ),
     )
 
-    @field_validator("characters", "settings", mode="before")
+    @field_validator("characters", mode="before")
     @classmethod
-    def _coerce_asset_lists(cls, value: Any) -> Any:
-        return coerce_object_list(value)
+    def _coerce_characters(cls, value: Any) -> Any:
+        return coerce_model_list(value, CharacterAsset)
+
+    @field_validator("settings", mode="before")
+    @classmethod
+    def _coerce_settings(cls, value: Any) -> Any:
+        return coerce_model_list(value, Setting)
 
     @field_validator("style_guide", mode="before")
     @classmethod
@@ -450,6 +606,33 @@ class Panel(BaseModel):
     reference_characters: list[str] = Field(default_factory=list)
     size: str = "1024x1024"
 
+    @model_validator(mode="before")
+    @classmethod
+    def _ensure_panel_id(cls, value: Any) -> Any:
+        """Repair fused keys and guarantee a non-empty ``panel_id``."""
+        value = coerce_jsonish(value)
+        if not isinstance(value, dict):
+            return value
+        out = repair_fused_keys(
+            value,
+            {
+                "panel_id",
+                "action",
+                "setting_ref",
+                "dialogue",
+                "caption",
+                "sfx",
+                "size",
+            },
+            stash_value_into="action",
+        )
+        return ensure_str_field(
+            out,
+            "panel_id",
+            aliases=("id", "panel", "panelId"),
+            default="panel",
+        )
+
     @field_validator(
         "panel_id",
         "setting_ref",
@@ -496,7 +679,7 @@ class Storyboard(BaseModel):
     @field_validator("panels", mode="before")
     @classmethod
     def _coerce_panels(cls, value: Any) -> Any:
-        return coerce_object_list(value)
+        return coerce_model_list(value, Panel)
 
 
 class SourceSpan(BaseModel):

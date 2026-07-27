@@ -138,6 +138,39 @@ def test_llm_payload_coerces_common_shape_drifts():
     assert elements.settings[0].name == "Train"
     assert "tense" in elements.settings[0].description
 
+
+def test_setting_repairs_fused_name_key_with_chinese_colon():
+    """Regression: model emits ``{"name："四·二八”…": "..."}`` instead of name field."""
+    elements = StoryElements.model_validate(
+        {
+            "characters": [],
+            "settings": [
+                {
+                    "name": "正常场景",
+                    "description": "ok",
+                },
+                {
+                    'name："四·二八”运动现场': ("red flags fluttering violently in the wind"),
+                },
+                {
+                    "name: Courtyard": "stone path at dusk",
+                },
+            ],
+        }
+    )
+    assert elements.settings[0].name == "正常场景"
+    assert elements.settings[1].name == "四·二八"
+    assert "fluttering" in elements.settings[1].description
+    assert elements.settings[2].name == "Courtyard"
+    assert "stone path" in elements.settings[2].description
+
+
+def test_setting_fills_missing_name_from_aliases():
+    setting = Setting.model_validate({"location": "花果山", "description": "仙石顶"})
+    assert setting.name == "花果山"
+
+
+def test_llm_payload_coerces_panel_shape_drifts():
     board = Storyboard.model_validate(
         {
             "chapter_id": 3,
