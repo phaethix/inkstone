@@ -65,6 +65,8 @@ _PROJECT_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
 
 # In-memory job registry. Each job writes under comic_out/<project_id>/.
 JOBS: dict[str, dict] = {}
+# Purged job ids → wall-clock time purged; lookups return 410 until tombstone TTL.
+JOB_TOMBSTONES: dict[str, float] = {}
 JOBS_LOCK = threading.Lock()
 
 _TERMINAL_JOB_STATUSES = frozenset({"done", "error", "paused"})
@@ -89,32 +91,35 @@ def _mark_job_finished(job: dict) -> None:
 
 
 def _purge_expired_jobs_locked() -> None:
-    """Drop finished jobs past TTL. Caller must hold JOBS_LOCK."""
+    """Drop finished jobs past TTL and expire old tombstones. Caller must hold JOBS_LOCK."""
     now = time.time()
     ttl = _job_ttl_seconds()
     for job_id, job in list(JOBS.items()):
         finished = job.get("finished_at")
         if finished is not None and now - float(finished) > ttl:
             del JOBS[job_id]
+            JOB_TOMBSTONES[job_id] = now
+    for job_id, expired_at in list(JOB_TOMBSTONES.items()):
+        if now - float(expired_at) > ttl:
+            del JOB_TOMBSTONES[job_id]
 
 
 def _resolve_job(job_id: str) -> tuple[dict | None, str | None]:
     """Return (job, error) where error is 'expired', 'unknown', or None."""
     with JOBS_LOCK:
-        job = JOBS.get(job_id)
-        if job is None:
-            _purge_expired_jobs_locked()
-            return None, "unknown"
-        finished = job.get("finished_at")
-        if finished is not None and time.time() - float(finished) > _job_ttl_seconds():
-            del JOBS[job_id]
-            _purge_expired_jobs_locked()
-            return None, "expired"
         _purge_expired_jobs_locked()
         job = JOBS.get(job_id)
-        if job is None:
-            return None, "unknown"
-        return job, None
+        if job is not None:
+            finished = job.get("finished_at")
+            if finished is not None and time.time() - float(finished) > _job_ttl_seconds():
+                del JOBS[job_id]
+                JOB_TOMBSTONES[job_id] = time.time()
+                _purge_expired_jobs_locked()
+                return None, "expired"
+            return job, None
+        if job_id in JOB_TOMBSTONES:
+            return None, "expired"
+        return None, "unknown"
 
 
 def _load_dotenv() -> None:
@@ -385,6 +390,7 @@ def _start_job(
     seeded_progress, seeded_stage = _seed_job_progress(pid)
     base_elapsed = _seed_job_timing(pid)
     with JOBS_LOCK:
+        _purge_expired_jobs_locked()
         JOBS[job_id] = {
             "status": "running",
             "log": [],

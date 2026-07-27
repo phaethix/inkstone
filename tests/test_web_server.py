@@ -243,6 +243,7 @@ def _register_job(job_id: str, **overrides):
     finally:
         with server.JOBS_LOCK:
             server.JOBS.pop(job_id, None)
+            server.JOB_TOMBSTONES.pop(job_id, None)
 
 
 def test_request_stop_sets_cancel_event_and_flag():
@@ -346,6 +347,60 @@ def test_finished_job_within_ttl_returns_200(monkeypatch):
             status, payload = _request(httpd.server_port, "/api/job/jobok1", "GET")
     assert status == 200
     assert payload["status"] == "done"
+
+
+def test_start_job_purges_expired_jobs(monkeypatch):
+    monkeypatch.setenv("INKSTONE_JOB_TTL_SECONDS", "3600")
+    monkeypatch.setattr(
+        server.threading,
+        "Thread",
+        lambda *args, **kwargs: type("NoopThread", (), {"start": lambda self: None})(),
+    )
+    with _register_job(
+        "jobpurge1",
+        status="done",
+        finished_at=time.time() - 5000,
+    ):
+        assert "jobpurge1" in server.JOBS
+        server._start_job("text", "page", None, project_id="purgeproj")
+        assert "jobpurge1" not in server.JOBS
+        assert "jobpurge1" in server.JOB_TOMBSTONES
+    with server.JOBS_LOCK:
+        server.JOBS.clear()
+        server.JOB_TOMBSTONES.clear()
+
+
+def test_purged_job_returns_410_via_tombstone(monkeypatch):
+    monkeypatch.setenv("INKSTONE_JOB_TTL_SECONDS", "3600")
+    with _register_job(
+        "jobtomb1",
+        status="done",
+        finished_at=time.time() - 5000,
+    ):
+        with server.JOBS_LOCK:
+            server._purge_expired_jobs_locked()
+        assert "jobtomb1" not in server.JOBS
+        assert "jobtomb1" in server.JOB_TOMBSTONES
+        with _running_server() as httpd:
+            status, payload = _request(httpd.server_port, "/api/job/jobtomb1", "GET")
+    assert status == 410
+    assert "expired" in payload["error"].lower()
+
+
+def test_purged_job_returns_404_after_tombstone_ttl(monkeypatch):
+    monkeypatch.setenv("INKSTONE_JOB_TTL_SECONDS", "1")
+    with _register_job(
+        "jobtomb2",
+        status="done",
+        finished_at=time.time() - 10,
+    ):
+        with server.JOBS_LOCK:
+            server._purge_expired_jobs_locked()
+            server.JOB_TOMBSTONES["jobtomb2"] = time.time() - 10
+        with _running_server() as httpd:
+            status, payload = _request(httpd.server_port, "/api/job/jobtomb2", "GET")
+    assert status == 404
+    assert "unknown" in payload["error"].lower()
 
 
 def test_list_projects_from_disk(tmp_path, monkeypatch):
