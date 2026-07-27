@@ -96,7 +96,39 @@ def _model_snapshot(chat, image) -> ModelSnapshot:
     )
 
 
-def _input_fingerprint(
+def _structure_fingerprint(source_txt: str) -> str:
+    canonical = source_txt.replace("\r\n", "\n").replace("\r", "\n")
+    payload = json.dumps(
+        {"pipeline": _PIPELINE_STATE_VERSION, "source": canonical},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _render_fingerprint(
+    style_guide: str | None,
+    *,
+    snapshot: ModelSnapshot,
+    panel_continuity: bool,
+    l3_enabled: bool,
+) -> str:
+    payload = json.dumps(
+        {
+            "style_guide": style_guide or "",
+            "model_snapshot": snapshot.model_dump(),
+            "panel_continuity": panel_continuity,
+            "l3_enabled": l3_enabled,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _legacy_combined_fingerprint(
     source_txt: str,
     style_guide: str | None,
     *,
@@ -104,7 +136,7 @@ def _input_fingerprint(
     panel_continuity: bool,
     l3_enabled: bool,
 ) -> str:
-    """Fingerprint normalized source and every option that changes generated assets."""
+    """Legacy combined fingerprint (source + render inputs) for migration comparison."""
     canonical_source = source_txt.replace("\r\n", "\n").replace("\r", "\n")
     payload = json.dumps(
         {
@@ -120,6 +152,24 @@ def _input_fingerprint(
         separators=(",", ":"),
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _input_fingerprint(
+    source_txt: str,
+    style_guide: str | None,
+    *,
+    snapshot: ModelSnapshot,
+    panel_continuity: bool,
+    l3_enabled: bool,
+) -> str:
+    """Fingerprint normalized source and every option that changes generated assets."""
+    return _legacy_combined_fingerprint(
+        source_txt,
+        style_guide,
+        snapshot=snapshot,
+        panel_continuity=panel_continuity,
+        l3_enabled=l3_enabled,
+    )
 
 
 def _is_within(path: str | Path, root: Path) -> bool:
