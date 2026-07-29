@@ -43,7 +43,9 @@ STORYBOARD_TOOL = to_tool_schema(
     "Plan the comic panels for one chunk of text as structured data.",
 )
 
-# Terms scrubbed before sending text to the model. Extend per project policy.
+# Optional local scrub list. Empty by default: content policy is enforced by the
+# system prompt + upstream provider filters. Callers may pass a non-empty
+# ``banned`` list (or replace this tuple) when project policy needs local redaction.
 DEFAULT_BANNED_TERMS: tuple[str, ...] = ()
 
 
@@ -57,8 +59,9 @@ def sanitize_text(
 ) -> str:
     """Replace each banned term with a redaction block.
 
-    Keeps obviously policy-sensitive words out of the prompt so the provider's
-    content filter is less likely to reject the call.
+    With the default empty ``banned`` list this is a no-op. Pass terms explicitly
+    (or set ``DEFAULT_BANNED_TERMS``) when local scrubbing is desired; the system
+    prompt and upstream provider remain the primary content-policy controls.
     """
     cleaned = text
     for term in banned:
@@ -125,7 +128,8 @@ async def plan_storyboard(text: str, elements: StoryElements, *, chat=None) -> S
 PAGE_SCRIPT_TOOL = to_tool_schema(
     PageScript,
     "plan_page_script",
-    "为单个 chunk 的每一页分镜填写可选遗留审计字段（必含信息/因果链/原文回链；非质量闸门）。",
+    "Fill optional per-page audit fields for one chunk's storyboard "
+    "(required information, causal links, source spans). Not a quality gate.",
 )
 
 

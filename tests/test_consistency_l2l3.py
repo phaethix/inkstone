@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from core.comic.consistency import ConsistencyEngine
+from core.comic.consistency import ConsistencyEngine, _panel_reference_names
 from core.schemas import CharacterAsset, Panel
 
 
@@ -19,6 +19,19 @@ def _asset(name: str, portrait: str | None = None) -> CharacterAsset:
     a = CharacterAsset(name=name, l1_prompt=f"{name} desc")
     a.portrait_local = portrait
     return a
+
+
+def test_panel_reference_names_unions_both_fields():
+    """Models often fill only one field; L1/L2 must see the same union."""
+    assert _panel_reference_names(
+        Panel(panel_id="p1", reference_characters=["a", "b"], characters_present=[])
+    ) == ["a", "b"]
+    assert _panel_reference_names(
+        Panel(panel_id="p2", reference_characters=[], characters_present=["b"])
+    ) == ["b"]
+    assert _panel_reference_names(
+        Panel(panel_id="p3", reference_characters=["b"], characters_present=["a", "b"])
+    ) == ["b", "a"]
 
 
 def test_collect_reference_images_basic():
@@ -37,6 +50,14 @@ def test_collect_reference_images_basic():
         prev_panel_local="output/prev.png",
     )
     assert refs == ["assets/a.png", "assets/b.png", "output/prev.png"]
+
+
+def test_collect_reference_images_falls_back_to_characters_present():
+    eng = ConsistencyEngine()
+    chars = {"a": _asset("a", "assets/a.png")}
+    panel = Panel(panel_id="p1", characters_present=["a"], reference_characters=[])
+    refs = eng.collect_reference_images(panel=panel, characters_by_name=chars)
+    assert refs == ["assets/a.png"]
 
 
 def test_collect_reference_images_skips_missing_and_dedups():

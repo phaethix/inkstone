@@ -12,6 +12,7 @@ flow.
 
 import json
 import logging
+import re
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -25,6 +26,29 @@ logger = logging.getLogger(__name__)
 
 _lock = threading.Lock()
 _DEFAULT_LOG = "logs/errors.jsonl"
+
+# Strip credentials that providers sometimes echo in error bodies.
+_SECRET_RE = re.compile(
+    r"(?i)(authorization\s*[:=]\s*['\"]?bearer\s+)(\S+)"
+    r"|(api[_-]?key\s*[:=]\s*['\"]?)([^\s'\"]+)"
+    r"|(sk-[A-Za-z0-9_-]{8,})"
+)
+
+
+def _redact_secrets(text: str) -> str:
+    """Mask bearer tokens / API keys before persisting error payloads."""
+    if not text:
+        return text
+
+    def _sub(match: re.Match[str]) -> str:
+        g = match.groups()
+        if g[0]:
+            return f"{g[0]}***"
+        if g[2]:
+            return f"{g[2]}***"
+        return "***"
+
+    return _SECRET_RE.sub(_sub, text)
 
 
 def _log_path() -> Path:
@@ -77,9 +101,9 @@ def collect_error(
             "api_method": api_method,
             "prompt": (prompt or "")[:5000],
             "error_type": error_type,
-            "error_message": (error_message or "")[:3000],
+            "error_message": _redact_secrets(error_message or "")[:3000],
             "status_code": status_code,
-            "response_body": (response_body or "")[:5000],
+            "response_body": _redact_secrets(response_body or "")[:5000],
             "retry_count": retry_count,
         }
         line = json.dumps(record, ensure_ascii=False)

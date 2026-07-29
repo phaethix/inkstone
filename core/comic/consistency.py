@@ -45,6 +45,31 @@ DEFAULT_PORTRAIT_STYLE = (
     "soft cel shading, flat colors, consistent character reference"
 )
 
+def _panel_reference_names(panel: "Panel | dict | object") -> list[str]:
+    """Ordered unique character names for L2 refs (and L3 portrait pick).
+
+    ``reference_characters`` is the preferred list; ``characters_present`` is
+    appended when the model only filled the prompt-side field (or left refs
+    incomplete). Order is stable and de-duplicated.
+    """
+    if isinstance(panel, Panel):
+        primary = list(panel.reference_characters or [])
+        present = list(panel.characters_present or [])
+    elif isinstance(panel, dict):
+        primary = list(panel.get("reference_characters", []) or [])
+        present = list(panel.get("characters_present", []) or [])
+    else:
+        return []
+    names: list[str] = []
+    seen: set[str] = set()
+    for name in primary + present:
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        names.append(name)
+    return names
+
+
 # Below this absolute panel-face size (px, min side), a face swap on a far/wide
 # shot produces a visible seam and Haar detection is unreliable, so L3 is skipped
 # and the t2i/i2i result is kept as-is.
@@ -155,13 +180,12 @@ class ConsistencyEngine:
                 prev_panel_local=prev_local,
             )
             img = provider.generate_single_image(panel_prompt, refs, size)
+
+        Name order: ``reference_characters`` first, then any ``characters_present``
+        not already listed. Models often fill only one of the two fields; using
+        both keeps L1 prompt subjects aligned with L2 reference portraits.
         """
-        if isinstance(panel, Panel):
-            names = list(panel.reference_characters)
-        elif isinstance(panel, dict):
-            names = list(panel.get("reference_characters", []) or [])
-        else:
-            names = []
+        names = _panel_reference_names(panel)
 
         paths: list[str] = []
         seen: set[str] = set()

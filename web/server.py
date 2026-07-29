@@ -84,11 +84,13 @@ def _job_ttl_seconds() -> int:
 
 
 def _append_job_log(job: dict, message: str) -> None:
-    log = job["log"]
-    log.append(message)
-    overflow = len(log) - _JOB_LOG_MAX_LINES
-    if overflow > 0:
-        del log[:overflow]
+    """Append one log line under ``JOBS_LOCK`` (pipeline thread + GET race-safe)."""
+    with JOBS_LOCK:
+        log = job["log"]
+        log.append(message)
+        overflow = len(log) - _JOB_LOG_MAX_LINES
+        if overflow > 0:
+            del log[:overflow]
 
 
 def _mark_job_finished(job: dict) -> None:

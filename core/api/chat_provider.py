@@ -30,7 +30,9 @@ from core.schemas import decode_tool_arguments
 
 logger = logging.getLogger(__name__)
 
-BASE_URL = "https://apihub.agnes-ai.com/v1"
+# TODO(temp): domestic-access workaround — switch back to apihub.agnes-ai.com
+# (or env-configurable base URL) once .com is reachable again for all users.
+BASE_URL = "https://apihub.agnes-ai.cn/v1"
 
 
 class ChatProvider(ABC):

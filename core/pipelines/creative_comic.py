@@ -38,7 +38,11 @@ except ImportError:  # pragma: no cover - exercised only outside Windows
 from PIL import Image
 
 from core.api import get_chat_provider, get_image_provider
-from core.comic.consistency import DEFAULT_PORTRAIT_STYLE, ConsistencyEngine
+from core.comic.consistency import (
+    DEFAULT_PORTRAIT_STYLE,
+    ConsistencyEngine,
+    _panel_reference_names,
+)
 from core.comic.export import ExportEngine
 from core.comic.identity import ensure_character_l1, merge_settings, suggestion_from_alias
 from core.comic.layout import LayoutEngine, PanelImage
@@ -772,8 +776,20 @@ async def _creative_comic(
         seen_ids: set[str] = set()
         pending: list[tuple[str, int, object]] = []
         for panel_index, panel in enumerate(board.panels):
+            # Model-structured output sometimes reuses panel_id. State keys are
+            # index-based, so remint a unique source id instead of aborting the run.
             if panel.panel_id in seen_ids:
-                raise ValueError(f"duplicate panel_id in storyboard: {panel.panel_id!r}")
+                original = panel.panel_id
+                n = 2
+                while f"{original}__{n}" in seen_ids:
+                    n += 1
+                panel.panel_id = f"{original}__{n}"
+                logger.warning(
+                    "duplicate panel_id %r in storyboard chunk %s; remapped to %r",
+                    original,
+                    ci,
+                    panel.panel_id,
+                )
             seen_ids.add(panel.panel_id)
             state_key = _stored_panel_key(state, ci, panel_index)
             if panel_key_filter is not None and state_key not in panel_key_filter:
@@ -795,7 +811,11 @@ async def _creative_comic(
             style_for_panel: str = panel_style,
             chunk_index: int = panel_chunk_index,
         ) -> GeneratedPanel:
-            chars = [state.characters[n] for n in panel.characters_present if n in state.characters]
+            # Same name set for L1 prompt subjects and L2/L3 refs so a model that
+            # fills only one of characters_present / reference_characters cannot
+            # silently desync text conditioning from portrait conditioning.
+            panel_names = _panel_reference_names(panel)
+            chars = [state.characters[n] for n in panel_names if n in state.characters]
             prompt = engine.build_panel_prompt(
                 characters=chars,
                 setting=_resolve_setting(state, elements_for_panel, panel.setting_ref),
@@ -819,7 +839,7 @@ async def _creative_comic(
             portrait_ref = next(
                 (
                     state.characters[n].portrait_local
-                    for n in panel.reference_characters
+                    for n in _panel_reference_names(panel)
                     if n in state.characters and state.characters[n].portrait_local
                 ),
                 None,

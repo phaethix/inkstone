@@ -12,7 +12,9 @@ from utils.image import resolve_image_ref_async
 
 logger = logging.getLogger(__name__)
 
-BASE_URL = "https://apihub.agnes-ai.com/v1"
+# TODO(temp): domestic-access workaround — switch back to apihub.agnes-ai.com
+# (or env-configurable base URL) once .com is reachable again for all users.
+BASE_URL = "https://apihub.agnes-ai.cn/v1"
 
 
 class AgnesImageAPI(ImageProvider):
