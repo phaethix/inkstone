@@ -45,6 +45,7 @@ DEFAULT_PORTRAIT_STYLE = (
     "soft cel shading, flat colors, consistent character reference"
 )
 
+
 def _panel_reference_names(panel: "Panel | dict | object") -> list[str]:
     """Ordered unique character names for L2 refs (and L3 portrait pick).
 
