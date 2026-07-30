@@ -22,6 +22,7 @@ def test_panel_progress_counts_matches_estimate():
     )
     state = ProjectState(
         project_id="p",
+        render_mode="panel_compose",
         chunk_cache={"0": ChunkCache(storyboard=board)},
         panels_done=[f"c0000-p{i:04d}" for i in range(5)],
     )
@@ -40,6 +41,7 @@ def test_estimate_progress_scales_with_panels_done():
     )
     state = ProjectState(
         project_id="p",
+        render_mode="panel_compose",
         chunk_cache={"0": ChunkCache(storyboard=board)},
         panels_done=[f"c0000-p{i:04d}" for i in range(5)],
     )
@@ -54,6 +56,7 @@ def test_estimate_progress_nonzero_on_partial_project():
     )
     state = ProjectState(
         project_id="p",
+        render_mode="panel_compose",
         skipped_chunks=["0", "1"],
         chunk_cache={"2": ChunkCache(storyboard=board)},
         panels_done=[f"c0002-p{i:04d}" for i in range(10)],

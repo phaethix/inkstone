@@ -207,6 +207,9 @@ def _state_snapshot(state: ProjectState) -> dict:
         "skipped_chunks": list(state.skipped_chunks),
         "needs_review": [s.model_dump() for s in state.needs_review],
         "stale_panels": list(state.stale_panels),
+        "render_mode": state.render_mode,
+        "pages_done": list(state.pages_done),
+        "skipped_pages": list(state.skipped_pages),
     }
 
 
@@ -245,16 +248,40 @@ def _fill_job_from_paused(job: dict, paused: PausedRun) -> None:
         ]
 
 
-def _seed_job_progress(project_id: str) -> tuple[float, str]:
-    """Seed UI progress from an existing checkpoint so resume does not flash 0%."""
+def _load_checkpoint_state(project_id: str) -> ProjectState | None:
+    """Load project state from disk, or None if missing or unreadable."""
     state_path = OUTPUT_DIR / project_id / "state.json"
     if not state_path.is_file():
-        return 0.0, "init"
+        return None
     try:
-        state = ProjectState.load(state_path)
+        return ProjectState.load(state_path)
     except Exception:  # noqa: BLE001
+        return None
+
+
+def _seed_job_progress(project_id: str) -> tuple[float, str]:
+    """Seed UI progress from an existing checkpoint so resume does not flash 0%."""
+    state = _load_checkpoint_state(project_id)
+    if state is None:
         return 0.0, "init"
     return estimate_progress(state), "resume"
+
+
+def _seed_job_resume_fields(project_id: str) -> dict:
+    """Seed render_mode/pages_done/skipped_pages from checkpoint when resuming."""
+    state = _load_checkpoint_state(project_id)
+    if state is None:
+        return {
+            "render_mode": "finished_page",
+            "pages_done": [],
+            "skipped_pages": [],
+        }
+    snapshot = _state_snapshot(state)
+    return {
+        "render_mode": snapshot["render_mode"],
+        "pages_done": snapshot["pages_done"],
+        "skipped_pages": snapshot["skipped_pages"],
+    }
 
 
 def _timing_path(project_id: str) -> Path:
@@ -400,6 +427,7 @@ def _start_job(
     pid = validate_project_id(project_id) if project_id else uuid.uuid4().hex[:12]
     job_id = uuid.uuid4().hex[:12]
     seeded_progress, seeded_stage = _seed_job_progress(pid)
+    seeded_resume = _seed_job_resume_fields(pid)
     base_elapsed = _seed_job_timing(pid)
     with JOBS_LOCK:
         _purge_expired_jobs_locked()
@@ -413,6 +441,7 @@ def _start_job(
             "skipped_chunks": [],
             "needs_review": [],
             "stale_panels": [],
+            **seeded_resume,
             "project_id": pid,
             "pause_reason": None,
             "base_elapsed": base_elapsed,
@@ -517,6 +546,9 @@ def list_projects() -> list[dict]:
                 "id": entry.name,
                 "stage": state.stage,
                 "panels_done": list(state.panels_done),
+                "render_mode": state.render_mode,
+                "pages_done": list(state.pages_done),
+                "skipped_pages": list(state.skipped_pages),
                 "has_timing": (entry / "timing.json").is_file(),
             }
         )
@@ -614,6 +646,9 @@ class Handler(BaseHTTPRequestHandler):
                     "skipped_chunks": job.get("skipped_chunks", []),
                     "needs_review": job.get("needs_review", []),
                     "stale_panels": job.get("stale_panels", []),
+                    "render_mode": job.get("render_mode", "finished_page"),
+                    "pages_done": job.get("pages_done", []),
+                    "skipped_pages": job.get("skipped_pages", []),
                     "project_id": job.get("project_id"),
                     "pause_reason": job.get("pause_reason"),
                     "elapsed_seconds": job.get("elapsed_seconds"),

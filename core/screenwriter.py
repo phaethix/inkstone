@@ -13,7 +13,13 @@ import logging
 import requests
 
 from core.api import get_chat_provider
-from core.schemas import PageScript, Storyboard, StoryElements, to_tool_schema
+from core.schemas import (
+    ComicPagePlanSet,
+    PageScript,
+    Storyboard,
+    StoryElements,
+    to_tool_schema,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +35,9 @@ SYSTEM_PROMPT = (
     "Lettering: put narration/time-place in caption, spoken lines in dialogue, "
     "and onomatopoeia in sfx — leave a field null when unused. "
     "Art-direction fields (style_guide, scene_prompt, action, l1_prompt) may stay "
-    "in English when that helps image models."
+    "in English when that helps image models. "
+    "When planning finished pages, describe manga geometry (splash/inset/diagonal), "
+    "never only 2x2 or 3x2 grids."
 )
 
 EXTRACT_TOOL = to_tool_schema(
@@ -41,6 +49,12 @@ STORYBOARD_TOOL = to_tool_schema(
     Storyboard,
     "plan_storyboard",
     "Plan the comic panels for one chunk of text as structured data.",
+)
+PAGE_PLAN_TOOL = to_tool_schema(
+    ComicPagePlanSet,
+    "plan_comic_pages",
+    "Plan finished comic pages for one text unit: per-page purpose, "
+    "dynamic layout_intent, and panel specs with source-language lettering.",
 )
 
 # Optional local scrub list. Empty by default: content policy is enforced by the
@@ -123,6 +137,30 @@ async def plan_storyboard(text: str, elements: StoryElements, *, chat=None) -> S
         _tool_choice("plan_storyboard"),
     )
     return Storyboard.model_validate(args)
+
+
+async def plan_comic_pages(text: str, elements: StoryElements, *, chat=None) -> ComicPagePlanSet:
+    """Plan finished readable pages for ``text`` given ``elements``."""
+    chat = chat or get_chat_provider()
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": (
+                f"{sanitize_text(text)}\n\n"
+                f"Known elements:\n{elements.model_dump_json()}\n\n"
+                "Plan finished readable pages (not a flat 2x2 collage). "
+                "Each page needs purpose, layout_intent, and panels with "
+                "caption/dialogue/sfx in the source language."
+            ),
+        },
+    ]
+    args = await chat.chat_function_call(
+        messages,
+        [PAGE_PLAN_TOOL],
+        _tool_choice("plan_comic_pages"),
+    )
+    return ComicPagePlanSet.model_validate(args)
 
 
 PAGE_SCRIPT_TOOL = to_tool_schema(

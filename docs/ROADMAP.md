@@ -32,10 +32,10 @@ When completing a change:
 
 | Area | Status | Notes |
 |---|---|---|
-| Core TXT → comic pipeline | Released | Segmentation, extraction, portraits, storyboard, panels, layout, PDF / Webtoon export, `state.json` resume |
+| Core TXT → comic pipeline | Released | Segmentation, extraction, portraits, storyboard, panels, layout, PDF / Webtoon export, `state.json` resume. **Default render mode is `finished_page`** (one image per comic page); `panel_compose` is the explicit legacy fallback (`INKSTONE_RENDER_MODE=panel_compose`). |
 | Providers and reliability | Released | Agnes + OpenAI-compatible routing, rate limit, retry and JSONL error collection. **Local temp:** default Agnes `BASE_URL` is `apihub.agnes-ai.cn` (domestic reachability); revert to `.com` or make env-configurable when access stabilizes (`TODO(temp)` in `core/api/chat_provider.py` / `agnes_image.py`). |
 | Cross-chapter identity | Released | L1/L2 consistency, alias review, stale-only redraw; L3 is experimental and off by default |
-| Web UI and unattended supervisor | Released | Local browser UI, cancel, retry, review, deadline pause / resume |
+| Web UI and unattended supervisor | Released | Local browser UI, cancel, retry, review, deadline pause / resume; job/project JSON exposes `render_mode`, `pages_done`, `skipped_pages` |
 | Colab operations | Released | Background jobs, download progress, alias adopt after 404/401 |
 | Page-PDF recovery and source-language dialogue prompt | Released | Existing panels can be re-exported to PDF; new runs request dialogue in source language |
 | Density estimate (D1) | Prototype on `main` | CLI estimator only; A/B/C labels match product brief; does not constrain generate |
