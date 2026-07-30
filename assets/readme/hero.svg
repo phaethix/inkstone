@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="hero-title hero-desc">
+  <title id="hero-title">Inkstone — novel to series comic generator</title>
+  <desc id="hero-desc">Inkstone reads a txt novel and produces comic pages with cross-panel character consistency using the free Agnes multimodal API. No GPU, no paid key.</desc>
+
+  <defs>
+    <!-- Subtle dot-grid for ink-stone texture -->
+    <pattern id="dot-grid" width="28" height="28" patternUnits="userSpaceOnUse">
+      <circle cx="14" cy="14" r="1.2" fill="#2A3340" fill-opacity="0.45"/>
+    </pattern>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="360" rx="24" fill="#1B212C"/>
+  <rect width="1200" height="360" rx="24" fill="url(#dot-grid)"/>
+
+  <!-- === LEFT: Title Block === -->
+  <g transform="translate(56, 44)" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+
+    <!-- Eyebrow -->
+    <text y="0" fill="#8A8594" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" font-weight="580" letter-spacing="2.5">
+      NOVEL → SERIES COMIC
+    </text>
+
+    <!-- Vermilion accent bar -->
+    <rect y="16" width="48" height="3.5" rx="2" fill="#C0412B"/>
+
+    <!-- Title -->
+    <text y="104" fill="#F0ECE4" font-size="76" font-weight="780" letter-spacing="-1.6">
+      Inkstone
+    </text>
+
+    <!-- Subtitle -->
+    <text y="158" fill="#B8B2C0" font-size="22" font-weight="440">
+      Grind your novel into comics.
+    </text>
+
+    <!-- Description -->
+    <text y="196" fill="#777088" font-size="15" font-weight="420">
+      Free Agnes multimodal API. No GPU, no paid key, no paid plan.
+    </text>
+
+    <!-- Key concept labels -->
+    <g transform="translate(0, 232)" font-size="12" font-weight="560">
+      <rect x="0" y="-11" width="106" height="22" rx="11" fill="#2A3340"/>
+      <text x="53" y="4" text-anchor="middle" fill="#8A8594">AGNES-NATIVE</text>
+
+      <rect x="116" y="-11" width="82" height="22" rx="11" fill="#2A3340"/>
+      <text x="157" y="4" text-anchor="middle" fill="#8A8594">ZERO-COST</text>
+
+      <rect x="208" y="-11" width="92" height="22" rx="11" fill="#2A3340"/>
+      <text x="254" y="4" text-anchor="middle" fill="#8A8594">LOCAL-FIRST</text>
+    </g>
+  </g>
+
+  <!-- === RIGHT: Comic Panel Motif === -->
+  <!-- The project produces comic pages — showing panel frames with abstract
+       comic art is project-native proof, not generic decoration. -->
+  <g transform="translate(808, 34)">
+    <!-- Outer comic page frame -->
+    <rect x="0" y="0" width="316" height="292" rx="12" fill="none" stroke="#2A3340" stroke-width="2.5"/>
+
+    <!-- Panel 1 (top-left): Character figure -->
+    <g transform="translate(12, 12)">
+      <rect x="0" y="0" width="142" height="130" rx="6" fill="none" stroke="#2A3340" stroke-width="1.5"/>
+      <!-- Abstract figure -->
+      <g transform="translate(30, 14)" fill="none" stroke="#3A4048" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <!-- Head -->
+        <circle cx="40" cy="18" r="14" stroke-width="2"/>
+        <!-- Body -->
+        <path d="M40 32v38"/>
+        <!-- Arms -->
+        <path d="M40 40L18 62M40 40L62 62"/>
+        <!-- Legs -->
+        <path d="M40 70L22 98M40 70L58 98"/>
+      </g>
+      <!-- Hair / detail -->
+      <path d="M28 12Q40 0 52 12" fill="none" stroke="#3A4048" stroke-width="2" stroke-linecap="round"/>
+    </g>
+
+    <!-- Panel 2 (top-right): Dialogue bubbles -->
+    <g transform="translate(162, 12)">
+      <rect x="0" y="0" width="142" height="130" rx="6" fill="none" stroke="#2A3340" stroke-width="1.5"/>
+      <!-- Speech bubble -->
+      <g fill="none" stroke="#3A4048" stroke-width="1.8">
+        <ellipse cx="50" cy="38" rx="34" ry="22"/>
+        <path d="M30 50L20 68L44 56" stroke-linecap="round" stroke-linejoin="round"/>
+        <!-- Thought bubble chain -->
+        <circle cx="100" cy="74" r="5" fill="#2A3340" fill-opacity="0.4" stroke="none"/>
+        <circle cx="92" cy="82" r="3.5" fill="#2A3340" fill-opacity="0.3" stroke="none"/>
+        <circle cx="86" cy="88" r="2" fill="#2A3340" fill-opacity="0.2" stroke="none"/>
+      </g>
+      <!-- Dialogue text lines -->
+      <g fill="#3A4048" fill-opacity="0.35">
+        <rect x="22" y="32" width="42" height="3" rx="1.5"/>
+        <rect x="26" y="40" width="34" height="3" rx="1.5"/>
+      </g>
+    </g>
+
+    <!-- Panel 3 (bottom): Action scene -->
+    <g transform="translate(12, 150)">
+      <rect x="0" y="0" width="292" height="130" rx="6" fill="none" stroke="#2A3340" stroke-width="1.5"/>
+      <!-- Horizon / landscape -->
+      <path d="M0 70Q60 48 120 64Q180 80 230 56Q260 46 292 58" fill="none" stroke="#3A4048" stroke-width="2" stroke-opacity="0.5"/>
+      <!-- Speed / action lines -->
+      <g stroke="#3A4048" stroke-width="1.2" stroke-opacity="0.35" stroke-linecap="round">
+        <line x1="20" y1="18" x2="80" y2="18"/>
+        <line x1="10" y1="30" x2="104" y2="30"/>
+        <line x1="40" y1="42" x2="120" y2="42"/>
+        <line x1="160" y1="22" x2="260" y2="22"/>
+        <line x1="180" y1="36" x2="280" y2="36"/>
+      </g>
+      <!-- Simple structure / building silhouette -->
+      <rect x="200" y="20" width="36" height="50" rx="2" fill="#2A3340" fill-opacity="0.35" stroke="none"/>
+      <rect x="212" y="34" width="12" height="16" rx="1" fill="#1B212C" fill-opacity="0.5" stroke="none"/>
+    </g>
+
+    <!-- Gutter between top panels -->
+    <line x1="12" y1="142" x2="304" y2="142" stroke="#2A3340" stroke-width="1.5"/>
+  </g>
+
+  <!-- === Vermilion seal circle === -->
+  <g transform="translate(1118, 302)">
+    <circle cx="0" cy="0" r="22" fill="none" stroke="#C0412B" stroke-width="2" stroke-opacity="0.45"/>
+    <circle cx="0" cy="0" r="15" fill="#C0412B" fill-opacity="0.08"/>
+    <text x="0" y="5" text-anchor="middle" fill="#C0412B" fill-opacity="0.55" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="12" font-weight="680">砚</text>
+  </g>
+</svg>

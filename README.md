@@ -1,12 +1,5 @@
 <p align="center">
-  <img src="assets/logo.svg" width="220" alt="Inkstone" />
-</p>
-
-<h1 align="center">Inkstone</h1>
-
-<p align="center">
-  <b>Local-first, open-source <i>novel → series comic</i> generator.</b><br>
-  <sub>Built on the free Agnes multimodal API — no GPU, no paid key, grind your novel into comics.</sub>
+  <img src="assets/readme/hero.svg" width="100%" alt="Inkstone — novel to series comic generator" />
 </p>
 
 <p align="center">
@@ -19,32 +12,40 @@
 
 > *"Grind your novel into comics."*
 
-**Inkstone** is a local-first, open-source **novel → series comic** generator. It reads a local `txt` novel and, through the free **Agnes** multimodal API, produces comic pages with cross-panel character consistency — exported as **PDF / PNG**. No GPU, no paid plan: just one free API key. Image generation sits behind a pluggable `ImageProvider` (Agnes by default; `PROVIDER=openai_compat` targets Agnes-protocol-compatible gateways — see Configuration).
-
-## Table of Contents
-
-- [Features](#features)
-- [Why Inkstone](#why-inkstone)
-- [Quick Start](#quick-start)
-- [Gallery](#gallery)
-- [Web UI](#web-ui)
-- [Configuration](#configuration)
-- [How it works](#how-it-works)
-- [Resources](#resources)
-- [Contributing](#contributing)
+**Inkstone** reads a local `txt` novel and, through the free **Agnes** multimodal API, produces comic pages with cross-panel character consistency — exported as **PDF / PNG**. No GPU, no paid plan: just one free API key.
 
 ---
 
-## Features
+<p align="center">
+  <img src="assets/readme/section-gallery.svg" width="100%" alt="Gallery — see what Inkstone makes" />
+</p>
+
+<p align="center">
+  <img src="assets/samples/P01.png" width="32%" alt="Generated comic panel 1" />
+  <img src="assets/samples/P04.png" width="32%" alt="Generated comic panel 4" />
+  <img src="assets/samples/P07.png" width="32%" alt="Generated comic panel 7" />
+</p>
+
+These panels were generated from the bundled sample (`examples/scene1.txt`) with the default L1+L2 pipeline — no L3, straight from the model. Consistency here is "medium" by design: the honest ceiling of a free, no-GPU model. More samples, including the full webtoon strip, are at:
+
+<p align="center">
+  <b><a href="https://phaethix.github.io/inkstone/">phaethix.github.io/inkstone</a></b>
+</p>
+
+<p align="center">
+  <img src="assets/readme/section-features.svg" width="100%" alt="What Inkstone does" />
+</p>
 
 - **Free & local-first** — one `AGNES_API_KEY`, no GPU, no paid plan.
 - **Agnes-native multimodal** — `agnes-2.0-flash` for scripting, `agnes-image-2.1-flash` for t2i and i2i consistency.
-- **Pluggable `ImageProvider`** — Agnes by default; `PROVIDER=openai_compat` for Agnes-protocol-compatible `/images/generations` gateways (i2i uses `extra_body.image`). Vanilla OpenAI/Gemini need a small `_build_payload` subclass.
-- **Character consistency engine** — L1 prompt hard-description + L2 reference img2img, the robust path under no-GPU. An optional L3 PIL/OpenCV face overlay exists but is **off by default** (it deforms stylized faces when pose/lighting differ, so it's opt-in via `INKSTONE_L3=1`).
+- **Pluggable `ImageProvider`** — Agnes by default; `PROVIDER=openai_compat` for Agnes-protocol-compatible `/images/generations` gateways (i2i uses `extra_body.image`).
+- **Character consistency engine** — L1 prompt hard-description + L2 reference img2img, the robust path under no-GPU. An optional L3 PIL/OpenCV face overlay is **off by default** (opt-in via `INKSTONE_L3=1`).
 - **Reliability layer** — token-bucket rate limiting, exponential-backoff retries, and error collection against 429/503.
 - **Resumable long-form runs** — chapter-split generation with a persisted `state.json` checkpoint.
 
-## Why Inkstone
+<p align="center">
+  <img src="assets/readme/section-why.svg" width="100%" alt="Why Inkstone" />
+</p>
 
 Every novel-to-comic tool we surveyed in 2026 runs on a **paid** model — Gemini, OpenAI, Doubao, Wenxin, or Claude. Inkstone is built differently: it is **Agnes-native and zero-cost**, the one combination no other open-source generator occupies.
 
@@ -57,7 +58,29 @@ Inkstone is an **independent implementation, not a fork** — inspired by [`lcy3
 
 > **An honest trade-off.** Free, cloud-only Agnes with no GPU caps how far character consistency can reach. The strongest approaches (IP-Adapter / InsightFace) need a local GPU running SDXL/Flux — incompatible with Inkstone's zero-cost premise. So Inkstone trades *perfect* consistency for *zero-cost + no-GPU + out-of-the-box*, using L1+L2+L3 as the best feasible strategy. Stated plainly, not hidden.
 
-## Quick Start
+<p align="center">
+  <img src="assets/readme/section-how.svg" width="100%" alt="How it works" />
+</p>
+
+<p align="center">
+  <img src="assets/readme/pipeline.svg" width="100%" alt="Pipeline: Split → Extract → Board → Paint → Export" />
+</p>
+
+A `txt` novel is split into segments → characters & scenes are extracted with `agnes-2.0-flash` → storyboard prompts are generated → the `ImageProvider` (Agnes by default) paints each panel → panels are laid out and exported to PDF/PNG.
+
+The core challenge — **cross-panel character consistency without a GPU** — is handled by a layered strategy:
+
+| Layer | Strategy | Default |
+|-------|----------|:-------:|
+| **L1** | Appearance-derived prompt hard-description | ✅ on |
+| **L2** | Reference img2img from prior panels | ✅ on |
+| **L3** | PIL/OpenCV face overlay | ❌ off (opt-in) |
+
+Backed by a reliability layer (rate limiting, retries, and `state.json` resumption). Alias variants are flagged for **human merge/dismiss** (never silent); merges mark affected panels stale for selective redraw.
+
+<p align="center">
+  <img src="assets/readme/section-quickstart.svg" width="100%" alt="Quick Start" />
+</p>
 
 > **Prerequisites:** Python 3.10+, [conda](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html), and a free [Agnes](https://agnes-ai.com) API key (Free Access tier).
 
@@ -77,7 +100,7 @@ cp .env.example .env
 #    then open .env and set AGNES_API_KEY=sk-xxx
 ```
 
-Generate your first panel — the runnable example lives at `examples/first_panel.py`:
+Generate your first panel:
 
 ```console
 $ python examples/first_panel.py   # run from the repo root
@@ -92,26 +115,16 @@ $ python -m pytest
 # pipeline resume and content-safety behavior without real API calls
 ```
 
-> **Status:** M1–M4 (provider foundation, comic pipeline, long-form hardening and open-source release) have shipped. See the [Roadmap](docs/ROADMAP.md) for released capability, local prototypes and the approved long-form plan.
-
 ### One-click launch
-
-Prefer a single command? The launcher sets up the environment, installs deps, loads your key from `.env`, and runs the generator:
 
 ```bash
 ./scripts/start.sh                                   # runs examples/scene1.txt -> comic_out (page PDF)
 ./scripts/start.sh examples/sample_novel.txt --format webtoon
 ```
 
-On Windows use `.\scripts\start.ps1`. Both reuse an already-active `venv`/`conda` env instead of nesting one. Sample inputs ship in `examples/` (`scene1.txt`, `sample_novel.txt`).
+On Windows use `.\scripts\start.ps1`. Sample inputs ship in `examples/` (`scene1.txt`, `sample_novel.txt`).
 
-## Gallery
-
-Sample panels and the full webtoon strip are rendered live on the GitHub Pages site:
-
-**[https://phaethix.github.io/inkstone/](https://phaethix.github.io/inkstone/)**
-
-They were generated from the bundled sample (`examples/scene1.txt`) with the default L1+L2 pipeline — no L3, straight from the model. Consistency here is "medium" by design — the honest ceiling of a free, no-GPU model. L1 prompt hard-description + L2 reference img2img carry identity; the optional L3 face overlay is off by default because it deforms stylized faces.
+> **Status:** M1–M4 (provider foundation, comic pipeline, long-form hardening and open-source release) have shipped. See the [Roadmap](docs/ROADMAP.md) for released capability, local prototypes and the approved long-form plan.
 
 ## Web UI
 
@@ -122,15 +135,9 @@ AGNES_API_KEY=sk-xxx python web/server.py
 # open http://127.0.0.1:8000
 ```
 
-Paste a novel, optionally set a **project id** (resume the same `comic_out/<id>/`), pick webtoon/page, and hit Generate. The backend runs an **unattended supervisor** around `creative_comic`: timeouts and free-tier 503s are retried automatically with backoff until the comic finishes, or until the wall-clock deadline (`INKSTONE_RUN_DEADLINE_HOURS`, default **24h**) pauses the job with progress saved — same project id continues later. Artifacts land under `comic_out/<project_id>/`. After generation, the UI surfaces **alias review** (merge / dismiss — never silent), **skipped** panels with retry, and **redraw affected** after a merge.
+Paste a novel, optionally set a **project id** (resume the same `comic_out/<id>/`), pick webtoon/page, and hit Generate. The backend runs an **unattended supervisor** around `creative_comic`: timeouts and free-tier 503s are retried automatically with backoff until the comic finishes, or until the wall-clock deadline (`INKSTONE_RUN_DEADLINE_HOURS`, default **24h**) pauses the job with progress saved. Artifacts land under `comic_out/<project_id>/`. After generation, the UI surfaces **alias review** (merge / dismiss — never silent), **skipped** panels with retry, and **redraw affected** after a merge.
 
-The key is read from the environment or `.env`.
-
-**The same `web/index.html` is also deployed to GitHub Pages.** The SPA auto-detects
-whether a backend is present: locally it generates your comic; on the static site it
-runs in *demo mode* and showcases a real generated sample with the **identical interface
-and operations**. What you run locally is what's on the page — see
-`https://phaethix.github.io/inkstone/` (goes live once Pages is enabled in repo settings).
+**The same `web/index.html` is also deployed to GitHub Pages.** The SPA auto-detects whether a backend is present: locally it generates your comic; on the static site it runs in *demo mode* with the identical interface. See `https://phaethix.github.io/inkstone/`.
 
 ## Configuration
 
@@ -139,29 +146,25 @@ Inkstone is configured through environment variables (copy `.env.example` → `.
 | Variable | Required | Default | Description |
 |----------|:---:|---|---|
 | `AGNES_API_KEY` | ✅ | — | Free Access tier key; the only thing ordinary users need. |
-| `AGNES_RATE_LIMIT` | | `20` | Free-tier text + image-1K RPM ceiling (× 0.8 safety factor). Official free: text 20, image 1K 20, 2K 10, 3K/4K 1. |
+| `AGNES_RATE_LIMIT` | | `20` | Free-tier text + image-1K RPM ceiling (× 0.8 safety factor). |
 | `AGNES_IMAGE_2K_RPM` | | `10` | Free-tier image 2K RPM (max side ≤2048). |
 | `AGNES_IMAGE_3K_RPM` | | `1` | Free-tier image 3K/4K RPM. |
 | `AGNES_IMAGE_I2I_MODEL` | | `agnes-image-2.1-flash` | Model used for consistency img2img. |
-| `AGNES_IMAGE_MAX_RETRIES` | | `5` | Image calls retry this many times; the free image tier is often 503 "Service busy". |
+| `AGNES_IMAGE_MAX_RETRIES` | | `5` | Image calls retry this many times. |
 | `AGNES_IMAGE_RETRY_BASE_DELAY` | | `5.0` | Image retry backoff base in seconds. |
-| `PROVIDER` | | `agnes` | `openai_compat` routes image/chat to configured OpenAI-style base URLs. Image i2i still uses the **Agnes** `extra_body.image` protocol — not vanilla OpenAI Images. |
+| `PROVIDER` | | `agnes` | `openai_compat` routes to configured OpenAI-style base URLs. |
 | `OPENAI_COMPAT_*` | | — | Base URL / key / models when `PROVIDER=openai_compat`. |
-| `INKSTONE_L3` | | `0` | Enable the experimental L3 PIL/OpenCV face overlay (`1` to turn on). Off by default — it tends to deform stylized faces, so consistency relies on L1+L2. |
-| `INKSTONE_FONT_PATH` | | (auto) | TrueType/OpenType font for dialogue bubbles. Auto-discovers PingFang / YaHei / Noto CJK; set this if Chinese dialogue renders as □□□. |
-| `INKSTONE_WEBTOON_MAX_PIXELS` | | `200000000` | Refuse single-strip webtoon compose above this pixel budget (use `--format page` instead). `0` disables. |
-| `INKSTONE_UI_HOST` / `INKSTONE_UI_PORT` | | `127.0.0.1` / `8000` | Web UI bind address. Binding a non-loopback host exposes an **unauthenticated** API to the network — only do this on trusted LANs. |
+| `INKSTONE_L3` | | `0` | Enable the experimental L3 PIL/OpenCV face overlay (`1` to turn on). |
+| `INKSTONE_FONT_PATH` | | (auto) | TrueType/OpenType font for dialogue bubbles. |
+| `INKSTONE_WEBTOON_MAX_PIXELS` | | `200000000` | Refuse single-strip webtoon compose above this pixel budget. `0` disables. |
+| `INKSTONE_UI_HOST` / `INKSTONE_UI_PORT` | | `127.0.0.1` / `8000` | Web UI bind address. |
 
-PDF export prefers the optional `manga2pdf` CLI for two-page / right-to-left manga layout. If it is missing, Inkstone falls back to a plain multi-page PDF and logs a warning (`pip install manga2pdf` to restore the gallery layout).
-
-## How it works
-
-A `txt` novel is split into segments → characters & scenes are extracted with `agnes-2.0-flash` → storyboard prompts are generated → the `ImageProvider` (Agnes by default) paints each panel → panels are laid out and exported to PDF/PNG. The core challenge — **cross-panel character consistency without a GPU** — is handled by a layered strategy (L1 Appearance-derived prompt hard-description + L2 reference img2img; optional L3 face overlay is off by default), backed by a reliability layer (rate limiting, retries, and `state.json` resumption). Alias variants are flagged for **human merge/dismiss** (never silent); merges mark affected panels stale for selective redraw. Longer-form adaptation work is tracked in the [roadmap](docs/ROADMAP.md).
+PDF export prefers the optional `manga2pdf` CLI for two-page / right-to-left manga layout (`pip install manga2pdf` to restore the gallery layout).
 
 ## Resources
 
 - **Implementation status** — [docs/ROADMAP.md](docs/ROADMAP.md)
-- **Colab CLI (close the laptop)** — [docs/guides/colab-cli.md](docs/guides/colab-cli.md) + [`scripts/colab_run.sh`](scripts/colab_run.sh)
+- **Colab CLI** — [docs/guides/colab-cli.md](docs/guides/colab-cli.md) + [`scripts/colab_run.sh`](scripts/colab_run.sh)
 - **Historical plans / specs** — [docs/superpowers/](docs/superpowers/)
 - **Contributing guide** — [CONTRIBUTING.md](CONTRIBUTING.md)
 - **Issues & feedback** — [GitHub Issues](https://github.com/phaethix/inkstone/issues)
