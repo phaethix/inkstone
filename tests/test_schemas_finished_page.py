@@ -3,7 +3,6 @@ from core.schemas import (
     ComicPagePlan,
     ComicPagePlanSet,
     GeneratedPage,
-    PagePanelSpec,
     ProjectState,
 )
 
@@ -39,7 +38,12 @@ def test_page_panel_spec_and_plan_round_trip():
 
 def test_comic_page_plan_set_and_generated_page_on_state():
     pageset = ComicPagePlanSet.model_validate(
-        {"unit_id": "0", "pages": [{"page_id": "p0001", "purpose": "x", "layout_intent": "splash", "panels": []}]}
+        {
+            "unit_id": "0",
+            "pages": [
+                {"page_id": "p0001", "purpose": "x", "layout_intent": "splash", "panels": []}
+            ],
+        }
     )
     state = ProjectState(project_id="demo")
     state.page_cache["0"] = pageset

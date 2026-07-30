@@ -1,5 +1,5 @@
 from core.comic.page_prompt import render_finished_page_prompt
-from core.schemas import CharacterAsset, ComicPagePlan, Setting
+from core.schemas import CharacterAsset, ComicPagePlan
 
 
 def test_prompt_includes_layout_lettering_and_identity():

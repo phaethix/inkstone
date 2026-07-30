@@ -139,9 +139,7 @@ async def plan_storyboard(text: str, elements: StoryElements, *, chat=None) -> S
     return Storyboard.model_validate(args)
 
 
-async def plan_comic_pages(
-    text: str, elements: StoryElements, *, chat=None
-) -> ComicPagePlanSet:
+async def plan_comic_pages(text: str, elements: StoryElements, *, chat=None) -> ComicPagePlanSet:
     """Plan finished readable pages for ``text`` given ``elements``."""
     chat = chat or get_chat_provider()
     messages = [
