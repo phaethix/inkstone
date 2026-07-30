@@ -224,6 +224,9 @@ def _base_job(**overrides) -> dict:
         "skipped_chunks": [],
         "needs_review": [],
         "stale_panels": [],
+        "render_mode": "finished_page",
+        "pages_done": [],
+        "skipped_pages": [],
         "pause_reason": None,
         "elapsed_seconds": 1,
         "remaining_seconds": None,
@@ -480,11 +483,15 @@ def test_list_projects_from_disk(tmp_path, monkeypatch):
     ]:
         out = tmp_path / project_id
         out.mkdir()
-        ProjectState(
-            project_id=project_id,
-            stage=stage,
-            panels_done=panels,
-        ).save(out / "state.json")
+        kwargs = {
+            "project_id": project_id,
+            "stage": stage,
+            "panels_done": panels,
+        }
+        if project_id == "alpha":
+            kwargs["pages_done"] = ["p0001"]
+            kwargs["skipped_pages"] = ["p0002"]
+        ProjectState(**kwargs).save(out / "state.json")
     (tmp_path / "alpha" / "timing.json").write_text(
         '{"active_elapsed_seconds": 10}', encoding="utf-8"
     )
@@ -495,6 +502,9 @@ def test_list_projects_from_disk(tmp_path, monkeypatch):
     by_id = {p["id"]: p for p in projects}
     assert by_id["alpha"]["stage"] == "panels"
     assert by_id["alpha"]["panels_done"] == ["c0000-p0000"]
+    assert by_id["alpha"]["render_mode"] == "finished_page"
+    assert by_id["alpha"]["pages_done"] == ["p0001"]
+    assert by_id["alpha"]["skipped_pages"] == ["p0002"]
     assert by_id["alpha"]["has_timing"] is True
     assert by_id["beta"]["has_timing"] is False
 
@@ -503,9 +513,13 @@ def test_get_projects_endpoint(tmp_path, monkeypatch):
     monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
     out = tmp_path / "webproj"
     out.mkdir()
-    ProjectState(project_id="webproj", stage="export", panels_done=["c0000-p0001"]).save(
-        out / "state.json"
-    )
+    ProjectState(
+        project_id="webproj",
+        stage="export",
+        render_mode="finished_page",
+        panels_done=["c0000-p0001"],
+        pages_done=["p0001"],
+    ).save(out / "state.json")
     with _running_server() as httpd:
         status, payload = _request(httpd.server_port, "/api/projects", "GET")
     assert status == 200
@@ -514,6 +528,9 @@ def test_get_projects_endpoint(tmp_path, monkeypatch):
             "id": "webproj",
             "stage": "export",
             "panels_done": ["c0000-p0001"],
+            "render_mode": "finished_page",
+            "pages_done": ["p0001"],
+            "skipped_pages": [],
             "has_timing": False,
         }
     ]

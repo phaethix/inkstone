@@ -58,6 +58,8 @@ Inkstone is an **independent implementation, not a fork** — inspired by [`lcy3
 
 > **An honest trade-off.** Free, cloud-only Agnes with no GPU caps how far character consistency can reach. The strongest approaches (IP-Adapter / InsightFace) need a local GPU running SDXL/Flux — incompatible with Inkstone's zero-cost premise. So Inkstone trades *perfect* consistency for *zero-cost + no-GPU + out-of-the-box*, using L1+L2+L3 as the best feasible strategy. Stated plainly, not hidden.
 
+**Finished-page mode (default)** generates one designed comic page per image call (dynamic panels + in-image lettering). Free-tier models have ceilings on legible text and identity lock — Inkstone optimizes for page-shaped comics, not commercial print parity. If finished pages fail persistently, set `INKSTONE_RENDER_MODE=panel_compose` and re-run; the legacy panel + layout path reuses cached plans where possible.
+
 <p align="center">
   <img src="assets/readme/section-how.svg" width="100%" alt="How it works" />
 </p>
@@ -155,6 +157,7 @@ Inkstone is configured through environment variables (copy `.env.example` → `.
 | `PROVIDER` | | `agnes` | `openai_compat` routes to configured OpenAI-style base URLs. |
 | `OPENAI_COMPAT_*` | | — | Base URL / key / models when `PROVIDER=openai_compat`. |
 | `INKSTONE_L3` | | `0` | Enable the experimental L3 PIL/OpenCV face overlay (`1` to turn on). |
+| `INKSTONE_RENDER_MODE` | | `finished_page` | Default: one finished comic page per image call. Set `panel_compose` to use the legacy storyboard → panel → layout path (recovery when finished pages fail). |
 | `INKSTONE_FONT_PATH` | | (auto) | TrueType/OpenType font for dialogue bubbles. |
 | `INKSTONE_WEBTOON_MAX_PIXELS` | | `200000000` | Refuse single-strip webtoon compose above this pixel budget. `0` disables. |
 | `INKSTONE_UI_HOST` / `INKSTONE_UI_PORT` | | `127.0.0.1` / `8000` | Web UI bind address. |

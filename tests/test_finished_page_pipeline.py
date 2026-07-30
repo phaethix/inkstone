@@ -208,6 +208,41 @@ def test_is_content_policy_rejection_still_used_by_finished_page_path():
     assert is_content_policy_rejection(RuntimeError("content_policy_violation")) is True
 
 
+class FailOncePageImage(FakeImage):
+    """First finished-page image call fails generically; second succeeds."""
+
+    def __init__(self):
+        super().__init__()
+        self.page_attempts = 0
+        self.prompts: list[str] = []
+
+    async def generate_single_image(self, prompt, reference_image_paths=None, size=None, **kw):
+        self.calls += 1
+        if "Finished readable manga/comic page" in prompt:
+            self.page_attempts += 1
+            self.prompts.append(prompt)
+            if self.page_attempts == 1:
+                raise RuntimeError("transient image provider failure")
+        return FakeImageOutput()
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_finished_page_generic_failure_retries_once_with_stricter_prompt(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+    src = "第一章\n福贵在村口。"
+    img = FailOncePageImage()
+    proj = asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=img))
+
+    assert img.page_attempts == 2
+    assert len(img.prompts) == 2
+    assert "STRICT" in img.prompts[1]
+    assert "STRICT" not in img.prompts[0]
+
+    assert "u1_p0001" in proj.state.pages_done
+    assert "u1_p0001" not in proj.state.skipped_pages
+    assert Path(proj.state.generated.pages["u1_p0001"].local).exists()
+
+
 @patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
 def test_finished_page_export_ignores_stale_panel_compose_pages(tmp_path, monkeypatch):
     """panel_compose writes page_01.png; finished_page must not pick those up on export."""

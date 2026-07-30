@@ -972,21 +972,44 @@ async def _creative_comic(
                     if name in state.characters and state.characters[name].portrait_local
                 ]
                 refs = [ref for ref in refs if _is_within(ref, output_dir) and Path(ref).is_file()]
-                try:
-                    async with image_semaphore:
-                        with perf.measure("page"):
-                            out = await image.generate_single_image(
-                                prompt, reference_image_paths=refs, size=page_size
+                stricter_attempted = False
+                while True:
+                    try:
+                        async with image_semaphore:
+                            with perf.measure("page"):
+                                out = await image.generate_single_image(
+                                    prompt, reference_image_paths=refs, size=page_size
+                                )
+                        break
+                    except Exception as exc:  # noqa: BLE001 — preserve policy skip behavior
+                        if is_content_policy_rejection(exc):
+                            logger.warning(
+                                "page %s skipped: content filter rejected it (%s)", page_id, exc
                             )
-                except Exception as exc:  # noqa: BLE001 — preserve policy skip behavior
-                    if not is_content_policy_rejection(exc):
+                            if page_id not in state.skipped_pages:
+                                state.skipped_pages.append(page_id)
+                            if page_id in state.stale_pages:
+                                state.stale_pages = [k for k in state.stale_pages if k != page_id]
+                            state.save(state_path)
+                            out = None
+                            break
+                        if not stricter_attempted:
+                            stricter_attempted = True
+                            prompt = render_finished_page_prompt(
+                                plan,
+                                characters_by_name=state.characters,
+                                settings_by_name=state.settings,
+                                style_guide=effective_style,
+                                strict=True,
+                            )
+                            logger.warning(
+                                "page %s image failed (%s); retrying once with stricter prompt",
+                                page_id,
+                                exc,
+                            )
+                            continue
                         raise
-                    logger.warning("page %s skipped: content filter rejected it (%s)", page_id, exc)
-                    if page_id not in state.skipped_pages:
-                        state.skipped_pages.append(page_id)
-                    if page_id in state.stale_pages:
-                        state.stale_pages = [k for k in state.stale_pages if k != page_id]
-                    state.save(state_path)
+                if out is None:
                     continue
                 pages_dir.mkdir(parents=True, exist_ok=True)
                 local = _page_asset_path(pages_dir, ci, page_index)

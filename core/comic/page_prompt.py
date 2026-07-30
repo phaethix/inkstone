@@ -12,6 +12,7 @@ def render_finished_page_prompt(
     characters_by_name: dict[str, CharacterAsset],
     settings_by_name: dict[str, Setting],
     style_guide: str = "",
+    strict: bool = False,
 ) -> str:
     lines: list[str] = [
         "Finished readable manga/comic page, A4 portrait single image,",
@@ -20,6 +21,11 @@ def render_finished_page_prompt(
         "speech bubbles, caption boxes, and SFX lettered legibly in-image,",
         "do not cover faces, hands, or key action with text.",
     ]
+    if strict:
+        lines.append(
+            "STRICT: render every CAPTION, DIALOGUE, and SFX string exactly as "
+            "specified; high-contrast legible lettering; do not omit any text."
+        )
     if style_guide:
         lines.append(f"Style: {style_guide}")
     lines.append(f"Page purpose: {plan.purpose}")

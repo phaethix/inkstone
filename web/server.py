@@ -207,6 +207,9 @@ def _state_snapshot(state: ProjectState) -> dict:
         "skipped_chunks": list(state.skipped_chunks),
         "needs_review": [s.model_dump() for s in state.needs_review],
         "stale_panels": list(state.stale_panels),
+        "render_mode": state.render_mode,
+        "pages_done": list(state.pages_done),
+        "skipped_pages": list(state.skipped_pages),
     }
 
 
@@ -413,6 +416,9 @@ def _start_job(
             "skipped_chunks": [],
             "needs_review": [],
             "stale_panels": [],
+            "render_mode": "finished_page",
+            "pages_done": [],
+            "skipped_pages": [],
             "project_id": pid,
             "pause_reason": None,
             "base_elapsed": base_elapsed,
@@ -517,6 +523,9 @@ def list_projects() -> list[dict]:
                 "id": entry.name,
                 "stage": state.stage,
                 "panels_done": list(state.panels_done),
+                "render_mode": state.render_mode,
+                "pages_done": list(state.pages_done),
+                "skipped_pages": list(state.skipped_pages),
                 "has_timing": (entry / "timing.json").is_file(),
             }
         )
@@ -614,6 +623,9 @@ class Handler(BaseHTTPRequestHandler):
                     "skipped_chunks": job.get("skipped_chunks", []),
                     "needs_review": job.get("needs_review", []),
                     "stale_panels": job.get("stale_panels", []),
+                    "render_mode": job.get("render_mode", "finished_page"),
+                    "pages_done": job.get("pages_done", []),
+                    "skipped_pages": job.get("skipped_pages", []),
                     "project_id": job.get("project_id"),
                     "pause_reason": job.get("pause_reason"),
                     "elapsed_seconds": job.get("elapsed_seconds"),
