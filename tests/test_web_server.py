@@ -127,6 +127,34 @@ def test_seed_job_progress_from_checkpoint(tmp_path, monkeypatch):
     assert progress > 0.3
 
 
+def test_start_job_seeds_resume_fields_from_checkpoint(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(
+        server.threading,
+        "Thread",
+        lambda *args, **kwargs: type("NoopThread", (), {"start": lambda self: None})(),
+    )
+    project_id = "resume2"
+    out = tmp_path / project_id
+    out.mkdir()
+    ProjectState(
+        project_id=project_id,
+        render_mode="panel_compose",
+        pages_done=["p0001", "p0002"],
+        skipped_pages=["p0003"],
+    ).save(out / "state.json")
+    job_id, _ = server._start_job("text", "page", None, project_id=project_id)
+    try:
+        job = server.JOBS[job_id]
+        assert job["render_mode"] == "panel_compose"
+        assert job["pages_done"] == ["p0001", "p0002"]
+        assert job["skipped_pages"] == ["p0003"]
+        assert job["stage"] == "resume"
+    finally:
+        with server.JOBS_LOCK:
+            server.JOBS.pop(job_id, None)
+
+
 def test_seed_job_timing_from_checkpoint(tmp_path, monkeypatch):
     import web.server as server
     from core.schemas import ProjectState
