@@ -213,10 +213,24 @@ def _page_asset_path(pages_dir: Path, chunk_index: int, page_index: int) -> Path
     Position-derived (not a running counter) so regenerating a stale/missing
     page always rewrites the same file — a counter would risk colliding with
     an unrelated page's filename when only some pages are redone on resume.
-    The ``page_`` prefix and zero-padding keep ``ExportEngine``'s
-    ``sorted(glob("page_*.png"))`` in correct reading order.
+    The ``page_`` prefix and zero-padding keep ``_finished_page_files`` in
+    correct reading order.
     """
     return pages_dir / f"page_c{chunk_index:04d}_p{page_index:04d}.png"
+
+
+def _finished_page_files(pages_dir: Path) -> list[Path]:
+    """Return finished-page assets only, excluding panel-compose ``page_NN.png`` leftovers."""
+    return sorted(p for p in pages_dir.glob("page_*.png") if p.match("page_c*_p*.png"))
+
+
+def _prepare_finished_page_export(pages_dir: Path) -> list[Path]:
+    """Collect finished-page assets and drop stale panel-compose ``page_NN.png`` files."""
+    finished = _finished_page_files(pages_dir)
+    for stale in pages_dir.glob("page_*.png"):
+        if not stale.match("page_c*_p*.png"):
+            stale.unlink()
+    return finished
 
 
 def _asset_path(root: Path, directory: str, identifier: str) -> Path:
@@ -1201,7 +1215,7 @@ async def _creative_comic(
         # straight over the pages directory.
         state.stage = "export"
         _report("export", max(0.90, _pct()))
-        page_files = sorted(pages_dir.glob("page_*.png")) if pages_dir.exists() else []
+        page_files = _prepare_finished_page_export(pages_dir) if pages_dir.exists() else []
         if page_files:
             with perf.measure("export"):
                 pdf = ExportEngine().export_pdf(pages_dir, out=str(output_dir / "comic.pdf"))

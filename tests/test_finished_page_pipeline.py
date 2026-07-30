@@ -206,3 +206,23 @@ def test_finished_page_content_policy_rejection_is_skipped_not_raised(tmp_path, 
 
 def test_is_content_policy_rejection_still_used_by_finished_page_path():
     assert is_content_policy_rejection(RuntimeError("content_policy_violation")) is True
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_finished_page_export_ignores_stale_panel_compose_pages(tmp_path, monkeypatch):
+    """panel_compose writes page_01.png; finished_page must not pick those up on export."""
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+    pages_dir = tmp_path / "pages"
+    pages_dir.mkdir(parents=True)
+    Image.new("RGB", (20, 30), (255, 0, 0)).save(pages_dir / "page_01.png")
+
+    src = "第一章\n福贵在村口。"
+    proj = asyncio.run(
+        creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage())
+    )
+
+    exported = [Path(p).name for p in proj.pages]
+    assert exported
+    assert "page_01.png" not in exported
+    assert all(name.startswith("page_c") and "_p" in name for name in exported)
+    assert not (pages_dir / "page_01.png").exists()
