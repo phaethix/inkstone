@@ -117,6 +117,7 @@ def test_seed_job_progress_from_checkpoint(tmp_path, monkeypatch):
     )
     state = ProjectState(
         project_id=project_id,
+        render_mode="panel_compose",
         chunk_cache={"0": ChunkCache(storyboard=board)},
         panels_done=[f"c0000-p{i:04d}" for i in range(5)],
     )
