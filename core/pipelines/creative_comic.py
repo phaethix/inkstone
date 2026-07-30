@@ -207,6 +207,11 @@ def _stored_panel_key(state: ProjectState, chunk_index: int, panel_index: int) -
     return _panel_state_key(chunk_index, panel_index)
 
 
+def _page_state_key(chunk_index: int, page_id: str) -> str:
+    """Return the pipeline-owned identity for one (chunk, page_id) position."""
+    return f"c{chunk_index:04d}:{page_id}"
+
+
 def _page_asset_path(pages_dir: Path, chunk_index: int, page_index: int) -> Path:
     """Deterministic ``page_XX.png``-style path for one (chunk, page) position.
 
@@ -345,34 +350,39 @@ def _page_reference_names(plan: ComicPagePlan) -> list[str]:
     return names
 
 
-def _page_needs_generation(state: ProjectState, page_id: str) -> bool:
+def _page_needs_generation(state: ProjectState, state_key: str) -> bool:
     """True when a finished page must be (re)generated this run."""
-    if page_id in state.stale_pages:
+    if state_key in state.stale_pages:
         return True
-    if page_id in state.pages_done or page_id in state.skipped_pages:
+    if state_key in state.pages_done or state_key in state.skipped_pages:
         return False
     return True
 
 
-def _mark_page_done(state: ProjectState, page_id: str) -> None:
-    if page_id in state.stale_pages:
-        state.stale_pages = [k for k in state.stale_pages if k != page_id]
-    if page_id not in state.pages_done:
-        state.pages_done.append(page_id)
+def _mark_page_done(state: ProjectState, state_key: str) -> None:
+    if state_key in state.stale_pages:
+        state.stale_pages = [k for k in state.stale_pages if k != state_key]
+    if state_key not in state.pages_done:
+        state.pages_done.append(state_key)
 
 
-def _page_chunk_complete(state: ProjectState, pageset: ComicPagePlanSet, output_dir: Path) -> bool:
+def _page_chunk_complete(
+    state: ProjectState,
+    pageset: ComicPagePlanSet,
+    output_dir: Path,
+    chunk_index: int,
+) -> bool:
     """True when every planned page is generated or policy-skipped."""
     for plan in pageset.pages:
-        page_id = plan.page_id
-        if page_id in state.stale_pages:
+        state_key = _page_state_key(chunk_index, plan.page_id)
+        if state_key in state.stale_pages:
             return False
-        if page_id in state.skipped_pages:
+        if state_key in state.skipped_pages:
             continue
-        rec = state.generated.pages.get(page_id)
+        rec = state.generated.pages.get(state_key)
         if (
             rec is None
-            or page_id not in state.pages_done
+            or state_key not in state.pages_done
             or not _is_within(rec.local, output_dir)
             or not Path(rec.local).exists()
         ):
@@ -381,14 +391,17 @@ def _page_chunk_complete(state: ProjectState, pageset: ComicPagePlanSet, output_
 
 
 def _mark_page_chunk_done_if_complete(
-    state: ProjectState, key: str, pageset: ComicPagePlanSet
+    state: ProjectState,
+    key: str,
+    pageset: ComicPagePlanSet,
+    chunk_index: int,
 ) -> None:
     """Record chunks_done only after every planned page is done or skipped."""
     for plan in pageset.pages:
-        page_id = plan.page_id
-        if page_id in state.stale_pages:
+        state_key = _page_state_key(chunk_index, plan.page_id)
+        if state_key in state.stale_pages:
             return
-        if page_id not in state.pages_done and page_id not in state.skipped_pages:
+        if state_key not in state.pages_done and state_key not in state.skipped_pages:
             return
     if key not in state.chunks_done:
         state.chunks_done.append(key)
@@ -805,7 +818,7 @@ async def _creative_comic(
             if (
                 pageset is not None
                 and key in set(state.chunks_done)
-                and _page_chunk_complete(state, pageset, output_dir)
+                and _page_chunk_complete(state, pageset, output_dir, ci)
                 and panel_key_filter is None
             ):
                 _report("resume", _pct())
@@ -957,7 +970,8 @@ async def _creative_comic(
             check_cancel(cancel_check)
             for page_index, plan in enumerate(pageset.pages):
                 page_id = plan.page_id
-                if not _page_needs_generation(state, page_id):
+                state_key = _page_state_key(ci, page_id)
+                if not _page_needs_generation(state, state_key):
                     continue
                 check_cancel(cancel_check)
                 prompt = render_finished_page_prompt(
@@ -986,10 +1000,10 @@ async def _creative_comic(
                             logger.warning(
                                 "page %s skipped: content filter rejected it (%s)", page_id, exc
                             )
-                            if page_id not in state.skipped_pages:
-                                state.skipped_pages.append(page_id)
-                            if page_id in state.stale_pages:
-                                state.stale_pages = [k for k in state.stale_pages if k != page_id]
+                            if state_key not in state.skipped_pages:
+                                state.skipped_pages.append(state_key)
+                            if state_key in state.stale_pages:
+                                state.stale_pages = [k for k in state.stale_pages if k != state_key]
                             state.save(state_path)
                             out = None
                             break
@@ -1014,18 +1028,18 @@ async def _creative_comic(
                 pages_dir.mkdir(parents=True, exist_ok=True)
                 local = _page_asset_path(pages_dir, ci, page_index)
                 await asyncio.to_thread(out.save, str(local))
-                state.generated.pages[page_id] = GeneratedPage(
+                state.generated.pages[state_key] = GeneratedPage(
                     local=str(local),
                     page_id=page_id,
                     unit_index=ci,
                     page_index=page_index,
                     mode="finished",
                 )
-                _mark_page_done(state, page_id)
+                _mark_page_done(state, state_key)
                 state.save(state_path)
                 _report("pages", _pct())
 
-            _mark_page_chunk_done_if_complete(state, key, pageset)
+            _mark_page_chunk_done_if_complete(state, key, pageset, ci)
             state.save(state_path)
             _report("pages", _pct())
             continue
@@ -1233,16 +1247,25 @@ async def _creative_comic(
     pages: list[str] = []
 
     if mode == "finished_page":
-        # No LayoutEngine collage: each page image was already saved directly
-        # by the loop above, in reading order (page_XX.png), so export can run
-        # straight over the pages directory.
+        # No LayoutEngine collage for page mode: each page image was already
+        # saved directly by the loop above. Webtoon mode stacks those finished
+        # pages into a single vertical strip.
         state.stage = "export"
         _report("export", max(0.90, _pct()))
         page_files = _prepare_finished_page_export(pages_dir) if pages_dir.exists() else []
         if page_files:
-            with perf.measure("export"):
-                pdf = ExportEngine().export_pdf(pages_dir, out=str(output_dir / "comic.pdf"))
-            pages = [str(p) for p in page_files]
+            if output_format == "webtoon":
+                panel_imgs = [PanelImage(Image.open(p)) for p in page_files]
+                with perf.measure("layout"):
+                    webtoon_paths = LayoutEngine().compose(
+                        panel_imgs, pages_dir, layout_mode="webtoon"
+                    )
+                webtoon = webtoon_paths[0] if webtoon_paths else None
+                pages = webtoon_paths
+            else:
+                with perf.measure("export"):
+                    pdf = ExportEngine().export_pdf(pages_dir, out=str(output_dir / "comic.pdf"))
+                pages = [str(p) for p in page_files]
     else:
         state.stage = "layout"
         _report("layout", max(0.90, _pct()))

@@ -97,9 +97,9 @@ def test_finished_page_mode_writes_generated_pages(tmp_path, monkeypatch):
     assert page_files
 
     assert proj.state.render_mode == "finished_page"
-    assert "u1_p0001" in proj.state.generated.pages
-    assert "u1_p0001" in proj.state.pages_done
-    generated_page = proj.state.generated.pages["u1_p0001"]
+    assert "c0000:u1_p0001" in proj.state.generated.pages
+    assert "c0000:u1_p0001" in proj.state.pages_done
+    generated_page = proj.state.generated.pages["c0000:u1_p0001"]
     assert generated_page.mode == "finished"
     assert Path(generated_page.local).exists()
 
@@ -149,7 +149,7 @@ def test_finished_page_resumes_after_deleted_page(tmp_path, monkeypatch):
     assert img2.calls == 1  # only the missing page regenerates; portrait reused
     assert chat2.calls == 0  # page plan reused from page_cache
     assert deleted.exists()
-    assert "u1_p0001" in proj.state.pages_done
+    assert "c0000:u1_p0001" in proj.state.pages_done
 
 
 @patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
@@ -165,8 +165,8 @@ def test_finished_page_filenames_are_position_stable_across_partial_resume(tmp_p
 
     state = ProjectState.load(tmp_path / "state.json")
     assert len(state.generated.pages) == 2
-    first_page = state.generated.pages["u1_p0001"]
-    second_page = state.generated.pages["u2_p0001"]
+    first_page = state.generated.pages["c0000:u1_p0001"]
+    second_page = state.generated.pages["c0001:u2_p0001"]
     second_path = Path(second_page.local)
     second_bytes_before = second_path.read_bytes()
 
@@ -179,7 +179,7 @@ def test_finished_page_filenames_are_position_stable_across_partial_resume(tmp_p
     assert Path(first_page.local).exists()  # regenerated at the *same* path
     assert second_path.exists()
     assert second_path.read_bytes() == second_bytes_before  # untouched, not overwritten
-    assert set(proj.state.pages_done) == {"u1_p0001", "u2_p0001"}
+    assert set(proj.state.pages_done) == {"c0000:u1_p0001", "c0001:u2_p0001"}
 
 
 class RejectingPageImage(FakeImage):
@@ -199,9 +199,9 @@ def test_finished_page_content_policy_rejection_is_skipped_not_raised(tmp_path, 
     proj = asyncio.run(
         creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=RejectingPageImage())
     )
-    assert "u1_p0001" in proj.state.skipped_pages
-    assert "u1_p0001" not in proj.state.pages_done
-    assert "u1_p0001" not in proj.state.generated.pages
+    assert "c0000:u1_p0001" in proj.state.skipped_pages
+    assert "c0000:u1_p0001" not in proj.state.pages_done
+    assert "c0000:u1_p0001" not in proj.state.generated.pages
 
 
 def test_is_content_policy_rejection_still_used_by_finished_page_path():
@@ -238,9 +238,9 @@ def test_finished_page_generic_failure_retries_once_with_stricter_prompt(tmp_pat
     assert "STRICT" in img.prompts[1]
     assert "STRICT" not in img.prompts[0]
 
-    assert "u1_p0001" in proj.state.pages_done
-    assert "u1_p0001" not in proj.state.skipped_pages
-    assert Path(proj.state.generated.pages["u1_p0001"].local).exists()
+    assert "c0000:u1_p0001" in proj.state.pages_done
+    assert "c0000:u1_p0001" not in proj.state.skipped_pages
+    assert Path(proj.state.generated.pages["c0000:u1_p0001"].local).exists()
 
 
 @patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
@@ -261,3 +261,91 @@ def test_finished_page_export_ignores_stale_panel_compose_pages(tmp_path, monkey
     assert "page_01.png" not in exported
     assert all(name.startswith("page_c") and "_p" in name for name in exported)
     assert not (pages_dir / "page_01.png").exists()
+
+
+class CollidingPageIdChat(FakeChat):
+    """Both chunks plan the same page_id — state keys must be chunk-namespaced."""
+
+    async def chat_function_call(self, messages, tools, tool_choice, **kw):
+        self.calls += 1
+        name = tool_choice["function"]["name"]
+        if name == "extract_story_elements":
+            return {
+                "characters": [
+                    {
+                        "name": "福贵",
+                        "l1_prompt": "a middle-aged farmer",
+                        "portrait_prompt": "portrait of a farmer",
+                    }
+                ],
+                "settings": [{"name": "村口", "scene_prompt": "village entrance at dusk"}],
+                "style_guide": "manhua",
+            }
+        if name == "plan_comic_pages":
+            self.page_plan_calls += 1
+            return {
+                "unit_id": str(self.page_plan_calls),
+                "pages": [
+                    {
+                        "page_id": "p0001",
+                        "purpose": "establish the village entrance",
+                        "layout_intent": "wide establishing top, inset reaction bottom-right",
+                        "panels": [
+                            {
+                                "panel_id": "1",
+                                "role": "establishing",
+                                "shape_hint": "wide",
+                                "shot": "wide",
+                                "action": "福贵 walks through the village entrance",
+                                "characters": ["福贵"],
+                                "setting_ref": "村口",
+                                "caption": "傍晚，村口。",
+                            }
+                        ],
+                        "reference_characters": ["福贵"],
+                        "setting_refs": ["村口"],
+                    }
+                ],
+            }
+        return {}
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_finished_page_cross_chunk_page_id_collision(tmp_path, monkeypatch):
+    """Two chunks with the same page_id must both generate distinct pages."""
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+    src = "第一章\n福贵在村口。\n第二章\n福贵在读书。"
+    img = FakeImage()
+    proj = asyncio.run(
+        creative_comic(src, output_dir=str(tmp_path), chat=CollidingPageIdChat(), image=img)
+    )
+
+    page_files = sorted((tmp_path / "pages").glob("page_c*_p*.png"))
+    assert len(page_files) == 2
+    assert img.calls == 3  # 1 portrait + 2 pages (same page_id, different chunks)
+
+    assert set(proj.state.generated.pages) == {"c0000:p0001", "c0001:p0001"}
+    assert set(proj.state.pages_done) == {"c0000:p0001", "c0001:p0001"}
+    assert len(proj.pages) == 2
+    assert proj.pdf and Path(proj.pdf).exists()
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_finished_page_webtoon_stacks_page_images(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+    src = "第一章\n福贵在村口。\n第二章\n福贵在读书。"
+    proj = asyncio.run(
+        creative_comic(
+            src,
+            output_dir=str(tmp_path),
+            chat=FakeChat(),
+            image=FakeImage(),
+            output_format="webtoon",
+        )
+    )
+
+    assert proj.pdf is None
+    assert proj.webtoon and Path(proj.webtoon).exists()
+    assert proj.webtoon.endswith("webtoon.png")
+    assert proj.pages == [proj.webtoon]
+    assert len(list((tmp_path / "pages").glob("page_c*_p*.png"))) == 2

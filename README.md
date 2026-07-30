@@ -68,7 +68,7 @@ Inkstone is an **independent implementation, not a fork** — inspired by [`lcy3
   <img src="assets/readme/pipeline.svg" width="100%" alt="Pipeline: Split → Extract → Board → Paint → Export" />
 </p>
 
-A `txt` novel is split into segments → characters & scenes are extracted with `agnes-2.0-flash` → storyboard prompts are generated → the `ImageProvider` (Agnes by default) paints each panel → panels are laid out and exported to PDF/PNG.
+A `txt` novel is split into segments → characters & scenes are extracted with `agnes-2.0-flash` → **finished-page mode (default)** plans one comic page per image call (dynamic panels + in-image lettering) → each page is painted directly → pages are bound to PDF or stacked into a webtoon PNG. For the legacy path, set `INKSTONE_RENDER_MODE=panel_compose`: storyboard prompts → per-panel generation → `LayoutEngine` grid layout → export.
 
 The core challenge — **cross-panel character consistency without a GPU** — is handled by a layered strategy:
 
