@@ -258,8 +258,19 @@ def decode_tool_arguments(args_raw: Any) -> dict:
 
 _COMIC_STYLE_HINT = "manhua/comic style: clean black ink line art, soft cel shading, flat colors"
 
-# Six resumable pipeline stages.
-Stage = Literal["extract", "storyboard", "portraits", "panels", "layout", "export"]
+# Resumable pipeline stages.
+Stage = Literal[
+    "extract",
+    "storyboard",
+    "page_plan",
+    "portraits",
+    "panels",
+    "pages",
+    "layout",
+    "export",
+]
+
+RenderMode = Literal["finished_page", "panel_compose"]
 
 # LLM sometimes fuses ``"field": "X"`` into a single key ``field："X”…`` / ``field: X``.
 _FUSED_FIELD_KEY = re.compile(
@@ -663,6 +674,147 @@ class Panel(BaseModel):
         return coerce_size(value)
 
 
+class PagePanelSpec(BaseModel):
+    """A single panel slot within a finished-page plan."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    panel_id: str
+    role: str = "action"
+    shape_hint: str = "rect"
+    shot: str = ""
+    action: str = ""
+    characters: list[str] = Field(default_factory=list)
+    setting_ref: str = ""
+    dialogue: str | None = None
+    caption: str | None = None
+    sfx: str | None = None
+    lettering_notes: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _ensure_panel_id(cls, value: Any) -> Any:
+        """Repair fused keys and guarantee a non-empty ``panel_id``."""
+        value = coerce_jsonish(value)
+        if not isinstance(value, dict):
+            return value
+        out = repair_fused_keys(
+            value,
+            {
+                "panel_id",
+                "role",
+                "shape_hint",
+                "shot",
+                "action",
+                "setting_ref",
+                "dialogue",
+                "caption",
+                "sfx",
+                "lettering_notes",
+            },
+            stash_value_into="action",
+        )
+        return ensure_str_field(
+            out,
+            "panel_id",
+            aliases=("id", "panel", "panelId"),
+            default="panel",
+        )
+
+    @field_validator(
+        "panel_id",
+        "role",
+        "shape_hint",
+        "shot",
+        "action",
+        "setting_ref",
+        "lettering_notes",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_text(cls, value: Any) -> Any:
+        return coerce_str(value)
+
+    @field_validator("characters", mode="before")
+    @classmethod
+    def _coerce_characters(cls, value: Any) -> Any:
+        return coerce_str_list(value)
+
+    @field_validator("dialogue", "caption", "sfx", mode="before")
+    @classmethod
+    def _coerce_lettering(cls, value: Any) -> Any:
+        text = coerce_dialogue(value)
+        if isinstance(text, str):
+            text = text.strip() or None
+        return text
+
+
+class ComicPagePlan(BaseModel):
+    """A single finished-page layout plan."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    page_id: str
+    purpose: str = ""
+    layout_intent: str = ""
+    panels: list[PagePanelSpec] = Field(default_factory=list)
+    reference_characters: list[str] = Field(default_factory=list)
+    setting_refs: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _ensure_page_id(cls, value: Any) -> Any:
+        """Repair fused keys and guarantee a non-empty ``page_id``."""
+        value = coerce_jsonish(value)
+        if not isinstance(value, dict):
+            return value
+        out = repair_fused_keys(
+            value,
+            {"page_id", "purpose", "layout_intent"},
+            stash_value_into="purpose",
+        )
+        return ensure_str_field(
+            out,
+            "page_id",
+            aliases=("id", "page", "pageId"),
+            default="page",
+        )
+
+    @field_validator("page_id", "purpose", "layout_intent", mode="before")
+    @classmethod
+    def _coerce_text(cls, value: Any) -> Any:
+        return coerce_str(value)
+
+    @field_validator("panels", mode="before")
+    @classmethod
+    def _coerce_panels(cls, value: Any) -> Any:
+        return coerce_model_list(value, PagePanelSpec)
+
+    @field_validator("reference_characters", "setting_refs", mode="before")
+    @classmethod
+    def _coerce_name_lists(cls, value: Any) -> Any:
+        return coerce_str_list(value)
+
+
+class ComicPagePlanSet(BaseModel):
+    """Finished-page plans for one storyboard chunk (unit)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    unit_id: str = ""
+    pages: list[ComicPagePlan] = Field(default_factory=list)
+
+    @field_validator("unit_id", mode="before")
+    @classmethod
+    def _coerce_unit_id(cls, value: Any) -> Any:
+        return coerce_str(value)
+
+    @field_validator("pages", mode="before")
+    @classmethod
+    def _coerce_pages(cls, value: Any) -> Any:
+        return coerce_model_list(value, ComicPagePlan)
+
+
 class Storyboard(BaseModel):
     """Return payload of the ``plan_storyboard`` forced function call (one chunk)."""
 
@@ -781,6 +933,34 @@ class ModelSnapshot(BaseModel):
     i2i: str = ""
 
 
+class GeneratedPage(BaseModel):
+    """A generated finished-page image and its story position."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    local: str
+    page_id: str = ""
+    unit_index: int = 0
+    page_index: int = 0
+    mode: Literal["finished", "composed_fallback"] = "finished"
+    dialogue: str | None = None
+    caption: str | None = None
+    sfx: str | None = None
+
+    @field_validator("page_id", mode="before")
+    @classmethod
+    def _coerce_page_id(cls, value: Any) -> Any:
+        return coerce_str(value)
+
+    @field_validator("dialogue", "caption", "sfx", mode="before")
+    @classmethod
+    def _coerce_lettering(cls, value: Any) -> Any:
+        text = coerce_dialogue(value)
+        if isinstance(text, str):
+            text = text.strip() or None
+        return text
+
+
 class GeneratedPanel(BaseModel):
     """A generated panel and the immutable storyboard position that produced it."""
 
@@ -812,6 +992,7 @@ class GeneratedAssets(BaseModel):
 
     portraits: dict[str, str] = Field(default_factory=dict)
     panels: dict[str, GeneratedPanel] = Field(default_factory=dict)
+    pages: dict[str, GeneratedPage] = Field(default_factory=dict)
 
 
 def _now_iso() -> str:
@@ -852,6 +1033,11 @@ class ProjectState(BaseModel):
     # Per-chunk cache of extraction + storyboard results so a resume reuses them
     # instead of re-calling the (billable) chat API for already-planned chunks.
     chunk_cache: dict[str, ChunkCache] = Field(default_factory=dict)
+    render_mode: RenderMode = "finished_page"
+    page_cache: dict[str, ComicPagePlanSet] = Field(default_factory=dict)
+    pages_done: list[str] = Field(default_factory=list)
+    stale_pages: list[str] = Field(default_factory=list)
+    skipped_pages: list[str] = Field(default_factory=list)
     generated: GeneratedAssets = Field(default_factory=GeneratedAssets)
     errors: str = "logs/errors.jsonl"
     active_elapsed_seconds: float = 0.0
