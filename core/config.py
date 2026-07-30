@@ -19,6 +19,8 @@ ENV_ERROR_LOG = "INKSTONE_ERROR_LOG"
 ENV_RUN_DEADLINE_HOURS = "INKSTONE_RUN_DEADLINE_HOURS"
 ENV_SUPERVISOR_BACKOFF_BASE = "INKSTONE_SUPERVISOR_BACKOFF_BASE"
 ENV_SUPERVISOR_BACKOFF_CAP = "INKSTONE_SUPERVISOR_BACKOFF_CAP"
+ENV_RENDER_MODE = "INKSTONE_RENDER_MODE"
+ENV_PAGE_SIZE = "INKSTONE_PAGE_SIZE"
 
 
 def _get(name: str, default: str = "") -> str:
@@ -125,6 +127,18 @@ def supervisor_backoff_base() -> float:
 
 def supervisor_backoff_cap() -> float:
     return env_float(ENV_SUPERVISOR_BACKOFF_CAP, 300.0, minimum=0.1)
+
+
+def render_mode() -> str:
+    raw = _get(ENV_RENDER_MODE, "finished_page").strip().lower()
+    if raw in {"panel_compose", "panel", "compose"}:
+        return "panel_compose"
+    return "finished_page"
+
+
+def finished_page_size() -> str:
+    raw = _get(ENV_PAGE_SIZE, "1024x1536").strip()
+    return raw or "1024x1536"
 
 
 class ImageConfig:
