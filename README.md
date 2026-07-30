@@ -37,7 +37,7 @@ These panels were generated from the bundled sample (`examples/scene1.txt`) with
 </p>
 
 - **Free & local-first** — one `AGNES_API_KEY`, no GPU, no paid plan.
-- **Agnes-native multimodal** — `agnes-2.0-flash` for scripting, `agnes-image-2.1-flash` for t2i and i2i consistency.
+- **Agnes-native multimodal** — `agnes-2.5-flash` for scripting, `agnes-image-2.1-flash` for t2i and i2i consistency.
 - **Pluggable `ImageProvider`** — Agnes by default; `PROVIDER=openai_compat` for Agnes-protocol-compatible `/images/generations` gateways (i2i uses `extra_body.image`).
 - **Character consistency engine** — L1 prompt hard-description + L2 reference img2img, the robust path under no-GPU. An optional L3 PIL/OpenCV face overlay is **off by default** (opt-in via `INKSTONE_L3=1`).
 - **Reliability layer** — token-bucket rate limiting, exponential-backoff retries, and error collection against 429/503.
@@ -68,7 +68,7 @@ Inkstone is an **independent implementation, not a fork** — inspired by [`lcy3
   <img src="assets/readme/pipeline.svg" width="100%" alt="Pipeline: Split → Extract → Board → Paint → Export" />
 </p>
 
-A `txt` novel is split into segments → characters & scenes are extracted with `agnes-2.0-flash` → **finished-page mode (default)** plans one comic page per image call (dynamic panels + in-image lettering) → each page is painted directly → pages are bound to PDF or stacked into a webtoon PNG. For the legacy path, set `INKSTONE_RENDER_MODE=panel_compose`: storyboard prompts → per-panel generation → `LayoutEngine` grid layout → export.
+A `txt` novel is split into segments → characters & scenes are extracted with `agnes-2.5-flash` → **finished-page mode (default)** plans one comic page per image call (dynamic panels + in-image lettering) → each page is painted directly → pages are bound to PDF or stacked into a webtoon PNG. For the legacy path, set `INKSTONE_RENDER_MODE=panel_compose`: storyboard prompts → per-panel generation → `LayoutEngine` grid layout → export.
 
 The core challenge — **cross-panel character consistency without a GPU** — is handled by a layered strategy:
 
@@ -148,6 +148,7 @@ Inkstone is configured through environment variables (copy `.env.example` → `.
 | Variable | Required | Default | Description |
 |----------|:---:|---|---|
 | `AGNES_API_KEY` | ✅ | — | Free Access tier key; the only thing ordinary users need. |
+| `AGNES_CHAT_MODEL` | | `agnes-2.5-flash` | Text / tool-calling model ([docs](https://agnes-ai.cn/en/docs/agnes-25-flash)). |
 | `AGNES_RATE_LIMIT` | | `20` | Free-tier text + image-1K RPM ceiling (× 0.8 safety factor). |
 | `AGNES_IMAGE_2K_RPM` | | `10` | Free-tier image 2K RPM (max side ≤2048). |
 | `AGNES_IMAGE_3K_RPM` | | `1` | Free-tier image 3K/4K RPM. |

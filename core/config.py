@@ -192,7 +192,7 @@ class ChatConfig:
     def __init__(self) -> None:
         self.provider = _get("PROVIDER", "agnes").lower()
         self.agnes_api_key = _get("AGNES_API_KEY")
-        self.agnes_chat_model = _get("AGNES_CHAT_MODEL", "agnes-2.0-flash")
+        self.agnes_chat_model = _get("AGNES_CHAT_MODEL", "agnes-2.5-flash")
         self.openai_compat_chat_base_url = _get("OPENAI_COMPAT_CHAT_BASE_URL")
         self.openai_compat_chat_api_key = _get("OPENAI_COMPAT_CHAT_API_KEY")
         self.openai_compat_chat_model = _get("OPENAI_COMPAT_CHAT_MODEL")

@@ -37,7 +37,7 @@ _load_dotenv()
 
 # TODO(temp): keep in sync with core/api/* BASE_URL (.cn is temporary).
 CHAT_URL = "https://apihub.agnes-ai.cn/v1/chat/completions"
-CHAT_MODEL = "agnes-2.0-flash"
+CHAT_MODEL = "agnes-2.5-flash"
 CHAT_HEADERS = {
     "Authorization": f"Bearer {os.environ.get('AGNES_API_KEY', '')}",
     "Content-Type": "application/json",

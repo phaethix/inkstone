@@ -7,7 +7,7 @@ the zero-config default, with any OpenAI-compatible chat endpoint as a fallback
 to hedge the single-provider risk.
 
 - ``ChatProvider``: abstract base class defining the ``chat_function_call`` contract.
-- ``AgnesChatAPI``: default implementation (``agnes-2.0-flash``).
+- ``AgnesChatAPI``: default implementation (``agnes-2.5-flash``).
 - ``OpenAICompatChatProvider``: fallback for OpenAI/compat chat endpoints.
 - ``get_chat_provider``: factory that picks a provider from config / args.
 
@@ -77,7 +77,7 @@ class ChatProvider(ABC):
 class AgnesChatAPI(ChatProvider):
     """Agnes chat API wrapper (forced function calling -> structured JSON)."""
 
-    def __init__(self, api_key: str, model: str = "agnes-2.0-flash"):
+    def __init__(self, api_key: str, model: str = "agnes-2.5-flash"):
         self.api_key = api_key
         self.model = model
         self.base_url = BASE_URL
@@ -243,7 +243,7 @@ def get_chat_provider(
 
         AGNES_API_KEY=sk-xxx
         PROVIDER=agnes                      # agnes | openai_compat
-        AGNES_CHAT_MODEL=agnes-2.0-flash
+        AGNES_CHAT_MODEL=agnes-2.5-flash
         OPENAI_COMPAT_CHAT_BASE_URL=https://...
         OPENAI_COMPAT_CHAT_API_KEY=...
         OPENAI_COMPAT_CHAT_MODEL=...
