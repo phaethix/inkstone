@@ -48,6 +48,7 @@ from core.comic.consistency import (
 from core.comic.export import ExportEngine
 from core.comic.identity import ensure_character_l1, merge_settings, suggestion_from_alias
 from core.comic.layout import LayoutEngine, PanelImage
+from core.comic.page_lettering import letter_finished_page
 from core.comic.page_prompt import render_finished_page_prompt
 from core.comic.segmentation import detect_character_aliases, merge_characters, segment_text
 from core.config import ImageConfig, finished_page_size, l3_enabled, page_script_enabled
@@ -139,6 +140,7 @@ def _render_fingerprint(
             "l3_enabled": l3_enabled,
             "render_mode": render_mode,
             "page_size": page_size,
+            "lettering": "deferred_v1",
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -224,6 +226,15 @@ def _page_asset_path(pages_dir: Path, chunk_index: int, page_index: int) -> Path
     correct reading order.
     """
     return pages_dir / f"page_c{chunk_index:04d}_p{page_index:04d}.png"
+
+
+def _letter_page_from_blank(
+    blank_path: Path, local_path: Path, plan: ComicPagePlan
+) -> None:
+    """Render deferred lettering from a persisted blank page."""
+    with Image.open(blank_path) as blank:
+        lettered = letter_finished_page(blank, plan)
+    lettered.save(local_path)
 
 
 def _finished_page_files(pages_dir: Path) -> list[Path]:
@@ -470,16 +481,26 @@ def _reconcile_state(state: ProjectState, state_path: Path, output_dir: Path) ->
         state.panels_done.remove(panel_id)
         changed = True
 
-    invalid_pages = [
-        page_id
-        for page_id, generated in state.generated.pages.items()
-        if not _is_within(generated.local, output_dir) or not Path(generated.local).is_file()
-    ]
+    invalid_pages = []
+    pages_missing_lettered = []
+    for page_id, generated in state.generated.pages.items():
+        local_valid = _is_within(generated.local, output_dir) and Path(generated.local).is_file()
+        blank_valid = bool(
+            generated.blank_local
+            and _is_within(generated.blank_local, output_dir)
+            and Path(generated.blank_local).is_file()
+        )
+        if not local_valid:
+            pages_missing_lettered.append(page_id)
+        if not local_valid and not blank_valid:
+            invalid_pages.append(page_id)
     for page_id in invalid_pages:
         state.generated.pages.pop(page_id, None)
         changed = True
     stale_pages_done = [
-        page_id for page_id in state.pages_done if page_id not in state.generated.pages
+        page_id
+        for page_id in state.pages_done
+        if page_id not in state.generated.pages or page_id in pages_missing_lettered
     ]
     for page_id in stale_pages_done:
         state.pages_done.remove(page_id)
@@ -1002,6 +1023,24 @@ async def _creative_comic(
                 if not _page_needs_generation(state, state_key):
                     continue
                 check_cancel(cancel_check)
+                existing = state.generated.pages.get(state_key)
+                if (
+                    existing
+                    and existing.blank_local
+                    and _is_within(existing.blank_local, output_dir)
+                    and Path(existing.blank_local).is_file()
+                ):
+                    pages_dir.mkdir(parents=True, exist_ok=True)
+                    local = _page_asset_path(pages_dir, ci, page_index)
+                    await asyncio.to_thread(
+                        _letter_page_from_blank, Path(existing.blank_local), local, plan
+                    )
+                    existing.local = str(local)
+                    existing.mode = "finished_lettered"
+                    _mark_page_done(state, state_key)
+                    state.save(state_path)
+                    _report("pages", _pct())
+                    continue
                 prompt = render_finished_page_prompt(
                     plan,
                     characters_by_name=state.characters,
@@ -1071,14 +1110,19 @@ async def _creative_comic(
                 if out is None:
                     continue
                 pages_dir.mkdir(parents=True, exist_ok=True)
+                blank_dir = pages_dir / "blank"
+                blank_dir.mkdir(parents=True, exist_ok=True)
+                blank_path = _page_asset_path(blank_dir, ci, page_index)
+                await asyncio.to_thread(out.save, str(blank_path))
                 local = _page_asset_path(pages_dir, ci, page_index)
-                await asyncio.to_thread(out.save, str(local))
+                await asyncio.to_thread(_letter_page_from_blank, blank_path, local, plan)
                 state.generated.pages[state_key] = GeneratedPage(
                     local=str(local),
+                    blank_local=str(blank_path),
                     page_id=page_id,
                     unit_index=ci,
                     page_index=page_index,
-                    mode="finished",
+                    mode="finished_lettered",
                 )
                 _mark_page_done(state, state_key)
                 state.save(state_path)
