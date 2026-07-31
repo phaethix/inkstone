@@ -203,7 +203,12 @@ def test_finished_page_writes_blank_and_lettered(tmp_path, monkeypatch):
         creative_comic("第一章\n福贵在村口。", output_dir=str(tmp_path), chat=FakeChat(), image=img)
     )
 
-    assert any("no readable" in p.lower() or "empty speech" in p.lower() for p in img.prompts)
+    assert any(
+        "no readable" in p.lower()
+        or "no speech bubbles" in p.lower()
+        or "empty speech" in p.lower()
+        for p in img.prompts
+    )
     assert all("DIALOGUE (exact):" not in p for p in img.prompts)
     page_key = next(iter(proj.state.generated.pages))
     generated_page = proj.state.generated.pages[page_key]

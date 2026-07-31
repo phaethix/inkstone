@@ -25,14 +25,15 @@ def render_finished_page_prompt(
     if lettering == "deferred":
         lines.extend(
             [
-                "empty speech bubbles and caption bars as chrome only — leave interiors blank,",
+                "NO speech bubbles, caption bars, SFX glyphs, or lettering chrome in the image,",
+                "leave clean panel art only — text will be added in post-processing,",
                 "do not render any readable text, letters, or glyphs (no Latin, no CJK),",
-                "do not cover faces, hands, or key action with chrome.",
+                "do not cover faces, hands, or key action with placeholders.",
             ]
         )
         if strict:
             lines.append(
-                "STRICT: zero readable characters anywhere; high-contrast empty bubbles only."
+                "STRICT: zero readable characters and zero bubble/caption chrome anywhere."
             )
     else:
         lines.extend(
@@ -76,11 +77,5 @@ def render_finished_page_prompt(
                 lines.append(f"  lettering: {panel.lettering_notes}")
         else:
             if panel.lettering_notes:
-                lines.append(f"  empty chrome placement: {panel.lettering_notes}")
-    if lettering == "deferred":
-        for box in plan.lettering_boxes:
-            lines.append(
-                f"  empty {box.kind} chrome (panel {box.panel_id}): "
-                f"x={box.x:.2f} y={box.y:.2f} w={box.w:.2f} h={box.h:.2f}"
-            )
+                lines.append(f"  leave clear space for lettering: {panel.lettering_notes}")
     return "\n".join(lines)

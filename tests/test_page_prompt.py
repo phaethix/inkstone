@@ -1,5 +1,5 @@
 from core.comic.page_prompt import render_finished_page_prompt
-from core.schemas import CharacterAsset, ComicPagePlan, Setting
+from core.schemas import CharacterAsset, ComicPagePlan
 
 
 def test_prompt_includes_layout_lettering_and_identity():
@@ -36,7 +36,7 @@ def test_prompt_includes_layout_lettering_and_identity():
     assert "This map is moving." not in text
     assert "CAPTION (exact):" not in text
     assert "DIALOGUE (exact):" not in text
-    assert "no readable" in text.lower() or "empty speech" in text.lower()
+    assert "no readable" in text.lower() or "no speech bubbles" in text.lower()
     assert "young woman, dark hair" in text
     assert "2x2" not in text.lower()  # renderer must not collapse intent to grid slogan
     assert "Wide top archive" in text
@@ -69,8 +69,8 @@ def test_deferred_prompt_omits_glyph_strings_and_forbids_readable_text():
     assert "DIALOGUE (exact):" not in text
     assert "你好" not in text
     assert "傍晚" not in text
-    assert "no readable" in text.lower() or "empty speech" in text.lower()
-    assert "empty" in text.lower()
+    assert "no readable" in text.lower() or "no speech bubbles" in text.lower()
+    assert "post-processing" in text.lower() or "leave clear space" in text.lower()
 
 
 def test_in_image_lettering_mode_still_includes_exact_strings():
