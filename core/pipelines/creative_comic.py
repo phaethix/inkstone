@@ -132,16 +132,18 @@ def _render_fingerprint(
     render_mode: str = "finished_page",
     page_size: str = "1024x1536",
 ) -> str:
+    fp_payload: dict[str, object] = {
+        "style_guide": style_guide or "",
+        "model_snapshot": snapshot.model_dump(),
+        "panel_continuity": panel_continuity,
+        "l3_enabled": l3_enabled,
+        "render_mode": render_mode,
+        "page_size": page_size,
+    }
+    if render_mode == "finished_page":
+        fp_payload["lettering"] = "deferred_v1"
     payload = json.dumps(
-        {
-            "style_guide": style_guide or "",
-            "model_snapshot": snapshot.model_dump(),
-            "panel_continuity": panel_continuity,
-            "l3_enabled": l3_enabled,
-            "render_mode": render_mode,
-            "page_size": page_size,
-            "lettering": "deferred_v1",
-        },
+        fp_payload,
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
