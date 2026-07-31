@@ -44,9 +44,7 @@ def _field_mismatch(text: str | None, script: Script) -> bool:
     return False
 
 
-def lettering_field_mismatches(
-    plan: ComicPagePlan, script: Script
-) -> list[tuple[str, str, str]]:
+def lettering_field_mismatches(plan: ComicPagePlan, script: Script) -> list[tuple[str, str, str]]:
     out: list[tuple[str, str, str]] = []
     if script not in ("cjk", "latin"):
         return out
@@ -67,9 +65,5 @@ def strip_mismatched_lettering(plan: ComicPagePlan, script: Script) -> ComicPage
             if (panel.panel_id, kind) in bad:
                 data[kind] = None
         panels.append(PagePanelSpec.model_validate(data))
-    boxes = [
-        b
-        for b in plan.lettering_boxes
-        if (b.panel_id, b.kind) not in bad
-    ]
+    boxes = [b for b in plan.lettering_boxes if (b.panel_id, b.kind) not in bad]
     return plan.model_copy(update={"panels": panels, "lettering_boxes": boxes})
