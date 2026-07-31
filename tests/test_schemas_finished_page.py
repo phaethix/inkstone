@@ -3,6 +3,7 @@ from core.schemas import (
     ComicPagePlan,
     ComicPagePlanSet,
     GeneratedPage,
+    LetteringBox,
     ProjectState,
 )
 
@@ -63,3 +64,45 @@ def test_comic_page_plan_set_and_generated_page_on_state():
     assert loaded.page_cache["0"].pages[0].page_id == "p0001"
     assert loaded.generated.pages["p0001"].mode == "finished"
     assert loaded.render_mode == "finished_page"
+
+
+def test_lettering_box_and_plan_round_trip():
+    plan = ComicPagePlan.model_validate(
+        {
+            "page_id": "p0001",
+            "purpose": "establish",
+            "layout_intent": "wide top",
+            "panels": [
+                {
+                    "panel_id": "1",
+                    "dialogue": "你好",
+                    "action": "waves",
+                }
+            ],
+            "lettering_boxes": [
+                {
+                    "kind": "dialogue",
+                    "panel_id": "1",
+                    "x": 0.1,
+                    "y": 0.2,
+                    "w": 0.4,
+                    "h": 0.15,
+                }
+            ],
+        }
+    )
+    assert plan.lettering_boxes[0].kind == "dialogue"
+    assert LetteringBox.model_validate(plan.lettering_boxes[0].model_dump()).w == 0.4
+
+
+def test_generated_page_blank_local_and_lettered_mode():
+    page = GeneratedPage(
+        local="/tmp/pages/page_c0000_p0000.png",
+        blank_local="/tmp/pages/blank/page_c0000_p0000.png",
+        page_id="p0001",
+        mode="finished_lettered",
+    )
+    state = ProjectState(project_id="t", generated={"pages": {"c0000:p0001": page}})
+    loaded = ProjectState.model_validate_json(state.model_dump_json())
+    assert loaded.generated.pages["c0000:p0001"].blank_local.endswith("blank/page_c0000_p0000.png")
+    assert loaded.generated.pages["c0000:p0001"].mode == "finished_lettered"

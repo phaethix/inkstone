@@ -749,6 +749,32 @@ class PagePanelSpec(BaseModel):
         return text
 
 
+class LetteringBox(BaseModel):
+    """Normalized page rectangle for deferred lettering overlay."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    kind: Literal["caption", "dialogue", "sfx"]
+    panel_id: str
+    x: float = 0.0
+    y: float = 0.0
+    w: float = 0.4
+    h: float = 0.12
+
+    @field_validator("panel_id", mode="before")
+    @classmethod
+    def _coerce_panel_id(cls, value: Any) -> Any:
+        return coerce_str(value)
+
+    @field_validator("x", "y", "w", "h", mode="before")
+    @classmethod
+    def _coerce_float(cls, value: Any) -> Any:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
+
+
 class ComicPagePlan(BaseModel):
     """A single finished-page layout plan."""
 
@@ -758,6 +784,7 @@ class ComicPagePlan(BaseModel):
     purpose: str = ""
     layout_intent: str = ""
     panels: list[PagePanelSpec] = Field(default_factory=list)
+    lettering_boxes: list[LetteringBox] = Field(default_factory=list)
     reference_characters: list[str] = Field(default_factory=list)
     setting_refs: list[str] = Field(default_factory=list)
 
@@ -789,6 +816,11 @@ class ComicPagePlan(BaseModel):
     @classmethod
     def _coerce_panels(cls, value: Any) -> Any:
         return coerce_model_list(value, PagePanelSpec)
+
+    @field_validator("lettering_boxes", mode="before")
+    @classmethod
+    def _coerce_lettering_boxes(cls, value: Any) -> Any:
+        return coerce_model_list(value, LetteringBox)
 
     @field_validator("reference_characters", "setting_refs", mode="before")
     @classmethod
@@ -939,10 +971,11 @@ class GeneratedPage(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     local: str
+    blank_local: str | None = None
     page_id: str = ""
     unit_index: int = 0
     page_index: int = 0
-    mode: Literal["finished", "composed_fallback"] = "finished"
+    mode: Literal["finished", "finished_lettered", "composed_fallback"] = "finished"
     dialogue: str | None = None
     caption: str | None = None
     sfx: str | None = None
