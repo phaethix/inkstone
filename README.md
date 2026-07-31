@@ -58,7 +58,7 @@ Inkstone is an **independent implementation, not a fork** — inspired by [`lcy3
 
 > **An honest trade-off.** Free, cloud-only Agnes with no GPU caps how far character consistency can reach. The strongest approaches (IP-Adapter / InsightFace) need a local GPU running SDXL/Flux — incompatible with Inkstone's zero-cost premise. So Inkstone trades *perfect* consistency for *zero-cost + no-GPU + out-of-the-box*, using L1+L2+L3 as the best feasible strategy. Stated plainly, not hidden.
 
-**Finished-page mode (default)** generates one designed comic page per image call (dynamic panels + in-image lettering). Free-tier models have ceilings on legible text and identity lock — Inkstone optimizes for page-shaped comics, not commercial print parity. If finished pages fail persistently, set `INKSTONE_RENDER_MODE=panel_compose` and re-run; the legacy panel + layout path reuses cached plans where possible.
+**Finished-page mode (default)** generates whole-page art with empty lettering chrome; Inkstone overlays caption/dialogue/sfx using real fonts (CJK-capable). This avoids model-painted glyph distortion. Set `INKSTONE_RENDER_MODE=panel_compose` for the legacy per-panel path. Unlettered art is cached under `pages/blank/` so resume can re-letter without another image API call.
 
 <p align="center">
   <img src="assets/readme/section-how.svg" width="100%" alt="How it works" />
@@ -68,7 +68,7 @@ Inkstone is an **independent implementation, not a fork** — inspired by [`lcy3
   <img src="assets/readme/pipeline.svg" width="100%" alt="Pipeline: Split → Extract → Board → Paint → Export" />
 </p>
 
-A `txt` novel is split into segments → characters & scenes are extracted with `agnes-2.5-flash` → **finished-page mode (default)** plans one comic page per image call (dynamic panels + in-image lettering) → each page is painted directly → pages are bound to PDF or stacked into a webtoon PNG. For the legacy path, set `INKSTONE_RENDER_MODE=panel_compose`: storyboard prompts → per-panel generation → `LayoutEngine` grid layout → export.
+A `txt` novel is split into segments → characters & scenes are extracted with `agnes-2.5-flash` → **finished-page mode (default)** plans one comic page per image call (blank lettering chrome on the art) → each page is painted → Inkstone overlays text with real fonts → pages are bound to PDF or stacked into a webtoon PNG. For the legacy path, set `INKSTONE_RENDER_MODE=panel_compose`: storyboard prompts → per-panel generation → `LayoutEngine` grid layout → export.
 
 The core challenge — **cross-panel character consistency without a GPU** — is handled by a layered strategy:
 
