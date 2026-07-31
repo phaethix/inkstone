@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from core.comic.identity import ensure_character_l1
 from core.schemas import CharacterAsset, ComicPagePlan, Setting
 
@@ -13,19 +15,37 @@ def render_finished_page_prompt(
     settings_by_name: dict[str, Setting],
     style_guide: str = "",
     strict: bool = False,
+    lettering: Literal["deferred", "in_image"] = "deferred",
 ) -> str:
     lines: list[str] = [
         "Finished readable manga/comic page, A4 portrait single image,",
         "dynamic panel layout with gutters (not a flat labeled grid collage),",
         "clean black ink line art, soft cel shading, flat colors,",
-        "speech bubbles, caption boxes, and SFX lettered legibly in-image,",
-        "do not cover faces, hands, or key action with text.",
     ]
-    if strict:
-        lines.append(
-            "STRICT: render every CAPTION, DIALOGUE, and SFX string exactly as "
-            "specified; high-contrast legible lettering; do not omit any text."
+    if lettering == "deferred":
+        lines.extend(
+            [
+                "empty speech bubbles and caption bars as chrome only — leave interiors blank,",
+                "do not render any readable text, letters, or glyphs (no Latin, no CJK),",
+                "do not cover faces, hands, or key action with chrome.",
+            ]
         )
+        if strict:
+            lines.append(
+                "STRICT: zero readable characters anywhere; high-contrast empty bubbles only."
+            )
+    else:
+        lines.extend(
+            [
+                "speech bubbles, caption boxes, and SFX lettered legibly in-image,",
+                "do not cover faces, hands, or key action with text.",
+            ]
+        )
+        if strict:
+            lines.append(
+                "STRICT: render every CAPTION, DIALOGUE, and SFX string exactly as "
+                "specified; high-contrast legible lettering; do not omit any text."
+            )
     if style_guide:
         lines.append(f"Style: {style_guide}")
     lines.append(f"Page purpose: {plan.purpose}")
@@ -45,12 +65,22 @@ def render_finished_page_prompt(
                 ensure_character_l1(asset)
                 if asset.l1_prompt:
                     lines.append(f"  character {name}: {asset.l1_prompt}")
-        if panel.caption:
-            lines.append(f"  CAPTION (exact): {panel.caption}")
-        if panel.dialogue:
-            lines.append(f"  DIALOGUE (exact): {panel.dialogue}")
-        if panel.sfx:
-            lines.append(f"  SFX (exact): {panel.sfx}")
-        if panel.lettering_notes:
-            lines.append(f"  lettering: {panel.lettering_notes}")
+        if lettering == "in_image":
+            if panel.caption:
+                lines.append(f"  CAPTION (exact): {panel.caption}")
+            if panel.dialogue:
+                lines.append(f"  DIALOGUE (exact): {panel.dialogue}")
+            if panel.sfx:
+                lines.append(f"  SFX (exact): {panel.sfx}")
+            if panel.lettering_notes:
+                lines.append(f"  lettering: {panel.lettering_notes}")
+        else:
+            if panel.lettering_notes:
+                lines.append(f"  empty chrome placement: {panel.lettering_notes}")
+    if lettering == "deferred":
+        for box in plan.lettering_boxes:
+            lines.append(
+                f"  empty {box.kind} chrome (panel {box.panel_id}): "
+                f"x={box.x:.2f} y={box.y:.2f} w={box.w:.2f} h={box.h:.2f}"
+            )
     return "\n".join(lines)
