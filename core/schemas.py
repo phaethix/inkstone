@@ -886,13 +886,13 @@ class PageScript(BaseModel):
 
 
 class ChunkCache(BaseModel):
-    """Per-chunk cache of the billable chat-API results.
+    """Per-chunk cache of panel-era billable chat-API results.
 
-    ``extract_story_elements`` and ``plan_storyboard`` are the only network/cost
-    calls in the pipeline; caching their products per chunk lets a resume reuse
-    them instead of re-paying for already-planned chunks. Either field may be
-    ``None`` while a chunk is mid-flight (e.g. extraction cached but storyboard
-    still pending or rejected), in which case only the missing step is re-run.
+    Holds ``extract_story_elements`` / ``plan_storyboard`` (and optional legacy
+    ``page_script``). Finished-page plans live in ``ProjectState.page_cache`` —
+    a sibling map — so the default ``finished_page`` mode can skip storyboard
+    without stuffing page plans into this panel-era object. Either field here
+    may be ``None`` while a chunk is mid-flight; only the missing step is re-run.
     """
 
     model_config = ConfigDict(extra="ignore")

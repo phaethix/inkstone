@@ -7,7 +7,7 @@ from unittest.mock import patch
 from PIL import Image
 
 from core.api import ChatProvider, ImageProvider
-from core.pipelines.creative_comic import creative_comic
+from core.pipelines.creative_comic import creative_comic, is_unsupported_image_size_error
 from core.schemas import ProjectState
 from core.screenwriter import is_content_policy_rejection
 
@@ -206,6 +206,46 @@ def test_finished_page_content_policy_rejection_is_skipped_not_raised(tmp_path, 
 
 def test_is_content_policy_rejection_still_used_by_finished_page_path():
     assert is_content_policy_rejection(RuntimeError("content_policy_violation")) is True
+
+
+def test_is_unsupported_image_size_error_detects_size_rejects():
+    assert is_unsupported_image_size_error(RuntimeError("invalid size: 1024x1536 is not supported"))
+    assert is_unsupported_image_size_error(
+        RuntimeError("Bad Request: unsupported resolution for this model")
+    )
+    assert not is_unsupported_image_size_error(RuntimeError("rate limit exceeded"))
+    assert not is_unsupported_image_size_error(
+        RuntimeError("content_policy_violation: size mention alone is not enough")
+    )
+
+
+class SizeRejectThenOkImage(FakeImage):
+    """Portrait size rejected once; square fallback succeeds."""
+
+    def __init__(self):
+        super().__init__()
+        self.page_sizes: list[str | None] = []
+
+    async def generate_single_image(self, prompt, reference_image_paths=None, size=None, **kw):
+        self.calls += 1
+        if "Finished readable manga/comic page" in prompt:
+            self.page_sizes.append(size)
+            if size == "1024x1536":
+                raise RuntimeError("Agnes image error: invalid size 1024x1536 is not supported")
+        return FakeImageOutput()
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_finished_page_falls_back_to_square_when_size_rejected(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+    monkeypatch.delenv("INKSTONE_PAGE_SIZE", raising=False)
+    src = "第一章\n福贵在村口。"
+    img = SizeRejectThenOkImage()
+    proj = asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=img))
+
+    assert img.page_sizes == ["1024x1536", "1024x1024"]
+    assert "c0000:u1_p0001" in proj.state.pages_done
+    assert Path(proj.state.generated.pages["c0000:u1_p0001"].local).exists()
 
 
 class FailOncePageImage(FakeImage):

@@ -1,17 +1,19 @@
 """core.pipelines.creative_comic — text-to-comic orchestration.
 
-Drives the whole flow for one source text:
+Default (``finished_page``) flow for one source text:
 
-    segment -> extract -> merge characters -> (portraits) -> storyboard
-    -> per panel: build prompt (L1) + collect references (L2) -> generate
-    -> face composite (L3) -> layout -> export PDF
+    segment -> extract -> merge characters -> (portraits)
+    -> plan_comic_pages -> one finished page image per plan -> bind PDF/webtoon
 
-State is persisted to ``state.json`` after every panel so a rerun resumes
-from where it stopped and never regenerates an already-finished panel. Each
-chunk's extracted ``StoryElements`` and planned ``Storyboard`` are cached in
-``ProjectState.chunk_cache``, so a resume reuses them instead of re-paying the
-(billable) chat API for already-planned chunks; only chunks with missing panels
-are re-entered, and only the missing panels are regenerated.
+Legacy (``panel_compose``) flow:
+
+    … -> storyboard -> per panel (L1/L2, optional L3) -> LayoutEngine -> export
+
+Billable chat products are cached so resume does not re-pay:
+``ProjectState.chunk_cache`` holds extract / storyboard / optional page_script;
+``ProjectState.page_cache`` holds finished-page plans (``ComicPagePlanSet``).
+Generated page/panel assets resume independently via ``pages_done`` /
+``panels_done``.
 
 Providers are injected so the pipeline can be exercised without network.
 """
@@ -408,10 +410,11 @@ def _mark_page_chunk_done_if_complete(
 
 
 def _soft_invalidate_render(state: ProjectState) -> None:
-    """Drop render-owned assets while keeping structural cache (extract/storyboard).
+    """Drop render-owned assets while keeping structural chat caches.
 
-    Content-policy ``skipped`` entries are preserved: the source text did not
-    change, so re-attempting those panels only burns quota.
+    Preserves ``chunk_cache`` (extract/storyboard) and ``page_cache`` (finished
+    page plans). Content-policy ``skipped`` / ``skipped_pages`` are kept: the
+    source text did not change, so re-attempting those assets only burns quota.
     """
     state.panels_done = []
     state.stale_panels = []
@@ -422,6 +425,31 @@ def _soft_invalidate_render(state: ProjectState) -> None:
     state.generated.pages = {}
     for asset in state.characters.values():
         asset.portrait_local = None
+
+
+_FALLBACK_PAGE_SIZE = "1024x1024"
+
+
+def is_unsupported_image_size_error(exc: Exception) -> bool:
+    """Return True when a provider likely rejected the requested output size.
+
+    Used to fall back from portrait sizes (e.g. ``1024x1536``) to ``1024x1024``
+    once. Content-policy rejects are excluded so they stay on the skip path.
+    """
+    if is_content_policy_rejection(exc):
+        return False
+    text = str(exc).lower()
+    size_tokens = ("size", "resolution", "dimension", "1024x1536", "aspect")
+    reject_tokens = (
+        "invalid",
+        "unsupported",
+        "not supported",
+        "not allow",
+        "not allowed",
+        "unknown",
+        "bad request",
+    )
+    return any(t in text for t in size_tokens) and any(t in text for t in reject_tokens)
 
 
 def _reconcile_state(state: ProjectState, state_path: Path, output_dir: Path) -> None:
@@ -987,12 +1015,14 @@ async def _creative_comic(
                 ]
                 refs = [ref for ref in refs if _is_within(ref, output_dir) and Path(ref).is_file()]
                 stricter_attempted = False
+                size_fallback_attempted = False
+                active_size = page_size
                 while True:
                     try:
                         async with image_semaphore:
                             with perf.measure("page"):
                                 out = await image.generate_single_image(
-                                    prompt, reference_image_paths=refs, size=page_size
+                                    prompt, reference_image_paths=refs, size=active_size
                                 )
                         break
                     except Exception as exc:  # noqa: BLE001 — preserve policy skip behavior
@@ -1007,6 +1037,21 @@ async def _creative_comic(
                             state.save(state_path)
                             out = None
                             break
+                        if (
+                            not size_fallback_attempted
+                            and active_size != _FALLBACK_PAGE_SIZE
+                            and is_unsupported_image_size_error(exc)
+                        ):
+                            size_fallback_attempted = True
+                            logger.warning(
+                                "page %s size %s rejected (%s); falling back to %s",
+                                page_id,
+                                active_size,
+                                exc,
+                                _FALLBACK_PAGE_SIZE,
+                            )
+                            active_size = _FALLBACK_PAGE_SIZE
+                            continue
                         if not stricter_attempted:
                             stricter_attempted = True
                             prompt = render_finished_page_prompt(
