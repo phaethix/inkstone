@@ -972,6 +972,7 @@ class GeneratedPage(BaseModel):
 
     local: str
     blank_local: str | None = None
+    lettering_version: str = ""
     page_id: str = ""
     unit_index: int = 0
     page_index: int = 0

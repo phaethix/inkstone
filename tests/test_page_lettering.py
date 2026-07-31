@@ -1,4 +1,4 @@
-from PIL import Image
+from PIL import Image, ImageChops
 
 from core.comic.page_lettering import letter_finished_page, resolve_lettering_jobs
 from core.schemas import ComicPagePlan
@@ -27,7 +27,7 @@ def test_resolve_uses_boxes_then_heuristics():
 
 
 def test_letter_finished_page_draws_nonzero_ink():
-    blank = Image.new("RGB", (200, 300), (240, 240, 240))
+    blank = Image.new("RGB", (200, 300), (200, 200, 200))
     plan = ComicPagePlan.model_validate(
         {
             "page_id": "p1",
@@ -39,5 +39,32 @@ def test_letter_finished_page_draws_nonzero_ink():
     )
     out = letter_finished_page(blank, plan)
     assert out.size == blank.size
-    # Bubble fill / text should change some pixels vs flat blank.
-    assert list(out.getdata()) != list(blank.getdata())
+    assert ImageChops.difference(out, blank).getbbox() is not None
+
+
+def test_letter_finished_page_shrink_wraps_huge_plan_box():
+    blank = Image.new("RGB", (200, 400), (200, 200, 200))
+    plan = ComicPagePlan.model_validate(
+        {
+            "page_id": "p1",
+            "panels": [
+                {
+                    "panel_id": "2",
+                    "dialogue": "假如老头子消了气呢？",
+                }
+            ],
+            "lettering_boxes": [
+                {"kind": "dialogue", "panel_id": "2", "x": 0.1, "y": 0.5, "w": 0.8, "h": 0.4},
+            ],
+        }
+    )
+    out = letter_finished_page(blank, plan)
+    bottom = out.crop((0, 200, 200, 400))
+    whiteish = sum(
+        1
+        for y in range(bottom.height)
+        for x in range(bottom.width)
+        if bottom.getpixel((x, y))[0] > 240
+    )
+    # Full 0.8×0.4 of 200×400 ≈ 25600 white if chrome filled the plan box.
+    assert whiteish < 8000

@@ -42,6 +42,9 @@ SYSTEM_PROMPT = (
     "and onomatopoeia in sfx — leave a field null when unused. "
     "Art-direction fields (style_guide, scene_prompt, action, l1_prompt) may stay "
     "in English when that helps image models. "
+    "Identity: Chinese nicknames with animal glyphs (虎妞, 凤姐, 豹子头) are usually "
+    "human metaphors — describe a human person in l1_prompt/portrait_prompt; never "
+    "an animal head or anthropomorphic beast unless the source explicitly says so. "
     "When planning finished pages, describe manga geometry (splash/inset/diagonal), "
     "never only 2x2 or 3x2 grids."
 )

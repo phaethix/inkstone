@@ -114,19 +114,23 @@ def test_render_fingerprint_tracks_deferred_lettering_version():
             "l3_enabled": False,
             "render_mode": "finished_page",
             "page_size": "1024x1536",
-            "lettering": "deferred_v1",
+            "lettering": "deferred_v2",
+            "identity": "metaphor_v1",
         },
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
     )
 
-    assert _render_fingerprint(
-        "manhua",
-        snapshot=snapshot,
-        panel_continuity=False,
-        l3_enabled=False,
-    ) == hashlib.sha256(expected_payload.encode("utf-8")).hexdigest()
+    assert (
+        _render_fingerprint(
+            "manhua",
+            snapshot=snapshot,
+            panel_continuity=False,
+            l3_enabled=False,
+        )
+        == hashlib.sha256(expected_payload.encode("utf-8")).hexdigest()
+    )
 
 
 def test_render_fingerprint_omits_lettering_for_panel_compose():
@@ -139,19 +143,23 @@ def test_render_fingerprint_omits_lettering_for_panel_compose():
             "l3_enabled": False,
             "render_mode": "panel_compose",
             "page_size": "1024x1536",
+            "identity": "metaphor_v1",
         },
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
     )
-
-    assert _render_fingerprint(
-        "manhua",
-        snapshot=snapshot,
-        panel_continuity=False,
-        l3_enabled=False,
-        render_mode="panel_compose",
-    ) == hashlib.sha256(expected_payload.encode("utf-8")).hexdigest()
+    assert (
+        _render_fingerprint(
+            "manhua",
+            snapshot=snapshot,
+            panel_continuity=False,
+            l3_enabled=False,
+            render_mode="panel_compose",
+        )
+        == hashlib.sha256(expected_payload.encode("utf-8")).hexdigest()
+    )
+    assert '"lettering"' not in expected_payload
 
 
 @patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
@@ -192,9 +200,7 @@ def test_finished_page_writes_blank_and_lettered(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
     img = RecordingImage()
     proj = asyncio.run(
-        creative_comic(
-            "第一章\n福贵在村口。", output_dir=str(tmp_path), chat=FakeChat(), image=img
-        )
+        creative_comic("第一章\n福贵在村口。", output_dir=str(tmp_path), chat=FakeChat(), image=img)
     )
 
     assert any("no readable" in p.lower() or "empty speech" in p.lower() for p in img.prompts)

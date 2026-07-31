@@ -46,9 +46,14 @@ from core.comic.consistency import (
     _panel_reference_names,
 )
 from core.comic.export import ExportEngine
-from core.comic.identity import ensure_character_l1, merge_settings, suggestion_from_alias
+from core.comic.identity import (
+    ensure_character_l1,
+    harden_human_identity_prompt,
+    merge_settings,
+    suggestion_from_alias,
+)
 from core.comic.layout import LayoutEngine, PanelImage
-from core.comic.page_lettering import letter_finished_page
+from core.comic.page_lettering import LETTERING_VERSION, letter_finished_page
 from core.comic.page_prompt import render_finished_page_prompt
 from core.comic.segmentation import detect_character_aliases, merge_characters, segment_text
 from core.config import ImageConfig, finished_page_size, l3_enabled, page_script_enabled
@@ -139,9 +144,10 @@ def _render_fingerprint(
         "l3_enabled": l3_enabled,
         "render_mode": render_mode,
         "page_size": page_size,
+        "identity": "metaphor_v1",
     }
     if render_mode == "finished_page":
-        fp_payload["lettering"] = "deferred_v1"
+        fp_payload["lettering"] = "deferred_v2"
     payload = json.dumps(
         fp_payload,
         ensure_ascii=False,
@@ -230,9 +236,7 @@ def _page_asset_path(pages_dir: Path, chunk_index: int, page_index: int) -> Path
     return pages_dir / f"page_c{chunk_index:04d}_p{page_index:04d}.png"
 
 
-def _letter_page_from_blank(
-    blank_path: Path, local_path: Path, plan: ComicPagePlan
-) -> None:
+def _letter_page_from_blank(blank_path: Path, local_path: Path, plan: ComicPagePlan) -> None:
     """Render deferred lettering from a persisted blank page."""
     with Image.open(blank_path) as blank:
         lettered = letter_finished_page(blank, plan)
@@ -927,6 +931,7 @@ async def _creative_comic(
             asset = state.characters[name]
             ensure_character_l1(asset)
             prompt = asset.portrait_prompt or asset.l1_prompt
+            prompt = harden_human_identity_prompt(name, prompt)
             comic_style = f"{style}, {DEFAULT_PORTRAIT_STYLE}" if style else DEFAULT_PORTRAIT_STYLE
             async with image_semaphore:
                 with perf.measure("portrait"):
@@ -1022,15 +1027,17 @@ async def _creative_comic(
             for page_index, plan in enumerate(pageset.pages):
                 page_id = plan.page_id
                 state_key = _page_state_key(ci, page_id)
-                if not _page_needs_generation(state, state_key):
-                    continue
-                check_cancel(cancel_check)
                 existing = state.generated.pages.get(state_key)
-                if (
+                blank_ok = bool(
                     existing
                     and existing.blank_local
                     and _is_within(existing.blank_local, output_dir)
                     and Path(existing.blank_local).is_file()
+                )
+                if (
+                    blank_ok
+                    and existing is not None
+                    and existing.lettering_version != LETTERING_VERSION
                 ):
                     pages_dir.mkdir(parents=True, exist_ok=True)
                     local = _page_asset_path(pages_dir, ci, page_index)
@@ -1039,6 +1046,23 @@ async def _creative_comic(
                     )
                     existing.local = str(local)
                     existing.mode = "finished_lettered"
+                    existing.lettering_version = LETTERING_VERSION
+                    _mark_page_done(state, state_key)
+                    state.save(state_path)
+                    _report("pages", _pct())
+                    continue
+                if not _page_needs_generation(state, state_key):
+                    continue
+                check_cancel(cancel_check)
+                if blank_ok and existing is not None:
+                    pages_dir.mkdir(parents=True, exist_ok=True)
+                    local = _page_asset_path(pages_dir, ci, page_index)
+                    await asyncio.to_thread(
+                        _letter_page_from_blank, Path(existing.blank_local), local, plan
+                    )
+                    existing.local = str(local)
+                    existing.mode = "finished_lettered"
+                    existing.lettering_version = LETTERING_VERSION
                     _mark_page_done(state, state_key)
                     state.save(state_path)
                     _report("pages", _pct())
@@ -1121,6 +1145,7 @@ async def _creative_comic(
                 state.generated.pages[state_key] = GeneratedPage(
                     local=str(local),
                     blank_local=str(blank_path),
+                    lettering_version=LETTERING_VERSION,
                     page_id=page_id,
                     unit_index=ci,
                     page_index=page_index,

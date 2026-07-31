@@ -22,6 +22,35 @@ _HIGH_CONFIDENCE_MARKERS = (
     "substring match",
 )
 
+# Chinese literary nicknames often embed animal/plant glyphs metaphorically
+# (虎妞, 凤姐). Image models literalize those glyphs unless prompts forbid it.
+_ANIMAL_METAPHOR_CHARS = frozenset("虎龙凤豹狼狮猴蛇鹤狐兔熊鹰")
+
+_HUMAN_LOCK = (
+    "human person only — the name is metaphorical; not an animal, no animal head, "
+    "no fur, no tail, no snout (not a tiger/dragon/phoenix creature)"
+)
+
+
+def name_suggests_animal_metaphor(name: str) -> bool:
+    """True when ``name`` contains a common animal-metaphor ideograph."""
+    return any(ch in _ANIMAL_METAPHOR_CHARS for ch in name or "")
+
+
+def harden_human_identity_prompt(name: str, prompt: str) -> str:
+    """Append an anti-literalization lock for metaphorical animal names.
+
+    Non-metaphor names are returned unchanged. Idempotent if the lock is already
+    present.
+    """
+    text = (prompt or "").strip()
+    if not name_suggests_animal_metaphor(name):
+        return text
+    if "not an animal" in text.lower() and "human" in text.lower():
+        return text
+    base = text or name
+    return f"{base}, {_HUMAN_LOCK}"
+
 
 def build_l1_from_appearance(
     name: str,
@@ -72,6 +101,10 @@ def ensure_character_l1(char: CharacterAsset) -> CharacterAsset:
         char.l1_prompt = derived
     elif not (char.l1_prompt or "").strip() and derived:
         char.l1_prompt = derived
+    if char.l1_prompt:
+        char.l1_prompt = harden_human_identity_prompt(char.name, char.l1_prompt)
+    if char.portrait_prompt:
+        char.portrait_prompt = harden_human_identity_prompt(char.name, char.portrait_prompt)
     return char
 
 
