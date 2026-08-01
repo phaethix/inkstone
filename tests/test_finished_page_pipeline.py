@@ -114,7 +114,7 @@ def test_render_fingerprint_tracks_deferred_lettering_version():
             "l3_enabled": False,
             "render_mode": "finished_page",
             "page_size": "1024x1536",
-            "lettering": "deferred_v2",
+            "lettering": "deferred_v3",
             "identity": "metaphor_v1",
         },
         ensure_ascii=False,

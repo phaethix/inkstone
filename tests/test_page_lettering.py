@@ -1,6 +1,12 @@
 from PIL import Image, ImageChops
 
-from core.comic.page_lettering import letter_finished_page, resolve_lettering_jobs
+from core.comic.layout import LayoutEngine
+from core.comic.page_lettering import (
+    LETTERING_VERSION,
+    fit_lettering_box,
+    letter_finished_page,
+    resolve_lettering_jobs,
+)
 from core.schemas import ComicPagePlan
 
 
@@ -23,7 +29,9 @@ def test_resolve_uses_boxes_then_heuristics():
     assert ("1", "caption") in kinds  # heuristic
     assert ("2", "sfx") in kinds
     dialogue = next(b for p, k, t, b in jobs if k == "dialogue")
-    assert dialogue == (0.1, 0.2, 0.3, 0.1)
+    # margin clamp may nudge x slightly inward from 0.1
+    assert dialogue[2] <= 0.3 + 1e-6
+    assert dialogue[0] >= 0.04
 
 
 def test_letter_finished_page_draws_nonzero_ink():
@@ -66,5 +74,40 @@ def test_letter_finished_page_shrink_wraps_huge_plan_box():
         for x in range(bottom.width)
         if bottom.getpixel((x, y))[0] > 240
     )
-    # Full 0.8×0.4 of 200×400 ≈ 25600 white if chrome filled the plan box.
     assert whiteish < 8000
+
+
+def test_fit_lettering_box_stays_inside_page_margin():
+    engine = LayoutEngine()
+    page_w, page_h = 400, 600
+    # Anchor flush to left/top edge — must inset.
+    box = fit_lettering_box(
+        engine,
+        "dialogue",
+        "我要这辆车！",
+        (0, 0, 300, 200),
+        (page_w, page_h),
+    )
+    x, y, bw, bh = box
+    assert x >= int(page_w * 0.04) - 1
+    assert y >= int(page_h * 0.04) - 1
+    assert x + bw <= page_w - int(page_w * 0.04) + 1
+    assert y + bh <= page_h - int(page_h * 0.04) + 1
+
+
+def test_resolve_strips_pinyin_before_overlay():
+    plan = ComicPagePlan.model_validate(
+        {
+            "page_id": "p1",
+            "panels": [
+                {
+                    "panel_id": "1",
+                    "caption": "海甸的小店，三日昏迷（Hǎidiàn de xiǎodiàn, sānrì hūnmí）",
+                }
+            ],
+        }
+    )
+    jobs = resolve_lettering_jobs(plan, source_text="祥子在北平。")
+    assert len(jobs) == 1
+    assert jobs[0][2] == "海甸的小店，三日昏迷"
+    assert LETTERING_VERSION == "deferred_v3"

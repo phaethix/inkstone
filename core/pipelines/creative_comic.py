@@ -25,6 +25,7 @@ import logging
 from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 
 try:
@@ -147,7 +148,7 @@ def _render_fingerprint(
         "identity": "metaphor_v1",
     }
     if render_mode == "finished_page":
-        fp_payload["lettering"] = "deferred_v2"
+        fp_payload["lettering"] = "deferred_v3"
     payload = json.dumps(
         fp_payload,
         ensure_ascii=False,
@@ -236,10 +237,16 @@ def _page_asset_path(pages_dir: Path, chunk_index: int, page_index: int) -> Path
     return pages_dir / f"page_c{chunk_index:04d}_p{page_index:04d}.png"
 
 
-def _letter_page_from_blank(blank_path: Path, local_path: Path, plan: ComicPagePlan) -> None:
+def _letter_page_from_blank(
+    blank_path: Path,
+    local_path: Path,
+    plan: ComicPagePlan,
+    *,
+    source_text: str = "",
+) -> None:
     """Render deferred lettering from a persisted blank page."""
     with Image.open(blank_path) as blank:
-        lettered = letter_finished_page(blank, plan)
+        lettered = letter_finished_page(blank, plan, source_text=source_text)
     lettered.save(local_path)
 
 
@@ -1042,7 +1049,13 @@ async def _creative_comic(
                     pages_dir.mkdir(parents=True, exist_ok=True)
                     local = _page_asset_path(pages_dir, ci, page_index)
                     await asyncio.to_thread(
-                        _letter_page_from_blank, Path(existing.blank_local), local, plan
+                        partial(
+                            _letter_page_from_blank,
+                            Path(existing.blank_local),
+                            local,
+                            plan,
+                            source_text=chunk,
+                        )
                     )
                     existing.local = str(local)
                     existing.mode = "finished_lettered"
@@ -1058,7 +1071,13 @@ async def _creative_comic(
                     pages_dir.mkdir(parents=True, exist_ok=True)
                     local = _page_asset_path(pages_dir, ci, page_index)
                     await asyncio.to_thread(
-                        _letter_page_from_blank, Path(existing.blank_local), local, plan
+                        partial(
+                            _letter_page_from_blank,
+                            Path(existing.blank_local),
+                            local,
+                            plan,
+                            source_text=chunk,
+                        )
                     )
                     existing.local = str(local)
                     existing.mode = "finished_lettered"
@@ -1141,7 +1160,15 @@ async def _creative_comic(
                 blank_path = _page_asset_path(blank_dir, ci, page_index)
                 await asyncio.to_thread(out.save, str(blank_path))
                 local = _page_asset_path(pages_dir, ci, page_index)
-                await asyncio.to_thread(_letter_page_from_blank, blank_path, local, plan)
+                await asyncio.to_thread(
+                    partial(
+                        _letter_page_from_blank,
+                        blank_path,
+                        local,
+                        plan,
+                        source_text=chunk,
+                    )
+                )
                 state.generated.pages[state_key] = GeneratedPage(
                     local=str(local),
                     blank_local=str(blank_path),

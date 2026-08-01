@@ -15,6 +15,7 @@ import requests
 from core.api import get_chat_provider
 from core.comic.lettering_lang import (
     lettering_field_mismatches,
+    sanitize_plan_lettering,
     source_lettering_script,
     strip_mismatched_lettering,
 )
@@ -156,6 +157,10 @@ async def plan_comic_pages(text: str, elements: StoryElements, *, chat=None) -> 
     lang_reminder = (
         "Reminder: caption / dialogue / sfx must match the source language "
         "(if the excerpt is Chinese, lettering must be Chinese — never English translation). "
+        "Do NOT add pinyin, romanization, or latin glosses in parentheses. "
+        "Keep each caption/dialogue short (one breath). "
+        "Place lettering_boxes near panel edges — never covering faces; keep boxes fully "
+        "inside the page (0.05–0.95). "
         "Also emit lettering_boxes: normalized 0-1 page rectangles "
         "(kind, panel_id, x, y, w, h) for every non-null lettering field."
     )
@@ -203,8 +208,15 @@ async def plan_comic_pages(text: str, elements: StoryElements, *, chat=None) -> 
         pageset = pageset.model_copy(
             update={
                 "pages": [
-                    strip_mismatched_lettering(page, script) for page in pageset.pages
+                    sanitize_plan_lettering(strip_mismatched_lettering(page, script), script)
+                    for page in pageset.pages
                 ],
+            }
+        )
+    else:
+        pageset = pageset.model_copy(
+            update={
+                "pages": [sanitize_plan_lettering(page, "cjk") for page in pageset.pages],
             }
         )
     return pageset
