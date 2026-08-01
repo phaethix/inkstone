@@ -145,7 +145,7 @@ def _render_fingerprint(
         "l3_enabled": l3_enabled,
         "render_mode": render_mode,
         "page_size": page_size,
-        "identity": "metaphor_v1",
+        "identity": "metaphor_v2",
     }
     if render_mode == "finished_page":
         fp_payload["lettering"] = "deferred_v3"

@@ -86,3 +86,34 @@ def test_in_image_lettering_mode_still_includes_exact_strings():
         plan, characters_by_name={}, settings_by_name={}, lettering="in_image"
     )
     assert "DIALOGUE (exact): 你好" in text
+
+
+def test_finished_page_prompt_locks_metaphorical_huniu():
+    plan = ComicPagePlan.model_validate(
+        {
+            "page_id": "p0001",
+            "purpose": "寿宴",
+            "layout_intent": "single panel",
+            "panels": [
+                {
+                    "panel_id": "1",
+                    "action": "虎妞向父亲吹嘘祥子送的寿桃",
+                    "characters": ["虎妞"],
+                }
+            ],
+            "reference_characters": ["虎妞"],
+        }
+    )
+    chars = {
+        "虎妞": CharacterAsset(
+            name="虎妞",
+            role="factory owner's daughter",
+            l1_prompt="虎妞, sturdy woman in traditional clothes",
+        )
+    }
+    text = render_finished_page_prompt(plan, characters_by_name=chars, settings_by_name={})
+    assert "CRITICAL character identity" in text
+    assert "虎妞" in text
+    assert "NOT a literal animal" in text
+    assert "human character" in text
+    assert "sturdy woman in traditional clothes" in text

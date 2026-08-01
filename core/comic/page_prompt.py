@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import Literal
 
-from core.comic.identity import ensure_character_l1
+from core.comic.identity import (
+    ensure_character_l1,
+    harden_human_identity_prompt,
+    metaphor_identity_lock_line,
+    metaphor_names_on_page,
+)
 from core.schemas import CharacterAsset, ComicPagePlan, Setting
 
 
@@ -51,6 +56,12 @@ def render_finished_page_prompt(
         lines.append(f"Style: {style_guide}")
     lines.append(f"Page purpose: {plan.purpose}")
     lines.append(f"Layout intent: {plan.layout_intent}")
+    metaphor_names = metaphor_names_on_page(plan, characters_by_name)
+    if metaphor_names:
+        lines.append(
+            "CRITICAL character identity (Chinese nicknames are metaphorical — draw HUMANS only):"
+        )
+        lines.extend(metaphor_identity_lock_line(name) for name in metaphor_names)
     for i, panel in enumerate(plan.panels, start=1):
         lines.append(
             f"Panel {i} ({panel.panel_id}): role={panel.role}, shape={panel.shape_hint}, "
@@ -64,8 +75,9 @@ def render_finished_page_prompt(
             asset = characters_by_name.get(name)
             if asset:
                 ensure_character_l1(asset)
-                if asset.l1_prompt:
-                    lines.append(f"  character {name}: {asset.l1_prompt}")
+                desc = harden_human_identity_prompt(name, asset.l1_prompt or "")
+                if desc:
+                    lines.append(f"  character {name}: {desc}")
         if lettering == "in_image":
             if panel.caption:
                 lines.append(f"  CAPTION (exact): {panel.caption}")
