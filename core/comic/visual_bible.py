@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 
 from core.comic.identity import merge_character_alias, suggestion_from_alias
 import logging
@@ -27,6 +28,129 @@ COSTUME_CHANGE_LOCK_LINE = (
     "do not change hair color, outfit colors, or skin tone across panels "
     "unless action says costume change"
 )
+
+_ASCII_LETTER_RE = re.compile(r"[A-Za-z]")
+_PROSE_MARKER_RE = re.compile(
+    r"(?i)(,|\bwith\b|\bhair\b|\bexpression\b|\bwearing\b|\bbuild\b|\beyes\b|\bage\b|\bold\b)",
+)
+_OUTFIT_WORD_RE = re.compile(
+    r"(?i)\b("
+    r"wearing|hoodie|athletic|sneakers|jacket|suit|dress|skirt|pants|boots|coat|"
+    r"sweater|jeans|uniform|robe|vest|tie|blouse|shirt|trousers|athleisure"
+    r")\b",
+)
+
+_MOTHER_ROLE_MARKERS = ("母", "妈", "mother", "widow", "寡妇")
+_DAUGHTER_ROLE_MARKERS = ("女", "孩", "narrator", "少女", "女儿", "叙述者")
+_COUNT_LOVER_ROLE_MARKERS = ("伯爵", "count", "工厂主", "情人")
+_NOVELIST_ROLE_MARKERS = ("小说家", "作家", "novelist")
+_SERVANT_ROLE_MARKERS = ("仆", "butler", "约翰")
+_MASTER_ROLE_MARKERS = ("主人", "novelist", "作家")
+
+
+def is_illegal_character_name(name: str) -> bool:
+    """True when ``name`` looks like English prose description, not a character label."""
+    text = (name or "").strip()
+    if not text:
+        return False
+    ascii_count = len(_ASCII_LETTER_RE.findall(text))
+    if len(text) > 40 and ascii_count >= 10:
+        return True
+    if text.count(",") >= 2 and ascii_count >= max(len(text) // 3, 8):
+        return True
+    if ascii_count > 0 and _PROSE_MARKER_RE.search(text):
+        if ascii_count >= max(len(text) // 4, 6):
+            return True
+    return False
+
+
+def _role_contains_any(role: str, markers: tuple[str, ...]) -> bool:
+    lower = role.casefold()
+    for marker in markers:
+        if marker in role or marker.casefold() in lower:
+            return True
+    return False
+
+
+def roles_incompatible(role_a: str, role_b: str) -> bool:
+    """True when two role strings describe incompatible person identities."""
+    a = (role_a or "").strip()
+    b = (role_b or "").strip()
+    if not a or not b:
+        return False
+
+    def _pair(left: str, right: str, markers_a: tuple[str, ...], markers_b: tuple[str, ...]) -> bool:
+        return _role_contains_any(left, markers_a) and _role_contains_any(right, markers_b)
+
+    incompatible_pairs = (
+        (_MOTHER_ROLE_MARKERS, _DAUGHTER_ROLE_MARKERS),
+        (_DAUGHTER_ROLE_MARKERS, _MOTHER_ROLE_MARKERS),
+        (_COUNT_LOVER_ROLE_MARKERS, _NOVELIST_ROLE_MARKERS),
+        (_NOVELIST_ROLE_MARKERS, _COUNT_LOVER_ROLE_MARKERS),
+        (_SERVANT_ROLE_MARKERS, _MASTER_ROLE_MARKERS),
+        (_MASTER_ROLE_MARKERS, _SERVANT_ROLE_MARKERS),
+    )
+    return any(_pair(a, b, ma, mb) for ma, mb in incompatible_pairs)
+
+
+def normalize_face_lock(text: str) -> str:
+    """Strip outfit-related words so ``face_lock`` stays facial-only."""
+    stripped = re.sub(r",?\s*wearing[^,;]*", "", (text or "").strip(), flags=re.IGNORECASE)
+    parts: list[str] = []
+    for part in re.split(r"[,;]", stripped):
+        chunk = part.strip()
+        if not chunk or _OUTFIT_WORD_RE.search(chunk):
+            continue
+        parts.append(chunk)
+    return ", ".join(parts).strip()
+
+
+def _default_hair_lock() -> str:
+    return "dark hair"
+
+
+def _default_outfit_lock(style_hint: str) -> str:
+    hint = (style_hint or "").strip()
+    if hint:
+        return f"{hint} period clothing"
+    return "early 20th century European period clothing"
+
+
+def ensure_stage_locks(
+    stage: CharacterStage,
+    *,
+    canon_face: str,
+    style_hint: str = "",
+    canonical_name: str = "",
+) -> CharacterStage:
+    """Fill empty stage locks and repair illegal ``portrait_key`` values."""
+    hair_lock = (stage.hair_lock or "").strip() or _default_hair_lock()
+    outfit_lock = (stage.outfit_lock or "").strip() or _default_outfit_lock(style_hint)
+    portrait_key = (stage.portrait_key or "").strip()
+    if canonical_name and (not portrait_key or is_illegal_character_name(portrait_key)):
+        portrait_key = f"{canonical_name}@{stage.stage}"
+    return CharacterStage(
+        stage=stage.stage,
+        appearance=stage.appearance,
+        outfit_lock=outfit_lock,
+        hair_lock=hair_lock,
+        portrait_key=portrait_key,
+    )
+
+
+def ensure_canon_locks(canon: CharacterCanon, style_hint: str = "") -> CharacterCanon:
+    """Normalize face lock and ensure every stage has hair/outfit/portrait locks."""
+    face_lock = normalize_face_lock(canon.face_lock) or (canon.face_lock or "").strip()
+    stages = [
+        ensure_stage_locks(
+            stage,
+            canon_face=face_lock,
+            style_hint=style_hint,
+            canonical_name=canon.canonical_name,
+        )
+        for stage in canon.stages
+    ]
+    return canon.model_copy(update={"face_lock": face_lock, "stages": stages})
 
 
 def parse_stage_ref(name: str) -> tuple[str, str]:
@@ -192,6 +316,25 @@ def _ensure_canonical_character(
             return
 
 
+def _append_needs_review(out: ProjectState, suggestion) -> None:
+    if not any(
+        s.new_name == suggestion.new_name and s.candidate == suggestion.candidate
+        for s in out.needs_review
+    ):
+        out.needs_review.append(suggestion)
+
+
+def _role_for_character(out: ProjectState, name: str) -> str:
+    asset = out.characters.get(name)
+    if asset is not None and (asset.role or "").strip():
+        return asset.role.strip()
+    if out.visual_bible is not None:
+        canon = out.visual_bible.characters.get(name)
+        if canon is not None and (canon.role or "").strip():
+            return canon.role.strip()
+    return ""
+
+
 def apply_reconcile(
     state: ProjectState,
     result: VisualBibleReconcileResult,
@@ -203,6 +346,12 @@ def apply_reconcile(
 
     for merge in result.merges:
         if merge.confidence == "high":
+            role_alias = _role_for_character(out, merge.alias)
+            role_canon = _role_for_character(out, merge.canonical)
+            if roles_incompatible(role_alias, role_canon):
+                suggestion = suggestion_from_alias(merge.alias, merge.canonical, merge.reason)
+                _append_needs_review(out, suggestion)
+                continue
             _ensure_canonical_character(out, merge.canonical, result)
             try:
                 merge_character_alias(out, merge.alias, merge.canonical)
@@ -217,11 +366,7 @@ def apply_reconcile(
                 _ensure_canon_alias(out.visual_bible, merge.canonical, merge.alias)
         else:
             suggestion = suggestion_from_alias(merge.alias, merge.canonical, merge.reason)
-            if not any(
-                s.new_name == suggestion.new_name and s.candidate == suggestion.candidate
-                for s in out.needs_review
-            ):
-                out.needs_review.append(suggestion)
+            _append_needs_review(out, suggestion)
 
     if out.visual_bible is not None:
         for link in result.stages:
