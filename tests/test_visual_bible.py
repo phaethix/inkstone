@@ -8,6 +8,7 @@ from core.comic.visual_bible import (
     parse_stage_ref,
     refresh_bible_hash,
     rewrite_page_plan_names,
+    sync_characters_from_bible,
 )
 from core.schemas import (
     CharacterAsset,
@@ -16,6 +17,7 @@ from core.schemas import (
     ColorBible,
     ColorSwatch,
     ComicPagePlan,
+    ComicPagePlanSet,
     ProjectState,
     VisualBible,
     VisualBibleMerge,
@@ -197,6 +199,78 @@ def test_apply_reconcile_applies_color_patches_on_update():
     assert out.visual_bible.style_guide == "locked style"
     assert out.visual_bible.color.palette[0].hex == "#222222"
     assert len(out.visual_bible.color.palette) == 1
+
+
+def test_sync_characters_from_bible_updates_l1():
+    state = ProjectState(
+        project_id="p",
+        characters={"R": CharacterAsset(name="R", l1_prompt="stale")},
+        visual_bible=VisualBible(
+            version="bible_v1",
+            style_guide="manhua",
+            color=ColorBible(palette=[], lighting="", forbidden=[]),
+            characters={
+                "R": CharacterCanon(
+                    canonical_name="R",
+                    face_lock="locked face",
+                    stages=[
+                        CharacterStage(
+                            stage="default",
+                            outfit_lock="locked outfit",
+                            hair_lock="locked hair",
+                            portrait_key="R",
+                        )
+                    ],
+                )
+            },
+        ),
+    )
+    sync_characters_from_bible(state)
+    assert "locked face" in state.characters["R"].l1_prompt
+    assert "locked outfit" in state.characters["R"].l1_prompt
+
+
+def test_sync_characters_from_bible_rewrites_page_cache_aliases():
+    plan = ComicPagePlan.model_validate(
+        {
+            "page_id": "p1",
+            "purpose": "x",
+            "layout_intent": "y",
+            "panels": [{"panel_id": "1", "characters": ["李先生"], "action": "stands"}],
+            "reference_characters": ["李先生"],
+        }
+    )
+    pageset = ComicPagePlanSet(unit_id="u1", pages=[plan])
+    state = ProjectState(
+        project_id="p",
+        characters={"R": CharacterAsset(name="R", l1_prompt="stale")},
+        page_cache={"0": pageset},
+        visual_bible=VisualBible(
+            version="bible_v1",
+            style_guide="manhua",
+            color=ColorBible(palette=[], lighting="", forbidden=[]),
+            characters={
+                "R": CharacterCanon(
+                    canonical_name="R",
+                    face_lock="locked face",
+                    aliases=["李先生"],
+                    stages=[
+                        CharacterStage(
+                            stage="default",
+                            outfit_lock="locked outfit",
+                            hair_lock="locked hair",
+                            portrait_key="R",
+                        )
+                    ],
+                )
+            },
+        ),
+    )
+    sync_characters_from_bible(state)
+    assert "李先生" in state.characters["R"].aliases
+    fixed = state.page_cache["0"].pages[0]
+    assert fixed.panels[0].characters == ["R"]
+    assert fixed.reference_characters == ["R"]
 
 
 def test_l1_from_canon_includes_locks():

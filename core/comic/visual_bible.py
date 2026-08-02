@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+
 from core.comic.identity import merge_character_alias, suggestion_from_alias
 from core.schemas import (
     CharacterCanon,
@@ -195,6 +196,44 @@ def apply_reconcile(
                 )
 
     return out
+
+
+def _build_alias_to_canonical_map(bible: VisualBible) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for key, canon in bible.characters.items():
+        canonical = canon.canonical_name or key
+        for alias in canon.aliases:
+            if alias and alias != canonical:
+                mapping[alias] = canonical
+    return mapping
+
+
+def sync_characters_from_bible(state: ProjectState) -> None:
+    """Sync character L1 prompts from bible canons and rewrite cached page plans."""
+    bible = state.visual_bible
+    if bible is None:
+        return
+
+    mapping = _build_alias_to_canonical_map(bible)
+
+    for key, canon in bible.characters.items():
+        canonical = canon.canonical_name or key
+        asset = state.characters.get(canonical)
+        if asset is None:
+            continue
+        l1 = l1_from_canon(canon)
+        if l1:
+            asset.l1_prompt = l1
+            asset.portrait_prompt = l1
+        for alias in canon.aliases:
+            if alias and alias != canonical and alias not in asset.aliases:
+                asset.aliases.append(alias)
+
+    if not mapping:
+        return
+
+    for pageset in state.page_cache.values():
+        pageset.pages = [rewrite_page_plan_names(plan, mapping) for plan in pageset.pages]
 
 
 def format_color_bible_block(bible: VisualBible) -> str:

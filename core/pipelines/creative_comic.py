@@ -64,6 +64,7 @@ from core.comic.visual_bible import (
     l1_from_canon,
     parse_stage_ref,
     refresh_bible_hash,
+    sync_characters_from_bible,
 )
 from core.config import ImageConfig, finished_page_size, l3_enabled, page_script_enabled
 from core.config import render_mode as config_render_mode
@@ -960,13 +961,14 @@ async def _creative_comic(
             sugg = suggestion_from_alias(name, cand, reason)
             if sugg not in state.needs_review:
                 state.needs_review.append(sugg)
-        if fresh_extract or new_names:
+        if state.visual_bible is None or fresh_extract or new_names:
             try:
                 recon = await reconcile_visual_bible(
                     chunk, state.characters, state.visual_bible, alias_hints=hints, chat=chat
                 )
                 prev_hash = state.visual_bible.content_hash if state.visual_bible else None
                 state = apply_reconcile(state, recon)
+                sync_characters_from_bible(state)
                 if state.visual_bible:
                     state.visual_bible = refresh_bible_hash(state.visual_bible)
                     if prev_hash and state.visual_bible.content_hash != prev_hash:
