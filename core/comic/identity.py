@@ -12,6 +12,7 @@ from core.schemas import (
     Appearance,
     CharacterAliasSuggestion,
     CharacterAsset,
+    ComicPagePlan,
     ProjectState,
     Setting,
 )
@@ -21,6 +22,72 @@ _HIGH_CONFIDENCE_MARKERS = (
     "normalized/substring",
     "substring match",
 )
+
+# Chinese literary nicknames often embed animal/plant glyphs metaphorically
+# (虎妞, 凤姐). Image models literalize those glyphs unless prompts forbid it.
+_ANIMAL_METAPHOR_CHARS = frozenset("虎龙凤豹狼狮猴蛇鹤狐兔熊鹰")
+
+_HUMAN_LOCK = (
+    "human person only — the name is metaphorical; not an animal, no animal head, "
+    "no fur, no tail, no snout (not a tiger/dragon/phoenix creature)"
+)
+
+
+def name_suggests_animal_metaphor(name: str) -> bool:
+    """True when ``name`` contains a common animal-metaphor ideograph."""
+    return any(ch in _ANIMAL_METAPHOR_CHARS for ch in name or "")
+
+
+def metaphor_identity_lock_line(name: str) -> str:
+    """One-line human-only lock for finished-page / portrait prompts."""
+    return (
+        f"- {name}: human person with a normal human face; Chinese nickname only — "
+        f"NOT a literal animal; NO tiger/dragon head, NO fur, NO snout, NO anthropomorphic beast"
+    )
+
+
+def metaphor_names_on_page(
+    plan: ComicPagePlan,
+    characters_by_name: dict[str, CharacterAsset],
+) -> list[str]:
+    """Collect metaphorical animal-glyph names referenced on a finished page."""
+    found: set[str] = set()
+    for name in plan.reference_characters or []:
+        if name_suggests_animal_metaphor(name):
+            found.add(name)
+    for panel in plan.panels:
+        for name in panel.characters:
+            if name_suggests_animal_metaphor(name):
+                found.add(name)
+        action = panel.action or ""
+        for name in characters_by_name:
+            if name_suggests_animal_metaphor(name) and name in action:
+                found.add(name)
+    return sorted(found)
+
+
+def harden_human_identity_prompt(name: str, prompt: str) -> str:
+    """Prefix an anti-literalization lock for metaphorical animal names.
+
+    Non-metaphor names are returned unchanged. Idempotent if the lock is already
+    present.
+    """
+    text = (prompt or "").strip()
+    if not name_suggests_animal_metaphor(name):
+        return text
+    lower = text.lower()
+    if "metaphorical" in lower and "not an animal" in lower and "human character" in lower:
+        return text
+    core = text
+    if core.startswith(name):
+        core = core[len(name) :].lstrip(" ,;—-")
+    lead = (
+        f"human character — {name} is a metaphorical Chinese nickname only "
+        f"(NOT a literal tiger/dragon/animal); draw a normal human face and body"
+    )
+    if core:
+        return f"{lead}; {core}; {_HUMAN_LOCK}"
+    return f"{lead}; {_HUMAN_LOCK}"
 
 
 def build_l1_from_appearance(
@@ -72,6 +139,10 @@ def ensure_character_l1(char: CharacterAsset) -> CharacterAsset:
         char.l1_prompt = derived
     elif not (char.l1_prompt or "").strip() and derived:
         char.l1_prompt = derived
+    if char.l1_prompt:
+        char.l1_prompt = harden_human_identity_prompt(char.name, char.l1_prompt)
+    if char.portrait_prompt:
+        char.portrait_prompt = harden_human_identity_prompt(char.name, char.portrait_prompt)
     return char
 
 

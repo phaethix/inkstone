@@ -1,17 +1,19 @@
 """core.pipelines.creative_comic — text-to-comic orchestration.
 
-Drives the whole flow for one source text:
+Default (``finished_page``) flow for one source text:
 
-    segment -> extract -> merge characters -> (portraits) -> storyboard
-    -> per panel: build prompt (L1) + collect references (L2) -> generate
-    -> face composite (L3) -> layout -> export PDF
+    segment -> extract -> merge characters -> (portraits)
+    -> plan_comic_pages -> one finished page image per plan -> bind PDF/webtoon
 
-State is persisted to ``state.json`` after every panel so a rerun resumes
-from where it stopped and never regenerates an already-finished panel. Each
-chunk's extracted ``StoryElements`` and planned ``Storyboard`` are cached in
-``ProjectState.chunk_cache``, so a resume reuses them instead of re-paying the
-(billable) chat API for already-planned chunks; only chunks with missing panels
-are re-entered, and only the missing panels are regenerated.
+Legacy (``panel_compose``) flow:
+
+    … -> storyboard -> per panel (L1/L2, optional L3) -> LayoutEngine -> export
+
+Billable chat products are cached so resume does not re-pay:
+``ProjectState.chunk_cache`` holds extract / storyboard / optional page_script;
+``ProjectState.page_cache`` holds finished-page plans (``ComicPagePlanSet``).
+Generated page/panel assets resume independently via ``pages_done`` /
+``panels_done``.
 
 Providers are injected so the pipeline can be exercised without network.
 """
@@ -23,6 +25,7 @@ import logging
 from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 
 try:
@@ -44,10 +47,30 @@ from core.comic.consistency import (
     _panel_reference_names,
 )
 from core.comic.export import ExportEngine
-from core.comic.identity import ensure_character_l1, merge_settings, suggestion_from_alias
+from core.comic.identity import (
+    ensure_character_l1,
+    harden_human_identity_prompt,
+    merge_settings,
+    suggestion_from_alias,
+)
 from core.comic.layout import LayoutEngine, PanelImage
+from core.comic.page_lettering import LETTERING_VERSION, letter_finished_page
 from core.comic.page_prompt import render_finished_page_prompt
 from core.comic.segmentation import detect_character_aliases, merge_characters, segment_text
+from core.comic.visual_bible import (
+    apply_reconcile,
+    backfill_panel_characters,
+    collect_finished_page_refs,
+    format_color_bible_block,
+    l1_from_canon,
+    parse_stage_ref,
+    refresh_bible_hash,
+    resolve_canonical_name,
+    resolve_character_asset,
+    rewrite_pageset_from_bible,
+    sanitize_visual_bible_state,
+    sync_characters_from_bible,
+)
 from core.config import ImageConfig, finished_page_size, l3_enabled, page_script_enabled
 from core.config import render_mode as config_render_mode
 from core.perf import PerfCollector
@@ -71,6 +94,7 @@ from core.screenwriter import (
     plan_comic_pages,
     plan_page_script,
     plan_storyboard,
+    reconcile_visual_bible,
 )
 
 logger = logging.getLogger(__name__)
@@ -120,6 +144,23 @@ def _structure_fingerprint(source_txt: str) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _bible_fingerprint_kwargs(visual_bible) -> tuple[str | None, str | None]:
+    if visual_bible is None or not visual_bible.content_hash:
+        return None, None
+    return visual_bible.version, visual_bible.content_hash
+
+
+def _known_character_names(state: ProjectState) -> list[str]:
+    names: list[str] = list(state.characters.keys())
+    bible = state.visual_bible
+    if bible is None:
+        return names
+    for canon_name, canon in bible.characters.items():
+        names.append(canon_name)
+        names.extend(canon.aliases)
+    return names
+
+
 def _render_fingerprint(
     style_guide: str | None,
     *,
@@ -128,16 +169,26 @@ def _render_fingerprint(
     l3_enabled: bool,
     render_mode: str = "finished_page",
     page_size: str = "1024x1536",
+    bible_version: str | None = None,
+    bible_hash: str | None = None,
 ) -> str:
+    fp_payload: dict[str, object] = {
+        "style_guide": style_guide or "",
+        "model_snapshot": snapshot.model_dump(),
+        "panel_continuity": panel_continuity,
+        "l3_enabled": l3_enabled,
+        "render_mode": render_mode,
+        "page_size": page_size,
+        "identity": "metaphor_v2",
+    }
+    if render_mode == "finished_page":
+        fp_payload["lettering"] = "deferred_v3"
+    if bible_version is not None:
+        fp_payload["visual_bible"] = bible_version
+    if bible_hash is not None:
+        fp_payload["bible_hash"] = bible_hash
     payload = json.dumps(
-        {
-            "style_guide": style_guide or "",
-            "model_snapshot": snapshot.model_dump(),
-            "panel_continuity": panel_continuity,
-            "l3_enabled": l3_enabled,
-            "render_mode": render_mode,
-            "page_size": page_size,
-        },
+        fp_payload,
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
@@ -222,6 +273,19 @@ def _page_asset_path(pages_dir: Path, chunk_index: int, page_index: int) -> Path
     correct reading order.
     """
     return pages_dir / f"page_c{chunk_index:04d}_p{page_index:04d}.png"
+
+
+def _letter_page_from_blank(
+    blank_path: Path,
+    local_path: Path,
+    plan: ComicPagePlan,
+    *,
+    source_text: str = "",
+) -> None:
+    """Render deferred lettering from a persisted blank page."""
+    with Image.open(blank_path) as blank:
+        lettered = letter_finished_page(blank, plan, source_text=source_text)
+    lettered.save(local_path)
 
 
 def _finished_page_files(pages_dir: Path) -> list[Path]:
@@ -408,10 +472,11 @@ def _mark_page_chunk_done_if_complete(
 
 
 def _soft_invalidate_render(state: ProjectState) -> None:
-    """Drop render-owned assets while keeping structural cache (extract/storyboard).
+    """Drop render-owned assets while keeping structural chat caches.
 
-    Content-policy ``skipped`` entries are preserved: the source text did not
-    change, so re-attempting those panels only burns quota.
+    Preserves ``chunk_cache`` (extract/storyboard) and ``page_cache`` (finished
+    page plans). Content-policy ``skipped`` / ``skipped_pages`` are kept: the
+    source text did not change, so re-attempting those assets only burns quota.
     """
     state.panels_done = []
     state.stale_panels = []
@@ -422,6 +487,31 @@ def _soft_invalidate_render(state: ProjectState) -> None:
     state.generated.pages = {}
     for asset in state.characters.values():
         asset.portrait_local = None
+
+
+_FALLBACK_PAGE_SIZE = "1024x1024"
+
+
+def is_unsupported_image_size_error(exc: Exception) -> bool:
+    """Return True when a provider likely rejected the requested output size.
+
+    Used to fall back from portrait sizes (e.g. ``1024x1536``) to ``1024x1024``
+    once. Content-policy rejects are excluded so they stay on the skip path.
+    """
+    if is_content_policy_rejection(exc):
+        return False
+    text = str(exc).lower()
+    size_tokens = ("size", "resolution", "dimension", "1024x1536", "aspect")
+    reject_tokens = (
+        "invalid",
+        "unsupported",
+        "not supported",
+        "not allow",
+        "not allowed",
+        "unknown",
+        "bad request",
+    )
+    return any(t in text for t in size_tokens) and any(t in text for t in reject_tokens)
 
 
 def _reconcile_state(state: ProjectState, state_path: Path, output_dir: Path) -> None:
@@ -442,16 +532,26 @@ def _reconcile_state(state: ProjectState, state_path: Path, output_dir: Path) ->
         state.panels_done.remove(panel_id)
         changed = True
 
-    invalid_pages = [
-        page_id
-        for page_id, generated in state.generated.pages.items()
-        if not _is_within(generated.local, output_dir) or not Path(generated.local).is_file()
-    ]
+    invalid_pages = []
+    pages_missing_lettered = []
+    for page_id, generated in state.generated.pages.items():
+        local_valid = _is_within(generated.local, output_dir) and Path(generated.local).is_file()
+        blank_valid = bool(
+            generated.blank_local
+            and _is_within(generated.blank_local, output_dir)
+            and Path(generated.blank_local).is_file()
+        )
+        if not local_valid:
+            pages_missing_lettered.append(page_id)
+        if not local_valid and not blank_valid:
+            invalid_pages.append(page_id)
     for page_id in invalid_pages:
         state.generated.pages.pop(page_id, None)
         changed = True
     stale_pages_done = [
-        page_id for page_id in state.pages_done if page_id not in state.generated.pages
+        page_id
+        for page_id in state.pages_done
+        if page_id not in state.generated.pages or page_id in pages_missing_lettered
     ]
     for page_id in stale_pages_done:
         state.pages_done.remove(page_id)
@@ -735,14 +835,19 @@ async def _creative_comic(
         l3_enabled=l3_on,
     )
     struct = _structure_fingerprint(source_txt)
-    render = _render_fingerprint(
-        style_guide,
-        snapshot=snapshot,
-        panel_continuity=image_config.panel_continuity,
-        l3_enabled=l3_on,
-        render_mode=mode,
-        page_size=page_size,
-    )
+
+    def _render_for_bible(visual_bible=None) -> str:
+        bible_version, bible_hash = _bible_fingerprint_kwargs(visual_bible)
+        return _render_fingerprint(
+            style_guide,
+            snapshot=snapshot,
+            panel_continuity=image_config.panel_continuity,
+            l3_enabled=l3_on,
+            render_mode=mode,
+            page_size=page_size,
+            bible_version=bible_version,
+            bible_hash=bible_hash,
+        )
 
     def _fresh_state() -> ProjectState:
         return ProjectState(
@@ -750,28 +855,29 @@ async def _creative_comic(
             source_file=str(output_dir),
             source_fingerprint=struct,
             structure_fingerprint=struct,
-            render_fingerprint=render,
+            render_fingerprint=_render_for_bible(),
             model_snapshot=snapshot,
         )
 
     soft_invalidated_this_run = False
     if state_path.exists():
         persisted = ProjectState.load(state_path)
+        expected_render = _render_for_bible(persisted.visual_bible)
         if not persisted.structure_fingerprint and not persisted.render_fingerprint:
             if persisted.source_fingerprint == fingerprint:
                 state = persisted
                 state.structure_fingerprint = struct
-                state.render_fingerprint = render
+                state.render_fingerprint = expected_render
                 state.source_fingerprint = struct
             else:
                 state = _fresh_state()
         elif persisted.structure_fingerprint != struct:
             state = _fresh_state()
-        elif persisted.render_fingerprint != render:
+        elif persisted.render_fingerprint != expected_render:
             state = persisted
             _soft_invalidate_render(state)
             soft_invalidated_this_run = True
-            state.render_fingerprint = render
+            state.render_fingerprint = expected_render
             state.model_snapshot = snapshot
         else:
             state = persisted
@@ -787,6 +893,11 @@ async def _creative_comic(
     engine = ConsistencyEngine()
 
     _reconcile_state(state, state_path, output_dir)
+
+    if sanitize_visual_bible_state(state):
+        _soft_invalidate_render(state)
+        state.render_fingerprint = _render_for_bible(state.visual_bible)
+        state.save(state_path)
 
     with perf.measure("segment"):
         chunks = segment_text(source_txt)
@@ -815,12 +926,13 @@ async def _creative_comic(
         # disk. Re-running reuses the cache so the billable chat API is never
         # re-called.
         if mode == "finished_page":
-            if (
+            chunk_complete = (
                 pageset is not None
                 and key in set(state.chunks_done)
                 and _page_chunk_complete(state, pageset, output_dir, ci)
                 and panel_key_filter is None
-            ):
+            )
+            if chunk_complete and state.visual_bible is not None:
                 _report("resume", _pct())
                 continue
         elif (
@@ -828,6 +940,7 @@ async def _creative_comic(
             and key in set(state.chunks_done)
             and _chunk_complete(state, board, output_dir, ci)
             and panel_key_filter is None
+            and state.visual_bible is not None
         ):
             if image_config.panel_continuity and board.panels:
                 last_index = len(board.panels) - 1
@@ -837,6 +950,7 @@ async def _creative_comic(
             continue
 
         # ---- extraction (only when not cached) ----
+        fresh_extract = elements is None
         if elements is None:
             state.stage = "extract"
             try:
@@ -865,17 +979,77 @@ async def _creative_comic(
         state.settings = merge_settings(state.settings, elements.settings)
 
         # Surface likely alias variants for human review (never auto-merged).
-        for name, cand, reason in detect_character_aliases(state.characters, new_names):
+        hints = list(detect_character_aliases(state.characters, new_names))
+        for name, cand, reason in hints:
             sugg = suggestion_from_alias(name, cand, reason)
             if sugg not in state.needs_review:
                 state.needs_review.append(sugg)
-        effective_style = style_guide or elements.style_guide
+        if state.visual_bible is None or fresh_extract or new_names:
+            try:
+                recon = await reconcile_visual_bible(
+                    chunk,
+                    state.characters,
+                    state.visual_bible,
+                    alias_hints=hints,
+                    preferred_style=style_guide or elements.style_guide,
+                    chat=chat,
+                )
+                prev_hash = state.visual_bible.content_hash if state.visual_bible else None
+                had_render_assets = bool(
+                    state.generated.pages
+                    or state.generated.portraits
+                    or state.pages_done
+                    or state.panels_done
+                )
+                state = apply_reconcile(state, recon)
+                sync_characters_from_bible(state)
+                sanitized = sanitize_visual_bible_state(state)
+                if sanitized:
+                    _soft_invalidate_render(state)
+                elif state.visual_bible:
+                    state.visual_bible = refresh_bible_hash(state.visual_bible)
+                    if prev_hash and state.visual_bible.content_hash != prev_hash:
+                        _soft_invalidate_render(state)
+                    elif prev_hash is None and had_render_assets:
+                        _soft_invalidate_render(state)
+                if state.visual_bible:
+                    new_render = _render_for_bible(state.visual_bible)
+                    if state.render_fingerprint != new_render:
+                        state.render_fingerprint = new_render
+            except Exception as exc:  # noqa: BLE001 — reconcile is best-effort
+                logger.warning("visual bible reconcile failed (%s); continuing", exc)
+        if state.visual_bible and state.visual_bible.style_guide:
+            effective_style = state.visual_bible.style_guide
+        else:
+            effective_style = style_guide or elements.style_guide
         portrait_style = effective_style
 
-        async def _render_portrait(name: str, *, style: str = portrait_style) -> tuple[str, str]:
-            asset = state.characters[name]
+        async def _render_portrait(
+            name: str,
+            *,
+            style: str = portrait_style,
+            _state: ProjectState = state,
+        ) -> tuple[str, str]:
+            asset = resolve_character_asset(name, _state.characters, _state.visual_bible)
+            if asset is None:
+                asset = _state.characters[name]
             ensure_character_l1(asset)
             prompt = asset.portrait_prompt or asset.l1_prompt
+            if _state.visual_bible is not None:
+                base, stage = parse_stage_ref(name)
+                canon = _state.visual_bible.characters.get(base)
+                if canon is None:
+                    base = resolve_canonical_name(base, _state.visual_bible)
+                    canon = _state.visual_bible.characters.get(base)
+                if canon is not None:
+                    canon_prompt = l1_from_canon(canon, stage)
+                    if canon_prompt:
+                        prompt = canon_prompt
+            prompt = harden_human_identity_prompt(name, prompt)
+            if _state.visual_bible is not None:
+                color_block = format_color_bible_block(_state.visual_bible)
+                if color_block:
+                    prompt = f"{prompt}, {color_block}"
             comic_style = f"{style}, {DEFAULT_PORTRAIT_STYLE}" if style else DEFAULT_PORTRAIT_STYLE
             async with image_semaphore:
                 with perf.measure("portrait"):
@@ -927,6 +1101,8 @@ async def _creative_comic(
         _report("portrait", _pct())
 
         if mode == "finished_page":
+            if pageset is not None and state.visual_bible is not None:
+                pageset = rewrite_pageset_from_bible(pageset, state.visual_bible)
             if pageset is None:
                 state.stage = "page_plan"
                 try:
@@ -943,6 +1119,8 @@ async def _creative_comic(
                         _report("skip", _pct())
                         continue
                     raise
+                if state.visual_bible is not None:
+                    pageset = rewrite_pageset_from_bible(pageset, state.visual_bible)
                 state.page_cache[key] = pageset
                 state.save(state_path)
                 _report("page_plan", _pct())
@@ -969,30 +1147,99 @@ async def _creative_comic(
             state.stage = "pages"
             check_cancel(cancel_check)
             for page_index, plan in enumerate(pageset.pages):
+                if state.visual_bible is not None:
+                    plan = backfill_panel_characters(plan, _known_character_names(state))
                 page_id = plan.page_id
                 state_key = _page_state_key(ci, page_id)
+                existing = state.generated.pages.get(state_key)
+                blank_ok = bool(
+                    existing
+                    and existing.blank_local
+                    and _is_within(existing.blank_local, output_dir)
+                    and Path(existing.blank_local).is_file()
+                )
+                if (
+                    blank_ok
+                    and existing is not None
+                    and existing.lettering_version != LETTERING_VERSION
+                ):
+                    pages_dir.mkdir(parents=True, exist_ok=True)
+                    local = _page_asset_path(pages_dir, ci, page_index)
+                    await asyncio.to_thread(
+                        partial(
+                            _letter_page_from_blank,
+                            Path(existing.blank_local),
+                            local,
+                            plan,
+                            source_text=chunk,
+                        )
+                    )
+                    existing.local = str(local)
+                    existing.mode = "finished_lettered"
+                    existing.lettering_version = LETTERING_VERSION
+                    _mark_page_done(state, state_key)
+                    state.save(state_path)
+                    _report("pages", _pct())
+                    continue
                 if not _page_needs_generation(state, state_key):
                     continue
                 check_cancel(cancel_check)
+                if blank_ok and existing is not None:
+                    pages_dir.mkdir(parents=True, exist_ok=True)
+                    local = _page_asset_path(pages_dir, ci, page_index)
+                    await asyncio.to_thread(
+                        partial(
+                            _letter_page_from_blank,
+                            Path(existing.blank_local),
+                            local,
+                            plan,
+                            source_text=chunk,
+                        )
+                    )
+                    existing.local = str(local)
+                    existing.mode = "finished_lettered"
+                    existing.lettering_version = LETTERING_VERSION
+                    _mark_page_done(state, state_key)
+                    state.save(state_path)
+                    _report("pages", _pct())
+                    continue
+                prev_blank_path: str | None = None
+                if page_index > 0:
+                    prev_plan = pageset.pages[page_index - 1]
+                    prev_key = _page_state_key(ci, prev_plan.page_id)
+                    prev_gen = state.generated.pages.get(prev_key)
+                    if prev_gen and prev_gen.blank_local:
+                        prev_blank_path = prev_gen.blank_local
                 prompt = render_finished_page_prompt(
                     plan,
                     characters_by_name=state.characters,
                     settings_by_name=state.settings,
                     style_guide=effective_style,
+                    visual_bible=state.visual_bible,
                 )
-                refs = [
-                    state.characters[name].portrait_local
-                    for name in _page_reference_names(plan)
-                    if name in state.characters and state.characters[name].portrait_local
-                ]
+                if state.visual_bible is not None:
+                    refs = collect_finished_page_refs(
+                        plan,
+                        state.characters,
+                        state.visual_bible,
+                        prev_blank=prev_blank_path,
+                    )
+                else:
+                    refs = [
+                        state.characters[name].portrait_local
+                        for name in _page_reference_names(plan)
+                        if name in state.characters and state.characters[name].portrait_local
+                    ]
                 refs = [ref for ref in refs if _is_within(ref, output_dir) and Path(ref).is_file()]
                 stricter_attempted = False
+                size_fallback_attempted = False
+                active_size = page_size
                 while True:
                     try:
                         async with image_semaphore:
                             with perf.measure("page"):
                                 out = await image.generate_single_image(
-                                    prompt, reference_image_paths=refs, size=page_size
+                                    prompt, reference_image_paths=refs, size=active_size
                                 )
                         break
                     except Exception as exc:  # noqa: BLE001 — preserve policy skip behavior
@@ -1007,6 +1254,21 @@ async def _creative_comic(
                             state.save(state_path)
                             out = None
                             break
+                        if (
+                            not size_fallback_attempted
+                            and active_size != _FALLBACK_PAGE_SIZE
+                            and is_unsupported_image_size_error(exc)
+                        ):
+                            size_fallback_attempted = True
+                            logger.warning(
+                                "page %s size %s rejected (%s); falling back to %s",
+                                page_id,
+                                active_size,
+                                exc,
+                                _FALLBACK_PAGE_SIZE,
+                            )
+                            active_size = _FALLBACK_PAGE_SIZE
+                            continue
                         if not stricter_attempted:
                             stricter_attempted = True
                             prompt = render_finished_page_prompt(
@@ -1015,6 +1277,7 @@ async def _creative_comic(
                                 settings_by_name=state.settings,
                                 style_guide=effective_style,
                                 strict=True,
+                                visual_bible=state.visual_bible,
                             )
                             logger.warning(
                                 "page %s image failed (%s); retrying once with stricter prompt",
@@ -1026,14 +1289,28 @@ async def _creative_comic(
                 if out is None:
                     continue
                 pages_dir.mkdir(parents=True, exist_ok=True)
+                blank_dir = pages_dir / "blank"
+                blank_dir.mkdir(parents=True, exist_ok=True)
+                blank_path = _page_asset_path(blank_dir, ci, page_index)
+                await asyncio.to_thread(out.save, str(blank_path))
                 local = _page_asset_path(pages_dir, ci, page_index)
-                await asyncio.to_thread(out.save, str(local))
+                await asyncio.to_thread(
+                    partial(
+                        _letter_page_from_blank,
+                        blank_path,
+                        local,
+                        plan,
+                        source_text=chunk,
+                    )
+                )
                 state.generated.pages[state_key] = GeneratedPage(
                     local=str(local),
+                    blank_local=str(blank_path),
+                    lettering_version=LETTERING_VERSION,
                     page_id=page_id,
                     unit_index=ci,
                     page_index=page_index,
-                    mode="finished",
+                    mode="finished_lettered",
                 )
                 _mark_page_done(state, state_key)
                 state.save(state_path)
@@ -1127,21 +1404,22 @@ async def _creative_comic(
             elements_for_panel: StoryElements = panel_elements,
             style_for_panel: str = panel_style,
             chunk_index: int = panel_chunk_index,
+            _state: ProjectState = state,
         ) -> GeneratedPanel:
             # Same name set for L1 prompt subjects and L2/L3 refs so a model that
             # fills only one of characters_present / reference_characters cannot
             # silently desync text conditioning from portrait conditioning.
             panel_names = _panel_reference_names(panel)
-            chars = [state.characters[n] for n in panel_names if n in state.characters]
+            chars = [_state.characters[n] for n in panel_names if n in _state.characters]
             prompt = engine.build_panel_prompt(
                 characters=chars,
-                setting=_resolve_setting(state, elements_for_panel, panel.setting_ref),
+                setting=_resolve_setting(_state, elements_for_panel, panel.setting_ref),
                 action=panel.action,
                 style_guide=style_for_panel,
             )
             refs = engine.collect_reference_images(
                 panel=panel,
-                characters_by_name=state.characters,
+                characters_by_name=_state.characters,
                 prev_panel_local=previous,
             )
             refs = [ref for ref in refs if _is_within(ref, output_dir) and Path(ref).is_file()]
@@ -1155,9 +1433,9 @@ async def _creative_comic(
 
             portrait_ref = next(
                 (
-                    state.characters[n].portrait_local
+                    _state.characters[n].portrait_local
                     for n in _panel_reference_names(panel)
-                    if n in state.characters and state.characters[n].portrait_local
+                    if n in _state.characters and _state.characters[n].portrait_local
                 ),
                 None,
             )

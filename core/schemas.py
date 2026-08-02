@@ -749,6 +749,32 @@ class PagePanelSpec(BaseModel):
         return text
 
 
+class LetteringBox(BaseModel):
+    """Normalized page rectangle for deferred lettering overlay."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    kind: Literal["caption", "dialogue", "sfx"]
+    panel_id: str
+    x: float = 0.0
+    y: float = 0.0
+    w: float = 0.4
+    h: float = 0.12
+
+    @field_validator("panel_id", mode="before")
+    @classmethod
+    def _coerce_panel_id(cls, value: Any) -> Any:
+        return coerce_str(value)
+
+    @field_validator("x", "y", "w", "h", mode="before")
+    @classmethod
+    def _coerce_float(cls, value: Any) -> Any:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
+
+
 class ComicPagePlan(BaseModel):
     """A single finished-page layout plan."""
 
@@ -758,6 +784,7 @@ class ComicPagePlan(BaseModel):
     purpose: str = ""
     layout_intent: str = ""
     panels: list[PagePanelSpec] = Field(default_factory=list)
+    lettering_boxes: list[LetteringBox] = Field(default_factory=list)
     reference_characters: list[str] = Field(default_factory=list)
     setting_refs: list[str] = Field(default_factory=list)
 
@@ -789,6 +816,11 @@ class ComicPagePlan(BaseModel):
     @classmethod
     def _coerce_panels(cls, value: Any) -> Any:
         return coerce_model_list(value, PagePanelSpec)
+
+    @field_validator("lettering_boxes", mode="before")
+    @classmethod
+    def _coerce_lettering_boxes(cls, value: Any) -> Any:
+        return coerce_model_list(value, LetteringBox)
 
     @field_validator("reference_characters", "setting_refs", mode="before")
     @classmethod
@@ -886,13 +918,13 @@ class PageScript(BaseModel):
 
 
 class ChunkCache(BaseModel):
-    """Per-chunk cache of the billable chat-API results.
+    """Per-chunk cache of panel-era billable chat-API results.
 
-    ``extract_story_elements`` and ``plan_storyboard`` are the only network/cost
-    calls in the pipeline; caching their products per chunk lets a resume reuse
-    them instead of re-paying for already-planned chunks. Either field may be
-    ``None`` while a chunk is mid-flight (e.g. extraction cached but storyboard
-    still pending or rejected), in which case only the missing step is re-run.
+    Holds ``extract_story_elements`` / ``plan_storyboard`` (and optional legacy
+    ``page_script``). Finished-page plans live in ``ProjectState.page_cache`` —
+    a sibling map — so the default ``finished_page`` mode can skip storyboard
+    without stuffing page plans into this panel-era object. Either field here
+    may be ``None`` while a chunk is mid-flight; only the missing step is re-run.
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -939,10 +971,12 @@ class GeneratedPage(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     local: str
+    blank_local: str | None = None
+    lettering_version: str = ""
     page_id: str = ""
     unit_index: int = 0
     page_index: int = 0
-    mode: Literal["finished", "composed_fallback"] = "finished"
+    mode: Literal["finished", "finished_lettered", "composed_fallback"] = "finished"
     dialogue: str | None = None
     caption: str | None = None
     sfx: str | None = None
@@ -995,6 +1029,242 @@ class GeneratedAssets(BaseModel):
     pages: dict[str, GeneratedPage] = Field(default_factory=dict)
 
 
+CharacterStageLiteral = Literal["child", "teen", "adult", "elder", "default"]
+
+
+class ColorSwatch(BaseModel):
+    """A named color entry in the project visual bible palette."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    name: str = ""
+    hex: str = ""
+    usage: str = ""
+
+    @field_validator("name", "hex", "usage", mode="before")
+    @classmethod
+    def _coerce_text_fields(cls, value: Any) -> Any:
+        return coerce_str(value)
+
+
+class ColorBible(BaseModel):
+    """Project-locked palette, lighting, and forbidden color directions."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    palette: list[ColorSwatch] = Field(default_factory=list)
+    lighting: str = ""
+    forbidden: list[str] = Field(default_factory=list)
+
+    @field_validator("palette", mode="before")
+    @classmethod
+    def _coerce_palette(cls, value: Any) -> Any:
+        return coerce_model_list(value, ColorSwatch)
+
+    @field_validator("lighting", mode="before")
+    @classmethod
+    def _coerce_lighting(cls, value: Any) -> Any:
+        return coerce_str(value)
+
+    @field_validator("forbidden", mode="before")
+    @classmethod
+    def _coerce_forbidden(cls, value: Any) -> Any:
+        return coerce_str_list(value)
+
+
+class CharacterStage(BaseModel):
+    """Age- or context-specific appearance lock for a canonical character."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    stage: CharacterStageLiteral = "default"
+    appearance: Appearance = Field(default_factory=Appearance)
+    outfit_lock: str = ""
+    hair_lock: str = ""
+    portrait_key: str = ""
+
+    @field_validator("appearance", mode="before")
+    @classmethod
+    def _coerce_appearance(cls, value: Any) -> Any:
+        value = coerce_jsonish(value)
+        if value is None or value == "" or value == []:
+            return {}
+        if isinstance(value, str):
+            return {"distinguishing": value}
+        return value
+
+    @field_validator("outfit_lock", "hair_lock", "portrait_key", mode="before")
+    @classmethod
+    def _coerce_text_fields(cls, value: Any) -> Any:
+        return coerce_str(value)
+
+
+class CharacterCanon(BaseModel):
+    """Canonical character identity with shared face lock and optional stages."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    canonical_name: str
+    aliases: list[str] = Field(default_factory=list)
+    face_lock: str = ""
+    palette_notes: str = ""
+    stages: list[CharacterStage] = Field(default_factory=list)
+    role: str = ""
+
+    @field_validator(
+        "canonical_name",
+        "face_lock",
+        "palette_notes",
+        "role",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_text_fields(cls, value: Any) -> Any:
+        return coerce_str(value)
+
+    @field_validator("aliases", mode="before")
+    @classmethod
+    def _coerce_aliases(cls, value: Any) -> Any:
+        return coerce_str_list(value)
+
+    @field_validator("stages", mode="before")
+    @classmethod
+    def _coerce_stages(cls, value: Any) -> Any:
+        return coerce_model_list(value, CharacterStage)
+
+
+class VisualBible(BaseModel):
+    """Project-level style, color, and canonical character locks."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    version: str = "bible_v1"
+    style_guide: str = ""
+    color: ColorBible = Field(default_factory=ColorBible)
+    characters: dict[str, CharacterCanon] = Field(default_factory=dict)
+    sheet_ref_local: str | None = None
+    content_hash: str = ""
+
+    @field_validator("version", "style_guide", "content_hash", mode="before")
+    @classmethod
+    def _coerce_text_fields(cls, value: Any) -> Any:
+        return coerce_str(value)
+
+    @field_validator("color", mode="before")
+    @classmethod
+    def _coerce_color(cls, value: Any) -> Any:
+        value = coerce_jsonish(value)
+        if value is None or value == "":
+            return {}
+        return value
+
+    @field_validator("sheet_ref_local", mode="before")
+    @classmethod
+    def _coerce_sheet_ref_local(cls, value: Any) -> Any:
+        if value is None or value == "":
+            return None
+        text = coerce_str(value).strip()
+        return text or None
+
+
+class VisualBibleMerge(BaseModel):
+    """High- or low-confidence alias merge suggestion from bible reconcile."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    alias: str
+    canonical: str
+    confidence: Literal["high", "low"]
+    reason: str = ""
+
+    @field_validator("alias", "canonical", "reason", mode="before")
+    @classmethod
+    def _coerce_text_fields(cls, value: Any) -> Any:
+        return coerce_str(value)
+
+
+class VisualBibleStageLink(BaseModel):
+    """Attach an age-stage identity under an existing canonical character."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    name: str
+    stage: CharacterStageLiteral
+    of_canonical: str
+    reason: str = ""
+
+    @field_validator("name", "of_canonical", "reason", mode="before")
+    @classmethod
+    def _coerce_text_fields(cls, value: Any) -> Any:
+        return coerce_str(value)
+
+
+class VisualBibleKeep(BaseModel):
+    """A new name that should remain an independent canonical character."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    name: str
+    reason: str = ""
+
+    @field_validator("name", "reason", mode="before")
+    @classmethod
+    def _coerce_text_fields(cls, value: Any) -> Any:
+        return coerce_str(value)
+
+
+class VisualBibleReconcileResult(BaseModel):
+    """LLM tool payload for bible create/update."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    merges: list[VisualBibleMerge] = Field(default_factory=list)
+    stages: list[VisualBibleStageLink] = Field(default_factory=list)
+    keeps: list[VisualBibleKeep] = Field(default_factory=list)
+    color_patches: list[ColorSwatch] = Field(default_factory=list)
+    style_guide: str = ""
+    color: ColorBible | None = None
+    canons: list[CharacterCanon] = Field(default_factory=list)
+
+    @field_validator("merges", mode="before")
+    @classmethod
+    def _coerce_merges(cls, value: Any) -> Any:
+        return coerce_model_list(value, VisualBibleMerge)
+
+    @field_validator("stages", mode="before")
+    @classmethod
+    def _coerce_stages(cls, value: Any) -> Any:
+        return coerce_model_list(value, VisualBibleStageLink)
+
+    @field_validator("keeps", mode="before")
+    @classmethod
+    def _coerce_keeps(cls, value: Any) -> Any:
+        return coerce_model_list(value, VisualBibleKeep)
+
+    @field_validator("color_patches", mode="before")
+    @classmethod
+    def _coerce_color_patches(cls, value: Any) -> Any:
+        return coerce_model_list(value, ColorSwatch)
+
+    @field_validator("style_guide", mode="before")
+    @classmethod
+    def _coerce_style_guide(cls, value: Any) -> Any:
+        return coerce_str(value)
+
+    @field_validator("color", mode="before")
+    @classmethod
+    def _coerce_color(cls, value: Any) -> Any:
+        value = coerce_jsonish(value)
+        if value is None or value == "":
+            return None
+        return value
+
+    @field_validator("canons", mode="before")
+    @classmethod
+    def _coerce_canons(cls, value: Any) -> Any:
+        return coerce_model_list(value, CharacterCanon)
+
+
 def _now_iso() -> str:
     return datetime.now().astimezone().isoformat()
 
@@ -1039,6 +1309,7 @@ class ProjectState(BaseModel):
     stale_pages: list[str] = Field(default_factory=list)
     skipped_pages: list[str] = Field(default_factory=list)
     generated: GeneratedAssets = Field(default_factory=GeneratedAssets)
+    visual_bible: VisualBible | None = None
     errors: str = "logs/errors.jsonl"
     active_elapsed_seconds: float = 0.0
 

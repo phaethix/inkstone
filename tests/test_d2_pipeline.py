@@ -99,8 +99,8 @@ def test_d2_pipeline_writes_and_resumes_page_script(tmp_path, monkeypatch):
     src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
     chat = D2FakeChat()
     asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=chat, image=FakeImage()))
-    # 2 chunks → 2 extract + 2 storyboard + 2 page_script = 6
-    assert chat.calls == 6
+    # 2 chunks → 2 extract + 2 reconcile + 2 storyboard + 2 page_script = 8
+    assert chat.calls == 8
     state = ProjectState.load(tmp_path / "state.json")
     for key in ("0", "1"):
         ps = state.chunk_cache[key].page_script
@@ -121,7 +121,7 @@ def test_d2_pipeline_skips_page_script_by_default(tmp_path, monkeypatch):
     src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
     chat = D2FakeChat()
     asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=chat, image=FakeImage()))
-    assert chat.calls == 4  # 2 extract + 2 storyboard (no plan_page_script)
+    assert chat.calls == 6  # 2 extract + 2 reconcile + 2 storyboard (no plan_page_script)
     state = ProjectState.load(tmp_path / "state.json")
     for key in ("0", "1"):
         assert state.chunk_cache[key].page_script is None

@@ -16,6 +16,73 @@ class FakeChat(ChatProvider):
         return self.payload
 
 
+class FlipLangChat(ChatProvider):
+    def __init__(self):
+        self.calls = 0
+
+    async def chat_function_call(self, messages, tools, tool_choice, **kw):
+        self.calls += 1
+        if self.calls == 1:
+            return {
+                "unit_id": "1",
+                "pages": [
+                    {
+                        "page_id": "p1",
+                        "purpose": "x",
+                        "layout_intent": "wide",
+                        "panels": [
+                            {
+                                "panel_id": "1",
+                                "dialogue": "Hello friend",
+                                "action": "stands",
+                            }
+                        ],
+                    }
+                ],
+            }
+        return {
+            "unit_id": "1",
+            "pages": [
+                {
+                    "page_id": "p1",
+                    "purpose": "x",
+                    "layout_intent": "wide",
+                    "panels": [
+                        {
+                            "panel_id": "1",
+                            "dialogue": "你好啊",
+                            "action": "stands",
+                        }
+                    ],
+                    "lettering_boxes": [
+                        {
+                            "kind": "dialogue",
+                            "panel_id": "1",
+                            "x": 0.2,
+                            "y": 0.3,
+                            "w": 0.4,
+                            "h": 0.15,
+                        }
+                    ],
+                }
+            ],
+        }
+
+
+def test_plan_comic_pages_retries_once_on_language_mismatch():
+    elements = StoryElements.model_validate(
+        {
+            "characters": [{"name": "福贵", "l1_prompt": "farmer"}],
+            "settings": [],
+            "style_guide": "manhua",
+        }
+    )
+    chat = FlipLangChat()
+    pageset = asyncio.run(plan_comic_pages("第一章\n福贵在村口。", elements, chat=chat))
+    assert chat.calls == 2
+    assert pageset.pages[0].panels[0].dialogue == "你好啊"
+
+
 def test_plan_comic_pages_validates_tool_payload():
     payload = {
         "unit_id": "0",

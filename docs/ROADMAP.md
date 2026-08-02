@@ -32,7 +32,7 @@ When completing a change:
 
 | Area | Status | Notes |
 |---|---|---|
-| Core TXT → comic pipeline | Released | Segmentation, extraction, portraits, storyboard, panels, layout, PDF / Webtoon export, `state.json` resume. **Default render mode is `finished_page`** (one image per comic page); `panel_compose` is the explicit legacy fallback (`INKSTONE_RENDER_MODE=panel_compose`). |
+| Core TXT → comic pipeline | Released | Segmentation, extraction, portraits, storyboard, panels, layout, PDF / Webtoon export, `state.json` resume. **Default render mode is `finished_page`** (one image per comic page); `panel_compose` is the explicit legacy fallback (`INKSTONE_RENDER_MODE=panel_compose`). **Finished-page text:** deferred lettering — blank art + font overlay ([spec](superpowers/specs/2026-07-31-deferred-lettering-design.md)). |
 | Providers and reliability | Released | Agnes + OpenAI-compatible routing, rate limit, retry and JSONL error collection. **Local temp:** default Agnes `BASE_URL` is `apihub.agnes-ai.cn` (domestic reachability); revert to `.com` or make env-configurable when access stabilizes (`TODO(temp)` in `core/api/chat_provider.py` / `agnes_image.py`). |
 | Cross-chapter identity | Released | L1/L2 consistency, alias review, stale-only redraw; L3 is experimental and off by default |
 | Web UI and unattended supervisor | Released | Local browser UI, cancel, retry, review, deadline pause / resume; job/project JSON exposes `render_mode`, `pages_done`, `skipped_pages` |
@@ -58,6 +58,7 @@ Keep these prototypes only as migration material until they conform to the targe
 
 ### P0 — Make the current state honest and deterministic
 
+- [x] Deferred lettering for finished pages: model paints empty chrome; Inkstone overlays caption/dialogue/sfx with CJK-capable fonts. Unlettered art under `pages/blank/` enables resume re-lettering without re-calling the image API. Spec: [`docs/superpowers/specs/2026-07-31-deferred-lettering-design.md`](superpowers/specs/2026-07-31-deferred-lettering-design.md) (local on `feat/deferred-lettering` until merged).
 - [ ] Make density a real contract: persist it in `ProjectState`, include it in
   the structure fingerprint (`render_fingerprint` covers style/model/L3), pass a
   budget to planning, and invalidate affected caches.

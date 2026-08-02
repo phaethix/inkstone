@@ -90,7 +90,7 @@ def test_creative_comic_generates_and_resumes(tmp_path):
     assert Path(proj.state.generated.portraits["方鸿渐"]).exists()
     assert proj.pdf and Path(proj.pdf).exists()
     assert img.calls == 3  # 1 portrait + 2 panels (char reused on 2nd chunk)
-    assert chat.calls == 4  # 2 extract + 2 storyboard (page_script off by default)
+    assert chat.calls == 6  # 2 extract + 2 reconcile + 2 storyboard (page_script off by default)
 
     # Resume: everything is in state.json, so no new generation happens.
     chat2, img2 = FakeChat(), FakeImage()

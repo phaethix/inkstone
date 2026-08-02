@@ -8,16 +8,25 @@ of banned terms before it is sent so the provider's filter is less likely to
 reject the call.
 """
 
+import json
 import logging
 
 import requests
 
 from core.api import get_chat_provider
+from core.comic.lettering_lang import (
+    lettering_field_mismatches,
+    sanitize_plan_lettering,
+    source_lettering_script,
+    strip_mismatched_lettering,
+)
 from core.schemas import (
     ComicPagePlanSet,
     PageScript,
     Storyboard,
     StoryElements,
+    VisualBible,
+    VisualBibleReconcileResult,
     to_tool_schema,
 )
 
@@ -32,10 +41,14 @@ SYSTEM_PROMPT = (
     "Language rules: keep character names as they appear in the source text; "
     "write every caption / dialogue / sfx line in the same language as "
     "the source excerpt (do not translate Chinese source into English). "
+    "CRITICAL: Never mix lettering languages or translate source-language lettering. "
     "Lettering: put narration/time-place in caption, spoken lines in dialogue, "
     "and onomatopoeia in sfx — leave a field null when unused. "
     "Art-direction fields (style_guide, scene_prompt, action, l1_prompt) may stay "
     "in English when that helps image models. "
+    "Identity: Chinese nicknames with animal glyphs (虎妞, 凤姐, 豹子头) are usually "
+    "human metaphors — describe a human person in l1_prompt/portrait_prompt; never "
+    "an animal head or anthropomorphic beast unless the source explicitly says so. "
     "When planning finished pages, describe manga geometry (splash/inset/diagonal), "
     "never only 2x2 or 3x2 grids."
 )
@@ -54,7 +67,14 @@ PAGE_PLAN_TOOL = to_tool_schema(
     ComicPagePlanSet,
     "plan_comic_pages",
     "Plan finished comic pages for one text unit: per-page purpose, "
-    "dynamic layout_intent, and panel specs with source-language lettering.",
+    "dynamic layout_intent, panel specs with source-language lettering, and "
+    "lettering_boxes as normalized 0-1 page rectangles.",
+)
+RECONCILE_BIBLE_TOOL = to_tool_schema(
+    VisualBibleReconcileResult,
+    "reconcile_visual_bible",
+    "Build or update the project visual bible: merge aliases, attach age stages, "
+    "lock style_guide and color palette, emit CharacterCanon entries.",
 )
 
 # Optional local scrub list. Empty by default: content policy is enforced by the
@@ -142,25 +162,142 @@ async def plan_storyboard(text: str, elements: StoryElements, *, chat=None) -> S
 async def plan_comic_pages(text: str, elements: StoryElements, *, chat=None) -> ComicPagePlanSet:
     """Plan finished readable pages for ``text`` given ``elements``."""
     chat = chat or get_chat_provider()
+    script = source_lettering_script(text)
+    lang_reminder = (
+        "Reminder: caption / dialogue / sfx must match the source language "
+        "(if the excerpt is Chinese, lettering must be Chinese — never English translation). "
+        "Do NOT add pinyin, romanization, or latin glosses in parentheses. "
+        "Keep each caption/dialogue short (one breath). "
+        "Place lettering_boxes near panel edges — never covering faces; keep boxes fully "
+        "inside the page (0.05–0.95). "
+        "Also emit lettering_boxes: normalized 0-1 page rectangles "
+        "(kind, panel_id, x, y, w, h) for every non-null lettering field."
+    )
+    user = (
+        f"{sanitize_text(text)}\n\n"
+        f"Known elements:\n{elements.model_dump_json()}\n\n"
+        "Plan finished readable pages (not a flat 2x2 collage). "
+        "Each page needs purpose, layout_intent, panels, and lettering_boxes. "
+        f"{lang_reminder}"
+    )
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {
-            "role": "user",
-            "content": (
-                f"{sanitize_text(text)}\n\n"
-                f"Known elements:\n{elements.model_dump_json()}\n\n"
-                "Plan finished readable pages (not a flat 2x2 collage). "
-                "Each page needs purpose, layout_intent, and panels with "
-                "caption/dialogue/sfx in the source language."
-            ),
-        },
+        {"role": "user", "content": user},
     ]
     args = await chat.chat_function_call(
         messages,
         [PAGE_PLAN_TOOL],
         _tool_choice("plan_comic_pages"),
     )
-    return ComicPagePlanSet.model_validate(args)
+    pageset = ComicPagePlanSet.model_validate(args)
+
+    def _any_mismatch(plan_set: ComicPagePlanSet) -> bool:
+        return any(lettering_field_mismatches(page, script) for page in plan_set.pages)
+
+    if script in ("cjk", "latin") and _any_mismatch(pageset):
+        logger.warning(
+            "plan_comic_pages language mismatch; retrying once (script=%s)",
+            script,
+        )
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": user + "\n\nCRITICAL: previous plan mixed languages. Fix lettering now.",
+            },
+        ]
+        args = await chat.chat_function_call(
+            messages,
+            [PAGE_PLAN_TOOL],
+            _tool_choice("plan_comic_pages"),
+        )
+        pageset = ComicPagePlanSet.model_validate(args)
+
+    if script in ("cjk", "latin"):
+        pageset = pageset.model_copy(
+            update={
+                "pages": [
+                    sanitize_plan_lettering(strip_mismatched_lettering(page, script), script)
+                    for page in pageset.pages
+                ],
+            }
+        )
+    else:
+        pageset = pageset.model_copy(
+            update={
+                "pages": [sanitize_plan_lettering(page, "cjk") for page in pageset.pages],
+            }
+        )
+    return pageset
+
+
+async def reconcile_visual_bible(
+    text: str,
+    state_characters: dict,
+    bible: VisualBible | None,
+    *,
+    alias_hints: list[tuple[str, str, str]] = (),
+    preferred_style: str = "",
+    chat=None,
+) -> VisualBibleReconcileResult:
+    """Build or update the project visual bible from chunk text and known characters."""
+    chat = chat or get_chat_provider()
+    char_blob = json.dumps(
+        {k: v.model_dump() for k, v in state_characters.items()},
+        ensure_ascii=False,
+    )
+    hints_blob = (
+        "\n".join(f"- {alias} → {canonical} ({reason})" for alias, canonical, reason in alias_hints)
+        or "(none)"
+    )
+    if bible is None:
+        style_hint = (
+            f" Use preferred_style={preferred_style!r} for style_guide when non-empty."
+            if preferred_style
+            else ""
+        )
+        bible_note = (
+            "No visual bible yet. Fill style_guide, color (4–6 palette swatches), "
+            f"and full canons for every canonical character.{style_hint}"
+        )
+        bible_blob = ""
+    else:
+        bible_note = (
+            "Existing visual bible below. Keep the existing color palette unless "
+            "color_patches are clearly justified. Still return merges/stages/keeps "
+            "for any new names."
+        )
+        bible_blob = bible.model_dump_json()
+    instructions = (
+        "Reconcile character identities for the visual bible.\n"
+        "- Prefer merging pronouns/descriptive labels for the same person "
+        "(男人（被叙述者）, 他（被爱者）, 李先生, R·) into one canonical.\n"
+        "- Age variants → stages under one canonical, not new root characters.\n"
+        "- Use confidence=high only when clearly the same person; otherwise low.\n"
+        "- Never invent English prose character names "
+        "(no 'man with dark hair, wearing a jacket').\n"
+        "- Never high-merge incompatible roles "
+        "(mother≠daughter, count≠novelist, servant≠master).\n"
+        "- Always fill face_lock, hair_lock, and outfit_lock for every stage.\n"
+        "- portrait_key must be short form {canonical_name}@{stage} only "
+        "(e.g. R@adult), never prose.\n"
+        f"- {bible_note}\n"
+        f"String alias hints:\n{hints_blob}"
+    )
+    user = f"{sanitize_text(text)}\n\nKnown character assets:\n{char_blob}\n\n"
+    if bible_blob:
+        user += f"Current visual bible:\n{bible_blob}\n\n"
+    user += instructions
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": user},
+    ]
+    args = await chat.chat_function_call(
+        messages,
+        [RECONCILE_BIBLE_TOOL],
+        _tool_choice("reconcile_visual_bible"),
+    )
+    return VisualBibleReconcileResult.model_validate(args)
 
 
 PAGE_SCRIPT_TOOL = to_tool_schema(
