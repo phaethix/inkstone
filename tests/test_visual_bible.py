@@ -21,7 +21,6 @@ from core.schemas import (
     ColorSwatch,
     ComicPagePlan,
     ComicPagePlanSet,
-    GeneratedPage,
     ProjectState,
     VisualBible,
     VisualBibleMerge,
@@ -95,7 +94,10 @@ def test_apply_high_confidence_merge_and_low_to_review():
     )
     out = apply_reconcile(state, result)
     assert "李先生" not in out.characters
-    assert "李先生" in out.characters["R"].aliases or "李先生" in out.visual_bible.characters["R"].aliases
+    assert (
+        "李先生" in out.characters["R"].aliases
+        or "李先生" in out.visual_bible.characters["R"].aliases
+    )
     assert "路人" in out.characters
     assert any(s.new_name == "路人" for s in out.needs_review)
 
@@ -352,7 +354,13 @@ def test_rewrite_page_plan_names():
 
 
 def test_build_visual_sheet_noop():
-    assert build_visual_sheet(VisualBible(version="bible_v1", style_guide="", color=ColorBible(palette=[], lighting="", forbidden=[]), characters={})) is None
+    bible = VisualBible(
+        version="bible_v1",
+        style_guide="",
+        color=ColorBible(palette=[], lighting="", forbidden=[]),
+        characters={},
+    )
+    assert build_visual_sheet(bible) is None
 
 
 def test_collect_refs_uses_panel_characters_and_sheet_first():

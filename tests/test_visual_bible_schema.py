@@ -1,5 +1,5 @@
 # tests/test_visual_bible_schema.py
-from core.schemas import ProjectState, VisualBible, VisualBibleReconcileResult
+from core.schemas import ProjectState, VisualBibleReconcileResult
 
 
 def test_visual_bible_round_trip_on_project_state():

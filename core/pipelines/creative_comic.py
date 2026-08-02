@@ -1024,25 +1024,30 @@ async def _creative_comic(
             effective_style = style_guide or elements.style_guide
         portrait_style = effective_style
 
-        async def _render_portrait(name: str, *, style: str = portrait_style) -> tuple[str, str]:
-            asset = resolve_character_asset(name, state.characters, state.visual_bible)
+        async def _render_portrait(
+            name: str,
+            *,
+            style: str = portrait_style,
+            _state: ProjectState = state,
+        ) -> tuple[str, str]:
+            asset = resolve_character_asset(name, _state.characters, _state.visual_bible)
             if asset is None:
-                asset = state.characters[name]
+                asset = _state.characters[name]
             ensure_character_l1(asset)
             prompt = asset.portrait_prompt or asset.l1_prompt
-            if state.visual_bible is not None:
+            if _state.visual_bible is not None:
                 base, stage = parse_stage_ref(name)
-                canon = state.visual_bible.characters.get(base)
+                canon = _state.visual_bible.characters.get(base)
                 if canon is None:
-                    base = resolve_canonical_name(base, state.visual_bible)
-                    canon = state.visual_bible.characters.get(base)
+                    base = resolve_canonical_name(base, _state.visual_bible)
+                    canon = _state.visual_bible.characters.get(base)
                 if canon is not None:
                     canon_prompt = l1_from_canon(canon, stage)
                     if canon_prompt:
                         prompt = canon_prompt
             prompt = harden_human_identity_prompt(name, prompt)
-            if state.visual_bible is not None:
-                color_block = format_color_bible_block(state.visual_bible)
+            if _state.visual_bible is not None:
+                color_block = format_color_bible_block(_state.visual_bible)
                 if color_block:
                     prompt = f"{prompt}, {color_block}"
             comic_style = f"{style}, {DEFAULT_PORTRAIT_STYLE}" if style else DEFAULT_PORTRAIT_STYLE
@@ -1401,21 +1406,22 @@ async def _creative_comic(
             elements_for_panel: StoryElements = panel_elements,
             style_for_panel: str = panel_style,
             chunk_index: int = panel_chunk_index,
+            _state: ProjectState = state,
         ) -> GeneratedPanel:
             # Same name set for L1 prompt subjects and L2/L3 refs so a model that
             # fills only one of characters_present / reference_characters cannot
             # silently desync text conditioning from portrait conditioning.
             panel_names = _panel_reference_names(panel)
-            chars = [state.characters[n] for n in panel_names if n in state.characters]
+            chars = [_state.characters[n] for n in panel_names if n in _state.characters]
             prompt = engine.build_panel_prompt(
                 characters=chars,
-                setting=_resolve_setting(state, elements_for_panel, panel.setting_ref),
+                setting=_resolve_setting(_state, elements_for_panel, panel.setting_ref),
                 action=panel.action,
                 style_guide=style_for_panel,
             )
             refs = engine.collect_reference_images(
                 panel=panel,
-                characters_by_name=state.characters,
+                characters_by_name=_state.characters,
                 prev_panel_local=previous,
             )
             refs = [ref for ref in refs if _is_within(ref, output_dir) and Path(ref).is_file()]
@@ -1429,9 +1435,9 @@ async def _creative_comic(
 
             portrait_ref = next(
                 (
-                    state.characters[n].portrait_local
+                    _state.characters[n].portrait_local
                     for n in _panel_reference_names(panel)
-                    if n in state.characters and state.characters[n].portrait_local
+                    if n in _state.characters and _state.characters[n].portrait_local
                 ),
                 None,
             )

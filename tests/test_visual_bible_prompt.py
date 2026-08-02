@@ -57,7 +57,8 @@ def test_finished_page_prompt_injects_color_and_face_lock():
     assert "neon" in text
     assert "calm dark eyes" in text
     assert "dark suit jacket" in text
-    assert "do not change hair color" in text.lower() or "unless action says costume change" in text.lower()
+    lower = text.lower()
+    assert "do not change hair color" in lower or "unless action says costume change" in lower
 
 
 def test_finished_page_prompt_resolves_alias_to_canonical():
