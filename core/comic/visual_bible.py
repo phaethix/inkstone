@@ -30,6 +30,21 @@ COSTUME_CHANGE_LOCK_LINE = (
     "unless action says costume change"
 )
 
+ANTI_CHARACTER_SHEET_LINE = (
+    "NO character design sheets, turnarounds, model sheets, or multi-view "
+    "reference collages inside the page."
+)
+
+PERIOD_WARDROBE_LINE = (
+    "Period-accurate wardrobe only; no modern hoodies, sneakers, or athleisure "
+    "unless action explicitly requires costume change."
+)
+
+ANTI_MULTI_AGE_COLLAGE_LINE = (
+    "Do not depict multiple age versions of the same person on one page unless "
+    "layout_intent explicitly calls for a flashback split."
+)
+
 _ASCII_LETTER_RE = re.compile(r"[A-Za-z]")
 _PROSE_MARKER_RE = re.compile(
     r"(?i)(,|\bwith\b|\bhair\b|\bexpression\b|\bwearing\b|\bbuild\b|\beyes\b|\bage\b|\bold\b)",

@@ -11,7 +11,10 @@ from core.comic.identity import (
     metaphor_names_on_page,
 )
 from core.comic.visual_bible import (
+    ANTI_CHARACTER_SHEET_LINE,
+    ANTI_MULTI_AGE_COLLAGE_LINE,
     COSTUME_CHANGE_LOCK_LINE,
+    PERIOD_WARDROBE_LINE,
     format_color_bible_block,
     l1_from_canon,
     parse_stage_ref,
@@ -91,6 +94,9 @@ def render_finished_page_prompt(
         if color_block:
             lines.append(color_block)
         lines.append(COSTUME_CHANGE_LOCK_LINE)
+        lines.append(ANTI_CHARACTER_SHEET_LINE)
+        lines.append(PERIOD_WARDROBE_LINE)
+        lines.append(ANTI_MULTI_AGE_COLLAGE_LINE)
     lines.append(f"Page purpose: {plan.purpose}")
     lines.append(f"Layout intent: {plan.layout_intent}")
     metaphor_names = metaphor_names_on_page(plan, characters_by_name)

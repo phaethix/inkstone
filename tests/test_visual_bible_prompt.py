@@ -91,3 +91,37 @@ def test_finished_page_prompt_resolves_alias_to_canonical():
     )
     assert "calm dark eyes" in text
     assert "old loose" not in text
+
+
+def test_prompt_forbids_character_sheets_and_modern_athleisure():
+    bible = VisualBible(
+        version="bible_v2",
+        style_guide="manhua muted European period",
+        color=ColorBible(palette=[], lighting="", forbidden=[]),
+        characters={
+            "R": CharacterCanon(
+                canonical_name="R",
+                face_lock="calm dark eyes",
+                stages=[],
+            )
+        },
+        content_hash="x",
+    )
+    plan = ComicPagePlan.model_validate(
+        {
+            "page_id": "p1",
+            "purpose": "street",
+            "layout_intent": "two shot",
+            "panels": [{"panel_id": "1", "characters": ["R"], "action": "R walks"}],
+        }
+    )
+    text = render_finished_page_prompt(
+        plan,
+        characters_by_name={"R": CharacterAsset(name="R", l1_prompt="old loose")},
+        settings_by_name={},
+        visual_bible=bible,
+    )
+    lower = text.lower()
+    assert "design sheet" in lower or "turnaround" in lower or "model sheet" in lower
+    assert "hoodie" in lower or "period-accurate" in lower or "period accurate" in lower
+    assert "flashback" in lower or "multiple age" in lower

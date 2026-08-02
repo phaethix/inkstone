@@ -59,6 +59,7 @@ from core.comic.page_prompt import render_finished_page_prompt
 from core.comic.segmentation import detect_character_aliases, merge_characters, segment_text
 from core.comic.visual_bible import (
     apply_reconcile,
+    backfill_panel_characters,
     collect_finished_page_refs,
     format_color_bible_block,
     l1_from_canon,
@@ -67,6 +68,7 @@ from core.comic.visual_bible import (
     resolve_canonical_name,
     resolve_character_asset,
     rewrite_pageset_from_bible,
+    sanitize_visual_bible_state,
     sync_characters_from_bible,
 )
 from core.config import ImageConfig, finished_page_size, l3_enabled, page_script_enabled
@@ -146,6 +148,17 @@ def _bible_fingerprint_kwargs(visual_bible) -> tuple[str | None, str | None]:
     if visual_bible is None or not visual_bible.content_hash:
         return None, None
     return visual_bible.version, visual_bible.content_hash
+
+
+def _known_character_names(state: ProjectState) -> list[str]:
+    names: list[str] = list(state.characters.keys())
+    bible = state.visual_bible
+    if bible is None:
+        return names
+    for canon_name, canon in bible.characters.items():
+        names.append(canon_name)
+        names.extend(canon.aliases)
+    return names
 
 
 def _render_fingerprint(
@@ -881,6 +894,11 @@ async def _creative_comic(
 
     _reconcile_state(state, state_path, output_dir)
 
+    if sanitize_visual_bible_state(state):
+        _soft_invalidate_render(state)
+        state.render_fingerprint = _render_for_bible(state.visual_bible)
+        state.save(state_path)
+
     with perf.measure("segment"):
         chunks = segment_text(source_txt)
     total_chunks = len(chunks) or 1
@@ -985,12 +1003,16 @@ async def _creative_comic(
                 )
                 state = apply_reconcile(state, recon)
                 sync_characters_from_bible(state)
-                if state.visual_bible:
+                sanitized = sanitize_visual_bible_state(state)
+                if sanitized:
+                    _soft_invalidate_render(state)
+                elif state.visual_bible:
                     state.visual_bible = refresh_bible_hash(state.visual_bible)
                     if prev_hash and state.visual_bible.content_hash != prev_hash:
                         _soft_invalidate_render(state)
                     elif prev_hash is None and had_render_assets:
                         _soft_invalidate_render(state)
+                if state.visual_bible:
                     new_render = _render_for_bible(state.visual_bible)
                     if state.render_fingerprint != new_render:
                         state.render_fingerprint = new_render
@@ -1120,6 +1142,8 @@ async def _creative_comic(
             state.stage = "pages"
             check_cancel(cancel_check)
             for page_index, plan in enumerate(pageset.pages):
+                if state.visual_bible is not None:
+                    plan = backfill_panel_characters(plan, _known_character_names(state))
                 page_id = plan.page_id
                 state_key = _page_state_key(ci, page_id)
                 existing = state.generated.pages.get(state_key)

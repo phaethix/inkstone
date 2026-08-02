@@ -274,6 +274,13 @@ async def reconcile_visual_bible(
         "(男人（被叙述者）, 他（被爱者）, 李先生, R·) into one canonical.\n"
         "- Age variants → stages under one canonical, not new root characters.\n"
         "- Use confidence=high only when clearly the same person; otherwise low.\n"
+        "- Never invent English prose character names "
+        "(no 'man with dark hair, wearing a jacket').\n"
+        "- Never high-merge incompatible roles "
+        "(mother≠daughter, count≠novelist, servant≠master).\n"
+        "- Always fill face_lock, hair_lock, and outfit_lock for every stage.\n"
+        "- portrait_key must be short form {canonical_name}@{stage} only "
+        "(e.g. R@adult), never prose.\n"
         f"- {bible_note}\n"
         f"String alias hints:\n{hints_blob}"
     )
