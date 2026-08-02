@@ -85,5 +85,30 @@ def test_ensure_canon_locks_fills_empty_and_strips_outfit_from_face():
     )
     fixed = ensure_canon_locks(canon, style_hint="early 20th century Vienna")
     assert "hoodie" not in fixed.face_lock.lower()
-    assert fixed.stages[0].hair_lock
+    assert fixed.stages[0].hair_lock == "dark hair"
     assert fixed.stages[0].outfit_lock
+
+
+def test_ensure_canon_locks_repairs_illegal_and_empty_portrait_key():
+    prose = "41-year-old Viennese novelist, athletic elegant build, glossy dark hair"
+    canon = CharacterCanon(
+        canonical_name="R（小说家）",
+        face_lock="handsome face",
+        stages=[
+            CharacterStage(stage="adult", outfit_lock="suit", hair_lock="dark hair", portrait_key=""),
+            CharacterStage(stage="teen", outfit_lock="school", hair_lock="dark hair", portrait_key=prose),
+        ],
+    )
+    fixed = ensure_canon_locks(canon)
+    assert fixed.stages[0].portrait_key == "R（小说家）@adult"
+    assert fixed.stages[1].portrait_key == "R（小说家）@teen"
+
+
+def test_ensure_canon_locks_derives_hair_lock_from_canon_face():
+    canon = CharacterCanon(
+        canonical_name="R",
+        face_lock="glossy dark hair, handsome face",
+        stages=[CharacterStage(stage="default", outfit_lock="", hair_lock="", portrait_key="R")],
+    )
+    fixed = ensure_canon_locks(canon)
+    assert fixed.stages[0].hair_lock == "glossy dark hair"

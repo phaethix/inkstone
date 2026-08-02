@@ -105,8 +105,25 @@ def normalize_face_lock(text: str) -> str:
     return ", ".join(parts).strip()
 
 
+_HAIR_MARKER_RE = re.compile(
+    r"(?i)\b(hair|bald|balding|curly|straight|braid|ponytail)\b|[发髻鬃]",
+)
+
+
 def _default_hair_lock() -> str:
     return "dark hair"
+
+
+def _hair_lock_from_canon_face(canon_face: str) -> str | None:
+    """Derive a short hair lock from the first ``canon_face`` clause when it mentions hair."""
+    text = (canon_face or "").strip()
+    if not text:
+        return None
+    first_clause = re.split(r"[,;]", text, maxsplit=1)[0].strip()
+    if not first_clause or not _HAIR_MARKER_RE.search(first_clause):
+        return None
+    # Hair locks are brief identity tags, not full face prose.
+    return first_clause[:80].strip()
 
 
 def _default_outfit_lock(style_hint: str) -> str:
@@ -124,7 +141,10 @@ def ensure_stage_locks(
     canonical_name: str = "",
 ) -> CharacterStage:
     """Fill empty stage locks and repair illegal ``portrait_key`` values."""
-    hair_lock = (stage.hair_lock or "").strip() or _default_hair_lock()
+    hair_lock = (stage.hair_lock or "").strip()
+    if not hair_lock:
+        # Prefer a short hair hint from the canon face's first clause before generic default.
+        hair_lock = _hair_lock_from_canon_face(canon_face) or _default_hair_lock()
     outfit_lock = (stage.outfit_lock or "").strip() or _default_outfit_lock(style_hint)
     portrait_key = (stage.portrait_key or "").strip()
     if canonical_name and (not portrait_key or is_illegal_character_name(portrait_key)):
