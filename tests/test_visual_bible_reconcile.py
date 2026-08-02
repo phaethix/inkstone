@@ -6,7 +6,11 @@ from core.screenwriter import reconcile_visual_bible
 
 
 class _FakeChat(ChatProvider):
+    def __init__(self):
+        self.last_user = ""
+
     async def chat_function_call(self, messages, tools, tool_choice, **kwargs):
+        self.last_user = messages[-1]["content"]
         return {
             "merges": [
                 {
@@ -66,3 +70,17 @@ def test_reconcile_visual_bible_parses_tool_payload():
     assert result.merges[0].alias == "李先生"
     assert result.style_guide.startswith("manhua")
     assert result.canons[0].canonical_name == "R"
+
+
+def test_reconcile_visual_bible_includes_preferred_style():
+    chat = _FakeChat()
+    asyncio.run(
+        reconcile_visual_bible(
+            "excerpt",
+            {"R": CharacterAsset(name="R")},
+            None,
+            preferred_style="watercolor manhua",
+            chat=chat,
+        )
+    )
+    assert "preferred_style='watercolor manhua'" in chat.last_user

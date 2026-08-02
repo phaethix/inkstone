@@ -4,10 +4,13 @@ from core.comic.visual_bible import (
     build_visual_sheet,
     collect_finished_page_refs,
     compute_bible_hash,
+    ensure_stage_portrait_assets,
     l1_from_canon,
     parse_stage_ref,
     refresh_bible_hash,
+    resolve_character_asset,
     rewrite_page_plan_names,
+    rewrite_pageset_from_bible,
     sync_characters_from_bible,
 )
 from core.schemas import (
@@ -18,6 +21,7 @@ from core.schemas import (
     ColorSwatch,
     ComicPagePlan,
     ComicPagePlanSet,
+    GeneratedPage,
     ProjectState,
     VisualBible,
     VisualBibleMerge,
@@ -59,7 +63,9 @@ def test_bible_hash_stable_and_sensitive():
     h1 = compute_bible_hash(bible)
     bible2 = bible.model_copy(update={"style_guide": "watercolor"})
     assert compute_bible_hash(bible2) != h1
-    assert compute_bible_hash(refresh_bible_hash(bible)) == h1 or True  # hash field ignored in input
+    refreshed = refresh_bible_hash(bible)
+    assert compute_bible_hash(refreshed) == h1
+    assert refreshed.content_hash == h1
 
 
 def test_apply_high_confidence_merge_and_low_to_review():
@@ -193,12 +199,49 @@ def test_apply_reconcile_applies_color_patches_on_update():
     result = VisualBibleReconcileResult(
         style_guide="should not override",
         color_patches=[ColorSwatch(name="ink", hex="#222222", usage="lines")],
+        color=ColorBible(
+            palette=[ColorSwatch(name="replaced", hex="#999999", usage="bg")],
+            lighting="harsh",
+            forbidden=["red"],
+        ),
         canons=[],
     )
     out = apply_reconcile(state, result)
     assert out.visual_bible.style_guide == "locked style"
     assert out.visual_bible.color.palette[0].hex == "#222222"
+    assert out.visual_bible.color.lighting == "soft"
     assert len(out.visual_bible.color.palette) == 1
+
+
+def test_apply_reconcile_merge_when_canonical_missing():
+    state = ProjectState(
+        project_id="p",
+        characters={"李先生": CharacterAsset(name="李先生", role="man")},
+        visual_bible=None,
+    )
+    result = VisualBibleReconcileResult(
+        canons=[
+            CharacterCanon(
+                canonical_name="R",
+                face_lock="calm eyes",
+                stages=[
+                    CharacterStage(
+                        stage="adult",
+                        outfit_lock="suit",
+                        hair_lock="dark",
+                        portrait_key="R",
+                    )
+                ],
+            )
+        ],
+        merges=[
+            VisualBibleMerge(alias="李先生", canonical="R", confidence="high", reason="same"),
+        ],
+    )
+    out = apply_reconcile(state, result)
+    assert "R" in out.characters
+    assert "李先生" not in out.characters
+    assert "李先生" in out.characters["R"].aliases
 
 
 def test_sync_characters_from_bible_updates_l1():
@@ -333,3 +376,80 @@ def test_collect_refs_uses_panel_characters_and_sheet_first():
     refs = collect_finished_page_refs(plan, chars, bible, prev_blank="/tmp/prev.png")
     assert refs[0] == "/tmp/sheet.png"
     assert "/tmp/r.png" in refs
+
+
+def test_ensure_stage_portrait_assets_creates_portrait_key_rows():
+    state = ProjectState(
+        project_id="p",
+        characters={"陌生女人": CharacterAsset(name="陌生女人", l1_prompt="adult")},
+        visual_bible=VisualBible(
+            version="bible_v1",
+            style_guide="x",
+            color=ColorBible(palette=[], lighting="", forbidden=[]),
+            characters={
+                "陌生女人": CharacterCanon(
+                    canonical_name="陌生女人",
+                    face_lock="soft face",
+                    stages=[
+                        CharacterStage(
+                            stage="teen",
+                            outfit_lock="school uniform",
+                            hair_lock="long dark",
+                            portrait_key="陌生女人@teen",
+                        )
+                    ],
+                )
+            },
+        ),
+    )
+    ensure_stage_portrait_assets(state)
+    assert "陌生女人@teen" in state.characters
+    assert "school uniform" in state.characters["陌生女人@teen"].l1_prompt
+
+
+def test_resolve_character_asset_via_alias():
+    bible = VisualBible(
+        version="bible_v1",
+        style_guide="x",
+        color=ColorBible(palette=[], lighting="", forbidden=[]),
+        characters={
+            "R": CharacterCanon(
+                canonical_name="R",
+                face_lock="f",
+                aliases=["李先生"],
+                stages=[],
+            )
+        },
+    )
+    chars = {"R": CharacterAsset(name="R", l1_prompt="canonical")}
+    asset = resolve_character_asset("李先生", chars, bible)
+    assert asset is not None
+    assert asset.name == "R"
+
+
+def test_rewrite_pageset_from_bible():
+    plan = ComicPagePlan.model_validate(
+        {
+            "page_id": "p1",
+            "purpose": "x",
+            "layout_intent": "y",
+            "panels": [{"panel_id": "1", "characters": ["李先生"], "action": "stands"}],
+            "reference_characters": ["李先生"],
+        }
+    )
+    pageset = ComicPagePlanSet(unit_id="u1", pages=[plan])
+    bible = VisualBible(
+        version="bible_v1",
+        style_guide="x",
+        color=ColorBible(palette=[], lighting="", forbidden=[]),
+        characters={
+            "R": CharacterCanon(
+                canonical_name="R",
+                aliases=["李先生"],
+                face_lock="f",
+                stages=[],
+            )
+        },
+    )
+    fixed = rewrite_pageset_from_bible(pageset, bible)
+    assert fixed.pages[0].panels[0].characters == ["R"]

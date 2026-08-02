@@ -58,3 +58,36 @@ def test_finished_page_prompt_injects_color_and_face_lock():
     assert "calm dark eyes" in text
     assert "dark suit jacket" in text
     assert "do not change hair color" in text.lower() or "unless action says costume change" in text.lower()
+
+
+def test_finished_page_prompt_resolves_alias_to_canonical():
+    bible = VisualBible(
+        version="bible_v1",
+        style_guide="manhua",
+        color=ColorBible(palette=[], lighting="", forbidden=[]),
+        characters={
+            "R": CharacterCanon(
+                canonical_name="R",
+                face_lock="calm dark eyes",
+                aliases=["李先生"],
+                stages=[],
+            )
+        },
+        content_hash="x",
+    )
+    plan = ComicPagePlan.model_validate(
+        {
+            "page_id": "p1",
+            "purpose": "meet",
+            "layout_intent": "two shot",
+            "panels": [{"panel_id": "1", "characters": ["李先生"], "action": "stands"}],
+        }
+    )
+    text = render_finished_page_prompt(
+        plan,
+        characters_by_name={"R": CharacterAsset(name="R", l1_prompt="old loose")},
+        settings_by_name={},
+        visual_bible=bible,
+    )
+    assert "calm dark eyes" in text
+    assert "old loose" not in text

@@ -237,6 +237,7 @@ async def reconcile_visual_bible(
     bible: VisualBible | None,
     *,
     alias_hints: list[tuple[str, str, str]] = (),
+    preferred_style: str = "",
     chat=None,
 ) -> VisualBibleReconcileResult:
     """Build or update the project visual bible from chunk text and known characters."""
@@ -250,9 +251,14 @@ async def reconcile_visual_bible(
         or "(none)"
     )
     if bible is None:
+        style_hint = (
+            f" Use preferred_style={preferred_style!r} for style_guide when non-empty."
+            if preferred_style
+            else ""
+        )
         bible_note = (
             "No visual bible yet. Fill style_guide, color (4–6 palette swatches), "
-            "and full canons for every canonical character."
+            f"and full canons for every canonical character.{style_hint}"
         )
         bible_blob = ""
     else:

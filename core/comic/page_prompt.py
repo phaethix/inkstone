@@ -15,6 +15,8 @@ from core.comic.visual_bible import (
     format_color_bible_block,
     l1_from_canon,
     parse_stage_ref,
+    resolve_canonical_name,
+    resolve_character_asset,
 )
 from core.schemas import CharacterAsset, ComicPagePlan, Setting, VisualBible
 
@@ -27,6 +29,9 @@ def _character_desc_for_prompt(
     if visual_bible is not None:
         base, stage = parse_stage_ref(name)
         canon = visual_bible.characters.get(base)
+        if canon is None:
+            base = resolve_canonical_name(base, visual_bible)
+            canon = visual_bible.characters.get(base)
         if canon is not None:
             canon_desc = l1_from_canon(canon, stage)
             if canon_desc:
@@ -104,7 +109,7 @@ def render_finished_page_prompt(
             scene = getattr(setting, "scene_prompt", "") if setting else ""
             lines.append(f"  setting={panel.setting_ref}: {scene}".rstrip(": "))
         for name in panel.characters:
-            asset = characters_by_name.get(name)
+            asset = resolve_character_asset(name, characters_by_name, visual_bible)
             if asset:
                 ensure_character_l1(asset)
                 desc = _character_desc_for_prompt(name, asset, visual_bible)

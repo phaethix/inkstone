@@ -6,16 +6,22 @@ import hashlib
 import json
 
 from core.comic.identity import merge_character_alias, suggestion_from_alias
+import logging
+
 from core.schemas import (
+    CharacterAsset,
     CharacterCanon,
     CharacterStage,
     ColorBible,
     ColorSwatch,
     ComicPagePlan,
+    ComicPagePlanSet,
     ProjectState,
     VisualBible,
     VisualBibleReconcileResult,
 )
+
+logger = logging.getLogger(__name__)
 
 COSTUME_CHANGE_LOCK_LINE = (
     "do not change hair color, outfit colors, or skin tone across panels "
@@ -152,8 +158,38 @@ def _install_reconcile_bible(
 
     if result.color_patches:
         _apply_color_patches(bible.color, result.color_patches)
-    elif result.color is not None:
-        bible.color = result.color
+
+
+def _ensure_canonical_character(
+    out: ProjectState,
+    canonical: str,
+    result: VisualBibleReconcileResult,
+) -> None:
+    """Ensure ``canonical`` exists in ``state.characters`` before alias merge."""
+    if canonical in out.characters:
+        return
+    canon = None
+    if out.visual_bible is not None:
+        canon = out.visual_bible.characters.get(canonical)
+    if canon is None:
+        for row in result.canons:
+            if row.canonical_name == canonical:
+                canon = row
+                break
+    if canon is not None:
+        l1 = l1_from_canon(canon)
+        out.characters[canonical] = CharacterAsset(
+            name=canonical,
+            role=canon.role or "",
+            l1_prompt=l1,
+            portrait_prompt=l1,
+        )
+        return
+    for merge in result.merges:
+        if merge.canonical == canonical and merge.alias in out.characters:
+            asset = out.characters[merge.alias]
+            out.characters[canonical] = asset.model_copy(update={"name": canonical})
+            return
 
 
 def apply_reconcile(
@@ -167,7 +203,16 @@ def apply_reconcile(
 
     for merge in result.merges:
         if merge.confidence == "high":
-            merge_character_alias(out, merge.alias, merge.canonical)
+            _ensure_canonical_character(out, merge.canonical, result)
+            try:
+                merge_character_alias(out, merge.alias, merge.canonical)
+            except KeyError as exc:
+                logger.warning(
+                    "visual bible merge skipped (%s → %s): %s",
+                    merge.alias,
+                    merge.canonical,
+                    exc,
+                )
             if out.visual_bible is not None:
                 _ensure_canon_alias(out.visual_bible, merge.canonical, merge.alias)
         else:
@@ -198,6 +243,11 @@ def apply_reconcile(
     return out
 
 
+def alias_to_canonical_map(bible: VisualBible) -> dict[str, str]:
+    """Public alias of ``_build_alias_to_canonical_map`` for pipeline callers."""
+    return _build_alias_to_canonical_map(bible)
+
+
 def _build_alias_to_canonical_map(bible: VisualBible) -> dict[str, str]:
     mapping: dict[str, str] = {}
     for key, canon in bible.characters.items():
@@ -206,6 +256,81 @@ def _build_alias_to_canonical_map(bible: VisualBible) -> dict[str, str]:
             if alias and alias != canonical:
                 mapping[alias] = canonical
     return mapping
+
+
+def rewrite_pageset_from_bible(pageset: ComicPagePlanSet, bible: VisualBible) -> ComicPagePlanSet:
+    """Rewrite panel/reference names in ``pageset`` using bible alias map."""
+    mapping = _build_alias_to_canonical_map(bible)
+    if not mapping:
+        return pageset
+    return pageset.model_copy(
+        update={
+            "pages": [rewrite_page_plan_names(plan, mapping) for plan in pageset.pages],
+        }
+    )
+
+
+def ensure_stage_portrait_assets(state: ProjectState) -> None:
+    """Ensure each stage ``portrait_key`` has a ``CharacterAsset`` for rendering."""
+    bible = state.visual_bible
+    if bible is None:
+        return
+    for key, canon in bible.characters.items():
+        canonical = canon.canonical_name or key
+        base_asset = state.characters.get(canonical)
+        for stage in canon.stages:
+            portrait_key = (stage.portrait_key or "").strip()
+            if not portrait_key or portrait_key == canonical:
+                continue
+            if portrait_key in state.characters:
+                continue
+            l1 = l1_from_canon(canon, stage.stage)
+            if base_asset is not None and not l1:
+                state.characters[portrait_key] = base_asset.model_copy(update={"name": portrait_key})
+            else:
+                state.characters[portrait_key] = CharacterAsset(
+                    name=portrait_key,
+                    role=canon.role or (base_asset.role if base_asset else ""),
+                    l1_prompt=l1,
+                    portrait_prompt=l1,
+                )
+
+
+def resolve_canonical_name(name: str, bible: VisualBible | None) -> str:
+    """Resolve ``name`` to canonical bible character name when possible."""
+    if bible is None:
+        return name
+    base, _stage = parse_stage_ref(name)
+    if base in bible.characters:
+        return base
+    mapping = _build_alias_to_canonical_map(bible)
+    return mapping.get(base, base)
+
+
+def resolve_character_asset(
+    name: str,
+    characters_by_name: dict[str, CharacterAsset],
+    bible: VisualBible | None = None,
+) -> CharacterAsset | None:
+    """Look up a character asset, resolving bible aliases and stage portrait keys."""
+    if name in characters_by_name:
+        return characters_by_name[name]
+    if bible is None:
+        return None
+    base, stage = parse_stage_ref(name)
+    canon = bible.characters.get(base)
+    if canon is None:
+        canonical = resolve_canonical_name(base, bible)
+        canon = bible.characters.get(canonical)
+        base = canonical
+    if canon is not None:
+        stage_row = next((s for s in canon.stages if s.stage == stage), None)
+        if stage_row is not None and stage_row.portrait_key:
+            key = stage_row.portrait_key
+            if key in characters_by_name:
+                return characters_by_name[key]
+    canonical = resolve_canonical_name(base, bible)
+    return characters_by_name.get(canonical)
 
 
 def sync_characters_from_bible(state: ProjectState) -> None:
@@ -229,11 +354,13 @@ def sync_characters_from_bible(state: ProjectState) -> None:
             if alias and alias != canonical and alias not in asset.aliases:
                 asset.aliases.append(alias)
 
+    ensure_stage_portrait_assets(state)
+
     if not mapping:
         return
 
-    for pageset in state.page_cache.values():
-        pageset.pages = [rewrite_page_plan_names(plan, mapping) for plan in pageset.pages]
+    for cache_key, pageset in list(state.page_cache.items()):
+        state.page_cache[cache_key] = rewrite_pageset_from_bible(pageset, bible)
 
 
 def format_color_bible_block(bible: VisualBible) -> str:
@@ -324,7 +451,8 @@ def _portrait_path_for_name(
     bible: VisualBible,
 ) -> str | None:
     base, stage = parse_stage_ref(name)
-    canon = bible.characters.get(base)
+    canonical = resolve_canonical_name(base, bible)
+    canon = bible.characters.get(canonical)
     if canon is not None:
         stage_row = next((s for s in canon.stages if s.stage == stage), None)
         if stage_row is not None and stage_row.portrait_key:
@@ -332,10 +460,7 @@ def _portrait_path_for_name(
             char = characters_by_name.get(key)
             if char is not None and char.portrait_local:
                 return char.portrait_local
-    char = characters_by_name.get(base)
-    if char is not None and char.portrait_local:
-        return char.portrait_local
-    char = characters_by_name.get(name)
+    char = resolve_character_asset(name, characters_by_name, bible)
     if char is not None and char.portrait_local:
         return char.portrait_local
     return None

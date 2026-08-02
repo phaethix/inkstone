@@ -575,3 +575,24 @@ def test_finished_page_webtoon_stacks_page_images(tmp_path, monkeypatch):
     assert proj.webtoon.endswith("webtoon.png")
     assert proj.pages == [proj.webtoon]
     assert len(list((tmp_path / "pages").glob("page_c*_p*.png"))) == 2
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_legacy_completed_project_bootstraps_visual_bible(tmp_path, monkeypatch):
+    """Completed chunks without a bible must still reconcile and soft-invalidate render."""
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+    src = "第一章\n福贵在村口。"
+    chat, img = FakeChat(), FakeImage()
+    proj = asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=chat, image=img))
+    assert proj.state.visual_bible is not None
+    assert proj.state.pages_done
+
+    state = ProjectState.load(tmp_path / "state.json")
+    state.visual_bible = None
+    state.save(tmp_path / "state.json")
+
+    chat2, img2 = FakeChat(), FakeImage()
+    proj2 = asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=chat2, image=img2))
+    assert proj2.state.visual_bible is not None
+    assert chat2.calls >= 1  # reconcile on resume
+    assert img2.calls >= 1  # pages re-rendered after first bible bootstrap

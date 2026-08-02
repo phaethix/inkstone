@@ -64,6 +64,9 @@ from core.comic.visual_bible import (
     l1_from_canon,
     parse_stage_ref,
     refresh_bible_hash,
+    resolve_canonical_name,
+    resolve_character_asset,
+    rewrite_pageset_from_bible,
     sync_characters_from_bible,
 )
 from core.config import ImageConfig, finished_page_size, l3_enabled, page_script_enabled
@@ -905,12 +908,13 @@ async def _creative_comic(
         # disk. Re-running reuses the cache so the billable chat API is never
         # re-called.
         if mode == "finished_page":
-            if (
+            chunk_complete = (
                 pageset is not None
                 and key in set(state.chunks_done)
                 and _page_chunk_complete(state, pageset, output_dir, ci)
                 and panel_key_filter is None
-            ):
+            )
+            if chunk_complete and state.visual_bible is not None:
                 _report("resume", _pct())
                 continue
         elif (
@@ -918,6 +922,7 @@ async def _creative_comic(
             and key in set(state.chunks_done)
             and _chunk_complete(state, board, output_dir, ci)
             and panel_key_filter is None
+            and state.visual_bible is not None
         ):
             if image_config.panel_continuity and board.panels:
                 last_index = len(board.panels) - 1
@@ -964,14 +969,27 @@ async def _creative_comic(
         if state.visual_bible is None or fresh_extract or new_names:
             try:
                 recon = await reconcile_visual_bible(
-                    chunk, state.characters, state.visual_bible, alias_hints=hints, chat=chat
+                    chunk,
+                    state.characters,
+                    state.visual_bible,
+                    alias_hints=hints,
+                    preferred_style=style_guide or elements.style_guide,
+                    chat=chat,
                 )
                 prev_hash = state.visual_bible.content_hash if state.visual_bible else None
+                had_render_assets = bool(
+                    state.generated.pages
+                    or state.generated.portraits
+                    or state.pages_done
+                    or state.panels_done
+                )
                 state = apply_reconcile(state, recon)
                 sync_characters_from_bible(state)
                 if state.visual_bible:
                     state.visual_bible = refresh_bible_hash(state.visual_bible)
                     if prev_hash and state.visual_bible.content_hash != prev_hash:
+                        _soft_invalidate_render(state)
+                    elif prev_hash is None and had_render_assets:
                         _soft_invalidate_render(state)
                     new_render = _render_for_bible(state.visual_bible)
                     if state.render_fingerprint != new_render:
@@ -985,12 +1003,17 @@ async def _creative_comic(
         portrait_style = effective_style
 
         async def _render_portrait(name: str, *, style: str = portrait_style) -> tuple[str, str]:
-            asset = state.characters[name]
+            asset = resolve_character_asset(name, state.characters, state.visual_bible)
+            if asset is None:
+                asset = state.characters[name]
             ensure_character_l1(asset)
             prompt = asset.portrait_prompt or asset.l1_prompt
             if state.visual_bible is not None:
                 base, stage = parse_stage_ref(name)
                 canon = state.visual_bible.characters.get(base)
+                if canon is None:
+                    base = resolve_canonical_name(base, state.visual_bible)
+                    canon = state.visual_bible.characters.get(base)
                 if canon is not None:
                     canon_prompt = l1_from_canon(canon, stage)
                     if canon_prompt:
@@ -1051,6 +1074,8 @@ async def _creative_comic(
         _report("portrait", _pct())
 
         if mode == "finished_page":
+            if pageset is not None and state.visual_bible is not None:
+                pageset = rewrite_pageset_from_bible(pageset, state.visual_bible)
             if pageset is None:
                 state.stage = "page_plan"
                 try:
@@ -1067,6 +1092,8 @@ async def _creative_comic(
                         _report("skip", _pct())
                         continue
                     raise
+                if state.visual_bible is not None:
+                    pageset = rewrite_pageset_from_bible(pageset, state.visual_bible)
                 state.page_cache[key] = pageset
                 state.save(state_path)
                 _report("page_plan", _pct())
