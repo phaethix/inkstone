@@ -8,6 +8,8 @@ from core.comic.identity import merge_character_alias, suggestion_from_alias
 from core.schemas import (
     CharacterCanon,
     CharacterStage,
+    ColorBible,
+    ColorSwatch,
     ComicPagePlan,
     ProjectState,
     VisualBible,
@@ -75,12 +77,92 @@ def _ensure_canon_alias(bible: VisualBible, canonical: str, alias: str) -> None:
         canon.aliases.append(alias)
 
 
+def _apply_color_patches(color: ColorBible, patches: list[ColorSwatch]) -> None:
+    """Append or update palette swatches by name."""
+    if not patches:
+        return
+    by_name = {s.name: i for i, s in enumerate(color.palette) if s.name}
+    for patch in patches:
+        if patch.name and patch.name in by_name:
+            color.palette[by_name[patch.name]] = patch
+        else:
+            color.palette.append(patch)
+            if patch.name:
+                by_name[patch.name] = len(color.palette) - 1
+
+
+def _upsert_canon(existing: CharacterCanon, incoming: CharacterCanon) -> CharacterCanon:
+    """Merge incoming canon fields into an existing canonical character."""
+    updates: dict = {}
+    if incoming.face_lock:
+        updates["face_lock"] = incoming.face_lock
+    if incoming.palette_notes:
+        updates["palette_notes"] = incoming.palette_notes
+    if incoming.role:
+        updates["role"] = incoming.role
+    merged = existing.model_copy(update=updates) if updates else existing.model_copy(deep=True)
+
+    for alias in incoming.aliases:
+        if alias not in merged.aliases and alias != merged.canonical_name:
+            merged.aliases.append(alias)
+
+    stage_index = {s.stage: i for i, s in enumerate(merged.stages)}
+    for stage in incoming.stages:
+        if stage.stage in stage_index:
+            idx = stage_index[stage.stage]
+            old = merged.stages[idx]
+            merged.stages[idx] = CharacterStage(
+                stage=stage.stage,
+                outfit_lock=stage.outfit_lock or old.outfit_lock,
+                hair_lock=stage.hair_lock or old.hair_lock,
+                portrait_key=stage.portrait_key or old.portrait_key,
+            )
+        else:
+            merged.stages.append(stage)
+    return merged
+
+
+def _install_reconcile_bible(
+    out: ProjectState,
+    result: VisualBibleReconcileResult,
+) -> None:
+    """Create or update visual bible from reconcile style, color, and canons."""
+    if out.visual_bible is None:
+        out.visual_bible = VisualBible(
+            version="bible_v1",
+            style_guide=result.style_guide or "",
+            color=result.color or ColorBible(palette=[], lighting="", forbidden=[]),
+            characters={c.canonical_name: c for c in result.canons},
+            sheet_ref_local=None,
+            content_hash="",
+        )
+        return
+
+    bible = out.visual_bible
+    for canon in result.canons:
+        existing = bible.characters.get(canon.canonical_name)
+        if existing is None:
+            bible.characters[canon.canonical_name] = canon
+        else:
+            bible.characters[canon.canonical_name] = _upsert_canon(existing, canon)
+
+    if not bible.style_guide and result.style_guide:
+        bible.style_guide = result.style_guide
+
+    if result.color_patches:
+        _apply_color_patches(bible.color, result.color_patches)
+    elif result.color is not None:
+        bible.color = result.color
+
+
 def apply_reconcile(
     state: ProjectState,
     result: VisualBibleReconcileResult,
 ) -> ProjectState:
     """Apply reconcile merges, stage links, and low-confidence review rows."""
     out = state.model_copy(deep=True)
+
+    _install_reconcile_bible(out, result)
 
     for merge in result.merges:
         if merge.confidence == "high":

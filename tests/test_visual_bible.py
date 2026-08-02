@@ -134,6 +134,71 @@ def test_apply_stage_link():
     assert "teen" in stages
 
 
+def test_apply_reconcile_creates_bible_from_canons():
+    state = ProjectState(
+        project_id="p",
+        characters={"R": CharacterAsset(name="R", role="writer")},
+        visual_bible=None,
+    )
+    result = VisualBibleReconcileResult(
+        style_guide="manhua muted tones",
+        color=ColorBible(
+            palette=[ColorSwatch(name="ink", hex="#111111", usage="lines")],
+            lighting="soft",
+            forbidden=["neon"],
+        ),
+        canons=[
+            CharacterCanon(
+                canonical_name="R",
+                face_lock="calm eyes",
+                stages=[
+                    CharacterStage(
+                        stage="adult",
+                        outfit_lock="dark suit",
+                        hair_lock="dark hair",
+                        portrait_key="R",
+                    )
+                ],
+            )
+        ],
+    )
+    out = apply_reconcile(state, result)
+    assert out.visual_bible is not None
+    assert out.visual_bible.style_guide == "manhua muted tones"
+    assert out.visual_bible.color.lighting == "soft"
+    assert out.visual_bible.color.palette[0].hex == "#111111"
+    assert "R" in out.visual_bible.characters
+    assert out.visual_bible.characters["R"].face_lock == "calm eyes"
+
+
+def test_apply_reconcile_applies_color_patches_on_update():
+    state = ProjectState(
+        project_id="p",
+        characters={"R": CharacterAsset(name="R")},
+        visual_bible=VisualBible(
+            version="bible_v1",
+            style_guide="locked style",
+            color=ColorBible(
+                palette=[ColorSwatch(name="ink", hex="#111111", usage="lines")],
+                lighting="soft",
+                forbidden=[],
+            ),
+            characters={
+                "R": CharacterCanon(canonical_name="R", face_lock="f", stages=[]),
+            },
+        ),
+    )
+    result = VisualBibleReconcileResult(
+        style_guide="should not override",
+        color_patches=[ColorSwatch(name="ink", hex="#222222", usage="lines")],
+        canons=[],
+    )
+    out = apply_reconcile(state, result)
+    assert out.visual_bible.style_guide == "locked style"
+    assert out.visual_bible.color.palette[0].hex == "#222222"
+    assert len(out.visual_bible.color.palette) == 1
+
+
 def test_l1_from_canon_includes_locks():
     canon = CharacterCanon(
         canonical_name="R",

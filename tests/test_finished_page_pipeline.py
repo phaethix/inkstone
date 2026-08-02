@@ -68,6 +68,33 @@ class FakeChat(ChatProvider):
                 "settings": [{"name": "村口", "scene_prompt": "village entrance at dusk"}],
                 "style_guide": "manhua",
             }
+        if name == "reconcile_visual_bible":
+            return {
+                "merges": [],
+                "stages": [],
+                "keeps": [],
+                "color_patches": [],
+                "style_guide": "manhua",
+                "color": {
+                    "palette": [{"name": "ink", "hex": "#1A1A1A", "usage": "lines"}],
+                    "lighting": "soft",
+                    "forbidden": [],
+                },
+                "canons": [
+                    {
+                        "canonical_name": "福贵",
+                        "face_lock": "a middle-aged farmer",
+                        "stages": [
+                            {
+                                "stage": "adult",
+                                "outfit_lock": "simple farmer clothes",
+                                "hair_lock": "short dark hair",
+                                "portrait_key": "福贵",
+                            }
+                        ],
+                    }
+                ],
+            }
         if name == "plan_comic_pages":
             self.page_plan_calls += 1
             return {
