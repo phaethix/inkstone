@@ -57,6 +57,14 @@ from core.comic.layout import LayoutEngine, PanelImage
 from core.comic.page_lettering import LETTERING_VERSION, letter_finished_page
 from core.comic.page_prompt import render_finished_page_prompt
 from core.comic.segmentation import detect_character_aliases, merge_characters, segment_text
+from core.comic.visual_bible import (
+    apply_reconcile,
+    collect_finished_page_refs,
+    format_color_bible_block,
+    l1_from_canon,
+    parse_stage_ref,
+    refresh_bible_hash,
+)
 from core.config import ImageConfig, finished_page_size, l3_enabled, page_script_enabled
 from core.config import render_mode as config_render_mode
 from core.perf import PerfCollector
@@ -80,6 +88,7 @@ from core.screenwriter import (
     plan_comic_pages,
     plan_page_script,
     plan_storyboard,
+    reconcile_visual_bible,
 )
 
 logger = logging.getLogger(__name__)
@@ -129,6 +138,12 @@ def _structure_fingerprint(source_txt: str) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _bible_fingerprint_kwargs(visual_bible) -> tuple[str | None, str | None]:
+    if visual_bible is None or not visual_bible.content_hash:
+        return None, None
+    return visual_bible.version, visual_bible.content_hash
+
+
 def _render_fingerprint(
     style_guide: str | None,
     *,
@@ -137,6 +152,8 @@ def _render_fingerprint(
     l3_enabled: bool,
     render_mode: str = "finished_page",
     page_size: str = "1024x1536",
+    bible_version: str | None = None,
+    bible_hash: str | None = None,
 ) -> str:
     fp_payload: dict[str, object] = {
         "style_guide": style_guide or "",
@@ -149,6 +166,10 @@ def _render_fingerprint(
     }
     if render_mode == "finished_page":
         fp_payload["lettering"] = "deferred_v3"
+    if bible_version is not None:
+        fp_payload["visual_bible"] = bible_version
+    if bible_hash is not None:
+        fp_payload["bible_hash"] = bible_hash
     payload = json.dumps(
         fp_payload,
         ensure_ascii=False,
@@ -797,14 +818,19 @@ async def _creative_comic(
         l3_enabled=l3_on,
     )
     struct = _structure_fingerprint(source_txt)
-    render = _render_fingerprint(
-        style_guide,
-        snapshot=snapshot,
-        panel_continuity=image_config.panel_continuity,
-        l3_enabled=l3_on,
-        render_mode=mode,
-        page_size=page_size,
-    )
+
+    def _render_for_bible(visual_bible=None) -> str:
+        bible_version, bible_hash = _bible_fingerprint_kwargs(visual_bible)
+        return _render_fingerprint(
+            style_guide,
+            snapshot=snapshot,
+            panel_continuity=image_config.panel_continuity,
+            l3_enabled=l3_on,
+            render_mode=mode,
+            page_size=page_size,
+            bible_version=bible_version,
+            bible_hash=bible_hash,
+        )
 
     def _fresh_state() -> ProjectState:
         return ProjectState(
@@ -812,28 +838,29 @@ async def _creative_comic(
             source_file=str(output_dir),
             source_fingerprint=struct,
             structure_fingerprint=struct,
-            render_fingerprint=render,
+            render_fingerprint=_render_for_bible(),
             model_snapshot=snapshot,
         )
 
     soft_invalidated_this_run = False
     if state_path.exists():
         persisted = ProjectState.load(state_path)
+        expected_render = _render_for_bible(persisted.visual_bible)
         if not persisted.structure_fingerprint and not persisted.render_fingerprint:
             if persisted.source_fingerprint == fingerprint:
                 state = persisted
                 state.structure_fingerprint = struct
-                state.render_fingerprint = render
+                state.render_fingerprint = expected_render
                 state.source_fingerprint = struct
             else:
                 state = _fresh_state()
         elif persisted.structure_fingerprint != struct:
             state = _fresh_state()
-        elif persisted.render_fingerprint != render:
+        elif persisted.render_fingerprint != expected_render:
             state = persisted
             _soft_invalidate_render(state)
             soft_invalidated_this_run = True
-            state.render_fingerprint = render
+            state.render_fingerprint = expected_render
             state.model_snapshot = snapshot
         else:
             state = persisted
@@ -899,6 +926,7 @@ async def _creative_comic(
             continue
 
         # ---- extraction (only when not cached) ----
+        fresh_extract = elements is None
         if elements is None:
             state.stage = "extract"
             try:
@@ -927,18 +955,49 @@ async def _creative_comic(
         state.settings = merge_settings(state.settings, elements.settings)
 
         # Surface likely alias variants for human review (never auto-merged).
-        for name, cand, reason in detect_character_aliases(state.characters, new_names):
+        hints = list(detect_character_aliases(state.characters, new_names))
+        for name, cand, reason in hints:
             sugg = suggestion_from_alias(name, cand, reason)
             if sugg not in state.needs_review:
                 state.needs_review.append(sugg)
-        effective_style = style_guide or elements.style_guide
+        if fresh_extract or new_names:
+            try:
+                recon = await reconcile_visual_bible(
+                    chunk, state.characters, state.visual_bible, alias_hints=hints, chat=chat
+                )
+                prev_hash = state.visual_bible.content_hash if state.visual_bible else None
+                state = apply_reconcile(state, recon)
+                if state.visual_bible:
+                    state.visual_bible = refresh_bible_hash(state.visual_bible)
+                    if prev_hash and state.visual_bible.content_hash != prev_hash:
+                        _soft_invalidate_render(state)
+                    new_render = _render_for_bible(state.visual_bible)
+                    if state.render_fingerprint != new_render:
+                        state.render_fingerprint = new_render
+            except Exception as exc:  # noqa: BLE001 — reconcile is best-effort
+                logger.warning("visual bible reconcile failed (%s); continuing", exc)
+        if state.visual_bible and state.visual_bible.style_guide:
+            effective_style = state.visual_bible.style_guide
+        else:
+            effective_style = style_guide or elements.style_guide
         portrait_style = effective_style
 
         async def _render_portrait(name: str, *, style: str = portrait_style) -> tuple[str, str]:
             asset = state.characters[name]
             ensure_character_l1(asset)
             prompt = asset.portrait_prompt or asset.l1_prompt
+            if state.visual_bible is not None:
+                base, stage = parse_stage_ref(name)
+                canon = state.visual_bible.characters.get(base)
+                if canon is not None:
+                    canon_prompt = l1_from_canon(canon, stage)
+                    if canon_prompt:
+                        prompt = canon_prompt
             prompt = harden_human_identity_prompt(name, prompt)
+            if state.visual_bible is not None:
+                color_block = format_color_bible_block(state.visual_bible)
+                if color_block:
+                    prompt = f"{prompt}, {color_block}"
             comic_style = f"{style}, {DEFAULT_PORTRAIT_STYLE}" if style else DEFAULT_PORTRAIT_STYLE
             async with image_semaphore:
                 with perf.measure("portrait"):
@@ -1086,18 +1145,36 @@ async def _creative_comic(
                     state.save(state_path)
                     _report("pages", _pct())
                     continue
+                prev_blank_path: str | None = None
+                if page_index > 0:
+                    prev_plan = pageset.pages[page_index - 1]
+                    prev_key = _page_state_key(ci, prev_plan.page_id)
+                    prev_gen = state.generated.pages.get(prev_key)
+                    if prev_gen and prev_gen.blank_local:
+                        prev_blank_path = prev_gen.blank_local
                 prompt = render_finished_page_prompt(
                     plan,
                     characters_by_name=state.characters,
                     settings_by_name=state.settings,
                     style_guide=effective_style,
+                    visual_bible=state.visual_bible,
                 )
+                if state.visual_bible is not None:
+                    refs = collect_finished_page_refs(
+                        plan,
+                        state.characters,
+                        state.visual_bible,
+                        prev_blank=prev_blank_path,
+                    )
+                else:
+                    refs = [
+                        state.characters[name].portrait_local
+                        for name in _page_reference_names(plan)
+                        if name in state.characters and state.characters[name].portrait_local
+                    ]
                 refs = [
-                    state.characters[name].portrait_local
-                    for name in _page_reference_names(plan)
-                    if name in state.characters and state.characters[name].portrait_local
+                    ref for ref in refs if _is_within(ref, output_dir) and Path(ref).is_file()
                 ]
-                refs = [ref for ref in refs if _is_within(ref, output_dir) and Path(ref).is_file()]
                 stricter_attempted = False
                 size_fallback_attempted = False
                 active_size = page_size
@@ -1144,6 +1221,7 @@ async def _creative_comic(
                                 settings_by_name=state.settings,
                                 style_guide=effective_style,
                                 strict=True,
+                                visual_bible=state.visual_bible,
                             )
                             logger.warning(
                                 "page %s image failed (%s); retrying once with stricter prompt",

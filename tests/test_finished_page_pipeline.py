@@ -104,6 +104,36 @@ def _fake_export_pdf(self, page_dir, out="comic.pdf", layout="TwoPageRight", dir
     return out
 
 
+def test_render_fingerprint_includes_visual_bible_hash():
+    snapshot = ModelSnapshot(chat="chat", t2i="image", i2i="image")
+    fp = _render_fingerprint(
+        "style",
+        snapshot=snapshot,
+        panel_continuity=False,
+        l3_enabled=False,
+        render_mode="finished_page",
+        page_size="1024x1536",
+        bible_version="bible_v1",
+        bible_hash="deadbeef",
+    )
+    payload = {
+        "style_guide": "style",
+        "model_snapshot": snapshot.model_dump(),
+        "panel_continuity": False,
+        "l3_enabled": False,
+        "render_mode": "finished_page",
+        "page_size": "1024x1536",
+        "identity": "metaphor_v2",
+        "lettering": "deferred_v3",
+        "visual_bible": "bible_v1",
+        "bible_hash": "deadbeef",
+    }
+    expected = hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    assert fp == expected
+
+
 def test_render_fingerprint_tracks_deferred_lettering_version():
     snapshot = ModelSnapshot(chat="chat", t2i="image", i2i="image")
     expected_payload = json.dumps(
@@ -185,7 +215,7 @@ def test_finished_page_mode_writes_generated_pages(tmp_path, monkeypatch):
     assert proj.pages == [str(p) for p in page_files]
 
     assert img.calls == 2  # 1 portrait + 1 page
-    assert chat.calls == 2  # extract + plan_comic_pages
+    assert chat.calls == 3  # extract + reconcile + plan_comic_pages
 
     # Resume: state.json already has the page recorded, so nothing regenerates.
     chat2, img2 = FakeChat(), FakeImage()
