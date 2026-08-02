@@ -173,6 +173,75 @@ def ensure_canon_locks(canon: CharacterCanon, style_hint: str = "") -> Character
     return canon.model_copy(update={"face_lock": face_lock, "stages": stages})
 
 
+def _drop_incompatible_aliases(
+    aliases: list[str],
+    owner_role: str,
+    state: ProjectState,
+) -> list[str]:
+    """Keep only aliases that are legal names and role-compatible with ``owner_role``."""
+    kept: list[str] = []
+    for alias in aliases:
+        if is_illegal_character_name(alias):
+            continue
+        alias_role = _role_for_character(state, alias)
+        if roles_incompatible(alias_role, owner_role):
+            continue
+        kept.append(alias)
+    return kept
+
+
+def sanitize_visual_bible_state(state: ProjectState) -> bool:
+    """Clean polluted bible/character state and bump to bible_v2. Returns True if mutated."""
+    bible = state.visual_bible
+    if bible is None:
+        return False
+
+    mutated = False
+
+    illegal_character_keys = [
+        name for name in list(state.characters) if is_illegal_character_name(name)
+    ]
+    for name in illegal_character_keys:
+        del state.characters[name]
+        mutated = True
+
+    for asset in state.characters.values():
+        cleaned = _drop_incompatible_aliases(asset.aliases, asset.role or "", state)
+        if cleaned != asset.aliases:
+            asset.aliases = cleaned
+            mutated = True
+
+    style_hint = bible.style_guide or ""
+    illegal_canon_keys = [
+        key for key in list(bible.characters) if is_illegal_character_name(key)
+    ]
+    for key in illegal_canon_keys:
+        del bible.characters[key]
+        mutated = True
+
+    for key, canon in list(bible.characters.items()):
+        owner_role = canon.role or _role_for_character(state, key)
+        cleaned_aliases = _drop_incompatible_aliases(canon.aliases, owner_role, state)
+        fixed = ensure_canon_locks(
+            canon.model_copy(update={"aliases": cleaned_aliases}),
+            style_hint=style_hint,
+        )
+        if cleaned_aliases != canon.aliases or fixed.model_dump() != canon.model_dump():
+            mutated = True
+        bible.characters[key] = fixed
+
+    if bible.version != "bible_v2":
+        bible.version = "bible_v2"
+        mutated = True
+
+    old_hash = bible.content_hash
+    state.visual_bible = refresh_bible_hash(bible)
+    if state.visual_bible.content_hash != old_hash:
+        mutated = True
+
+    return mutated
+
+
 def parse_stage_ref(name: str) -> tuple[str, str]:
     """Split ``Name@stage`` into base name and stage (default ``default``)."""
     text = (name or "").strip()

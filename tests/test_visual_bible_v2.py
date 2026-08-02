@@ -112,3 +112,47 @@ def test_ensure_canon_locks_derives_hair_lock_from_canon_face():
     )
     fixed = ensure_canon_locks(canon)
     assert fixed.stages[0].hair_lock == "glossy dark hair"
+
+
+def test_sanitize_removes_prose_character_and_bad_alias():
+    prose = "41-year-old Viennese novelist, athletic elegant build, glossy dark hair"
+    state = ProjectState(
+        project_id="p",
+        characters={
+            "R（小说家）": CharacterAsset(
+                name="R（小说家）",
+                role="小说家",
+                aliases=["帝国伯爵", prose],
+            ),
+            prose: CharacterAsset(name=prose, role="小说家"),
+            "帝国伯爵": CharacterAsset(name="帝国伯爵", role="伯爵情人"),
+        },
+        visual_bible=VisualBible(
+            version="bible_v1",
+            style_guide="vienna",
+            color=ColorBible(palette=[], lighting="", forbidden=[]),
+            characters={
+                "R（小说家）": CharacterCanon(
+                    canonical_name="R（小说家）",
+                    role="小说家",
+                    aliases=["帝国伯爵", prose],
+                    face_lock="face",
+                    stages=[
+                        CharacterStage(
+                            stage="adult",
+                            hair_lock="",
+                            outfit_lock="",
+                            portrait_key=prose,
+                        )
+                    ],
+                )
+            },
+        ),
+    )
+    from core.comic.visual_bible import sanitize_visual_bible_state
+
+    assert sanitize_visual_bible_state(state) is True
+    assert prose not in state.characters
+    assert state.visual_bible.version == "bible_v2"
+    assert "帝国伯爵" not in state.visual_bible.characters["R（小说家）"].aliases
+    assert state.visual_bible.characters["R（小说家）"].stages[0].portrait_key.startswith("R")
