@@ -1230,9 +1230,7 @@ async def _creative_comic(
                         for name in _page_reference_names(plan)
                         if name in state.characters and state.characters[name].portrait_local
                     ]
-                refs = [
-                    ref for ref in refs if _is_within(ref, output_dir) and Path(ref).is_file()
-                ]
+                refs = [ref for ref in refs if _is_within(ref, output_dir) and Path(ref).is_file()]
                 stricter_attempted = False
                 size_fallback_attempted = False
                 active_size = page_size

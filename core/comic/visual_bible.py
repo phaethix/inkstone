@@ -304,16 +304,12 @@ def sanitize_visual_bible_state(state: ProjectState) -> bool:
             asset.aliases = cleaned
             mutated = True
 
-    illegal_canon_keys = [
-        key for key in list(bible.characters) if is_illegal_character_name(key)
-    ]
+    illegal_canon_keys = [key for key in list(bible.characters) if is_illegal_character_name(key)]
     for key in illegal_canon_keys:
         del bible.characters[key]
         mutated = True
 
-    canon_alias_snapshot = {
-        key: list(canon.aliases) for key, canon in bible.characters.items()
-    }
+    canon_alias_snapshot = {key: list(canon.aliases) for key, canon in bible.characters.items()}
 
     for key, canon in list(bible.characters.items()):
         owner_role = canon.role or _role_for_character(state, key)
