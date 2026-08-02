@@ -1,8 +1,10 @@
 from core.comic.visual_bible import (
+    DEFAULT_OUTFIT_LOCK,
     apply_reconcile,
+    ensure_canon_locks,
     is_illegal_character_name,
     roles_incompatible,
-    ensure_canon_locks,
+    sanitize_visual_bible_state,
 )
 from core.schemas import (
     CharacterAsset,
@@ -83,10 +85,27 @@ def test_ensure_canon_locks_fills_empty_and_strips_outfit_from_face():
             CharacterStage(stage="default", outfit_lock="", hair_lock="", portrait_key="R")
         ],
     )
-    fixed = ensure_canon_locks(canon, style_hint="early 20th century Vienna")
+    fixed = ensure_canon_locks(canon)
     assert "hoodie" not in fixed.face_lock.lower()
     assert fixed.stages[0].hair_lock == "dark hair"
-    assert fixed.stages[0].outfit_lock
+    assert fixed.stages[0].outfit_lock == DEFAULT_OUTFIT_LOCK
+
+
+def test_ensure_canon_locks_outfit_not_style_guide():
+    style_guide = (
+        "Manhua/comic style: clean black ink line art, soft cel shading, flat colors"
+    )
+    canon = CharacterCanon(
+        canonical_name="R",
+        face_lock="handsome face",
+        stages=[
+            CharacterStage(stage="default", outfit_lock="", hair_lock="dark hair", portrait_key="R")
+        ],
+    )
+    fixed = ensure_canon_locks(canon)
+    assert fixed.stages[0].outfit_lock == DEFAULT_OUTFIT_LOCK
+    assert "Manhua" not in fixed.stages[0].outfit_lock
+    assert style_guide not in fixed.stages[0].outfit_lock
 
 
 def test_ensure_canon_locks_repairs_illegal_and_empty_portrait_key():
@@ -95,8 +114,18 @@ def test_ensure_canon_locks_repairs_illegal_and_empty_portrait_key():
         canonical_name="R（小说家）",
         face_lock="handsome face",
         stages=[
-            CharacterStage(stage="adult", outfit_lock="suit", hair_lock="dark hair", portrait_key=""),
-            CharacterStage(stage="teen", outfit_lock="school", hair_lock="dark hair", portrait_key=prose),
+            CharacterStage(
+                stage="adult",
+                outfit_lock="suit",
+                hair_lock="dark hair",
+                portrait_key="",
+            ),
+            CharacterStage(
+                stage="teen",
+                outfit_lock="school",
+                hair_lock="dark hair",
+                portrait_key=prose,
+            ),
         ],
     )
     fixed = ensure_canon_locks(canon)
@@ -112,6 +141,64 @@ def test_ensure_canon_locks_derives_hair_lock_from_canon_face():
     )
     fixed = ensure_canon_locks(canon)
     assert fixed.stages[0].hair_lock == "glossy dark hair"
+
+
+def test_sanitize_drops_stranger_woman_alias_from_mother():
+    state = ProjectState(
+        project_id="p",
+        characters={
+            "陌生女人的母亲": CharacterAsset(
+                name="陌生女人的母亲",
+                role="女主角母亲，寡妇",
+                aliases=["寡妇", "陌生女人"],
+            ),
+            "陌生女人（信中叙述者）": CharacterAsset(
+                name="陌生女人（信中叙述者）",
+                role="女主角，信件叙述者",
+                aliases=["陌生女人"],
+            ),
+        },
+        visual_bible=VisualBible(
+            version="bible_v1",
+            style_guide="Manhua/comic style: clean black ink line art",
+            color=ColorBible(palette=[], lighting="", forbidden=[]),
+            characters={
+                "陌生女人（信中叙述者）": CharacterCanon(
+                    canonical_name="陌生女人（信中叙述者）",
+                    role="女主角，信件叙述者",
+                    aliases=["陌生女人"],
+                    face_lock="pale fragile beauty",
+                    stages=[
+                        CharacterStage(
+                            stage="default",
+                            outfit_lock="simple dress",
+                            hair_lock="dark hair",
+                            portrait_key="陌生女人（信中叙述者）",
+                        )
+                    ],
+                ),
+                "陌生女人的母亲": CharacterCanon(
+                    canonical_name="陌生女人的母亲",
+                    role="女主角母亲，寡妇",
+                    aliases=["寡妇", "陌生女人"],
+                    face_lock="thin somber face",
+                    stages=[
+                        CharacterStage(
+                            stage="default",
+                            outfit_lock="black mourning clothes",
+                            hair_lock="dark hair",
+                            portrait_key="陌生女人的母亲",
+                        )
+                    ],
+                ),
+            },
+        ),
+    )
+    assert sanitize_visual_bible_state(state) is True
+    mother_asset = state.characters["陌生女人的母亲"]
+    mother_canon = state.visual_bible.characters["陌生女人的母亲"]
+    assert "陌生女人" not in mother_asset.aliases
+    assert "陌生女人" not in mother_canon.aliases
 
 
 def test_sanitize_removes_prose_character_and_bad_alias():
@@ -149,8 +236,6 @@ def test_sanitize_removes_prose_character_and_bad_alias():
             },
         ),
     )
-    from core.comic.visual_bible import sanitize_visual_bible_state
-
     assert sanitize_visual_bible_state(state) is True
     assert prose not in state.characters
     assert state.visual_bible.version == "bible_v2"

@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from collections.abc import Iterable
 
 from core.comic.identity import merge_character_alias, suggestion_from_alias
-import logging
-
 from core.schemas import (
     CharacterAsset,
     CharacterCanon,
@@ -94,8 +93,15 @@ def roles_incompatible(role_a: str, role_b: str) -> bool:
     b = (role_b or "").strip()
     if not a or not b:
         return False
+    if a == b:
+        return False
 
-    def _pair(left: str, right: str, markers_a: tuple[str, ...], markers_b: tuple[str, ...]) -> bool:
+    def _pair(
+        left: str,
+        right: str,
+        markers_a: tuple[str, ...],
+        markers_b: tuple[str, ...],
+    ) -> bool:
         return _role_contains_any(left, markers_a) and _role_contains_any(right, markers_b)
 
     incompatible_pairs = (
@@ -142,18 +148,17 @@ def _hair_lock_from_canon_face(canon_face: str) -> str | None:
     return first_clause[:80].strip()
 
 
-def _default_outfit_lock(style_hint: str) -> str:
-    hint = (style_hint or "").strip()
-    if hint:
-        return f"{hint} period clothing"
-    return "early 20th century European period clothing"
+DEFAULT_OUTFIT_LOCK = "early 20th century European period clothing"
+
+
+def _default_outfit_lock() -> str:
+    return DEFAULT_OUTFIT_LOCK
 
 
 def ensure_stage_locks(
     stage: CharacterStage,
     *,
     canon_face: str,
-    style_hint: str = "",
     canonical_name: str = "",
 ) -> CharacterStage:
     """Fill empty stage locks and repair illegal ``portrait_key`` values."""
@@ -161,7 +166,7 @@ def ensure_stage_locks(
     if not hair_lock:
         # Prefer a short hair hint from the canon face's first clause before generic default.
         hair_lock = _hair_lock_from_canon_face(canon_face) or _default_hair_lock()
-    outfit_lock = (stage.outfit_lock or "").strip() or _default_outfit_lock(style_hint)
+    outfit_lock = (stage.outfit_lock or "").strip() or _default_outfit_lock()
     portrait_key = (stage.portrait_key or "").strip()
     if canonical_name and (not portrait_key or is_illegal_character_name(portrait_key)):
         portrait_key = f"{canonical_name}@{stage.stage}"
@@ -174,14 +179,13 @@ def ensure_stage_locks(
     )
 
 
-def ensure_canon_locks(canon: CharacterCanon, style_hint: str = "") -> CharacterCanon:
+def ensure_canon_locks(canon: CharacterCanon) -> CharacterCanon:
     """Normalize face lock and ensure every stage has hair/outfit/portrait locks."""
     face_lock = normalize_face_lock(canon.face_lock) or (canon.face_lock or "").strip()
     stages = [
         ensure_stage_locks(
             stage,
             canon_face=face_lock,
-            style_hint=style_hint,
             canonical_name=canon.canonical_name,
         )
         for stage in canon.stages
@@ -189,19 +193,90 @@ def ensure_canon_locks(canon: CharacterCanon, style_hint: str = "") -> Character
     return canon.model_copy(update={"face_lock": face_lock, "stages": stages})
 
 
+def _canonical_for_character(state: ProjectState, name: str) -> str:
+    """Resolve a character or alias string to its bible canonical name."""
+    if not name:
+        return name
+    bible = state.visual_bible
+    if bible is None:
+        return name
+    canon = bible.characters.get(name)
+    if canon is not None:
+        return canon.canonical_name or name
+    return _build_alias_to_canonical_map(bible).get(name, name)
+
+
+def _alias_loses_conflict(owner_role: str, other_role: str) -> bool:
+    """True when ``owner_role`` should drop a contested alias to ``other_role``."""
+    if not roles_incompatible(other_role, owner_role):
+        return False
+    loser_winner_pairs = (
+        (_MOTHER_ROLE_MARKERS, _DAUGHTER_ROLE_MARKERS),
+        (_COUNT_LOVER_ROLE_MARKERS, _NOVELIST_ROLE_MARKERS),
+        (_SERVANT_ROLE_MARKERS, _MASTER_ROLE_MARKERS),
+    )
+    return any(
+        _role_contains_any(owner_role, loser_markers)
+        and _role_contains_any(other_role, winner_markers)
+        for loser_markers, winner_markers in loser_winner_pairs
+    )
+
+
+def _canons_claiming_alias(
+    bible: VisualBible,
+    alias: str,
+    alias_snapshot: dict[str, list[str]] | None = None,
+) -> list[str]:
+    """Return canonical names whose bible entry key, name, or alias list claims ``alias``."""
+    claimed: list[str] = []
+    for key, canon in bible.characters.items():
+        canonical = canon.canonical_name or key
+        aliases = alias_snapshot.get(key, canon.aliases) if alias_snapshot else canon.aliases
+        if alias == key or alias == canonical or alias in aliases:
+            if canonical not in claimed:
+                claimed.append(canonical)
+    return claimed
+
+
 def _drop_incompatible_aliases(
     aliases: list[str],
     owner_role: str,
     state: ProjectState,
+    owner_canonical: str = "",
+    alias_snapshot: dict[str, list[str]] | None = None,
 ) -> list[str]:
     """Keep only aliases that are legal names and role-compatible with ``owner_role``."""
+    owner_key = (owner_canonical or "").strip()
+    owner_resolved = _canonical_for_character(state, owner_key) if owner_key else ""
+    bible = state.visual_bible
     kept: list[str] = []
     for alias in aliases:
         if is_illegal_character_name(alias):
             continue
-        alias_role = _role_for_character(state, alias)
-        if roles_incompatible(alias_role, owner_role):
+        other_asset = state.characters.get(alias)
+        if (
+            other_asset is not None
+            and alias != owner_key
+            and alias != owner_resolved
+            and roles_incompatible(other_asset.role or "", owner_role)
+        ):
             continue
+        if bible is not None:
+            other_claimants = [
+                canon
+                for canon in _canons_claiming_alias(bible, alias, alias_snapshot)
+                if canon != owner_resolved
+            ]
+            incompatible_others = [
+                other
+                for other in other_claimants
+                if roles_incompatible(_role_for_character(state, other), owner_role)
+            ]
+            if any(
+                _alias_loses_conflict(owner_role, _role_for_character(state, other))
+                for other in incompatible_others
+            ):
+                continue
         kept.append(alias)
     return kept
 
@@ -221,13 +296,14 @@ def sanitize_visual_bible_state(state: ProjectState) -> bool:
         del state.characters[name]
         mutated = True
 
-    for asset in state.characters.values():
-        cleaned = _drop_incompatible_aliases(asset.aliases, asset.role or "", state)
+    for name, asset in state.characters.items():
+        cleaned = _drop_incompatible_aliases(
+            asset.aliases, asset.role or "", state, owner_canonical=name
+        )
         if cleaned != asset.aliases:
             asset.aliases = cleaned
             mutated = True
 
-    style_hint = bible.style_guide or ""
     illegal_canon_keys = [
         key for key in list(bible.characters) if is_illegal_character_name(key)
     ]
@@ -235,13 +311,20 @@ def sanitize_visual_bible_state(state: ProjectState) -> bool:
         del bible.characters[key]
         mutated = True
 
+    canon_alias_snapshot = {
+        key: list(canon.aliases) for key, canon in bible.characters.items()
+    }
+
     for key, canon in list(bible.characters.items()):
         owner_role = canon.role or _role_for_character(state, key)
-        cleaned_aliases = _drop_incompatible_aliases(canon.aliases, owner_role, state)
-        fixed = ensure_canon_locks(
-            canon.model_copy(update={"aliases": cleaned_aliases}),
-            style_hint=style_hint,
+        cleaned_aliases = _drop_incompatible_aliases(
+            canon.aliases,
+            owner_role,
+            state,
+            owner_canonical=key,
+            alias_snapshot=canon_alias_snapshot,
         )
+        fixed = ensure_canon_locks(canon.model_copy(update={"aliases": cleaned_aliases}))
         if cleaned_aliases != canon.aliases or fixed.model_dump() != canon.model_dump():
             mutated = True
         bible.characters[key] = fixed
@@ -437,6 +520,9 @@ def _role_for_character(out: ProjectState, name: str) -> str:
         canon = out.visual_bible.characters.get(name)
         if canon is not None and (canon.role or "").strip():
             return canon.role.strip()
+        canonical = _build_alias_to_canonical_map(out.visual_bible).get(name)
+        if canonical and canonical != name:
+            return _role_for_character(out, canonical)
     return ""
 
 
@@ -536,7 +622,9 @@ def ensure_stage_portrait_assets(state: ProjectState) -> None:
                 continue
             l1 = l1_from_canon(canon, stage.stage)
             if base_asset is not None and not l1:
-                state.characters[portrait_key] = base_asset.model_copy(update={"name": portrait_key})
+                state.characters[portrait_key] = base_asset.model_copy(
+                    update={"name": portrait_key}
+                )
             else:
                 state.characters[portrait_key] = CharacterAsset(
                     name=portrait_key,
