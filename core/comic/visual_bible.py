@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Iterable
 
 from core.comic.identity import merge_character_alias, suggestion_from_alias
 import logging
@@ -645,6 +646,31 @@ def _rewrite_name_list(names: list[str], mapping: dict[str, str]) -> list[str]:
             out.append(mapped)
             seen.add(mapped)
     return out
+
+
+def backfill_panel_characters(
+    plan: ComicPagePlan,
+    known_names: Iterable[str],
+) -> ComicPagePlan:
+    """Fill empty panel ``characters`` from page refs and action substring matches."""
+    known = [name for name in known_names if name]
+    updated = plan.model_copy(deep=True)
+    for panel in updated.panels:
+        if panel.characters:
+            continue
+        found: list[str] = []
+        seen: set[str] = set()
+        for name in updated.reference_characters:
+            if name not in seen:
+                found.append(name)
+                seen.add(name)
+        action = panel.action or ""
+        for name in known:
+            if name in action and name not in seen:
+                found.append(name)
+                seen.add(name)
+        panel.characters = found
+    return updated
 
 
 def rewrite_page_plan_names(

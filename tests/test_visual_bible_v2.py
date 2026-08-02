@@ -156,3 +156,29 @@ def test_sanitize_removes_prose_character_and_bad_alias():
     assert state.visual_bible.version == "bible_v2"
     assert "帝国伯爵" not in state.visual_bible.characters["R（小说家）"].aliases
     assert state.visual_bible.characters["R（小说家）"].stages[0].portrait_key.startswith("R")
+
+
+def test_backfill_panel_characters_from_action_and_refs():
+    from core.comic.visual_bible import backfill_panel_characters
+    from core.schemas import ComicPagePlan
+
+    plan = ComicPagePlan.model_validate(
+        {
+            "page_id": "p1",
+            "purpose": "海滩",
+            "layout_intent": "三格",
+            "panels": [
+                {
+                    "panel_id": "1",
+                    "characters": [],
+                    "action": "女人牵着金发男孩在海滩散步",
+                }
+            ],
+            "reference_characters": ["陌生女人（信中叙述者）", "死去的儿子"],
+        }
+    )
+    fixed = backfill_panel_characters(
+        plan, ["陌生女人（信中叙述者）", "死去的儿子", "R（小说家）"]
+    )
+    assert "陌生女人（信中叙述者）" in fixed.panels[0].characters
+    assert "死去的儿子" in fixed.panels[0].characters
