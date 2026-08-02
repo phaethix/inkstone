@@ -10,7 +10,28 @@ from core.comic.identity import (
     metaphor_identity_lock_line,
     metaphor_names_on_page,
 )
-from core.schemas import CharacterAsset, ComicPagePlan, Setting
+from core.comic.visual_bible import (
+    COSTUME_CHANGE_LOCK_LINE,
+    format_color_bible_block,
+    l1_from_canon,
+    parse_stage_ref,
+)
+from core.schemas import CharacterAsset, ComicPagePlan, Setting, VisualBible
+
+
+def _character_desc_for_prompt(
+    name: str,
+    asset: CharacterAsset,
+    visual_bible: VisualBible | None,
+) -> str:
+    if visual_bible is not None:
+        base, stage = parse_stage_ref(name)
+        canon = visual_bible.characters.get(base)
+        if canon is not None:
+            canon_desc = l1_from_canon(canon, stage)
+            if canon_desc:
+                return harden_human_identity_prompt(name, canon_desc)
+    return harden_human_identity_prompt(name, asset.l1_prompt or "")
 
 
 def render_finished_page_prompt(
@@ -21,6 +42,7 @@ def render_finished_page_prompt(
     style_guide: str = "",
     strict: bool = False,
     lettering: Literal["deferred", "in_image"] = "deferred",
+    visual_bible: VisualBible | None = None,
 ) -> str:
     lines: list[str] = [
         "Finished readable manga/comic page, A4 portrait single image,",
@@ -52,8 +74,18 @@ def render_finished_page_prompt(
                 "STRICT: render every CAPTION, DIALOGUE, and SFX string exactly as "
                 "specified; high-contrast legible lettering; do not omit any text."
             )
-    if style_guide:
-        lines.append(f"Style: {style_guide}")
+    effective_style = (
+        visual_bible.style_guide
+        if visual_bible is not None and visual_bible.style_guide
+        else style_guide
+    )
+    if effective_style:
+        lines.append(f"Style: {effective_style}")
+    if visual_bible is not None:
+        color_block = format_color_bible_block(visual_bible)
+        if color_block:
+            lines.append(color_block)
+        lines.append(COSTUME_CHANGE_LOCK_LINE)
     lines.append(f"Page purpose: {plan.purpose}")
     lines.append(f"Layout intent: {plan.layout_intent}")
     metaphor_names = metaphor_names_on_page(plan, characters_by_name)
@@ -75,7 +107,7 @@ def render_finished_page_prompt(
             asset = characters_by_name.get(name)
             if asset:
                 ensure_character_l1(asset)
-                desc = harden_human_identity_prompt(name, asset.l1_prompt or "")
+                desc = _character_desc_for_prompt(name, asset, visual_bible)
                 if desc:
                     lines.append(f"  character {name}: {desc}")
         if lettering == "in_image":

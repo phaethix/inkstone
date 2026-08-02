@@ -14,6 +14,11 @@ from core.schemas import (
     VisualBibleReconcileResult,
 )
 
+COSTUME_CHANGE_LOCK_LINE = (
+    "do not change hair color, outfit colors, or skin tone across panels "
+    "unless action says costume change"
+)
+
 
 def parse_stage_ref(name: str) -> tuple[str, str]:
     """Split ``Name@stage`` into base name and stage (default ``default``)."""
@@ -108,6 +113,27 @@ def apply_reconcile(
                 )
 
     return out
+
+
+def format_color_bible_block(bible: VisualBible) -> str:
+    """Format palette, lighting, and forbidden colors for image prompts."""
+    color = bible.color
+    lines: list[str] = []
+    for swatch in color.palette:
+        if not swatch.hex:
+            continue
+        label = swatch.name or swatch.usage or "color"
+        detail = f"{label} {swatch.hex}"
+        if swatch.usage and swatch.name and swatch.usage != swatch.name:
+            detail = f"{swatch.name} {swatch.hex} ({swatch.usage})"
+        lines.append(detail)
+    if color.lighting:
+        lines.append(f"lighting: {color.lighting}")
+    if color.forbidden:
+        lines.append(f"forbidden: {', '.join(color.forbidden)}")
+    if not lines:
+        return ""
+    return "Color bible:\n" + "\n".join(f"  {line}" for line in lines)
 
 
 def l1_from_canon(canon: CharacterCanon, stage: str = "default") -> str:
