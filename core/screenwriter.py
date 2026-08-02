@@ -8,6 +8,7 @@ of banned terms before it is sent so the provider's filter is less likely to
 reject the call.
 """
 
+import json
 import logging
 
 import requests
@@ -24,6 +25,8 @@ from core.schemas import (
     PageScript,
     Storyboard,
     StoryElements,
+    VisualBible,
+    VisualBibleReconcileResult,
     to_tool_schema,
 )
 
@@ -66,6 +69,12 @@ PAGE_PLAN_TOOL = to_tool_schema(
     "Plan finished comic pages for one text unit: per-page purpose, "
     "dynamic layout_intent, panel specs with source-language lettering, and "
     "lettering_boxes as normalized 0-1 page rectangles.",
+)
+RECONCILE_BIBLE_TOOL = to_tool_schema(
+    VisualBibleReconcileResult,
+    "reconcile_visual_bible",
+    "Build or update the project visual bible: merge aliases, attach age stages, "
+    "lock style_guide and color palette, emit CharacterCanon entries.",
 )
 
 # Optional local scrub list. Empty by default: content policy is enforced by the
@@ -220,6 +229,62 @@ async def plan_comic_pages(text: str, elements: StoryElements, *, chat=None) -> 
             }
         )
     return pageset
+
+
+async def reconcile_visual_bible(
+    text: str,
+    state_characters: dict,
+    bible: VisualBible | None,
+    *,
+    alias_hints: list[tuple[str, str, str]] = (),
+    chat=None,
+) -> VisualBibleReconcileResult:
+    """Build or update the project visual bible from chunk text and known characters."""
+    chat = chat or get_chat_provider()
+    char_blob = json.dumps(
+        {k: v.model_dump() for k, v in state_characters.items()},
+        ensure_ascii=False,
+    )
+    hints_blob = (
+        "\n".join(f"- {alias} → {canonical} ({reason})" for alias, canonical, reason in alias_hints)
+        or "(none)"
+    )
+    if bible is None:
+        bible_note = (
+            "No visual bible yet. Fill style_guide, color (4–6 palette swatches), "
+            "and full canons for every canonical character."
+        )
+        bible_blob = ""
+    else:
+        bible_note = (
+            "Existing visual bible below. Keep the existing color palette unless "
+            "color_patches are clearly justified. Still return merges/stages/keeps "
+            "for any new names."
+        )
+        bible_blob = bible.model_dump_json()
+    instructions = (
+        "Reconcile character identities for the visual bible.\n"
+        "- Prefer merging pronouns/descriptive labels for the same person "
+        "(男人（被叙述者）, 他（被爱者）, 李先生, R·) into one canonical.\n"
+        "- Age variants → stages under one canonical, not new root characters.\n"
+        "- Use confidence=high only when clearly the same person; otherwise low.\n"
+        f"- {bible_note}\n"
+        f"String alias hints:\n{hints_blob}"
+    )
+    user = f"{sanitize_text(text)}\n\nKnown character assets:\n{char_blob}\n\n"
+    if bible_blob:
+        user += f"Current visual bible:\n{bible_blob}\n\n"
+    user += instructions
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": user},
+    ]
+    args = await chat.chat_function_call(
+        messages,
+        [RECONCILE_BIBLE_TOOL],
+        _tool_choice("reconcile_visual_bible"),
+    )
+    return VisualBibleReconcileResult.model_validate(args)
 
 
 PAGE_SCRIPT_TOOL = to_tool_schema(
