@@ -22,6 +22,7 @@ from core.comic.lettering_lang import (
 )
 from core.schemas import (
     ComicPagePlanSet,
+    KeyBeatSet,
     PageScript,
     Storyboard,
     StoryElements,
@@ -68,7 +69,14 @@ PAGE_PLAN_TOOL = to_tool_schema(
     "plan_comic_pages",
     "Plan finished comic pages for one text unit: per-page purpose, "
     "dynamic layout_intent, panel specs with source-language lettering, and "
-    "lettering_boxes as normalized 0-1 page rectangles.",
+    "lettering_boxes as normalized 0-1 page rectangles. "
+    "When key beats are provided, set covers_beats on pages that stage them.",
+)
+KEY_BEATS_TOOL = to_tool_schema(
+    KeyBeatSet,
+    "extract_key_beats",
+    "Extract dramatizable turning points (key beats) that must be shown as "
+    "drawable comic scenes, not caption-only summaries. Cap at about 12 beats.",
 )
 RECONCILE_BIBLE_TOOL = to_tool_schema(
     VisualBibleReconcileResult,
@@ -159,8 +167,44 @@ async def plan_storyboard(text: str, elements: StoryElements, *, chat=None) -> S
     return Storyboard.model_validate(args)
 
 
-async def plan_comic_pages(text: str, elements: StoryElements, *, chat=None) -> ComicPagePlanSet:
+async def extract_key_beats(text: str, elements: StoryElements, *, chat=None) -> KeyBeatSet:
+    """Extract must-draw dramatizable beats for a text unit."""
+    chat = chat or get_chat_provider()
+    user = (
+        f"{sanitize_text(text)}\n\n"
+        f"Known elements:\n{elements.model_dump_json()}\n\n"
+        "Extract key beats: dramatizable turning points that a comic must SHOW "
+        "(environment + body action), not only narrate in captions. "
+        "Prefer 4–12 beats. Each beat needs beat_id (short slug), summary, "
+        "must_draw=true for critical ones, optional characters and setting_hint. "
+        "Do not invent novel-specific fixed lists — derive from this excerpt only."
+    )
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": user},
+    ]
+    args = await chat.chat_function_call(
+        messages,
+        [KEY_BEATS_TOOL],
+        _tool_choice("extract_key_beats"),
+    )
+    return KeyBeatSet.model_validate(args)
+
+
+async def plan_comic_pages(
+    text: str,
+    elements: StoryElements,
+    *,
+    chat=None,
+    recent_layouts: list[str] | None = None,
+    visual_bible=None,
+    key_beats: KeyBeatSet | None = None,
+    extra_user_note: str = "",
+) -> ComicPagePlanSet:
     """Plan finished readable pages for ``text`` given ``elements``."""
+    from core.comic.layout_diversity import layout_diversity_instructions
+    from core.comic.voice import voice_timeline_plan_instructions
+
     chat = chat or get_chat_provider()
     script = source_lettering_script(text)
     lang_reminder = (
@@ -173,12 +217,25 @@ async def plan_comic_pages(text: str, elements: StoryElements, *, chat=None) -> 
         "Also emit lettering_boxes: normalized 0-1 page rectangles "
         "(kind, panel_id, x, y, w, h) for every non-null lettering field."
     )
+    diversity = layout_diversity_instructions(recent_layouts)
+    voice = voice_timeline_plan_instructions(visual_bible)
+    beats_blob = ""
+    if key_beats is not None and key_beats.beats:
+        beats_blob = (
+            "Key beats to cover (set covers_beats on staging pages):\n"
+            f"{key_beats.model_dump_json()}\n\n"
+        )
+    note = f"\n\n{extra_user_note}" if extra_user_note else ""
     user = (
         f"{sanitize_text(text)}\n\n"
         f"Known elements:\n{elements.model_dump_json()}\n\n"
+        f"{beats_blob}"
         "Plan finished readable pages (not a flat 2x2 collage). "
         "Each page needs purpose, layout_intent, panels, and lettering_boxes. "
+        f"{diversity}"
+        f"{voice}"
         f"{lang_reminder}"
+        f"{note}"
     )
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -285,7 +342,7 @@ async def reconcile_visual_bible(
         "- Every canon must include gender (male/female/nonbinary/unknown) and "
         "narrative_function (letter_reader/letter_writer/protagonist/love_interest/"
         "servant/parent/child/extra).\n"
-        "- Always fill face_lock, hair_lock, and outfit_lock for every stage.\n"
+        "- Always fill face_lock, hair_lock, outfit_lock, and age_look for every stage.\n"
         "- For historical eras use period wardrobe only — never hoodies, sneakers, "
         "or athleisure.\n"
         "- portrait_key must be short form {canonical_name}@{stage} only "

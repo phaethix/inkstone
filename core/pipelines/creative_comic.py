@@ -53,6 +53,7 @@ from core.comic.identity import (
     merge_settings,
     suggestion_from_alias,
 )
+from core.comic.key_beats import beat_coverage_retry_note, uncovered_must_draw_beats
 from core.comic.layout import LayoutEngine, PanelImage
 from core.comic.page_lettering import LETTERING_VERSION, letter_finished_page
 from core.comic.page_prompt import render_finished_page_prompt
@@ -68,10 +69,12 @@ from core.comic.visual_bible import (
     refresh_bible_hash,
     resolve_canonical_name,
     resolve_character_asset,
+    resolve_panel_stage_refs,
     rewrite_pageset_from_bible,
     sanitize_visual_bible_state,
     sync_characters_from_bible,
 )
+from core.comic.voice import sanitize_plan_voice
 from core.config import ImageConfig, finished_page_size, l3_enabled, page_script_enabled
 from core.config import render_mode as config_render_mode
 from core.perf import PerfCollector
@@ -90,6 +93,7 @@ from core.schemas import (
     StoryElements,
 )
 from core.screenwriter import (
+    extract_key_beats,
     extract_story_elements,
     is_content_policy_rejection,
     plan_comic_pages,
@@ -162,6 +166,20 @@ def _known_character_names(state: ProjectState) -> list[str]:
     return names
 
 
+def _recent_layout_intents(state: ProjectState, *, limit: int = 8) -> list[str]:
+    """Collect recent page layout_intent strings from cached page plans."""
+    intents: list[str] = []
+    for cache_key in sorted(state.page_cache.keys()):
+        pageset = state.page_cache.get(cache_key)
+        if pageset is None:
+            continue
+        for plan in pageset.pages:
+            intent = (plan.layout_intent or "").strip()
+            if intent:
+                intents.append(intent)
+    return intents[-limit:]
+
+
 def _render_fingerprint(
     style_guide: str | None,
     *,
@@ -181,6 +199,10 @@ def _render_fingerprint(
         "render_mode": render_mode,
         "page_size": page_size,
         "identity": "metaphor_v2",
+        "stage_lock": "v1",
+        "layout": "anti_template_v1",
+        "voice_timeline": "v1",
+        "beats": "v1",
     }
     if render_mode == "finished_page":
         fp_payload["lettering"] = "deferred_v3"
@@ -1109,7 +1131,42 @@ async def _creative_comic(
                 state.stage = "page_plan"
                 try:
                     with perf.measure("page_plan"):
-                        pageset = await plan_comic_pages(chunk, elements, chat=chat)
+                        beats = state.beat_cache.get(key)
+                        if beats is None:
+                            try:
+                                beats = await extract_key_beats(chunk, elements, chat=chat)
+                                state.beat_cache[key] = beats
+                            except Exception as beat_exc:  # noqa: BLE001
+                                logger.warning(
+                                    "chunk %s key-beat extract failed (%s); continuing",
+                                    ci,
+                                    beat_exc,
+                                )
+                                beats = None
+                        pageset = await plan_comic_pages(
+                            chunk,
+                            elements,
+                            chat=chat,
+                            recent_layouts=_recent_layout_intents(state),
+                            visual_bible=state.visual_bible,
+                            key_beats=beats,
+                        )
+                        if beats is not None:
+                            missing = uncovered_must_draw_beats(beats, pageset)
+                            if missing:
+                                logger.warning(
+                                    "chunk %s uncovered must_draw beats; retrying page plan once",
+                                    ci,
+                                )
+                                pageset = await plan_comic_pages(
+                                    chunk,
+                                    elements,
+                                    chat=chat,
+                                    recent_layouts=_recent_layout_intents(state),
+                                    visual_bible=state.visual_bible,
+                                    key_beats=beats,
+                                    extra_user_note=beat_coverage_retry_note(missing),
+                                )
                 except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
                     if is_content_policy_rejection(exc):
                         logger.warning(
@@ -1151,6 +1208,10 @@ async def _creative_comic(
             for page_index, plan in enumerate(pageset.pages):
                 if state.visual_bible is not None:
                     plan = backfill_panel_characters(plan, _known_character_names(state))
+                    plan = resolve_panel_stage_refs(plan, state.visual_bible)
+                    plan = sanitize_plan_voice(plan, state.visual_bible)
+                else:
+                    plan = sanitize_plan_voice(plan, None)
                 page_id = plan.page_id
                 state_key = _page_state_key(ci, page_id)
                 existing = state.generated.pages.get(state_key)

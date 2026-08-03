@@ -690,6 +690,8 @@ class PagePanelSpec(BaseModel):
     caption: str | None = None
     sfx: str | None = None
     lettering_notes: str = ""
+    speaker: str = ""
+    timeline: Literal["present", "past", "liminal", ""] = ""
 
     @model_validator(mode="before")
     @classmethod
@@ -711,6 +713,8 @@ class PagePanelSpec(BaseModel):
                 "caption",
                 "sfx",
                 "lettering_notes",
+                "speaker",
+                "timeline",
             },
             stash_value_into="action",
         )
@@ -729,11 +733,20 @@ class PagePanelSpec(BaseModel):
         "action",
         "setting_ref",
         "lettering_notes",
+        "speaker",
         mode="before",
     )
     @classmethod
     def _coerce_text(cls, value: Any) -> Any:
         return coerce_str(value)
+
+    @field_validator("timeline", mode="before")
+    @classmethod
+    def _coerce_timeline(cls, value: Any) -> Any:
+        text = coerce_str(value).strip().casefold()
+        if text in {"present", "past", "liminal"}:
+            return text
+        return ""
 
     @field_validator("characters", mode="before")
     @classmethod
@@ -783,10 +796,12 @@ class ComicPagePlan(BaseModel):
     page_id: str
     purpose: str = ""
     layout_intent: str = ""
+    timeline: Literal["present", "past", "liminal", ""] = ""
     panels: list[PagePanelSpec] = Field(default_factory=list)
     lettering_boxes: list[LetteringBox] = Field(default_factory=list)
     reference_characters: list[str] = Field(default_factory=list)
     setting_refs: list[str] = Field(default_factory=list)
+    covers_beats: list[str] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
@@ -797,7 +812,7 @@ class ComicPagePlan(BaseModel):
             return value
         out = repair_fused_keys(
             value,
-            {"page_id", "purpose", "layout_intent"},
+            {"page_id", "purpose", "layout_intent", "timeline"},
             stash_value_into="purpose",
         )
         return ensure_str_field(
@@ -812,6 +827,14 @@ class ComicPagePlan(BaseModel):
     def _coerce_text(cls, value: Any) -> Any:
         return coerce_str(value)
 
+    @field_validator("timeline", mode="before")
+    @classmethod
+    def _coerce_timeline(cls, value: Any) -> Any:
+        text = coerce_str(value).strip().casefold()
+        if text in {"present", "past", "liminal"}:
+            return text
+        return ""
+
     @field_validator("panels", mode="before")
     @classmethod
     def _coerce_panels(cls, value: Any) -> Any:
@@ -822,10 +845,45 @@ class ComicPagePlan(BaseModel):
     def _coerce_lettering_boxes(cls, value: Any) -> Any:
         return coerce_model_list(value, LetteringBox)
 
-    @field_validator("reference_characters", "setting_refs", mode="before")
+    @field_validator("reference_characters", "setting_refs", "covers_beats", mode="before")
     @classmethod
     def _coerce_name_lists(cls, value: Any) -> Any:
         return coerce_str_list(value)
+
+
+class KeyBeat(BaseModel):
+    """A dramatizable turning point that should appear as drawable scene(s)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    beat_id: str
+    summary: str = ""
+    must_draw: bool = True
+    characters: list[str] = Field(default_factory=list)
+    setting_hint: str = ""
+
+    @field_validator("beat_id", "summary", "setting_hint", mode="before")
+    @classmethod
+    def _coerce_text(cls, value: Any) -> Any:
+        return coerce_str(value)
+
+    @field_validator("characters", mode="before")
+    @classmethod
+    def _coerce_characters(cls, value: Any) -> Any:
+        return coerce_str_list(value)
+
+
+class KeyBeatSet(BaseModel):
+    """Key beats extracted for one chunk or project window."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    beats: list[KeyBeat] = Field(default_factory=list)
+
+    @field_validator("beats", mode="before")
+    @classmethod
+    def _coerce_beats(cls, value: Any) -> Any:
+        return coerce_model_list(value, KeyBeat)
 
 
 class ComicPagePlanSet(BaseModel):
@@ -1081,6 +1139,7 @@ class CharacterStage(BaseModel):
     appearance: Appearance = Field(default_factory=Appearance)
     outfit_lock: str = ""
     hair_lock: str = ""
+    age_look: str = ""
     portrait_key: str = ""
 
     @field_validator("appearance", mode="before")
@@ -1093,7 +1152,7 @@ class CharacterStage(BaseModel):
             return {"distinguishing": value}
         return value
 
-    @field_validator("outfit_lock", "hair_lock", "portrait_key", mode="before")
+    @field_validator("outfit_lock", "hair_lock", "age_look", "portrait_key", mode="before")
     @classmethod
     def _coerce_text_fields(cls, value: Any) -> Any:
         return coerce_str(value)
@@ -1335,6 +1394,7 @@ class ProjectState(BaseModel):
     chunk_cache: dict[str, ChunkCache] = Field(default_factory=dict)
     render_mode: RenderMode = "finished_page"
     page_cache: dict[str, ComicPagePlanSet] = Field(default_factory=dict)
+    beat_cache: dict[str, KeyBeatSet] = Field(default_factory=dict)
     pages_done: list[str] = Field(default_factory=list)
     stale_pages: list[str] = Field(default_factory=list)
     skipped_pages: list[str] = Field(default_factory=list)
