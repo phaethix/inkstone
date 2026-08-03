@@ -15,6 +15,7 @@ from core.comic.visual_bible import (
     ANTI_MULTI_AGE_COLLAGE_LINE,
     COSTUME_CHANGE_LOCK_LINE,
     DIEGETIC_TEXT_LINE,
+    HAIR_STABILITY_LINE,
     format_color_bible_block,
     format_identity_line,
     l1_from_canon,
@@ -100,6 +101,7 @@ def render_finished_page_prompt(
         lines.append(ANTI_CHARACTER_SHEET_LINE)
         lines.append(wardrobe_banline_for_bible(visual_bible))
         lines.append(ANTI_MULTI_AGE_COLLAGE_LINE)
+        lines.append(HAIR_STABILITY_LINE)
     lines.append(f"Page purpose: {plan.purpose}")
     lines.append(f"Layout intent: {plan.layout_intent}")
     metaphor_names = metaphor_names_on_page(plan, characters_by_name)

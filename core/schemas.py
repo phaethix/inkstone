@@ -1081,6 +1081,7 @@ class CharacterStage(BaseModel):
     appearance: Appearance = Field(default_factory=Appearance)
     outfit_lock: str = ""
     hair_lock: str = ""
+    age_look: str = ""
     portrait_key: str = ""
 
     @field_validator("appearance", mode="before")
@@ -1093,7 +1094,7 @@ class CharacterStage(BaseModel):
             return {"distinguishing": value}
         return value
 
-    @field_validator("outfit_lock", "hair_lock", "portrait_key", mode="before")
+    @field_validator("outfit_lock", "hair_lock", "age_look", "portrait_key", mode="before")
     @classmethod
     def _coerce_text_fields(cls, value: Any) -> Any:
         return coerce_str(value)

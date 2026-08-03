@@ -56,6 +56,115 @@ ANTI_MULTI_AGE_COLLAGE_LINE = (
     "layout_intent explicitly calls for a flashback split."
 )
 
+HAIR_STABILITY_LINE = (
+    "Keep hair color and hair length stable for each locked identity across panels "
+    "unless the character stage explicitly changes."
+)
+
+# Generic age/stage cues (CN + EN) → CharacterStageLiteral. Order matters: first match wins.
+_STAGE_CUE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "child",
+        re.compile(
+            r"(童年|孩童|小孩|幼年|十三|12岁|13岁|少女时代|as a child|childhood|\bchild\b)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "teen",
+        re.compile(
+            r"(少年|十六|17岁|18岁临别|teenager|boarding school|\bteen\b)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "elder",
+        re.compile(r"(老年|暮年|白发苍苍|\belderly\b|\bold man\b|\bold woman\b)", re.IGNORECASE),
+    ),
+    (
+        "adult",
+        re.compile(
+            r"(临终|写信|成年|交际花|丧子|成人|\badult\b|dying|deathbed)",
+            re.IGNORECASE,
+        ),
+    ),
+)
+
+
+def default_age_look_for_stage(stage: str) -> str:
+    """Soft age_look default from stage literal (not novel-specific)."""
+    mapping = {
+        "child": "about 10–13 years old, clearly a child",
+        "teen": "about 16–18 years old, adolescent",
+        "adult": "adult, roughly late twenties to forties",
+        "elder": "elderly, visibly aged",
+        "default": "age matching the story role",
+    }
+    return mapping.get(stage, mapping["default"])
+
+
+def infer_stage_from_text(text: str) -> str | None:
+    """Infer a stage literal from action/purpose/caption cues, or None."""
+    blob = text or ""
+    if not blob.strip():
+        return None
+    for stage, pattern in _STAGE_CUE_PATTERNS:
+        if pattern.search(blob):
+            return stage
+    return None
+
+
+def _stage_ref_name(canonical: str, stage: str) -> str:
+    return f"{canonical}@{stage}"
+
+
+def _canon_has_stage(canon: CharacterCanon, stage: str) -> bool:
+    return any(s.stage == stage for s in canon.stages)
+
+
+def _rewrite_name_to_stage(name: str, stage: str, bible: VisualBible) -> str:
+    """Rewrite bare canonical/alias to Name@stage when that stage exists."""
+    base, existing = parse_stage_ref(name)
+    if existing != "default" and "@" in (name or ""):
+        return name  # already staged
+    canonical = resolve_canonical_name(base, bible)
+    canon = bible.characters.get(canonical)
+    if canon is None or not _canon_has_stage(canon, stage):
+        return name
+    return _stage_ref_name(canonical, stage)
+
+
+def resolve_panel_stage_refs(plan: ComicPagePlan, bible: VisualBible) -> ComicPagePlan:
+    """Rewrite bare character names to Name@stage using age cues in page/panel text."""
+    updated = plan.model_copy(deep=True)
+    page_cue = " ".join(
+        part
+        for part in (
+            updated.purpose or "",
+            updated.layout_intent or "",
+            " ".join(p.action or "" for p in updated.panels),
+            " ".join(p.caption or "" for p in updated.panels),
+        )
+        if part
+    )
+    page_stage = infer_stage_from_text(page_cue)
+
+    for panel in updated.panels:
+        panel_cue = " ".join(
+            part for part in (panel.action or "", panel.caption or "", panel.dialogue or "") if part
+        )
+        stage = infer_stage_from_text(panel_cue) or page_stage
+        if not stage:
+            continue
+        panel.characters = [_rewrite_name_to_stage(name, stage, bible) for name in panel.characters]
+
+    if page_stage:
+        updated.reference_characters = [
+            _rewrite_name_to_stage(name, page_stage, bible) for name in updated.reference_characters
+        ]
+    return updated
+
+
 GENDER_NO_SWAP_LINE = (
     "single human matching locked gender exactly; no gender swap or androgynous "
     "reinterpretation of a gendered canon"
@@ -495,11 +604,13 @@ def ensure_stage_locks(
     portrait_key = (stage.portrait_key or "").strip()
     if canonical_name and (not portrait_key or is_illegal_character_name(portrait_key)):
         portrait_key = f"{canonical_name}@{stage.stage}"
+    age_look = (stage.age_look or "").strip() or default_age_look_for_stage(stage.stage)
     return CharacterStage(
         stage=stage.stage,
         appearance=stage.appearance,
         outfit_lock=outfit_lock,
         hair_lock=hair_lock,
+        age_look=age_look,
         portrait_key=portrait_key,
     )
 
@@ -723,6 +834,7 @@ def _bible_hash_payload(bible: VisualBible) -> dict:
                 "stage": stage.stage,
                 "outfit_lock": stage.outfit_lock,
                 "hair_lock": stage.hair_lock,
+                "age_look": stage.age_look,
             }
             for stage in canon.stages
         ]
@@ -805,6 +917,7 @@ def _upsert_canon(existing: CharacterCanon, incoming: CharacterCanon) -> Charact
                 stage=stage.stage,
                 outfit_lock=stage.outfit_lock or old.outfit_lock,
                 hair_lock=stage.hair_lock or old.hair_lock,
+                age_look=stage.age_look or old.age_look,
                 portrait_key=stage.portrait_key or old.portrait_key,
             )
         else:
@@ -1146,6 +1259,8 @@ def l1_from_canon(canon: CharacterCanon, stage: str = "default") -> str:
     if stage_row is None and canon.stages:
         stage_row = canon.stages[0]
     if stage_row is not None:
+        if stage_row.age_look:
+            parts.append(stage_row.age_look)
         if stage_row.outfit_lock:
             parts.append(stage_row.outfit_lock)
         if stage_row.hair_lock:

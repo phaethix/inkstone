@@ -285,7 +285,7 @@ async def reconcile_visual_bible(
         "- Every canon must include gender (male/female/nonbinary/unknown) and "
         "narrative_function (letter_reader/letter_writer/protagonist/love_interest/"
         "servant/parent/child/extra).\n"
-        "- Always fill face_lock, hair_lock, and outfit_lock for every stage.\n"
+        "- Always fill face_lock, hair_lock, outfit_lock, and age_look for every stage.\n"
         "- For historical eras use period wardrobe only — never hoodies, sneakers, "
         "or athleisure.\n"
         "- portrait_key must be short form {canonical_name}@{stage} only "

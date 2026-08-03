@@ -68,6 +68,7 @@ from core.comic.visual_bible import (
     refresh_bible_hash,
     resolve_canonical_name,
     resolve_character_asset,
+    resolve_panel_stage_refs,
     rewrite_pageset_from_bible,
     sanitize_visual_bible_state,
     sync_characters_from_bible,
@@ -181,6 +182,7 @@ def _render_fingerprint(
         "render_mode": render_mode,
         "page_size": page_size,
         "identity": "metaphor_v2",
+        "stage_lock": "v1",
     }
     if render_mode == "finished_page":
         fp_payload["lettering"] = "deferred_v3"
@@ -1151,6 +1153,7 @@ async def _creative_comic(
             for page_index, plan in enumerate(pageset.pages):
                 if state.visual_bible is not None:
                     plan = backfill_panel_characters(plan, _known_character_names(state))
+                    plan = resolve_panel_stage_refs(plan, state.visual_bible)
                 page_id = plan.page_id
                 state_key = _page_state_key(ci, page_id)
                 existing = state.generated.pages.get(state_key)
