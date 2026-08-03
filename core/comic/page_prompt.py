@@ -25,6 +25,7 @@ from core.comic.visual_bible import (
     resolve_character_asset,
     wardrobe_banline_for_bible,
 )
+from core.comic.voice import timeline_prompt_lines
 from core.schemas import CharacterAsset, ComicPagePlan, Setting, VisualBible
 
 
@@ -106,6 +107,8 @@ def render_finished_page_prompt(
         lines.append(ANTI_CENTER_STANDEE_LINE)
     lines.append(f"Page purpose: {plan.purpose}")
     lines.append(f"Layout intent: {plan.layout_intent}")
+    for line in timeline_prompt_lines(getattr(plan, "timeline", "") or ""):
+        lines.append(line)
     metaphor_names = metaphor_names_on_page(plan, characters_by_name)
     if metaphor_names:
         lines.append(
@@ -117,6 +120,13 @@ def render_finished_page_prompt(
             f"Panel {i} ({panel.panel_id}): role={panel.role}, shape={panel.shape_hint}, "
             f"shot={panel.shot}, action={panel.action}"
         )
+        panel_tl = getattr(panel, "timeline", "") or ""
+        if panel_tl:
+            for line in timeline_prompt_lines(panel_tl):
+                lines.append(f"  {line}")
+        speaker = getattr(panel, "speaker", "") or ""
+        if speaker:
+            lines.append(f"  speaker={speaker}")
         if panel.setting_ref:
             setting = settings_by_name.get(panel.setting_ref)
             scene = getattr(setting, "scene_prompt", "") if setting else ""

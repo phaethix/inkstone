@@ -86,6 +86,7 @@ def test_render_fingerprint_includes_anti_template_token():
         "identity": "metaphor_v2",
         "stage_lock": "v1",
         "layout": "anti_template_v1",
+        "voice_timeline": "v1",
         "lettering": "deferred_v3",
     }
     expected = hashlib.sha256(

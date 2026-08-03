@@ -165,9 +165,11 @@ async def plan_comic_pages(
     *,
     chat=None,
     recent_layouts: list[str] | None = None,
+    visual_bible=None,
 ) -> ComicPagePlanSet:
     """Plan finished readable pages for ``text`` given ``elements``."""
     from core.comic.layout_diversity import layout_diversity_instructions
+    from core.comic.voice import voice_timeline_plan_instructions
 
     chat = chat or get_chat_provider()
     script = source_lettering_script(text)
@@ -182,12 +184,14 @@ async def plan_comic_pages(
         "(kind, panel_id, x, y, w, h) for every non-null lettering field."
     )
     diversity = layout_diversity_instructions(recent_layouts)
+    voice = voice_timeline_plan_instructions(visual_bible)
     user = (
         f"{sanitize_text(text)}\n\n"
         f"Known elements:\n{elements.model_dump_json()}\n\n"
         "Plan finished readable pages (not a flat 2x2 collage). "
         "Each page needs purpose, layout_intent, panels, and lettering_boxes. "
         f"{diversity}"
+        f"{voice}"
         f"{lang_reminder}"
     )
     messages = [

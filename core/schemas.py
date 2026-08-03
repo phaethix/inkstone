@@ -690,6 +690,8 @@ class PagePanelSpec(BaseModel):
     caption: str | None = None
     sfx: str | None = None
     lettering_notes: str = ""
+    speaker: str = ""
+    timeline: Literal["present", "past", "liminal", ""] = ""
 
     @model_validator(mode="before")
     @classmethod
@@ -711,6 +713,8 @@ class PagePanelSpec(BaseModel):
                 "caption",
                 "sfx",
                 "lettering_notes",
+                "speaker",
+                "timeline",
             },
             stash_value_into="action",
         )
@@ -729,11 +733,20 @@ class PagePanelSpec(BaseModel):
         "action",
         "setting_ref",
         "lettering_notes",
+        "speaker",
         mode="before",
     )
     @classmethod
     def _coerce_text(cls, value: Any) -> Any:
         return coerce_str(value)
+
+    @field_validator("timeline", mode="before")
+    @classmethod
+    def _coerce_timeline(cls, value: Any) -> Any:
+        text = coerce_str(value).strip().casefold()
+        if text in {"present", "past", "liminal"}:
+            return text
+        return ""
 
     @field_validator("characters", mode="before")
     @classmethod
@@ -783,6 +796,7 @@ class ComicPagePlan(BaseModel):
     page_id: str
     purpose: str = ""
     layout_intent: str = ""
+    timeline: Literal["present", "past", "liminal", ""] = ""
     panels: list[PagePanelSpec] = Field(default_factory=list)
     lettering_boxes: list[LetteringBox] = Field(default_factory=list)
     reference_characters: list[str] = Field(default_factory=list)
@@ -797,7 +811,7 @@ class ComicPagePlan(BaseModel):
             return value
         out = repair_fused_keys(
             value,
-            {"page_id", "purpose", "layout_intent"},
+            {"page_id", "purpose", "layout_intent", "timeline"},
             stash_value_into="purpose",
         )
         return ensure_str_field(
@@ -811,6 +825,14 @@ class ComicPagePlan(BaseModel):
     @classmethod
     def _coerce_text(cls, value: Any) -> Any:
         return coerce_str(value)
+
+    @field_validator("timeline", mode="before")
+    @classmethod
+    def _coerce_timeline(cls, value: Any) -> Any:
+        text = coerce_str(value).strip().casefold()
+        if text in {"present", "past", "liminal"}:
+            return text
+        return ""
 
     @field_validator("panels", mode="before")
     @classmethod

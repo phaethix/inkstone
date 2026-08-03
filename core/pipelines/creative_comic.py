@@ -73,6 +73,7 @@ from core.comic.visual_bible import (
     sanitize_visual_bible_state,
     sync_characters_from_bible,
 )
+from core.comic.voice import sanitize_plan_voice
 from core.config import ImageConfig, finished_page_size, l3_enabled, page_script_enabled
 from core.config import render_mode as config_render_mode
 from core.perf import PerfCollector
@@ -198,6 +199,7 @@ def _render_fingerprint(
         "identity": "metaphor_v2",
         "stage_lock": "v1",
         "layout": "anti_template_v1",
+        "voice_timeline": "v1",
     }
     if render_mode == "finished_page":
         fp_payload["lettering"] = "deferred_v3"
@@ -1131,6 +1133,7 @@ async def _creative_comic(
                             elements,
                             chat=chat,
                             recent_layouts=_recent_layout_intents(state),
+                            visual_bible=state.visual_bible,
                         )
                 except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
                     if is_content_policy_rejection(exc):
@@ -1174,6 +1177,9 @@ async def _creative_comic(
                 if state.visual_bible is not None:
                     plan = backfill_panel_characters(plan, _known_character_names(state))
                     plan = resolve_panel_stage_refs(plan, state.visual_bible)
+                    plan = sanitize_plan_voice(plan, state.visual_bible)
+                else:
+                    plan = sanitize_plan_voice(plan, None)
                 page_id = plan.page_id
                 state_key = _page_state_key(ci, page_id)
                 existing = state.generated.pages.get(state_key)

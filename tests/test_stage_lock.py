@@ -193,6 +193,7 @@ def test_render_fingerprint_includes_stage_lock_token():
         "identity": "metaphor_v2",
         "stage_lock": "v1",
         "layout": "anti_template_v1",
+        "voice_timeline": "v1",
         "lettering": "deferred_v3",
         "visual_bible": "bible_v3",
         "bible_hash": "abc",
