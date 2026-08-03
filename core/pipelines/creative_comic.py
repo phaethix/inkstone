@@ -53,6 +53,7 @@ from core.comic.identity import (
     merge_settings,
     suggestion_from_alias,
 )
+from core.comic.key_beats import beat_coverage_retry_note, uncovered_must_draw_beats
 from core.comic.layout import LayoutEngine, PanelImage
 from core.comic.page_lettering import LETTERING_VERSION, letter_finished_page
 from core.comic.page_prompt import render_finished_page_prompt
@@ -92,6 +93,7 @@ from core.schemas import (
     StoryElements,
 )
 from core.screenwriter import (
+    extract_key_beats,
     extract_story_elements,
     is_content_policy_rejection,
     plan_comic_pages,
@@ -200,6 +202,7 @@ def _render_fingerprint(
         "stage_lock": "v1",
         "layout": "anti_template_v1",
         "voice_timeline": "v1",
+        "beats": "v1",
     }
     if render_mode == "finished_page":
         fp_payload["lettering"] = "deferred_v3"
@@ -1128,13 +1131,42 @@ async def _creative_comic(
                 state.stage = "page_plan"
                 try:
                     with perf.measure("page_plan"):
+                        beats = state.beat_cache.get(key)
+                        if beats is None:
+                            try:
+                                beats = await extract_key_beats(chunk, elements, chat=chat)
+                                state.beat_cache[key] = beats
+                            except Exception as beat_exc:  # noqa: BLE001
+                                logger.warning(
+                                    "chunk %s key-beat extract failed (%s); continuing",
+                                    ci,
+                                    beat_exc,
+                                )
+                                beats = None
                         pageset = await plan_comic_pages(
                             chunk,
                             elements,
                             chat=chat,
                             recent_layouts=_recent_layout_intents(state),
                             visual_bible=state.visual_bible,
+                            key_beats=beats,
                         )
+                        if beats is not None:
+                            missing = uncovered_must_draw_beats(beats, pageset)
+                            if missing:
+                                logger.warning(
+                                    "chunk %s uncovered must_draw beats; retrying page plan once",
+                                    ci,
+                                )
+                                pageset = await plan_comic_pages(
+                                    chunk,
+                                    elements,
+                                    chat=chat,
+                                    recent_layouts=_recent_layout_intents(state),
+                                    visual_bible=state.visual_bible,
+                                    key_beats=beats,
+                                    extra_user_note=beat_coverage_retry_note(missing),
+                                )
                 except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
                     if is_content_policy_rejection(exc):
                         logger.warning(

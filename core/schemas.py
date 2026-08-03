@@ -801,6 +801,7 @@ class ComicPagePlan(BaseModel):
     lettering_boxes: list[LetteringBox] = Field(default_factory=list)
     reference_characters: list[str] = Field(default_factory=list)
     setting_refs: list[str] = Field(default_factory=list)
+    covers_beats: list[str] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
@@ -844,10 +845,45 @@ class ComicPagePlan(BaseModel):
     def _coerce_lettering_boxes(cls, value: Any) -> Any:
         return coerce_model_list(value, LetteringBox)
 
-    @field_validator("reference_characters", "setting_refs", mode="before")
+    @field_validator("reference_characters", "setting_refs", "covers_beats", mode="before")
     @classmethod
     def _coerce_name_lists(cls, value: Any) -> Any:
         return coerce_str_list(value)
+
+
+class KeyBeat(BaseModel):
+    """A dramatizable turning point that should appear as drawable scene(s)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    beat_id: str
+    summary: str = ""
+    must_draw: bool = True
+    characters: list[str] = Field(default_factory=list)
+    setting_hint: str = ""
+
+    @field_validator("beat_id", "summary", "setting_hint", mode="before")
+    @classmethod
+    def _coerce_text(cls, value: Any) -> Any:
+        return coerce_str(value)
+
+    @field_validator("characters", mode="before")
+    @classmethod
+    def _coerce_characters(cls, value: Any) -> Any:
+        return coerce_str_list(value)
+
+
+class KeyBeatSet(BaseModel):
+    """Key beats extracted for one chunk or project window."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    beats: list[KeyBeat] = Field(default_factory=list)
+
+    @field_validator("beats", mode="before")
+    @classmethod
+    def _coerce_beats(cls, value: Any) -> Any:
+        return coerce_model_list(value, KeyBeat)
 
 
 class ComicPagePlanSet(BaseModel):
@@ -1358,6 +1394,7 @@ class ProjectState(BaseModel):
     chunk_cache: dict[str, ChunkCache] = Field(default_factory=dict)
     render_mode: RenderMode = "finished_page"
     page_cache: dict[str, ComicPagePlanSet] = Field(default_factory=dict)
+    beat_cache: dict[str, KeyBeatSet] = Field(default_factory=dict)
     pages_done: list[str] = Field(default_factory=list)
     stale_pages: list[str] = Field(default_factory=list)
     skipped_pages: list[str] = Field(default_factory=list)

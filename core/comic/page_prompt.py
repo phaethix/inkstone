@@ -10,6 +10,7 @@ from core.comic.identity import (
     metaphor_identity_lock_line,
     metaphor_names_on_page,
 )
+from core.comic.key_beats import covers_beats_prompt_line
 from core.comic.layout_diversity import ANTI_CENTER_STANDEE_LINE
 from core.comic.visual_bible import (
     ANTI_CHARACTER_SHEET_LINE,
@@ -107,6 +108,9 @@ def render_finished_page_prompt(
         lines.append(ANTI_CENTER_STANDEE_LINE)
     lines.append(f"Page purpose: {plan.purpose}")
     lines.append(f"Layout intent: {plan.layout_intent}")
+    beat_line = covers_beats_prompt_line(plan)
+    if beat_line:
+        lines.append(beat_line)
     for line in timeline_prompt_lines(getattr(plan, "timeline", "") or ""):
         lines.append(line)
     metaphor_names = metaphor_names_on_page(plan, characters_by_name)

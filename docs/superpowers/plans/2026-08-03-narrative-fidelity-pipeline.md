@@ -151,6 +151,6 @@ Use `.issue/2026-08-03-15_04-review.md` §八.5 as a **human checklist** for 《
 |-------|--------|
 | Spec | written |
 | A Identity | done (PR #32) |
-| B Layout | in progress |
-| C Voice/timeline | pending |
-| D Beats | pending |
+| B Layout | done (PR #33) |
+| C Voice/timeline | done (PR #34) |
+| D Beats | done (PR next) |

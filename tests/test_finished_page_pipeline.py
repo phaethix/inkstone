@@ -95,6 +95,8 @@ class FakeChat(ChatProvider):
                     }
                 ],
             }
+        if name == "extract_key_beats":
+            return {"beats": []}
         if name == "plan_comic_pages":
             self.page_plan_calls += 1
             return {
@@ -154,6 +156,7 @@ def test_render_fingerprint_includes_visual_bible_hash():
         "stage_lock": "v1",
         "layout": "anti_template_v1",
         "voice_timeline": "v1",
+        "beats": "v1",
         "lettering": "deferred_v3",
         "visual_bible": "bible_v1",
         "bible_hash": "deadbeef",
@@ -187,6 +190,7 @@ def test_render_fingerprint_uses_bible_v2_token():
         "stage_lock": "v1",
         "layout": "anti_template_v1",
         "voice_timeline": "v1",
+        "beats": "v1",
         "lettering": "deferred_v3",
         "visual_bible": "bible_v2",
         "bible_hash": "abc",
@@ -220,6 +224,7 @@ def test_render_fingerprint_uses_bible_v3_token():
         "stage_lock": "v1",
         "layout": "anti_template_v1",
         "voice_timeline": "v1",
+        "beats": "v1",
         "lettering": "deferred_v3",
         "visual_bible": "bible_v3",
         "bible_hash": "abc",
@@ -245,6 +250,7 @@ def test_render_fingerprint_tracks_deferred_lettering_version():
             "stage_lock": "v1",
             "layout": "anti_template_v1",
             "voice_timeline": "v1",
+            "beats": "v1",
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -276,6 +282,7 @@ def test_render_fingerprint_omits_lettering_for_panel_compose():
             "stage_lock": "v1",
             "layout": "anti_template_v1",
             "voice_timeline": "v1",
+            "beats": "v1",
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -317,7 +324,7 @@ def test_finished_page_mode_writes_generated_pages(tmp_path, monkeypatch):
     assert proj.pages == [str(p) for p in page_files]
 
     assert img.calls == 2  # 1 portrait + 1 page
-    assert chat.calls == 3  # extract + reconcile + plan_comic_pages
+    assert chat.calls == 4  # extract + reconcile + extract_key_beats + plan_comic_pages
 
     # Resume: state.json already has the page recorded, so nothing regenerates.
     chat2, img2 = FakeChat(), FakeImage()
