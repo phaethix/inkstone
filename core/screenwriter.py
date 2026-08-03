@@ -159,8 +159,16 @@ async def plan_storyboard(text: str, elements: StoryElements, *, chat=None) -> S
     return Storyboard.model_validate(args)
 
 
-async def plan_comic_pages(text: str, elements: StoryElements, *, chat=None) -> ComicPagePlanSet:
+async def plan_comic_pages(
+    text: str,
+    elements: StoryElements,
+    *,
+    chat=None,
+    recent_layouts: list[str] | None = None,
+) -> ComicPagePlanSet:
     """Plan finished readable pages for ``text`` given ``elements``."""
+    from core.comic.layout_diversity import layout_diversity_instructions
+
     chat = chat or get_chat_provider()
     script = source_lettering_script(text)
     lang_reminder = (
@@ -173,11 +181,13 @@ async def plan_comic_pages(text: str, elements: StoryElements, *, chat=None) -> 
         "Also emit lettering_boxes: normalized 0-1 page rectangles "
         "(kind, panel_id, x, y, w, h) for every non-null lettering field."
     )
+    diversity = layout_diversity_instructions(recent_layouts)
     user = (
         f"{sanitize_text(text)}\n\n"
         f"Known elements:\n{elements.model_dump_json()}\n\n"
         "Plan finished readable pages (not a flat 2x2 collage). "
         "Each page needs purpose, layout_intent, panels, and lettering_boxes. "
+        f"{diversity}"
         f"{lang_reminder}"
     )
     messages = [

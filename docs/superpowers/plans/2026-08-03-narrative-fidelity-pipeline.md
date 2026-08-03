@@ -150,7 +150,7 @@ Use `.issue/2026-08-03-15_04-review.md` §八.5 as a **human checklist** for 《
 | Phase | Status |
 |-------|--------|
 | Spec | written |
-| A Identity | in progress (code done; PR next) |
-| B Layout | pending |
+| A Identity | done (PR #32) |
+| B Layout | in progress |
 | C Voice/timeline | pending |
 | D Beats | pending |
