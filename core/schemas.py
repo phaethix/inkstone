@@ -1099,6 +1099,9 @@ class CharacterStage(BaseModel):
         return coerce_str(value)
 
 
+GenderLiteral = Literal["male", "female", "nonbinary", "unknown"]
+
+
 class CharacterCanon(BaseModel):
     """Canonical character identity with shared face lock and optional stages."""
 
@@ -1110,17 +1113,30 @@ class CharacterCanon(BaseModel):
     palette_notes: str = ""
     stages: list[CharacterStage] = Field(default_factory=list)
     role: str = ""
+    gender: GenderLiteral = "unknown"
+    narrative_function: str = ""
 
     @field_validator(
         "canonical_name",
         "face_lock",
         "palette_notes",
         "role",
+        "narrative_function",
         mode="before",
     )
     @classmethod
     def _coerce_text_fields(cls, value: Any) -> Any:
         return coerce_str(value)
+
+    @field_validator("gender", mode="before")
+    @classmethod
+    def _coerce_gender(cls, value: Any) -> Any:
+        text = coerce_str(value).strip().casefold()
+        if text in {"male", "female", "nonbinary", "unknown"}:
+            return text
+        if not text:
+            return "unknown"
+        return "unknown"
 
     @field_validator("aliases", mode="before")
     @classmethod
@@ -1140,15 +1156,22 @@ class VisualBible(BaseModel):
 
     version: str = "bible_v1"
     style_guide: str = ""
+    era: str = ""
+    era_forbidden_wardrobe: list[str] = Field(default_factory=list)
     color: ColorBible = Field(default_factory=ColorBible)
     characters: dict[str, CharacterCanon] = Field(default_factory=dict)
     sheet_ref_local: str | None = None
     content_hash: str = ""
 
-    @field_validator("version", "style_guide", "content_hash", mode="before")
+    @field_validator("version", "style_guide", "era", "content_hash", mode="before")
     @classmethod
     def _coerce_text_fields(cls, value: Any) -> Any:
         return coerce_str(value)
+
+    @field_validator("era_forbidden_wardrobe", mode="before")
+    @classmethod
+    def _coerce_era_forbidden_wardrobe(cls, value: Any) -> Any:
+        return coerce_str_list(value)
 
     @field_validator("color", mode="before")
     @classmethod
@@ -1223,6 +1246,8 @@ class VisualBibleReconcileResult(BaseModel):
     keeps: list[VisualBibleKeep] = Field(default_factory=list)
     color_patches: list[ColorSwatch] = Field(default_factory=list)
     style_guide: str = ""
+    era: str = ""
+    era_forbidden_wardrobe: list[str] = Field(default_factory=list)
     color: ColorBible | None = None
     canons: list[CharacterCanon] = Field(default_factory=list)
 
@@ -1246,10 +1271,15 @@ class VisualBibleReconcileResult(BaseModel):
     def _coerce_color_patches(cls, value: Any) -> Any:
         return coerce_model_list(value, ColorSwatch)
 
-    @field_validator("style_guide", mode="before")
+    @field_validator("style_guide", "era", mode="before")
     @classmethod
     def _coerce_style_guide(cls, value: Any) -> Any:
         return coerce_str(value)
+
+    @field_validator("era_forbidden_wardrobe", mode="before")
+    @classmethod
+    def _coerce_era_forbidden_wardrobe(cls, value: Any) -> Any:
+        return coerce_str_list(value)
 
     @field_validator("color", mode="before")
     @classmethod

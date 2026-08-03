@@ -234,7 +234,7 @@ def test_sanitize_removes_prose_character_and_bad_alias():
     )
     assert sanitize_visual_bible_state(state) is True
     assert prose not in state.characters
-    assert state.visual_bible.version == "bible_v2"
+    assert state.visual_bible.version == "bible_v3"
     assert "帝国伯爵" not in state.visual_bible.characters["R（小说家）"].aliases
     assert state.visual_bible.characters["R（小说家）"].stages[0].portrait_key.startswith("R")
 

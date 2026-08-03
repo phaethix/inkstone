@@ -191,6 +191,36 @@ def test_render_fingerprint_uses_bible_v2_token():
     assert fp == expected
 
 
+def test_render_fingerprint_uses_bible_v3_token():
+    snapshot = ModelSnapshot(chat="chat", t2i="image", i2i="image")
+    fp = _render_fingerprint(
+        "style",
+        snapshot=snapshot,
+        panel_continuity=False,
+        l3_enabled=False,
+        render_mode="finished_page",
+        page_size="1024x1536",
+        bible_version="bible_v3",
+        bible_hash="abc",
+    )
+    payload = {
+        "style_guide": "style",
+        "model_snapshot": snapshot.model_dump(),
+        "panel_continuity": False,
+        "l3_enabled": False,
+        "render_mode": "finished_page",
+        "page_size": "1024x1536",
+        "identity": "metaphor_v2",
+        "lettering": "deferred_v3",
+        "visual_bible": "bible_v3",
+        "bible_hash": "abc",
+    }
+    expected = hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    assert fp == expected
+
+
 def test_render_fingerprint_tracks_deferred_lettering_version():
     snapshot = ModelSnapshot(chat="chat", t2i="image", i2i="image")
     expected_payload = json.dumps(
