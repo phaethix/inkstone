@@ -163,6 +163,20 @@ def _known_character_names(state: ProjectState) -> list[str]:
     return names
 
 
+def _recent_layout_intents(state: ProjectState, *, limit: int = 8) -> list[str]:
+    """Collect recent page layout_intent strings from cached page plans."""
+    intents: list[str] = []
+    for cache_key in sorted(state.page_cache.keys()):
+        pageset = state.page_cache.get(cache_key)
+        if pageset is None:
+            continue
+        for plan in pageset.pages:
+            intent = (plan.layout_intent or "").strip()
+            if intent:
+                intents.append(intent)
+    return intents[-limit:]
+
+
 def _render_fingerprint(
     style_guide: str | None,
     *,
@@ -183,6 +197,7 @@ def _render_fingerprint(
         "page_size": page_size,
         "identity": "metaphor_v2",
         "stage_lock": "v1",
+        "layout": "anti_template_v1",
     }
     if render_mode == "finished_page":
         fp_payload["lettering"] = "deferred_v3"
@@ -1111,7 +1126,12 @@ async def _creative_comic(
                 state.stage = "page_plan"
                 try:
                     with perf.measure("page_plan"):
-                        pageset = await plan_comic_pages(chunk, elements, chat=chat)
+                        pageset = await plan_comic_pages(
+                            chunk,
+                            elements,
+                            chat=chat,
+                            recent_layouts=_recent_layout_intents(state),
+                        )
                 except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
                     if is_content_policy_rejection(exc):
                         logger.warning(
