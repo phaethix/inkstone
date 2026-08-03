@@ -64,6 +64,7 @@ from core.comic.visual_bible import (
     format_color_bible_block,
     l1_from_canon,
     parse_stage_ref,
+    portrait_gender_era_suffix,
     refresh_bible_hash,
     resolve_canonical_name,
     resolve_character_asset,
@@ -1045,6 +1046,7 @@ async def _creative_comic(
                     canon_prompt = l1_from_canon(canon, stage)
                     if canon_prompt:
                         prompt = canon_prompt
+                    prompt = f"{prompt}, {portrait_gender_era_suffix(_state.visual_bible, canon)}"
             prompt = harden_human_identity_prompt(name, prompt)
             if _state.visual_bible is not None:
                 color_block = format_color_bible_block(_state.visual_bible)

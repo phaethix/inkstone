@@ -7,6 +7,7 @@ import json
 import logging
 import re
 from collections.abc import Iterable
+from typing import Literal
 
 from core.comic.identity import merge_character_alias, suggestion_from_alias
 from core.schemas import (
@@ -39,9 +40,25 @@ PERIOD_WARDROBE_LINE = (
     "unless action explicitly requires costume change."
 )
 
+CONTEMPORARY_WARDROBE_LINE = (
+    "Wardrobe must match the project era; do not force historical costume "
+    "unless action explicitly requires period dress."
+)
+
+DIEGETIC_TEXT_LINE = (
+    "Diegetic props that are letters, books, newspapers, signs, or screens must "
+    "show blank aged paper or abstract ink texture only — no letterforms, no "
+    "Latin or CJK glyphs, no pseudo-script."
+)
+
 ANTI_MULTI_AGE_COLLAGE_LINE = (
     "Do not depict multiple age versions of the same person on one page unless "
     "layout_intent explicitly calls for a flashback split."
+)
+
+GENDER_NO_SWAP_LINE = (
+    "single human matching locked gender exactly; no gender swap or androgynous "
+    "reinterpretation of a gendered canon"
 )
 
 _ASCII_LETTER_RE = re.compile(r"[A-Za-z]")
@@ -55,12 +72,314 @@ _OUTFIT_WORD_RE = re.compile(
     r")\b",
 )
 
+_MODERN_WARDROBE_RE = re.compile(
+    r"\b("
+    r"hoodie|hoodies|sneakers|athleisure|zip-?up|jeans|t-?shirts?|"
+    r"sweatpants|trainers|sportswear|sporty|tracksuit|converse|"
+    r"sports?\s*shoes|light\s+sports|sporty\s+jacket|athletic\s+wear"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_HISTORICAL_ERA_MARKERS = (
+    "1900",
+    "1910",
+    "1920",
+    "18th",
+    "19th",
+    "20th century",
+    "early-20th",
+    "early 20th",
+    "victorian",
+    "edwardian",
+    "vienna",
+    "period",
+    "qing",
+    "民国",
+    "清末",
+    "vienna",
+    "belle epoque",
+    "meiji",
+    "historical",
+    "century european",
+)
+_CONTEMPORARY_ERA_MARKERS = (
+    "contemporary",
+    "modern day",
+    "present day",
+    "21st",
+    "today",
+    "current era",
+    "现代",
+    "当代",
+)
+
+_FEMALE_MARKERS = (
+    "寡妇",
+    "母亲",
+    "少女",
+    "女儿",
+    "女人",
+    "女孩",
+    "女士",
+    "mother",
+    "widow",
+    "girl",
+    "woman",
+    "female",
+    "lady",
+    "she",
+    "her",
+)
+_MALE_MARKERS = (
+    "男仆",
+    "男人",
+    "先生",
+    "小说家",
+    "作家",
+    "男孩",
+    "gentleman",
+    "man",
+    "male",
+    "butler",
+    "boy",
+    "he",
+    "him",
+    "约翰",
+    "stepfather",
+    "继父",
+    "novelist",
+)
+
+_LETTER_WRITER_MARKERS = (
+    "写信",
+    "letter writer",
+    "narrator",
+    "叙述者",
+    "陌生女人",
+    "unknown woman",
+)
+_LETTER_READER_MARKERS = ("收信", "letter reader", "reading the letter", "收信人")
+_SERVANT_FUNCTION_MARKERS = ("仆", "butler", "servant", "男仆")
+_PARENT_FUNCTION_MARKERS = ("母", "妈", "mother", "widow", "父", "father", "parent")
+_CHILD_FUNCTION_MARKERS = ("孩子", "child", "son", "daughter", "儿子", "女儿")
+_LOVE_INTEREST_MARKERS = ("情人", "lover", "love interest", "被爱")
+_PROTAGONIST_MARKERS = ("protagonist", "主角", "novelist", "小说家", "作家")
+
 _MOTHER_ROLE_MARKERS = ("母", "妈", "mother", "widow", "寡妇")
 _DAUGHTER_ROLE_MARKERS = ("女", "孩", "narrator", "少女", "女儿", "叙述者")
 _COUNT_LOVER_ROLE_MARKERS = ("伯爵", "count", "工厂主", "情人")
 _NOVELIST_ROLE_MARKERS = ("小说家", "作家", "novelist")
 _SERVANT_ROLE_MARKERS = ("仆", "butler", "约翰")
 _MASTER_ROLE_MARKERS = ("主人", "novelist", "作家")
+
+
+EraClass = Literal["historical", "contemporary", "unspecified"]
+GenderLiteral = Literal["male", "female", "nonbinary", "unknown"]
+
+
+def classify_era(era: str, style_guide: str = "") -> EraClass:
+    """Classify project era for wardrobe defaults and banlines."""
+    blob = f"{era or ''} {style_guide or ''}".casefold()
+    if any(marker in blob for marker in _CONTEMPORARY_ERA_MARKERS):
+        return "contemporary"
+    if any(marker.casefold() in blob for marker in _HISTORICAL_ERA_MARKERS):
+        return "historical"
+    return "unspecified"
+
+
+def infer_era_text(era: str, style_guide: str) -> str:
+    """Keep explicit era, else lift a short hint from style_guide, else unspecified."""
+    text = (era or "").strip()
+    if text:
+        return text
+    style = (style_guide or "").strip()
+    if not style:
+        return "unspecified"
+    # Prefer a short clause that looks era-like.
+    lower = style.casefold()
+    for marker in _HISTORICAL_ERA_MARKERS + _CONTEMPORARY_ERA_MARKERS:
+        if marker.casefold() in lower:
+            return style[:120].strip()
+    return "unspecified"
+
+
+def default_outfit_for_era(era: str, style_guide: str = "") -> str:
+    """Era-aware outfit default (no Vienna hardcode for every project)."""
+    era_class = classify_era(era, style_guide)
+    era_text = (era or "").strip()
+    if era_class == "contemporary":
+        return "contemporary everyday clothing matching the story setting"
+    if era_class == "historical":
+        if era_text and era_text.casefold() != "unspecified":
+            return f"period-accurate clothing for {era_text}"
+        return "period-accurate historical clothing matching the story era"
+    return "clothing matching the story setting and era"
+
+
+def outfit_has_modern_tokens(outfit: str) -> bool:
+    """True when outfit text contains modern streetwear tokens."""
+    return bool(_MODERN_WARDROBE_RE.search(outfit or ""))
+
+
+def repair_outfit_lock(outfit: str, *, era: str, style_guide: str = "") -> str:
+    """Fill blank outfits and rewrite modern tokens under historical eras."""
+    text = (outfit or "").strip()
+    era_class = classify_era(era, style_guide)
+    if not text:
+        return default_outfit_for_era(era, style_guide)
+    if era_class == "historical" and outfit_has_modern_tokens(text):
+        return default_outfit_for_era(era, style_guide)
+    return text
+
+
+def wardrobe_banline_for_bible(bible: VisualBible) -> str:
+    """Era-conditioned wardrobe hard line for image prompts."""
+    era_class = classify_era(bible.era, bible.style_guide)
+    forbidden = list(bible.era_forbidden_wardrobe or [])
+    if not forbidden and era_class == "historical":
+        forbidden = ["hoodies", "sneakers", "athleisure", "sports shoes", "jeans", "t-shirts"]
+    if era_class == "contemporary":
+        line = CONTEMPORARY_WARDROBE_LINE
+    else:
+        line = PERIOD_WARDROBE_LINE
+    if forbidden:
+        line = f"{line} Forbidden wardrobe: {', '.join(forbidden)}."
+    if bible.era and bible.era.strip().casefold() != "unspecified":
+        line = f"Era lock: {bible.era.strip()}. {line}"
+    return line
+
+
+def _blob_has_marker(blob: str, markers: tuple[str, ...]) -> bool:
+    lower = blob.casefold()
+    return any(marker in blob or marker.casefold() in lower for marker in markers)
+
+
+def infer_gender(
+    *,
+    name: str = "",
+    role: str = "",
+    face_lock: str = "",
+    aliases: Iterable[str] | None = None,
+    explicit: str = "unknown",
+) -> GenderLiteral:
+    """Infer gender from explicit field, then role/name/face markers."""
+    if explicit in {"male", "female", "nonbinary"}:
+        return explicit  # type: ignore[return-value]
+    parts = [name or "", role or "", face_lock or ""]
+    if aliases:
+        parts.extend(aliases)
+    blob = " ".join(parts)
+    female = _blob_has_marker(blob, _FEMALE_MARKERS)
+    male = _blob_has_marker(blob, _MALE_MARKERS)
+    if female and not male:
+        return "female"
+    if male and not female:
+        return "male"
+    # Face-lock pronouns alone
+    face = (face_lock or "").casefold()
+    if re.search(r"\b(woman|girl|female|lady)\b", face):
+        return "female"
+    if re.search(r"\b(man|boy|male|gentleman)\b", face):
+        return "male"
+    return "unknown"
+
+
+def gender_prefix(gender: str) -> str:
+    """Idempotent face_lock gender phrase."""
+    if gender == "male":
+        return "adult man"
+    if gender == "female":
+        return "adult woman"
+    if gender == "nonbinary":
+        return "adult nonbinary person"
+    return ""
+
+
+def apply_gender_to_face_lock(face_lock: str, gender: str) -> str:
+    """Prepend gender phrase when known; strip duplicate prefixes."""
+    face = normalize_face_lock(face_lock) or (face_lock or "").strip()
+    prefix = gender_prefix(gender)
+    if not prefix:
+        return face
+    # Strip existing gender lead-ins for idempotency.
+    face = re.sub(
+        r"(?i)^(adult\s+)?(man|woman|male|female|nonbinary person)\s*,\s*",
+        "",
+        face,
+    ).strip()
+    if face:
+        return f"{prefix}, {face}"
+    return prefix
+
+
+def infer_narrative_function(
+    *,
+    name: str = "",
+    role: str = "",
+    explicit: str = "",
+) -> str:
+    """Infer a short narrative_function tag when markers are clear."""
+    text = (explicit or "").strip()
+    allowed = {
+        "letter_reader",
+        "letter_writer",
+        "protagonist",
+        "love_interest",
+        "servant",
+        "parent",
+        "child",
+        "extra",
+    }
+    if text in allowed:
+        return text
+    blob = f"{name or ''} {role or ''}"
+    if _blob_has_marker(blob, _LETTER_WRITER_MARKERS):
+        return "letter_writer"
+    if _blob_has_marker(blob, _LETTER_READER_MARKERS):
+        return "letter_reader"
+    if _blob_has_marker(blob, _SERVANT_FUNCTION_MARKERS):
+        return "servant"
+    if _blob_has_marker(blob, _PARENT_FUNCTION_MARKERS):
+        return "parent"
+    if _blob_has_marker(blob, _CHILD_FUNCTION_MARKERS):
+        return "child"
+    if _blob_has_marker(blob, _LOVE_INTEREST_MARKERS):
+        return "love_interest"
+    if _blob_has_marker(blob, _PROTAGONIST_MARKERS):
+        return "protagonist"
+    return "extra"
+
+
+def narrative_functions_incompatible(a: str, b: str) -> bool:
+    """True when functions must not high-merge (reader vs writer)."""
+    pair = {(a or "").strip(), (b or "").strip()}
+    return pair == {"letter_reader", "letter_writer"}
+
+
+def genders_conflict(a: str, b: str) -> bool:
+    """True when both genders are known and disagree as male vs female."""
+    left = (a or "unknown").strip()
+    right = (b or "unknown").strip()
+    if left in {"", "unknown", "nonbinary"} or right in {"", "unknown", "nonbinary"}:
+        return False
+    return left != right and {left, right} == {"male", "female"}
+
+
+def format_identity_line(name: str, canon: CharacterCanon) -> str:
+    """Prompt line: identity: Name (gender, narrative_function)."""
+    gender = canon.gender or "unknown"
+    function = (canon.narrative_function or "extra").strip() or "extra"
+    return f"identity: {name} ({gender}, {function})"
+
+
+def portrait_gender_era_suffix(bible: VisualBible, canon: CharacterCanon) -> str:
+    """Extra portrait prompt clauses for gender + era wardrobe."""
+    parts = [GENDER_NO_SWAP_LINE]
+    if canon.gender in {"male", "female", "nonbinary"}:
+        parts.insert(0, f"gender-locked {gender_prefix(canon.gender)}")
+    parts.append(wardrobe_banline_for_bible(bible))
+    return ", ".join(parts)
 
 
 def is_illegal_character_name(name: str) -> bool:
@@ -148,11 +467,11 @@ def _hair_lock_from_canon_face(canon_face: str) -> str | None:
     return first_clause[:80].strip()
 
 
-DEFAULT_OUTFIT_LOCK = "early 20th century European period clothing"
+DEFAULT_OUTFIT_LOCK = "clothing matching the story setting and era"
 
 
-def _default_outfit_lock() -> str:
-    return DEFAULT_OUTFIT_LOCK
+def _default_outfit_lock(*, era: str = "", style_guide: str = "") -> str:
+    return default_outfit_for_era(era, style_guide)
 
 
 def ensure_stage_locks(
@@ -160,13 +479,19 @@ def ensure_stage_locks(
     *,
     canon_face: str,
     canonical_name: str = "",
+    era: str = "",
+    style_guide: str = "",
 ) -> CharacterStage:
     """Fill empty stage locks and repair illegal ``portrait_key`` values."""
     hair_lock = (stage.hair_lock or "").strip()
     if not hair_lock:
         # Prefer a short hair hint from the canon face's first clause before generic default.
         hair_lock = _hair_lock_from_canon_face(canon_face) or _default_hair_lock()
-    outfit_lock = (stage.outfit_lock or "").strip() or _default_outfit_lock()
+    outfit_lock = repair_outfit_lock(
+        (stage.outfit_lock or "").strip(),
+        era=era,
+        style_guide=style_guide,
+    )
     portrait_key = (stage.portrait_key or "").strip()
     if canonical_name and (not portrait_key or is_illegal_character_name(portrait_key)):
         portrait_key = f"{canonical_name}@{stage.stage}"
@@ -179,18 +504,44 @@ def ensure_stage_locks(
     )
 
 
-def ensure_canon_locks(canon: CharacterCanon) -> CharacterCanon:
-    """Normalize face lock and ensure every stage has hair/outfit/portrait locks."""
-    face_lock = normalize_face_lock(canon.face_lock) or (canon.face_lock or "").strip()
+def ensure_canon_locks(
+    canon: CharacterCanon,
+    *,
+    era: str = "",
+    style_guide: str = "",
+) -> CharacterCanon:
+    """Normalize face/gender locks and ensure every stage has hair/outfit/portrait locks."""
+    gender = infer_gender(
+        name=canon.canonical_name,
+        role=canon.role,
+        face_lock=canon.face_lock,
+        aliases=canon.aliases,
+        explicit=canon.gender or "unknown",
+    )
+    face_lock = apply_gender_to_face_lock(canon.face_lock, gender)
+    function = infer_narrative_function(
+        name=canon.canonical_name,
+        role=canon.role,
+        explicit=canon.narrative_function or "",
+    )
     stages = [
         ensure_stage_locks(
             stage,
             canon_face=face_lock,
             canonical_name=canon.canonical_name,
+            era=era,
+            style_guide=style_guide,
         )
         for stage in canon.stages
     ]
-    return canon.model_copy(update={"face_lock": face_lock, "stages": stages})
+    return canon.model_copy(
+        update={
+            "face_lock": face_lock,
+            "gender": gender,
+            "narrative_function": function,
+            "stages": stages,
+        }
+    )
 
 
 def _canonical_for_character(state: ProjectState, name: str) -> str:
@@ -282,7 +633,7 @@ def _drop_incompatible_aliases(
 
 
 def sanitize_visual_bible_state(state: ProjectState) -> bool:
-    """Clean polluted bible/character state and bump to bible_v2. Returns True if mutated."""
+    """Clean polluted bible/character state and bump to bible_v3. Returns True if mutated."""
     bible = state.visual_bible
     if bible is None:
         return False
@@ -309,6 +660,11 @@ def sanitize_visual_bible_state(state: ProjectState) -> bool:
         del bible.characters[key]
         mutated = True
 
+    inferred_era = infer_era_text(bible.era, bible.style_guide)
+    if inferred_era != (bible.era or "").strip():
+        bible.era = inferred_era
+        mutated = True
+
     canon_alias_snapshot = {key: list(canon.aliases) for key, canon in bible.characters.items()}
 
     for key, canon in list(bible.characters.items()):
@@ -320,13 +676,24 @@ def sanitize_visual_bible_state(state: ProjectState) -> bool:
             owner_canonical=key,
             alias_snapshot=canon_alias_snapshot,
         )
-        fixed = ensure_canon_locks(canon.model_copy(update={"aliases": cleaned_aliases}))
+        fixed = ensure_canon_locks(
+            canon.model_copy(update={"aliases": cleaned_aliases, "role": owner_role or canon.role}),
+            era=bible.era,
+            style_guide=bible.style_guide,
+        )
+        if fixed.gender == "unknown":
+            suggestion = suggestion_from_alias(
+                fixed.canonical_name or key,
+                "gender:unknown",
+                "gender could not be inferred; set male/female explicitly",
+            )
+            _append_needs_review(state, suggestion)
         if cleaned_aliases != canon.aliases or fixed.model_dump() != canon.model_dump():
             mutated = True
         bible.characters[key] = fixed
 
-    if bible.version != "bible_v2":
-        bible.version = "bible_v2"
+    if bible.version != "bible_v3":
+        bible.version = "bible_v3"
         mutated = True
 
     old_hash = bible.content_hash
@@ -362,10 +729,14 @@ def _bible_hash_payload(bible: VisualBible) -> dict:
         characters[name] = {
             "face_lock": canon.face_lock,
             "palette_notes": canon.palette_notes,
+            "gender": canon.gender,
+            "narrative_function": canon.narrative_function,
             "stages": stages,
         }
     return {
         "style_guide": bible.style_guide,
+        "era": bible.era,
+        "era_forbidden_wardrobe": list(bible.era_forbidden_wardrobe or []),
         "color": bible.color.model_dump(),
         "characters": characters,
     }
@@ -415,6 +786,10 @@ def _upsert_canon(existing: CharacterCanon, incoming: CharacterCanon) -> Charact
         updates["palette_notes"] = incoming.palette_notes
     if incoming.role:
         updates["role"] = incoming.role
+    if incoming.gender and incoming.gender != "unknown":
+        updates["gender"] = incoming.gender
+    if incoming.narrative_function:
+        updates["narrative_function"] = incoming.narrative_function
     merged = existing.model_copy(update=updates) if updates else existing.model_copy(deep=True)
 
     for alias in incoming.aliases:
@@ -446,6 +821,8 @@ def _install_reconcile_bible(
         out.visual_bible = VisualBible(
             version="bible_v1",
             style_guide=result.style_guide or "",
+            era=result.era or "",
+            era_forbidden_wardrobe=list(result.era_forbidden_wardrobe or []),
             color=result.color or ColorBible(palette=[], lighting="", forbidden=[]),
             characters={c.canonical_name: c for c in result.canons},
             sheet_ref_local=None,
@@ -463,6 +840,10 @@ def _install_reconcile_bible(
 
     if not bible.style_guide and result.style_guide:
         bible.style_guide = result.style_guide
+    if not bible.era and result.era:
+        bible.era = result.era
+    if result.era_forbidden_wardrobe and not bible.era_forbidden_wardrobe:
+        bible.era_forbidden_wardrobe = list(result.era_forbidden_wardrobe)
 
     if result.color_patches:
         _apply_color_patches(bible.color, result.color_patches)
@@ -522,6 +903,30 @@ def _role_for_character(out: ProjectState, name: str) -> str:
     return ""
 
 
+def _gender_for_character(out: ProjectState, name: str) -> str:
+    if out.visual_bible is not None:
+        canon = out.visual_bible.characters.get(name)
+        if canon is None:
+            canonical = _build_alias_to_canonical_map(out.visual_bible).get(name)
+            if canonical:
+                canon = out.visual_bible.characters.get(canonical)
+        if canon is not None and (canon.gender or "unknown") != "unknown":
+            return canon.gender
+    return "unknown"
+
+
+def _narrative_function_for_character(out: ProjectState, name: str) -> str:
+    if out.visual_bible is not None:
+        canon = out.visual_bible.characters.get(name)
+        if canon is None:
+            canonical = _build_alias_to_canonical_map(out.visual_bible).get(name)
+            if canonical:
+                canon = out.visual_bible.characters.get(canonical)
+        if canon is not None and (canon.narrative_function or "").strip():
+            return canon.narrative_function.strip()
+    return ""
+
+
 def apply_reconcile(
     state: ProjectState,
     result: VisualBibleReconcileResult,
@@ -535,7 +940,15 @@ def apply_reconcile(
         if merge.confidence == "high":
             role_alias = _role_for_character(out, merge.alias)
             role_canon = _role_for_character(out, merge.canonical)
-            if roles_incompatible(role_alias, role_canon):
+            gender_alias = _gender_for_character(out, merge.alias)
+            gender_canon = _gender_for_character(out, merge.canonical)
+            fn_alias = _narrative_function_for_character(out, merge.alias)
+            fn_canon = _narrative_function_for_character(out, merge.canonical)
+            if (
+                roles_incompatible(role_alias, role_canon)
+                or genders_conflict(gender_alias, gender_canon)
+                or narrative_functions_incompatible(fn_alias, fn_canon)
+            ):
                 suggestion = suggestion_from_alias(merge.alias, merge.canonical, merge.reason)
                 _append_needs_review(out, suggestion)
                 continue
@@ -721,8 +1134,12 @@ def format_color_bible_block(bible: VisualBible) -> str:
 def l1_from_canon(canon: CharacterCanon, stage: str = "default") -> str:
     """Build an L1 identity string from canon face lock and stage outfit/hair locks."""
     parts: list[str] = []
-    if canon.face_lock:
-        parts.append(canon.face_lock)
+    prefix = gender_prefix(canon.gender or "unknown")
+    face = (canon.face_lock or "").strip()
+    if prefix and not face.casefold().startswith(prefix.casefold()):
+        parts.append(prefix)
+    if face:
+        parts.append(face)
     if canon.palette_notes:
         parts.append(canon.palette_notes)
     stage_row = next((s for s in canon.stages if s.stage == stage), None)

@@ -14,12 +14,14 @@ from core.comic.visual_bible import (
     ANTI_CHARACTER_SHEET_LINE,
     ANTI_MULTI_AGE_COLLAGE_LINE,
     COSTUME_CHANGE_LOCK_LINE,
-    PERIOD_WARDROBE_LINE,
+    DIEGETIC_TEXT_LINE,
     format_color_bible_block,
+    format_identity_line,
     l1_from_canon,
     parse_stage_ref,
     resolve_canonical_name,
     resolve_character_asset,
+    wardrobe_banline_for_bible,
 )
 from core.schemas import CharacterAsset, ComicPagePlan, Setting, VisualBible
 
@@ -64,6 +66,7 @@ def render_finished_page_prompt(
                 "leave clean panel art only — text will be added in post-processing,",
                 "do not render any readable text, letters, or glyphs (no Latin, no CJK),",
                 "do not cover faces, hands, or key action with placeholders.",
+                DIEGETIC_TEXT_LINE,
             ]
         )
         if strict:
@@ -95,7 +98,7 @@ def render_finished_page_prompt(
             lines.append(color_block)
         lines.append(COSTUME_CHANGE_LOCK_LINE)
         lines.append(ANTI_CHARACTER_SHEET_LINE)
-        lines.append(PERIOD_WARDROBE_LINE)
+        lines.append(wardrobe_banline_for_bible(visual_bible))
         lines.append(ANTI_MULTI_AGE_COLLAGE_LINE)
     lines.append(f"Page purpose: {plan.purpose}")
     lines.append(f"Layout intent: {plan.layout_intent}")
@@ -121,6 +124,14 @@ def render_finished_page_prompt(
                 desc = _character_desc_for_prompt(name, asset, visual_bible)
                 if desc:
                     lines.append(f"  character {name}: {desc}")
+                if visual_bible is not None:
+                    base, _stage = parse_stage_ref(name)
+                    canon = visual_bible.characters.get(base)
+                    if canon is None:
+                        base = resolve_canonical_name(base, visual_bible)
+                        canon = visual_bible.characters.get(base)
+                    if canon is not None:
+                        lines.append(f"  {format_identity_line(name, canon)}")
         if lettering == "in_image":
             if panel.caption:
                 lines.append(f"  CAPTION (exact): {panel.caption}")
