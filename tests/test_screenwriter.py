@@ -85,3 +85,18 @@ def test_system_prompt_forbids_translating_dialogue():
 def test_sanitize_text_redacts_banned_terms():
     assert "抹胸" not in sanitize_text("wear a 抹胸", banned=["抹胸"])
     assert "■" in sanitize_text("wear a 抹胸", banned=["抹胸"])
+
+
+def test_system_prompt_requires_evidence():
+    from core.screenwriter import SYSTEM_PROMPT
+
+    lower = SYSTEM_PROMPT.lower()
+    assert "verbatim" in lower, "SYSTEM_PROMPT must require verbatim source quotes"
+    assert "evidence" in lower, "SYSTEM_PROMPT must reference evidence"
+
+
+def test_system_prompt_instructs_no_fabrication():
+    from core.screenwriter import SYSTEM_PROMPT
+
+    lower = SYSTEM_PROMPT.lower()
+    assert "do not invent" in lower or "do not" in lower

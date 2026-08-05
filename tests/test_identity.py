@@ -118,3 +118,104 @@ def test_force_regen_panels_clears_done_and_skipped():
     assert "c0000-p0000" not in state.skipped
     assert "c0000-p0000" in state.stale_panels
     assert "c0000-p0001" in state.panels_done
+
+
+# --- character-consistency-and-source-fidelity regression tests ---
+
+def test_verify_evidence_no_source_text_skips():
+    from core.comic.identity import verify_evidence_against_source
+    from core.schemas import Appearance, EvidenceQuote
+
+    app = Appearance(
+        appearance_evidence=[EvidenceQuote(field="hair", quote="anything", offset=0)],
+    )
+    assert verify_evidence_against_source(app, None) == []
+
+
+def test_verify_evidence_passes_when_quote_in_source():
+    from core.comic.identity import verify_evidence_against_source
+    from core.schemas import Appearance, EvidenceQuote
+
+    src = "祥子穿着灰布长衫,留着短短的头发"
+    eq = EvidenceQuote(field="hair", quote="短短的头发", offset=src.index("短短的头发"))
+    app = Appearance(appearance_evidence=[eq])
+    assert verify_evidence_against_source(app, src) == []
+
+
+def test_verify_evidence_flags_fabricated_quote():
+    from core.comic.identity import verify_evidence_against_source
+    from core.schemas import Appearance, EvidenceQuote
+
+    src = "祥子穿着灰布长衫"
+    app = Appearance(
+        appearance_evidence=[
+            EvidenceQuote(field="hair", quote="金发碧眼", offset=999),  # fabricated
+        ],
+    )
+    assert verify_evidence_against_source(app, src) == ["hair"]
+
+
+def test_ensure_character_l1_legacy_call_unchanged():
+    """legacy callers that omit source_text must still work without warnings."""
+    from core.comic.identity import ensure_character_l1
+    from core.schemas import CharacterAsset
+
+    char = CharacterAsset(name="A", l1_prompt="")
+    ensure_character_l1(char)
+    assert char.l1_prompt  # set from name-only fallback
+    assert "⚠" not in char.l1_prompt  # no warning when no source provided
+
+
+def test_ensure_character_l1_marks_unverified_evidence():
+    from core.comic.identity import ensure_character_l1
+    from core.schemas import Appearance, CharacterAsset, EvidenceQuote
+
+    src = "他穿灰布长衫"
+    char = CharacterAsset(
+        name="祥子",
+        role="车夫",
+        appearance=Appearance(
+            outfit_top="灰布长衫",
+            appearance_evidence=[
+                EvidenceQuote(field="outfit_top", quote="灰布长衫", offset=src.index("灰布长衫")),
+                EvidenceQuote(field="eyewear", quote="戴墨镜", offset=999),
+            ],
+        ),
+        l1_prompt="",
+    )
+    ensure_character_l1(char, source_text=src)
+    assert "⚠ unverified evidence for: eyewear" in char.l1_prompt
+
+
+def test_ensure_character_l1_marks_no_evidence():
+    from core.comic.identity import ensure_character_l1
+    from core.schemas import Appearance, CharacterAsset
+
+    char = CharacterAsset(
+        name="祥子",
+        appearance=Appearance(hair="bald"),
+        l1_prompt="",
+    )
+    ensure_character_l1(char, source_text="some unrelated text")
+    assert "⚠ no source evidence" in char.l1_prompt
+
+
+def test_ensure_character_l1_clean_when_all_evidence_verified():
+    from core.comic.identity import ensure_character_l1
+    from core.schemas import Appearance, CharacterAsset, EvidenceQuote
+
+    src = "他穿灰布长衫,留着短短的头发"
+    char = CharacterAsset(
+        name="祥子",
+        appearance=Appearance(
+            hair="短短的头发",
+            outfit_top="灰布长衫",
+            appearance_evidence=[
+                EvidenceQuote(field="hair", quote="短短的头发", offset=src.index("短短的头发")),
+                EvidenceQuote(field="outfit_top", quote="灰布长衫", offset=src.index("灰布长衫")),
+            ],
+        ),
+        l1_prompt="",
+    )
+    ensure_character_l1(char, source_text=src)
+    assert "⚠" not in char.l1_prompt

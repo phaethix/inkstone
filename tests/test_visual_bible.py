@@ -461,3 +461,63 @@ def test_rewrite_pageset_from_bible():
     )
     fixed = rewrite_pageset_from_bible(pageset, bible)
     assert fixed.pages[0].panels[0].characters == ["R"]
+
+
+def test_face_lock_first_time_set():
+    """first-time face_lock should be accepted from incoming canon."""
+    from core.comic.visual_bible import _upsert_canon
+
+    existing = CharacterCanon(canonical_name="R")
+    incoming = CharacterCanon(canonical_name="R", face_lock="young man, square jaw")
+    merged = _upsert_canon(existing, incoming)
+    assert merged.face_lock == "young man, square jaw"
+
+
+def test_face_lock_case_insensitive_no_drift():
+    """case-only differences must not be treated as drift."""
+    from core.comic.visual_bible import _same_face_descriptor, _upsert_canon
+
+    existing = CharacterCanon(canonical_name="R", face_lock="young man, square jaw")
+    incoming = CharacterCanon(canonical_name="R", face_lock="Young Man, Square Jaw")
+    assert _same_face_descriptor(existing.face_lock, incoming.face_lock)
+    merged = _upsert_canon(existing, incoming)
+    assert _same_face_descriptor(merged.face_lock, existing.face_lock)
+
+
+def test_face_lock_not_overwritten_by_different_descriptor():
+    """a locked face must NOT be silently mutated by a different incoming face."""
+    from core.comic.visual_bible import _upsert_canon
+
+    existing = CharacterCanon(canonical_name="R", face_lock="young man, square jaw")
+    incoming = CharacterCanon(canonical_name="R", face_lock="old woman with cane")
+    merged = _upsert_canon(existing, incoming)
+    assert merged.face_lock == existing.face_lock
+
+
+def test_face_lock_blank_incoming_keeps_existing():
+    """incoming with no face_lock must not clear an existing locked face."""
+    from core.comic.visual_bible import _upsert_canon
+
+    existing = CharacterCanon(canonical_name="R", face_lock="locked face")
+    incoming = CharacterCanon(canonical_name="R", face_lock="")
+    merged = _upsert_canon(existing, incoming)
+    assert merged.face_lock == "locked face"
+
+
+def test_face_lock_other_fields_still_merge():
+    """face_lock protection must not block other canon fields from merging."""
+    from core.comic.visual_bible import _upsert_canon
+
+    existing = CharacterCanon(
+        canonical_name="R",
+        face_lock="young man, square jaw",
+        role="",
+    )
+    incoming = CharacterCanon(
+        canonical_name="R",
+        face_lock="old woman with cane",  # would be rejected
+        role="protagonist",
+    )
+    merged = _upsert_canon(existing, incoming)
+    assert merged.face_lock == existing.face_lock  # protected
+    assert merged.role == "protagonist"  # other fields still merged

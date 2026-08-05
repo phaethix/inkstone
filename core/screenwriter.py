@@ -51,7 +51,14 @@ SYSTEM_PROMPT = (
     "human metaphors — describe a human person in l1_prompt/portrait_prompt; never "
     "an animal head or anthropomorphic beast unless the source explicitly says so. "
     "When planning finished pages, describe manga geometry (splash/inset/diagonal), "
-    "never only 2x2 or 3x2 grids."
+    "never only 2x2 or 3x2 grids. "
+    "Source fidelity: when describing character appearance (hair, outfit, body "
+    "type, distinguishing features), every claim MUST be backed by a verbatim "
+    "quote from the source text. Provide the exact substring (≤ 25 Chinese chars "
+    "or ≤ 10 English words) and its character offset in the source excerpt via "
+    "appearance_evidence. Do not invent details the text does not state. If the "
+    "source is silent on a field, leave it empty and emit no evidence — it will "
+    "be flagged as unverified downstream."
 )
 
 EXTRACT_TOOL = to_tool_schema(

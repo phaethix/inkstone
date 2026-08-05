@@ -889,11 +889,26 @@ def _apply_color_patches(color: ColorBible, patches: list[ColorSwatch]) -> None:
                 by_name[patch.name] = len(color.palette) - 1
 
 
+def _same_face_descriptor(a: str, b: str) -> bool:
+    """Return True when two face_lock strings normalize to the same value."""
+    return (a or "").strip().lower() == (b or "").strip().lower()
+
+
 def _upsert_canon(existing: CharacterCanon, incoming: CharacterCanon) -> CharacterCanon:
-    """Merge incoming canon fields into an existing canonical character."""
+    """Merge incoming canon fields into an existing canonical character.
+
+    ``face_lock`` is treated as a read-once field: once it has been set on the
+    canonical character, subsequent reconciles may not overwrite it unless the
+    incoming value normalizes to the same descriptor. This prevents reconcile
+    drift from silently mutating a character's locked face.
+    """
     updates: dict = {}
-    if incoming.face_lock:
-        updates["face_lock"] = incoming.face_lock
+    incoming_face = (incoming.face_lock or "").strip()
+    existing_face = (existing.face_lock or "").strip()
+    if incoming_face:
+        if not existing_face or _same_face_descriptor(existing_face, incoming_face):
+            updates["face_lock"] = incoming.face_lock
+        # else: incoming tried to mutate a locked face — keep original.
     if incoming.palette_notes:
         updates["palette_notes"] = incoming.palette_notes
     if incoming.role:

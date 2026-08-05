@@ -388,3 +388,88 @@ def test_unknown_fields_are_ignored():
     elements = StoryElements.model_validate(payload)
     assert elements.characters[0].name == "方鸿渐"
     assert not hasattr(elements, "unexpected_top_level")
+
+
+# --- character-consistency-and-source-fidelity regression tests ---
+
+def test_evidence_quote_default_and_valid():
+    from core.schemas import EvidenceQuote
+
+    eq = EvidenceQuote(field="hair", quote="短短的头发", offset=10)
+    assert eq.field == "hair"
+    assert eq.offset == 10
+
+
+def test_evidence_quote_rejects_too_long():
+    from pydantic import ValidationError
+
+    from core.schemas import EvidenceQuote
+
+    try:
+        EvidenceQuote(field="hair", quote="x" * 26, offset=0)
+    except ValidationError:
+        return
+    raise AssertionError("expected ValidationError for 26-char quote")
+
+
+def test_evidence_quote_rejects_empty_quote():
+    from pydantic import ValidationError
+
+    from core.schemas import EvidenceQuote
+
+    try:
+        EvidenceQuote(field="hair", quote="", offset=0)
+    except ValidationError:
+        return
+    raise AssertionError("expected ValidationError for empty quote")
+
+
+def test_evidence_quote_rejects_empty_field():
+    from pydantic import ValidationError
+
+    from core.schemas import EvidenceQuote
+
+    try:
+        EvidenceQuote(field="", quote="abc", offset=0)
+    except ValidationError:
+        return
+    raise AssertionError("expected ValidationError for empty field")
+
+
+def test_evidence_quote_rejects_negative_offset():
+    from pydantic import ValidationError
+
+    from core.schemas import EvidenceQuote
+
+    try:
+        EvidenceQuote(field="hair", quote="abc", offset=-1)
+    except ValidationError:
+        return
+    raise AssertionError("expected ValidationError for negative offset")
+
+
+def test_appearance_evidence_defaults_to_empty():
+    from core.schemas import Appearance
+
+    app = Appearance(hair="bald")
+    assert app.appearance_evidence == []
+
+
+def test_appearance_evidence_accepts_list():
+    from core.schemas import Appearance, EvidenceQuote
+
+    app = Appearance(
+        hair="short hair",
+        appearance_evidence=[EvidenceQuote(field="hair", quote="短发", offset=0)],
+    )
+    assert len(app.appearance_evidence) == 1
+    assert app.appearance_evidence[0].field == "hair"
+
+
+def test_appearance_evidence_extra_fields_ignored():
+    from core.schemas import Appearance
+
+    # extra top-level fields must not break parsing
+    app = Appearance.model_validate({"hair": "short", "rogue_field": "x"})
+    assert app.hair == "short"
+    assert app.appearance_evidence == []

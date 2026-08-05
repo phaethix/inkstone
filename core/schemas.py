@@ -387,6 +387,45 @@ def coerce_model_list(value: Any, model_cls: type[BaseModel]) -> list[Any]:
     return out
 
 
+
+class EvidenceQuote(BaseModel):
+    """A verbatim quote from the source text that grounds a claim.
+
+    Used to anchor character appearance fields (hair, outfit, body type, etc.)
+    to the original novel excerpt. Each EvidenceQuote carries the field it
+    supports, the exact substring (≤ 25 chars), and the character offset.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    field: str
+    quote: str
+    offset: int
+
+    @field_validator("field")
+    @classmethod
+    def _field_not_empty(cls, v: str) -> str:
+        if not (v or "").strip():
+            raise ValueError("evidence field name must be non-empty")
+        return v
+
+    @field_validator("quote")
+    @classmethod
+    def _quote_length(cls, v: str) -> str:
+        if not (v or "").strip():
+            raise ValueError("evidence quote must be non-empty")
+        if len(v) > 25:
+            raise ValueError("evidence quote must be ≤ 25 chars")
+        return v
+
+    @field_validator("offset")
+    @classmethod
+    def _offset_non_negative(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError("evidence offset must be ≥ 0")
+        return v
+
+
 class Appearance(BaseModel):
     """Structured character appearance — the sole information source for the
     hardened prompt description."""
@@ -400,6 +439,7 @@ class Appearance(BaseModel):
     shoes: str = ""
     body_type: str = ""
     distinguishing: str = ""
+    appearance_evidence: list[EvidenceQuote] = Field(default_factory=list)
 
     @field_validator(
         "hair",
