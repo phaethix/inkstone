@@ -116,11 +116,39 @@ def build_l1_from_appearance(
     return ", ".join(parts)
 
 
-def ensure_character_l1(char: CharacterAsset) -> CharacterAsset:
+def verify_evidence_against_source(
+    appearance: Appearance,
+    source_text: str | None,
+) -> list[str]:
+    """Return the list of evidence field names whose quote is NOT in ``source_text``.
+
+    An empty list means all evidence passed. A ``None`` ``source_text`` skips
+    verification and returns an empty list (legacy callers remain safe).
+    Quotes found verbatim in the source are considered verified; anything else
+    is treated as unverified so downstream prompts can flag it.
+    """
+    if not source_text:
+        return []
+    unverified: list[str] = []
+    for item in appearance.appearance_evidence or []:
+        if item.quote not in source_text:
+            unverified.append(item.field)
+    return unverified
+
+
+def ensure_character_l1(
+    char: CharacterAsset,
+    source_text: str | None = None,
+) -> CharacterAsset:
     """Fill ``l1_prompt`` from Appearance when appearance has content.
 
     Structured Appearance is the authority whenever any appearance field is set.
     Otherwise keep an existing LLM ``l1_prompt``, or fall back to name/role only.
+
+    When ``source_text`` is provided, every appearance_evidence quote is checked
+    against the source text; unverified entries are appended to the prompt as
+    ``⚠ unverified`` warnings so the image model (and humans reviewing state)
+    can see which appearance claims are not grounded in the source excerpt.
     """
     has_appearance = any(
         (getattr(char.appearance, field) or "").strip()
@@ -141,6 +169,23 @@ def ensure_character_l1(char: CharacterAsset) -> CharacterAsset:
         char.l1_prompt = derived
     if char.l1_prompt:
         char.l1_prompt = harden_human_identity_prompt(char.name, char.l1_prompt)
+
+        # Evidence annotation is opt-in: only annotate when the caller
+        # explicitly provided source_text. Legacy callers that omit it must
+        # keep producing prompts without ⚠ markers.
+        if source_text is not None:
+            unverified = verify_evidence_against_source(char.appearance, source_text)
+            evidence_count = len(char.appearance.appearance_evidence or [])
+            if evidence_count == 0:
+                char.l1_prompt = (
+                    f"{char.l1_prompt}; ⚠ no source evidence; using generic placeholder"
+                )
+            elif unverified:
+                warned = ", ".join(unverified)
+                char.l1_prompt = (
+                    f"{char.l1_prompt}; ⚠ unverified evidence for: {warned}"
+                )
+
     if char.portrait_prompt:
         char.portrait_prompt = harden_human_identity_prompt(char.name, char.portrait_prompt)
     return char
