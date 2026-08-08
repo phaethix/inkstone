@@ -473,3 +473,24 @@ def test_appearance_evidence_extra_fields_ignored():
     app = Appearance.model_validate({"hair": "short", "rogue_field": "x"})
     assert app.hair == "short"
     assert app.appearance_evidence == []
+
+
+def test_character_canon_evidence_default_empty():
+    """CharacterCanon defaults to empty appearance_evidence (legacy-compatible)."""
+    from core.schemas import CharacterCanon
+
+    canon = CharacterCanon(canonical_name="祥子", face_lock="圆脸")
+    assert canon.appearance_evidence == []
+
+
+def test_character_canon_evidence_accepts_list():
+    """CharacterCanon can carry verbatim evidence quotes."""
+    from core.schemas import CharacterCanon, EvidenceQuote
+
+    canon = CharacterCanon(
+        canonical_name="祥子",
+        face_lock="圆脸",
+        appearance_evidence=[EvidenceQuote(field="hair", quote="头不很大", offset=0)],
+    )
+    assert len(canon.appearance_evidence) == 1
+    assert canon.appearance_evidence[0].quote == "头不很大"

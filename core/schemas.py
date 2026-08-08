@@ -1214,6 +1214,10 @@ class CharacterCanon(BaseModel):
     role: str = ""
     gender: GenderLiteral = "unknown"
     narrative_function: str = ""
+    # Verbatim source quotes grounding this canonical identity. Populated by
+    # the pipeline from the extraction assets so reconcile never drops the
+    # source fidelity evidence. Defaults empty so legacy data still loads.
+    appearance_evidence: list[EvidenceQuote] = Field(default_factory=list)
 
     @field_validator(
         "canonical_name",

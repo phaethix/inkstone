@@ -521,3 +521,41 @@ def test_face_lock_other_fields_still_merge():
     merged = _upsert_canon(existing, incoming)
     assert merged.face_lock == existing.face_lock  # protected
     assert merged.role == "protagonist"  # other fields still merged
+
+
+def test_l1_from_canon_emits_evidence():
+    """canon-level evidence must reach the rendered L1 prompt."""
+    from core.comic.visual_bible import l1_from_canon
+    from core.schemas import CharacterCanon, EvidenceQuote
+
+    canon = CharacterCanon(
+        canonical_name="祥子",
+        face_lock="圆脸",
+        appearance_evidence=[EvidenceQuote(field="hair", quote="头上永远剃得发亮", offset=0)],
+    )
+    out = l1_from_canon(canon)
+    assert "头上永远剃得发亮" in out
+    assert "圆脸" in out
+
+
+def test_upsert_canon_merges_evidence():
+    """reconcile via _upsert_canon must keep + merge source evidence."""
+    from core.comic.visual_bible import _upsert_canon
+    from core.schemas import CharacterCanon, EvidenceQuote
+
+    existing = CharacterCanon(
+        canonical_name="祥子",
+        face_lock="圆脸",
+        appearance_evidence=[EvidenceQuote(field="hair", quote="头上永远剃得发亮", offset=0)],
+    )
+    incoming = CharacterCanon(
+        canonical_name="祥子",
+        face_lock="尖脸",
+        appearance_evidence=[EvidenceQuote(field="outfit_top", quote="灰布长衫", offset=3)],
+    )
+    merged = _upsert_canon(existing, incoming)
+    assert merged.face_lock == "圆脸"  # face_lock still protected
+    assert len(merged.appearance_evidence) == 2  # evidence merged, none lost
+    quotes = {(e.field, e.quote) for e in merged.appearance_evidence}
+    assert ("hair", "头上永远剃得发亮") in quotes
+    assert ("outfit_top", "灰布长衫") in quotes

@@ -136,6 +136,14 @@ def verify_evidence_against_source(
     return unverified
 
 
+def _evidence_suffix(quotes: Iterable[str]) -> str:
+    """Format verbatim evidence quotes as a compact ``; source: “…”`` suffix."""
+    fragments = [f"“{q}”" for q in quotes if (q or "").strip()]
+    if not fragments:
+        return ""
+    return "; source: " + "; ".join(fragments)
+
+
 def ensure_character_l1(
     char: CharacterAsset,
     source_text: str | None = None,
@@ -170,21 +178,31 @@ def ensure_character_l1(
     if char.l1_prompt:
         char.l1_prompt = harden_human_identity_prompt(char.name, char.l1_prompt)
 
-        # Evidence annotation is opt-in: only annotate when the caller
-        # explicitly provided source_text. Legacy callers that omit it must
-        # keep producing prompts without ⚠ markers.
+        evidence = char.appearance.appearance_evidence or []
         if source_text is not None:
+            # Verification path: inject ONLY quotes found verbatim in the
+            # source; fabricated/unverified quotes are excluded from the prompt
+            # and surfaced as visible ⚠ warnings instead.
             unverified = verify_evidence_against_source(char.appearance, source_text)
-            evidence_count = len(char.appearance.appearance_evidence or [])
-            if evidence_count == 0:
+            verified_quotes = [it.quote for it in evidence if it.quote in source_text]
+            suffix = _evidence_suffix(verified_quotes)
+            if suffix:
+                char.l1_prompt = f"{char.l1_prompt}{suffix}"
+            if not evidence:
                 char.l1_prompt = (
                     f"{char.l1_prompt}; ⚠ no source evidence; using generic placeholder"
                 )
             elif unverified:
-                warned = ", ".join(unverified)
                 char.l1_prompt = (
-                    f"{char.l1_prompt}; ⚠ unverified evidence for: {warned}"
+                    f"{char.l1_prompt}; ⚠ unverified evidence for: {', '.join(unverified)}"
                 )
+        else:
+            # Legacy / no-source callers: no verification is possible, but we
+            # still carry the evidence quotes into the prompt so the source
+            # fidelity grounding actually reaches the image model.
+            suffix = _evidence_suffix(it.quote for it in evidence)
+            if suffix:
+                char.l1_prompt = f"{char.l1_prompt}{suffix}"
 
     if char.portrait_prompt:
         char.portrait_prompt = harden_human_identity_prompt(char.name, char.portrait_prompt)
