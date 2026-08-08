@@ -998,7 +998,7 @@ async def _creative_comic(
         # Merge characters; generate a portrait only for first-seen names.
         state.characters, new_names = merge_characters(state.characters, elements.characters)
         for name in new_names:
-            ensure_character_l1(state.characters[name])
+            ensure_character_l1(state.characters[name], source_text=chunk)
         state.settings = merge_settings(state.settings, elements.settings)
 
         # Surface likely alias variants for human review (never auto-merged).
@@ -1052,11 +1052,12 @@ async def _creative_comic(
             *,
             style: str = portrait_style,
             _state: ProjectState = state,
+            _chunk: str = chunk,
         ) -> tuple[str, str]:
             asset = resolve_character_asset(name, _state.characters, _state.visual_bible)
             if asset is None:
                 asset = _state.characters[name]
-            ensure_character_l1(asset)
+            ensure_character_l1(asset, source_text=_chunk)
             prompt = asset.portrait_prompt or asset.l1_prompt
             if _state.visual_bible is not None:
                 base, stage = parse_stage_ref(name)

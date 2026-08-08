@@ -844,6 +844,9 @@ def _bible_hash_payload(bible: VisualBible) -> dict:
             "gender": canon.gender,
             "narrative_function": canon.narrative_function,
             "stages": stages,
+            "appearance_evidence": [
+                {"field": e.field, "quote": e.quote} for e in (canon.appearance_evidence or [])
+            ],
         }
     return {
         "style_guide": bible.style_guide,
@@ -923,6 +926,12 @@ def _upsert_canon(existing: CharacterCanon, incoming: CharacterCanon) -> Charact
         if alias not in merged.aliases and alias != merged.canonical_name:
             merged.aliases.append(alias)
 
+    # Merge source-fidelity evidence: keep existing groundings, append new ones.
+    existing_quotes = {(e.field, e.quote) for e in (merged.appearance_evidence or [])}
+    for e in incoming.appearance_evidence or []:
+        if (e.field, e.quote) not in existing_quotes:
+            merged.appearance_evidence.append(e)
+
     stage_index = {s.stage: i for i, s in enumerate(merged.stages)}
     for stage in incoming.stages:
         if stage.stage in stage_index:
@@ -956,6 +965,7 @@ def _install_reconcile_bible(
             sheet_ref_local=None,
             content_hash="",
         )
+        _backfill_canon_evidence(out)
         return
 
     bible = out.visual_bible
@@ -975,6 +985,35 @@ def _install_reconcile_bible(
 
     if result.color_patches:
         _apply_color_patches(bible.color, result.color_patches)
+
+    _backfill_canon_evidence(out)
+
+
+def _backfill_canon_evidence(out: ProjectState) -> None:
+    """Copy verbatim source-fidelity evidence from extraction assets onto canons.
+
+    The bible canon does not re-extract quotes itself, so without this the
+    reconcile step would silently drop the character's grounding and render
+    prompts with no evidence. Matches by canonical name first, then by alias.
+    Existing canon evidence is never overwritten.
+    """
+    bible = out.visual_bible
+    if bible is None:
+        return
+    for canon in bible.characters.values():
+        if canon.appearance_evidence:
+            continue
+        asset = out.characters.get(canon.canonical_name)
+        if asset is None:
+            for alias in canon.aliases:
+                if alias in out.characters:
+                    asset = out.characters[alias]
+                    break
+        if asset is None:
+            continue
+        quotes = asset.appearance.appearance_evidence or []
+        if quotes:
+            canon.appearance_evidence = list(quotes)
 
 
 def _ensure_canonical_character(
@@ -1280,7 +1319,12 @@ def l1_from_canon(canon: CharacterCanon, stage: str = "default") -> str:
             parts.append(stage_row.outfit_lock)
         if stage_row.hair_lock:
             parts.append(stage_row.hair_lock)
-    return ", ".join(parts)
+    body = ", ".join(parts)
+    quotes = [(it.quote or "").strip() for it in (canon.appearance_evidence or [])]
+    quotes = [q for q in quotes if q]
+    if quotes:
+        body = (body + "; source: " + "; ".join(f"“{q}”" for q in quotes)).strip()
+    return body
 
 
 def _rewrite_name_list(names: list[str], mapping: dict[str, str]) -> list[str]:

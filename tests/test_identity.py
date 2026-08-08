@@ -219,3 +219,64 @@ def test_ensure_character_l1_clean_when_all_evidence_verified():
     )
     ensure_character_l1(char, source_text=src)
     assert "⚠" not in char.l1_prompt
+
+
+def test_ensure_character_l1_injects_verified_quotes():
+    """pipeline (source_text provided) must inject verified quotes into l1_prompt."""
+    from core.comic.identity import ensure_character_l1
+    from core.schemas import Appearance, CharacterAsset, EvidenceQuote
+
+    src = "祥子的头不很大,头上永远剃得发亮"
+    char = CharacterAsset(
+        name="祥子",
+        appearance=Appearance(
+            hair="光头",
+            appearance_evidence=[
+                EvidenceQuote(
+                    field="hair",
+                    quote="头上永远剃得发亮",
+                    offset=src.find("头上永远剃得发亮"),
+                ),
+            ],
+        ),
+        l1_prompt="",
+    )
+    ensure_character_l1(char, source_text=src)
+    assert "头上永远剃得发亮" in char.l1_prompt
+    assert "⚠" not in char.l1_prompt
+
+
+def test_ensure_character_l1_excludes_fabricated_quote():
+    """anti-fabrication: a quote not in the source must NOT be injected but flagged."""
+    from core.comic.identity import ensure_character_l1
+    from core.schemas import Appearance, CharacterAsset, EvidenceQuote
+
+    src = "祥子的头不很大"
+    char = CharacterAsset(
+        name="祥子",
+        appearance=Appearance(
+            hair="紫发",
+            appearance_evidence=[EvidenceQuote(field="hair", quote="一头紫发", offset=999)],
+        ),
+        l1_prompt="",
+    )
+    ensure_character_l1(char, source_text=src)
+    assert "一头紫发" not in char.l1_prompt
+    assert "⚠ unverified evidence for: hair" in char.l1_prompt
+
+
+def test_ensure_character_l1_no_source_keeps_evidence():
+    """legacy/no-source callers still carry evidence quotes into the prompt."""
+    from core.comic.identity import ensure_character_l1
+    from core.schemas import Appearance, CharacterAsset, EvidenceQuote
+
+    char = CharacterAsset(
+        name="祥子",
+        appearance=Appearance(
+            hair="光头",
+            appearance_evidence=[EvidenceQuote(field="hair", quote="头上永远剃得发亮", offset=0)],
+        ),
+        l1_prompt="",
+    )
+    ensure_character_l1(char)
+    assert "头上永远剃得发亮" in char.l1_prompt
