@@ -19,7 +19,7 @@ dependencies = [
     "pydantic>=2.13.4,<3.0.0",
     "json-repair>=0.30.0,<1.0.0",
     "tqdm>=4.66.0,<5.0.0",
-    "pypdf>=5.0.0,<7.0.0",
+    "pypdf>=6.15.0,<7.0.0",
 ]
 
 [project.optional-dependencies]
