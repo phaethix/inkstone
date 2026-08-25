@@ -174,6 +174,22 @@ _ASCII_LETTER_RE = re.compile(r"[A-Za-z]")
 _PROSE_MARKER_RE = re.compile(
     r"(?i)(,|\bwith\b|\bhair\b|\bexpression\b|\bwearing\b|\bbuild\b|\beyes\b|\bage\b|\bold\b)",
 )
+_PARENTHETICAL_RE = re.compile(r"（[^）]*）|\([^)]*\)")
+_CJK_PROSE_MARKERS = (
+    "眼神",
+    "衣衫",
+    "神情",
+    "正在",
+    "脸色",
+    "瑟瑟",
+    "颤抖",
+    "衣着",
+    "搬运",
+    "惊恐",
+    "苍白",
+    "痴迷",
+    "虔诚",
+)
 _OUTFIT_WORD_RE = re.compile(
     r"(?i)\b("
     r"wearing|hoodie|athletic|sneakers|jacket|suit|dress|skirt|pants|boots|coat|"
@@ -492,7 +508,7 @@ def portrait_gender_era_suffix(bible: VisualBible, canon: CharacterCanon) -> str
 
 
 def is_illegal_character_name(name: str) -> bool:
-    """True when ``name`` looks like English prose description, not a character label."""
+    """True when ``name`` looks like a prose description, not a character label."""
     text = (name or "").strip()
     if not text:
         return False
@@ -504,7 +520,231 @@ def is_illegal_character_name(name: str) -> bool:
     if ascii_count > 0 and _PROSE_MARKER_RE.search(text):
         if ascii_count >= max(len(text) // 4, 6):
             return True
+    if text.count("，") >= 2:
+        return True
+    if "，" in text and len(text) >= 8:
+        return True
+    if len(text) >= 16 and any(marker in text for marker in _CJK_PROSE_MARKERS):
+        return True
     return False
+
+
+def identity_stem(name: str) -> str:
+    """Strip stage suffixes and parenthetical role tags: ``R（收信人）`` → ``R``."""
+    base, _stage = parse_stage_ref(name)
+    return _PARENTHETICAL_RE.sub("", base).strip()
+
+
+def _identity_lookup_pairs(
+    known_names: Iterable[str],
+    bible: VisualBible | None,
+) -> list[tuple[str, str]]:
+    """``(lookup_key, resolved_name)`` pairs, longest key first."""
+    pairs: list[tuple[str, str]] = []
+    seen: set[str] = set()
+
+    def _add(key: str, resolved: str) -> None:
+        text = (key or "").strip()
+        if not text or text in seen:
+            return
+        seen.add(text)
+        pairs.append((text, resolved))
+
+    if bible is not None:
+        for key, canon in bible.characters.items():
+            canonical = canon.canonical_name or key
+            _add(canonical, canonical)
+            _add(key, canonical)
+            for alias in canon.aliases:
+                _add(alias, canonical)
+            stem = identity_stem(canonical)
+            if stem:
+                _add(stem, canonical)
+    for name in known_names:
+        resolved = resolve_canonical_name(name, bible) if bible is not None else name
+        _add(name, resolved)
+        stem = identity_stem(name)
+        if stem:
+            _add(stem, resolved)
+    pairs.sort(key=lambda item: len(item[0]), reverse=True)
+    return pairs
+
+
+def match_plan_character_name(
+    raw: str,
+    known_names: Iterable[str],
+    bible: VisualBible | None,
+) -> str | None:
+    """Map a planner character label onto a known canon/table name, or None."""
+    text = (raw or "").strip()
+    if not text:
+        return None
+    base, stage = parse_stage_ref(text)
+    staged = stage != "default" and "@" in text
+    pairs = _identity_lookup_pairs(known_names, bible)
+
+    def _with_stage(resolved: str) -> str:
+        if staged and "@" not in resolved:
+            return f"{resolved}@{stage}"
+        return resolved
+
+    for key, resolved in pairs:
+        if text == key or base == key:
+            return _with_stage(resolved)
+
+    best: str | None = None
+    best_len = 1
+    for key, resolved in pairs:
+        if len(key) <= best_len:
+            continue
+        if key in text or text in key:
+            best = resolved
+            best_len = len(key)
+    if best is None:
+        return None
+    return _with_stage(best)
+
+
+def canonicalize_page_plan(
+    plan: ComicPagePlan,
+    *,
+    known_names: Iterable[str],
+    visual_bible: VisualBible | None,
+) -> ComicPagePlan:
+    """Rewrite page character lists onto known identities; drop unmatched prose."""
+    known = [name for name in known_names if name]
+    updated = plan.model_copy(deep=True)
+
+    def _remap(names: list[str]) -> list[str]:
+        out: list[str] = []
+        seen: set[str] = set()
+        for name in names:
+            mapped = match_plan_character_name(name, known, visual_bible)
+            if not mapped or mapped in seen:
+                continue
+            seen.add(mapped)
+            out.append(mapped)
+        return out
+
+    updated.reference_characters = _remap(updated.reference_characters)
+    for panel in updated.panels:
+        panel.characters = _remap(panel.characters)
+        if not panel.characters:
+            panel.characters = list(updated.reference_characters)
+    return updated
+
+
+def canonical_portrait_ref(
+    name: str,
+    characters_by_name: dict,
+    bible: VisualBible | None,
+) -> str | None:
+    """Portrait path of the canonical face, when ``name`` is a stage/alias variant."""
+    if bible is None:
+        return None
+    base, stage = parse_stage_ref(name)
+    canonical = resolve_canonical_name(base, bible)
+    is_base = "@" not in (name or "") and stage == "default" and name == canonical
+    if is_base:
+        return None
+    char = characters_by_name.get(canonical)
+    loc = getattr(char, "portrait_local", None) if char is not None else None
+    if loc and name != canonical:
+        return loc
+    return None
+
+
+def _merge_bible_canon(bible: VisualBible, keep_key: str, drop_key: str) -> None:
+    keep = bible.characters[keep_key]
+    drop = bible.characters[drop_key]
+    merged = _upsert_canon(keep, drop)
+    extras = [drop_key, drop.canonical_name, *drop.aliases]
+    for alias in extras:
+        if alias and alias not in merged.aliases and alias != merged.canonical_name:
+            merged.aliases.append(alias)
+    bible.characters[keep_key] = merged
+    del bible.characters[drop_key]
+
+
+def _fold_character_row(state: ProjectState, drop: str, keep: str) -> None:
+    if drop == keep:
+        return
+    if keep not in state.characters and drop in state.characters:
+        asset = state.characters.pop(drop)
+        state.characters[keep] = asset.model_copy(update={"name": keep})
+        if drop not in state.characters[keep].aliases:
+            state.characters[keep].aliases.append(drop)
+        return
+    if drop in state.characters and keep in state.characters:
+        try:
+            merge_character_alias(state, drop, keep)
+        except KeyError:
+            state.characters.pop(drop, None)
+        return
+    state.characters.pop(drop, None)
+
+
+def collapse_duplicate_identities(state: ProjectState) -> bool:
+    """Merge forked canons that are the same person (stem or letter role duplicates)."""
+    bible = state.visual_bible
+    if bible is None:
+        return False
+    mutated = False
+
+    stem_groups: dict[str, list[str]] = {}
+    for key, canon in bible.characters.items():
+        stem = identity_stem(canon.canonical_name or key)
+        if not stem:
+            continue
+        stem_groups.setdefault(stem, []).append(key)
+
+    for stem, keys in stem_groups.items():
+        if len(keys) < 2:
+            continue
+        keep = next(
+            (
+                key
+                for key in keys
+                if identity_stem(bible.characters[key].canonical_name or key) == stem
+                and (bible.characters[key].canonical_name or key) == stem
+            ),
+            min(keys, key=lambda key: (len(key), key)),
+        )
+        for drop in keys:
+            if drop == keep or drop not in bible.characters or keep not in bible.characters:
+                continue
+            _merge_bible_canon(bible, keep, drop)
+            _fold_character_row(state, drop, keep)
+            mutated = True
+
+    role_groups: dict[tuple[str, str], list[str]] = {}
+    for key, canon in bible.characters.items():
+        function = (canon.narrative_function or "").strip()
+        gender = (canon.gender or "unknown").strip()
+        if function not in {"letter_writer", "letter_reader"}:
+            continue
+        if gender in {"", "unknown"}:
+            continue
+        role_groups.setdefault((function, gender), []).append(key)
+
+    for keys in role_groups.values():
+        if len(keys) < 2:
+            continue
+        keep = max(keys, key=lambda key: (len(bible.characters[key].aliases), -len(key)))
+        for drop in keys:
+            if drop == keep or drop not in bible.characters or keep not in bible.characters:
+                continue
+            keep_canon = bible.characters[keep]
+            drop_canon = bible.characters[drop]
+            if roles_incompatible(keep_canon.role, drop_canon.role):
+                continue
+            if genders_conflict(keep_canon.gender, drop_canon.gender):
+                continue
+            _merge_bible_canon(bible, keep, drop)
+            _fold_character_row(state, drop, keep)
+            mutated = True
+
+    return mutated
 
 
 def _role_contains_any(role: str, markers: tuple[str, ...]) -> bool:
@@ -806,6 +1046,12 @@ def sanitize_visual_bible_state(state: ProjectState) -> bool:
     if bible.version != "bible_v3":
         bible.version = "bible_v3"
         mutated = True
+
+    if collapse_duplicate_identities(state):
+        mutated = True
+        bible = state.visual_bible
+        if bible is None:
+            return mutated
 
     old_hash = bible.content_hash
     state.visual_bible = refresh_bible_hash(bible)
