@@ -277,7 +277,8 @@ def merge_character_alias(
 ) -> list[str]:
     """Merge ``new_name`` into ``keep_name`` and mark affected panels stale.
 
-    Never runs automatically — callers invoke this from review UI/API.
+    Never runs from the public review UI without an explicit merge action.
+    The visual-bible sanitizer may also call this to collapse duplicate canons.
     Returns the list of panel state keys marked stale.
     """
     if keep_name not in state.characters:
@@ -319,6 +320,24 @@ def merge_character_alias(
     ensure_character_l1(keep)
 
     stale = _panel_keys_referencing(state, new_name)
+    stale_pages: list[str] = []
+    for cache_key, pageset in state.page_cache.items():
+        try:
+            chunk_index = int(cache_key)
+        except ValueError:
+            continue
+        for plan in pageset.pages:
+            names = set(plan.reference_characters)
+            for panel in plan.panels:
+                names.update(panel.characters)
+            if new_name in names:
+                stale_pages.append(f"c{chunk_index:04d}:{plan.page_id}")
+        for plan in pageset.pages:
+            plan.reference_characters = _rewrite_names(
+                plan.reference_characters, new_name, keep_name
+            )
+            for panel in plan.panels:
+                panel.characters = _rewrite_names(panel.characters, new_name, keep_name)
     # Rewrite cached storyboards after collecting keys.
     for cache in state.chunk_cache.values():
         board = cache.storyboard
@@ -346,6 +365,14 @@ def merge_character_alias(
         stale_set.add(key)
     state.panels_done = [k for k in state.panels_done if k in done]
     state.stale_panels = sorted(stale_set)
+    if stale_pages:
+        done_pages = set(state.pages_done)
+        stale_page_set = set(state.stale_pages)
+        for key in stale_pages:
+            done_pages.discard(key)
+            stale_page_set.add(key)
+        state.pages_done = [k for k in state.pages_done if k in done_pages]
+        state.stale_pages = sorted(stale_page_set)
     return list(stale)
 
 

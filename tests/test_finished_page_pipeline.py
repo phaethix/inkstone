@@ -678,3 +678,32 @@ def test_legacy_completed_project_bootstraps_visual_bible(tmp_path, monkeypatch)
     assert proj2.state.visual_bible is not None
     assert chat2.calls >= 1  # reconcile on resume
     assert img2.calls >= 1  # pages re-rendered after first bible bootstrap
+
+
+class RecordingRefsImage(FakeImage):
+    def __init__(self):
+        super().__init__()
+        self.page_refs: list[list[str]] = []
+        self.portrait_refs: list[list[str]] = []
+
+    async def generate_single_image(self, prompt, reference_image_paths=None, size=None, **kw):
+        refs = list(reference_image_paths or [])
+        if "Finished readable manga/comic page" in prompt:
+            self.page_refs.append(refs)
+        else:
+            self.portrait_refs.append(refs)
+        return await super().generate_single_image(prompt, reference_image_paths, size, **kw)
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_finished_pages_pass_portrait_and_cross_chunk_blank_refs(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+    src = "第一章\n福贵在村口。\n第二章\n福贵在读书。"
+    image = RecordingRefsImage()
+    asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=image))
+    assert len(image.page_refs) == 2
+    assert image.page_refs[0], "first page should i2i from the character portrait"
+    assert image.page_refs[1], "second chunk should keep portrait refs"
+    first_refs = set(image.page_refs[0])
+    second_refs = set(image.page_refs[1])
+    assert second_refs - first_refs, "second chunk first page should add previous blank"

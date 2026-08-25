@@ -61,6 +61,8 @@ from core.comic.segmentation import detect_character_aliases, merge_characters, 
 from core.comic.visual_bible import (
     apply_reconcile,
     backfill_panel_characters,
+    canonical_portrait_ref,
+    canonicalize_page_plan,
     collect_finished_page_refs,
     format_color_bible_block,
     l1_from_canon,
@@ -420,6 +422,37 @@ def _mark_chunk_done_if_complete(
             return
     if key not in state.chunks_done:
         state.chunks_done.append(key)
+
+
+def previous_page_blank(
+    state: ProjectState,
+    pageset: ComicPagePlanSet,
+    *,
+    chunk_index: int,
+    page_index: int,
+) -> str | None:
+    """Blank-page path for L2 continuity: prior page in-chunk, else last prior chunk."""
+    if page_index > 0:
+        prev_plan = pageset.pages[page_index - 1]
+        prev_key = _page_state_key(chunk_index, prev_plan.page_id)
+        prev_gen = state.generated.pages.get(prev_key)
+        if prev_gen and prev_gen.blank_local:
+            return prev_gen.blank_local
+    candidates: list[tuple[int, str, str]] = []
+    for key, gen in state.generated.pages.items():
+        if not gen.blank_local:
+            continue
+        try:
+            prefix, _rest = key.split(":", 1)
+            other_ci = int(prefix[1:])
+        except (ValueError, IndexError):
+            continue
+        if other_ci < chunk_index:
+            candidates.append((other_ci, key, gen.blank_local))
+    if not candidates:
+        return None
+    candidates.sort()
+    return candidates[-1][2]
 
 
 def _page_reference_names(plan: ComicPagePlan) -> list[str]:
@@ -1076,10 +1109,16 @@ async def _creative_comic(
                 if color_block:
                     prompt = f"{prompt}, {color_block}"
             comic_style = f"{style}, {DEFAULT_PORTRAIT_STYLE}" if style else DEFAULT_PORTRAIT_STYLE
+            refs: list[str] = []
+            base_ref = canonical_portrait_ref(name, _state.characters, _state.visual_bible)
+            if base_ref and _is_within(base_ref, output_dir) and Path(base_ref).is_file():
+                refs = [base_ref]
             async with image_semaphore:
                 with perf.measure("portrait"):
                     out = await image.generate_single_image(
-                        f"{prompt}, {comic_style}", size="1024x1024"
+                        f"{prompt}, {comic_style}",
+                        reference_image_paths=refs,
+                        size="1024x1024",
                     )
             path = _asset_path(output_dir, "assets/portraits", name)
             await asyncio.to_thread(out.save, str(path))
@@ -1092,23 +1131,34 @@ async def _creative_comic(
             or not _is_within(asset.portrait_local, output_dir)
             or not Path(asset.portrait_local).is_file()
         ]
-        portrait_results = await asyncio.gather(
-            *(_render_portrait(name) for name in portrait_names),
-            return_exceptions=True,
-        )
+        base_names = [name for name in portrait_names if "@" not in name]
+        stage_names = [name for name in portrait_names if "@" in name]
+        portrait_results: list = []
+        assigned_names: list[str] = []
+        for group in (base_names, stage_names):
+            group_results = await asyncio.gather(
+                *(_render_portrait(name) for name in group),
+                return_exceptions=True,
+            )
+            for name, result in zip(group, group_results, strict=True):
+                assigned_names.append(name)
+                portrait_results.append(result)
+                if isinstance(result, Exception):
+                    continue
+                _, path = result
+                state.characters[name].portrait_local = path
+                state.generated.portraits[name] = path
+                _report("portrait", _pct())
+
         policy_rejection: Exception | None = None
         operational_error: Exception | None = None
-        for name, result in zip(portrait_names, portrait_results, strict=True):
+        for _name, result in zip(assigned_names, portrait_results, strict=True):
             if isinstance(result, Exception):
                 if is_content_policy_rejection(result):
                     policy_rejection = result
                 elif operational_error is None:
                     operational_error = result
                 continue
-            _, path = result
-            state.characters[name].portrait_local = path
-            state.generated.portraits[name] = path
-            _report("portrait", _pct())
 
         if operational_error is not None:
             state.save(state_path)
@@ -1213,6 +1263,11 @@ async def _creative_comic(
                     plan = sanitize_plan_voice(plan, state.visual_bible)
                 else:
                     plan = sanitize_plan_voice(plan, None)
+                plan = canonicalize_page_plan(
+                    plan,
+                    known_names=_known_character_names(state),
+                    visual_bible=state.visual_bible,
+                )
                 page_id = plan.page_id
                 state_key = _page_state_key(ci, page_id)
                 existing = state.generated.pages.get(state_key)
@@ -1267,13 +1322,9 @@ async def _creative_comic(
                     state.save(state_path)
                     _report("pages", _pct())
                     continue
-                prev_blank_path: str | None = None
-                if page_index > 0:
-                    prev_plan = pageset.pages[page_index - 1]
-                    prev_key = _page_state_key(ci, prev_plan.page_id)
-                    prev_gen = state.generated.pages.get(prev_key)
-                    if prev_gen and prev_gen.blank_local:
-                        prev_blank_path = prev_gen.blank_local
+                prev_blank_path = previous_page_blank(
+                    state, pageset, chunk_index=ci, page_index=page_index
+                )
                 prompt = render_finished_page_prompt(
                     plan,
                     characters_by_name=state.characters,

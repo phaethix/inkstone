@@ -74,8 +74,18 @@ later reconcile. Appearance claims should carry `appearance_evidence` (verbatim
 source quotes); empty evidence is marked unverified at L1 inject time.
 
 **Alias review** — near-duplicate names (e.g. `祥子` vs `骆驼祥子`) go to
-`state.needs_review`. **Never silent-merge.** A merge marks affected pages/panels
-stale for selective redraw.
+`state.needs_review`. **Never silent-merge from the UI.** A merge marks affected
+pages/panels stale for selective redraw. The sanitizer *does* collapse forked
+canons that are the same person (`R` vs `R（收信人）`, duplicate letter-writer
+rows) so they do not each get a random portrait.
+
+**Planner name lockdown** — finished-page plans that emit prose as a character
+name (`十六岁的少女，衣衫单薄…`) are mapped onto a known canon or dropped
+before L1/L2, so those panels cannot invent a new face.
+
+**Portrait anchoring** — stage keys (`Name@teen`) img2img from the canonical
+portrait instead of a fresh text-to-image sample. Page i2i also receives the
+previous chunk's blank page, not only the previous page inside the same chunk.
 
 **Deferred lettering** — image model does not paint readable glyphs. Inkstone
 composites CJK-capable fonts. Lettering language must match the source excerpt.
