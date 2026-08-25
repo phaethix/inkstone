@@ -15,18 +15,19 @@ Status definitions:
 - **Local prototype**: present only in a working tree; not a product capability.
 - **Planned**: approved direction, not yet implemented.
 
-Long-form target architecture and developer onboarding notes currently live as
-**local working drafts** under `docs/architecture/` and `docs/guides/` (not yet
-versioned on `main`). Until they are published, treat this roadmap plus the
-released code as the source of truth for status.
+Developer onboarding for the shipped tree is [`docs/ONBOARDING.md`](ONBOARDING.md).
+Long-form **target** architecture drafts may still live under local
+`docs/architecture/` (not yet versioned). Until those are published, treat this
+roadmap, the onboarding guide, and the released code as the source of truth for
+status.
 
 When completing a change:
 
 1. update the relevant item below;
 2. do not mark an item Released until it is committed and CI passes;
 3. explicitly record unfinished local experiments as Local prototype;
-4. if the developer workflow or system boundary changes, update the local
-   onboarding draft (and this roadmap) in the same change.
+4. if the developer workflow or system boundary changes, update
+   [`docs/ONBOARDING.md`](ONBOARDING.md) (and this roadmap) in the same change.
 
 ## Current implementation status
 
