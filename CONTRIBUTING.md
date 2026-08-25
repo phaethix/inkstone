@@ -36,14 +36,15 @@ pytest
 | `utils/` | Cross-cutting helpers (e.g. image download) |
 | `tests/` | Unit tests (network-free where possible) |
 | `docs/ROADMAP.md` | Current shipped / prototype / planned work and milestone history |
+| `docs/ONBOARDING.md` | Developer map of the shipped codebase (layers, tour, hotspots) |
 | `docs/guides/colab-cli.md` | Colab remote runner operations |
 | `docs/superpowers/` | Historical completed plans / specs |
 
-> **Note on design documents:** only the roadmap, Colab guide, and
-> `docs/superpowers/` are versioned on `main` for now. Other local drafts under
-> `docs/` (architecture, onboarding, product brief, archive) stay untracked
-> until deliberately published. Put temporary discussion and unapproved research
-> in `.issue/`, not in the versioned documentation set.
+> **Note on design documents:** the roadmap, onboarding guide, Colab guide, and
+> `docs/superpowers/` are versioned. Other local drafts under `docs/`
+> (architecture, product brief, archive) stay untracked until deliberately
+> published. Put temporary discussion and unapproved research in `.issue/`, not
+> in the versioned documentation set.
 
 ## Development workflow
 

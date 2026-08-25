@@ -169,6 +169,7 @@ PDF export prefers the optional `manga2pdf` CLI for two-page / right-to-left man
 ## Resources
 
 - **Implementation status** — [docs/ROADMAP.md](docs/ROADMAP.md)
+- **Developer onboarding** — [docs/ONBOARDING.md](docs/ONBOARDING.md)
 - **Colab CLI** — [docs/guides/colab-cli.md](docs/guides/colab-cli.md) + [`scripts/colab_run.sh`](scripts/colab_run.sh)
 - **Historical plans / specs** — [docs/superpowers/](docs/superpowers/)
 - **Contributing guide** — [CONTRIBUTING.md](CONTRIBUTING.md)
