@@ -141,6 +141,7 @@ git commit -m "feat: add active_elapsed_seconds and ETA helper"
 ```python
 # tests/test_web_server.py — add
 
+
 def test_seed_job_timing_from_checkpoint(tmp_path, monkeypatch):
     import web.server as server
     from core.schemas import ProjectState
@@ -206,6 +207,7 @@ Add near progress helpers in `web/server.py`:
 import time
 from core.pipelines.timing import estimate_remaining
 
+
 def _seed_job_timing(project_id: str) -> float:
     state_path = OUTPUT_DIR / project_id / "state.json"
     if not state_path.is_file():
@@ -238,7 +240,9 @@ def _persist_active_elapsed(project_id: str, elapsed: float) -> None:
     try:
         state = ProjectState.load(state_path)
         # Never decrease if an older write races a newer checkpoint.
-        state.active_elapsed_seconds = max(float(state.active_elapsed_seconds or 0.0), float(elapsed))
+        state.active_elapsed_seconds = max(
+            float(state.active_elapsed_seconds or 0.0), float(elapsed)
+        )
         state.save(state_path)
     except Exception:  # noqa: BLE001
         logger.warning("could not persist active_elapsed_seconds for %s", project_id)

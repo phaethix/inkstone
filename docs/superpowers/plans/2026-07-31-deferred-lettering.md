@@ -201,9 +201,7 @@ def test_mismatches_english_dialogue_on_chinese_source():
     plan = ComicPagePlan.model_validate(
         {
             "page_id": "p1",
-            "panels": [
-                {"panel_id": "1", "dialogue": "Hello there", "caption": "傍晚，村口。"}
-            ],
+            "panels": [{"panel_id": "1", "dialogue": "Hello there", "caption": "傍晚，村口。"}],
         }
     )
     bad = lettering_field_mismatches(plan, "cjk")
@@ -282,9 +280,7 @@ def _field_mismatch(text: str | None, script: Script) -> bool:
     return False
 
 
-def lettering_field_mismatches(
-    plan: ComicPagePlan, script: Script
-) -> list[tuple[str, str, str]]:
+def lettering_field_mismatches(plan: ComicPagePlan, script: Script) -> list[tuple[str, str, str]]:
     out: list[tuple[str, str, str]] = []
     if script not in ("cjk", "latin"):
         return out
@@ -305,11 +301,7 @@ def strip_mismatched_lettering(plan: ComicPagePlan, script: Script) -> ComicPage
             if (panel.panel_id, kind) in bad:
                 data[kind] = None
         panels.append(PagePanelSpec.model_validate(data))
-    boxes = [
-        b
-        for b in plan.lettering_boxes
-        if (b.panel_id, b.kind) not in bad
-    ]
+    boxes = [b for b in plan.lettering_boxes if (b.panel_id, b.kind) not in bad]
     return plan.model_copy(update={"panels": panels, "lettering_boxes": boxes})
 ```
 
@@ -662,7 +654,9 @@ class FlipLangChat(ChatProvider):
                         "page_id": "p1",
                         "purpose": "x",
                         "layout_intent": "wide",
-                        "panels": [{"panel_id": "1", "dialogue": "Hello friend", "action": "stands"}],
+                        "panels": [
+                            {"panel_id": "1", "dialogue": "Hello friend", "action": "stands"}
+                        ],
                     }
                 ],
             }
@@ -675,7 +669,14 @@ class FlipLangChat(ChatProvider):
                     "layout_intent": "wide",
                     "panels": [{"panel_id": "1", "dialogue": "你好啊", "action": "stands"}],
                     "lettering_boxes": [
-                        {"kind": "dialogue", "panel_id": "1", "x": 0.2, "y": 0.3, "w": 0.4, "h": 0.15}
+                        {
+                            "kind": "dialogue",
+                            "panel_id": "1",
+                            "x": 0.2,
+                            "y": 0.3,
+                            "w": 0.4,
+                            "h": 0.15,
+                        }
                     ],
                 }
             ],
@@ -684,7 +685,11 @@ class FlipLangChat(ChatProvider):
 
 def test_plan_comic_pages_retries_once_on_language_mismatch():
     elements = StoryElements.model_validate(
-        {"characters": [{"name": "福贵", "l1_prompt": "farmer"}], "settings": [], "style_guide": "manhua"}
+        {
+            "characters": [{"name": "福贵", "l1_prompt": "farmer"}],
+            "settings": [],
+            "style_guide": "manhua",
+        }
     )
     chat = FlipLangChat()
     pageset = asyncio.run(plan_comic_pages("第一章\n福贵在村口。", elements, chat=chat))
@@ -720,7 +725,9 @@ async def plan_comic_pages(text: str, elements: StoryElements, *, chat=None) -> 
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": user},
     ]
-    args = await chat.chat_function_call(messages, [PAGE_PLAN_TOOL], _tool_choice("plan_comic_pages"))
+    args = await chat.chat_function_call(
+        messages, [PAGE_PLAN_TOOL], _tool_choice("plan_comic_pages")
+    )
     pageset = ComicPagePlanSet.model_validate(args)
 
     def _any_mismatch(ps: ComicPagePlanSet) -> bool:
@@ -830,7 +837,9 @@ def test_finished_page_reletters_from_blank_without_new_image(tmp_path, monkeypa
     state.generated.pages[key].local = str(tmp_path / "pages" / "missing.png")
     state.save(tmp_path / "state.json")
     img2 = RecordingImage()
-    proj2 = asyncio.run(creative_comic("第一章\n福贵在村口。", output_dir=out, chat=FakeChat(), image=img2))
+    proj2 = asyncio.run(
+        creative_comic("第一章\n福贵在村口。", output_dir=out, chat=FakeChat(), image=img2)
+    )
     assert img2.prompts == []  # no new page image calls (portrait may still 0 if cached)
     assert Path(proj2.state.generated.pages[key].local).exists()
 ```
@@ -875,7 +884,12 @@ Before image call, if `_page_needs_generation` and existing `blank_local` is val
 
 ```python
 existing = state.generated.pages.get(state_key)
-if existing and existing.blank_local and _is_within(existing.blank_local, output_dir) and Path(existing.blank_local).is_file():
+if (
+    existing
+    and existing.blank_local
+    and _is_within(existing.blank_local, output_dir)
+    and Path(existing.blank_local).is_file()
+):
     blank_img = await asyncio.to_thread(PILImage.open, existing.blank_local)
     lettered = await asyncio.to_thread(letter_finished_page, blank_img, plan)
     local = _page_asset_path(pages_dir, ci, page_index)

@@ -61,6 +61,7 @@
 from core.comic.identity import build_l1_from_appearance, merge_settings, is_high_confidence_alias
 from core.schemas import Appearance, Setting
 
+
 def test_build_l1_includes_appearance_fields():
     app = Appearance(hair="black short hair", eyewear="round glasses", outfit_top="white shirt")
     text = build_l1_from_appearance("Fang", app, role="protagonist")
@@ -68,11 +69,19 @@ def test_build_l1_includes_appearance_fields():
     assert "black short hair" in text
     assert "round glasses" in text
 
+
 def test_merge_settings_keeps_first_nonempty():
     existing = {"Cafe": Setting(name="Cafe", scene_prompt="warm cafe")}
-    merged = merge_settings(existing, [Setting(name="Cafe", description="later"), Setting(name="Street", scene_prompt="rainy street")])
+    merged = merge_settings(
+        existing,
+        [
+            Setting(name="Cafe", description="later"),
+            Setting(name="Street", scene_prompt="rainy street"),
+        ],
+    )
     assert merged["Cafe"].scene_prompt == "warm cafe"
     assert "Street" in merged
+
 
 def test_high_confidence_substring_reason():
     assert is_high_confidence_alias("name variant (normalized/substring match)") is True

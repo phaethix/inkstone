@@ -387,7 +387,6 @@ def coerce_model_list(value: Any, model_cls: type[BaseModel]) -> list[Any]:
     return out
 
 
-
 class EvidenceQuote(BaseModel):
     """A verbatim quote from the source text that grounds a claim.
 

@@ -196,7 +196,10 @@ Near other env reads in `creative_comic` (alongside L3), add:
 ```python
 def _page_script_enabled() -> bool:
     return os.environ.get("INKSTONE_PAGE_SCRIPT", "0").strip().lower() in {
-        "1", "true", "yes", "on",
+        "1",
+        "true",
+        "yes",
+        "on",
     }
 ```
 
@@ -370,11 +373,14 @@ In `tests/test_d2_cli.py` (or `tests/test_density_boundary.py` argparse check), 
 ```python
 def test_cli_help_marks_prototypes_honestly():
     from core.cli import _build_parser
+
     parser = _build_parser()
     plan_help = parser._subparsers._group_actions[0].choices["plan"].format_help()
     cov_help = parser._subparsers._group_actions[0].choices["coverage"].format_help()
     assert "estimate" in plan_help.lower() or "预估" in plan_help
-    assert "not a quality gate" in cov_help.lower() or "非质量闸门" in cov_help or "原型" in cov_help
+    assert (
+        "not a quality gate" in cov_help.lower() or "非质量闸门" in cov_help or "原型" in cov_help
+    )
     dens = parser._subparsers._group_actions[0].choices["plan"].format_help()
     assert "主线概览" in dens or "A=" in dens or "overview" in dens.lower() or "概览" in dens
 ```

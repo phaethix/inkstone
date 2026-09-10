@@ -148,18 +148,22 @@ class VisualBibleMerge(BaseModel):
     confidence: Literal["high", "low"]
     reason: str = ""
 
+
 class VisualBibleStageLink(BaseModel):
     name: str
     stage: Literal["child", "teen", "adult", "elder", "default"]
     of_canonical: str
     reason: str = ""
 
+
 class VisualBibleKeep(BaseModel):
     name: str
     reason: str = ""
 
+
 class VisualBibleReconcileResult(BaseModel):
     """LLM tool payload for bible create/update."""
+
     merges: list[VisualBibleMerge] = Field(default_factory=list)
     stages: list[VisualBibleStageLink] = Field(default_factory=list)
     keeps: list[VisualBibleKeep] = Field(default_factory=list)
@@ -278,7 +282,9 @@ def test_bible_hash_stable_and_sensitive():
     h1 = compute_bible_hash(bible)
     bible2 = bible.model_copy(update={"style_guide": "watercolor"})
     assert compute_bible_hash(bible2) != h1
-    assert compute_bible_hash(refresh_bible_hash(bible)) == h1 or True  # hash field ignored in input
+    assert (
+        compute_bible_hash(refresh_bible_hash(bible)) == h1 or True
+    )  # hash field ignored in input
 
 
 def test_apply_high_confidence_merge_and_low_to_review():
@@ -308,7 +314,10 @@ def test_apply_high_confidence_merge_and_low_to_review():
     )
     out = apply_reconcile(state, result)
     assert "李先生" not in out.characters
-    assert "李先生" in out.characters["R"].aliases or "李先生" in out.visual_bible.characters["R"].aliases
+    assert (
+        "李先生" in out.characters["R"].aliases
+        or "李先生" in out.visual_bible.characters["R"].aliases
+    )
     assert "路人" in out.characters
     assert any(s.new_name == "路人" for s in out.needs_review)
 
@@ -391,7 +400,17 @@ def test_rewrite_page_plan_names():
 
 
 def test_build_visual_sheet_noop():
-    assert build_visual_sheet(VisualBible(version="bible_v1", style_guide="", color=ColorBible(palette=[], lighting="", forbidden=[]), characters={})) is None
+    assert (
+        build_visual_sheet(
+            VisualBible(
+                version="bible_v1",
+                style_guide="",
+                color=ColorBible(palette=[], lighting="", forbidden=[]),
+                characters={},
+            )
+        )
+        is None
+    )
 
 
 def test_collect_refs_uses_panel_characters_and_sheet_first():
@@ -646,7 +665,10 @@ def test_finished_page_prompt_injects_color_and_face_lock():
     assert "neon" in text
     assert "calm dark eyes" in text
     assert "dark suit jacket" in text
-    assert "do not change hair color" in text.lower() or "unless action says costume change" in text.lower()
+    assert (
+        "do not change hair color" in text.lower()
+        or "unless action says costume change" in text.lower()
+    )
 ```
 
 When `visual_bible` is set, prefer `bible.style_guide` over the `style_guide` argument for the Style line. Still pass character lines through canon locks when the name resolves in `bible.characters`.
@@ -705,6 +727,7 @@ def test_render_fingerprint_includes_visual_bible_hash():
     )
     # Reconstruct expected payload the same way _render_fingerprint does, assert hash equality
     import hashlib, json
+
     payload = {
         "style_guide": "style",
         "model_snapshot": ModelSnapshot().model_dump(),
@@ -765,7 +788,9 @@ Portrait prompt: append `format_color_bible_block(state.visual_bible)` when pres
 Page render:
 
 ```python
-prompt = render_finished_page_prompt(..., style_guide=effective_style, visual_bible=state.visual_bible)
+prompt = render_finished_page_prompt(
+    ..., style_guide=effective_style, visual_bible=state.visual_bible
+)
 refs = collect_finished_page_refs(
     plan,
     state.characters,
@@ -812,6 +837,7 @@ git commit -m "feat: wire visual bible reconcile into finished_page pipeline"
 ```python
 def test_sync_characters_from_bible_updates_l1():
     from core.comic.visual_bible import sync_characters_from_bible
+
     state = ProjectState(
         project_id="p",
         characters={"R": CharacterAsset(name="R", l1_prompt="stale")},

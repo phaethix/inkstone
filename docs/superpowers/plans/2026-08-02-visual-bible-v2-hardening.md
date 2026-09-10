@@ -133,9 +133,7 @@ def test_ensure_canon_locks_fills_empty_and_strips_outfit_from_face():
     canon = CharacterCanon(
         canonical_name="R",
         face_lock="handsome face, wearing athletic hoodie",
-        stages=[
-            CharacterStage(stage="default", outfit_lock="", hair_lock="", portrait_key="R")
-        ],
+        stages=[CharacterStage(stage="default", outfit_lock="", hair_lock="", portrait_key="R")],
     )
     fixed = ensure_canon_locks(canon, style_hint="early 20th century Vienna")
     assert "hoodie" not in fixed.face_lock.lower()
@@ -254,9 +252,7 @@ def test_backfill_panel_characters_from_action_and_refs():
             "reference_characters": ["陌生女人（信中叙述者）", "死去的儿子"],
         }
     )
-    fixed = backfill_panel_characters(
-        plan, ["陌生女人（信中叙述者）", "死去的儿子", "R（小说家）"]
-    )
+    fixed = backfill_panel_characters(plan, ["陌生女人（信中叙述者）", "死去的儿子", "R（小说家）"])
     assert "陌生女人（信中叙述者）" in fixed.panels[0].characters
     assert "死去的儿子" in fixed.panels[0].characters
 ```
