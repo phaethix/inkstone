@@ -122,6 +122,7 @@ def test_force_regen_panels_clears_done_and_skipped():
 
 # --- character-consistency-and-source-fidelity regression tests ---
 
+
 def test_verify_evidence_no_source_text_skips():
     from core.comic.identity import verify_evidence_against_source
     from core.schemas import Appearance, EvidenceQuote

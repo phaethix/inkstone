@@ -112,9 +112,13 @@ def test_harden_huniu_prompt_forbids_tiger():
     assert "not an animal" in out.lower() or "human" in out.lower()
     assert "tiger" in out.lower()  # explicit negation: "not a tiger" preferred
 
+
 def test_ordinary_name_unchanged_enough():
     base = "middle-aged farmer in patched jacket"
-    assert harden_human_identity_prompt("祥子", base) == base or "human" in harden_human_identity_prompt("祥子", base).lower()
+    assert (
+        harden_human_identity_prompt("祥子", base) == base
+        or "human" in harden_human_identity_prompt("祥子", base).lower()
+    )
 ```
 
 Prefer: only harden when `name_suggests_animal_metaphor`; 祥子 unchanged.

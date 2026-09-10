@@ -271,6 +271,7 @@ def test_stop_sets_cancel_and_pipeline_pauses(tmp_path, monkeypatch):
         while time.time() < deadline:
             if check and check():
                 from core.pipelines.cancel import PipelineCancelled
+
                 raise PipelineCancelled()
             await asyncio.sleep(0.05)
         raise RuntimeError("cancel never seen")
@@ -330,7 +331,7 @@ JOBS[job_id] = {..., "cancel_event": cancel_event, "cancel_requested": False}
 Pass into `_run_job` / `run_until_complete`:
 
 ```python
-cancel_check=lambda: JOBS[job_id]["cancel_event"].is_set()
+cancel_check = lambda: JOBS[job_id]["cancel_event"].is_set()
 ```
 
 (Or close over `cancel_event` directly.)

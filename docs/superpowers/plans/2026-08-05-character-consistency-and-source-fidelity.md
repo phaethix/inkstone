@@ -43,9 +43,9 @@ tests/test_identity.py — 验证反虚构校验路径
 1. 在 `Appearance` 上方新增 `EvidenceQuote` 数据结构:
    ```python
    class EvidenceQuote(BaseModel):
-       field: str          # 对应 Appearance 的字段名,如 "hair"
-       quote: str          # ≤ 25 字原文片段
-       offset: int         # 在 source text 中的字符偏移
+       field: str  # 对应 Appearance 的字段名,如 "hair"
+       quote: str  # ≤ 25 字原文片段
+       offset: int  # 在 source text 中的字符偏移
 
        @field_validator("quote")
        @classmethod
@@ -96,8 +96,12 @@ existing = self.characters.get(canon_id)
 if existing and existing.face_lock and incoming.face_lock is None:
     # preserve locked value; incoming did not explicitly set
     incoming.face_lock = existing.face_lock
-elif existing and existing.face_lock and incoming.face_lock and \
-     not _same_face_descriptor(existing.face_lock, incoming.face_lock):
+elif (
+    existing
+    and existing.face_lock
+    and incoming.face_lock
+    and not _same_face_descriptor(existing.face_lock, incoming.face_lock)
+):
     # incoming tried to mutate a locked face — keep original
     incoming.face_lock = existing.face_lock
 ```

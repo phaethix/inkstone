@@ -392,6 +392,7 @@ def test_unknown_fields_are_ignored():
 
 # --- character-consistency-and-source-fidelity regression tests ---
 
+
 def test_evidence_quote_default_and_valid():
     from core.schemas import EvidenceQuote
 
