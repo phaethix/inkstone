@@ -119,9 +119,9 @@ Read in this order the first time you touch the repo.
 
 1. **Purpose and honesty** — [`README.md`](../README.md), then this file and
    [`ROADMAP.md`](ROADMAP.md).
-2. **Run it** — `pip install -e ".[dev]"`, copy `.env.example` → `.env`,
-   `python examples/first_panel.py` or `./scripts/start.sh`. Tests: `pytest`
-   (offline). Web: `python web/server.py`.
+2. **Run it** — `uv sync --extra dev`, copy `.env.example` → `.env`,
+   `uv run python examples/first_panel.py` or `./scripts/start.sh`. Tests:
+   `uv run pytest` (offline). Web: `uv run python web/server.py`.
 3. **Contracts** — `ProjectState`, `ComicPagePlan` / `ComicPagePlanSet`,
    `VisualBible` / `CharacterCanon`, `CharacterAsset` / `Appearance` /
    `EvidenceQuote` in `core/schemas.py`. LLM tools are `to_tool_schema(...)`.
@@ -229,13 +229,11 @@ and identity logic.
 ## Development workflow
 
 ```bash
-conda create -n inkstone python=3.12 -y
-conda activate inkstone
-python -m pip install -e ".[dev]"
+uv sync --extra dev
 cp .env.example .env   # set AGNES_API_KEY
-pytest                 # offline
-ruff check .
-ruff format --check .
+uv run pytest          # offline
+uv run ruff check .
+uv run ruff format --check .
 ```
 
 - Branch from `main`: `feat/…`, `fix/…`, `docs/…`, `chore/…`.
