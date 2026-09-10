@@ -15,17 +15,15 @@ By participating, you agree to abide by our
 git clone https://github.com/<your-username>/inkstone.git
 cd inkstone
 
-# 2. Create & activate the conda environment (Python 3.10+)
-conda create -n inkstone python=3.10 -y
-conda activate inkstone
-pip install -e ".[dev]"        # runtime + dev/test tools (pytest, ruff)
+# 2. Install dependencies with uv (Python 3.10+; creates .venv automatically)
+uv sync --extra dev              # runtime + dev/test tools (pytest, ruff)
 
 # 3. Configure (ordinary users only need the API key)
 cp .env.example .env
 #    edit .env and set AGNES_API_KEY=sk-xxx
 
 # 4. Run the test suite (no network required)
-pytest
+uv run pytest
 ```
 
 ## Project layout
@@ -54,9 +52,9 @@ pytest
 2. **Make your change**, keeping commits focused and atomic.
 3. **Verify locally** before opening a PR:
    ```bash
-   ruff check .
-   ruff format --check .
-   pytest
+   uv run ruff check .
+   uv run ruff format --check .
+   uv run pytest
    ```
    (Install the pre-commit hooks with `pre-commit install` to run these
    automatically on every commit.)

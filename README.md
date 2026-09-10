@@ -84,18 +84,14 @@ Backed by a reliability layer (rate limiting, retries, and `state.json` resumpti
   <img src="assets/readme/section-quickstart.svg" width="100%" alt="Quick Start" />
 </p>
 
-> **Prerequisites:** Python 3.10+, [conda](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html), and a free [Agnes](https://agnes-ai.com) API key (Free Access tier).
+> **Prerequisites:** Python 3.10+, [uv](https://docs.astral.sh/uv/), and a free [Agnes](https://agnes-ai.com) API key (Free Access tier).
 
 ```bash
-# 1. Create & activate the conda environment
-conda create -n inkstone python=3.12 -y
-conda activate inkstone
-# Verify the env is active — `which python` must point inside the env
-# (e.g. .../envs/inkstone/bin/python). If it still shows /opt/homebrew/... or
-# /usr/bin, run `conda init zsh` and open a new terminal, then reactivate.
+# 1. Install uv (https://docs.astral.sh/uv/getting-started/installation/)
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# 2. Install Inkstone (runtime + dev/test tooling)
-python -m pip install -e ".[dev]"
+# 2. Install Inkstone (runtime + dev/test tooling; creates .venv automatically)
+uv sync --extra dev
 
 # 3. Provide your API key
 cp .env.example .env
@@ -105,14 +101,14 @@ cp .env.example .env
 Generate your first panel:
 
 ```console
-$ python examples/first_panel.py   # run from the repo root
+$ uv run python examples/first_panel.py   # run from the repo root
 saved -> panel.png
 ```
 
 Verify the install — the test suite runs fully offline:
 
 ```console
-$ python -m pytest
+$ uv run pytest
 # validates providers, schemas, layout/export, consistency, screenwriter,
 # pipeline resume and content-safety behavior without real API calls
 ```
@@ -133,7 +129,7 @@ On Windows use `.\scripts\start.ps1`. Sample inputs ship in `examples/` (`scene1
 A zero-dependency local UI (Tailwind SPA + a `http.server` backend — **no new pip package**) wraps the same pipeline:
 
 ```bash
-AGNES_API_KEY=sk-xxx python web/server.py
+AGNES_API_KEY=sk-xxx uv run python web/server.py
 # open http://127.0.0.1:8000
 ```
 

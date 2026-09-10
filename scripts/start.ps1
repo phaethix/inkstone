@@ -3,8 +3,8 @@
   Inkstone one-click launcher (PowerShell / Windows).
 
 .DESCRIPTION
-  Sets up a local virtualenv (unless already inside a venv/conda env), installs
-  dependencies, loads AGNES_API_KEY from .env, and runs the comic generator.
+  Uses uv to install dependencies, loads AGNES_API_KEY from .env, and runs the
+  comic generator.
 
 .PARAMETER Args
   Forwarded to examples/generate_comic.py (e.g. my_novel.txt --out out --format webtoon).
@@ -21,18 +21,12 @@ $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $Root
 
-# ------------------------------------------------------------------ #
-# Virtual environment
-# ------------------------------------------------------------------ #
-if (-not $env:VIRTUAL_ENV -and -not $env:CONDA_DEFAULT_ENV) {
-    if (-not (Test-Path .venv)) {
-        python -m venv .venv
-    }
-    & .\.venv\Scripts\Activate.ps1
+if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+    Write-Error "uv is required. Install from https://docs.astral.sh/uv/"
+    exit 1
 }
 
-python -m pip install -q -U pip
-python -m pip install -e ".[dev]"
+uv sync --extra dev --quiet
 
 # ------------------------------------------------------------------ #
 # Load AGNES_API_KEY from .env
@@ -56,4 +50,4 @@ if (-not $env:AGNES_API_KEY) {
     exit 1
 }
 
-python examples/generate_comic.py @args
+uv run python examples/generate_comic.py @args
