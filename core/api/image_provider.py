@@ -235,7 +235,7 @@ def get_image_provider(
 
         return AgnesImageAPI(
             api_key=key,
-            model=model or "agnes-image-2.1-flash",
+            model=model or "agnes-image-2.5-flash",
             i2i_model=i2i_model or cfg.agnes_i2i_model,
             max_retries=cfg.image_max_retries,
             retry_base_delay=cfg.image_retry_base_delay,

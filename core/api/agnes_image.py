@@ -23,7 +23,7 @@ class AgnesImageAPI(ImageProvider):
     def __init__(
         self,
         api_key: str,
-        model: str = "agnes-image-2.1-flash",
+        model: str = "agnes-image-2.5-flash",
         i2i_model: str | None = None,
         max_retries: int = 5,
         retry_base_delay: float = 5.0,
@@ -34,8 +34,8 @@ class AgnesImageAPI(ImageProvider):
             api_key: Agnes API key.
             model: Default t2i model.
             i2i_model: Default i2i model. Defaults to ``model`` (official
-                agnes-image-2.1-flash supports both t2i and i2i). Pass an
-                explicit model to fall back to 2.0 for the consistency img2img
+                agnes-image-2.5-flash supports both t2i and i2i). Pass an
+                explicit model to fall back to 2.1 for the consistency img2img
                 pass.
             max_retries / retry_base_delay: Image generation on the free tier is
                 frequently 503 "Service busy", so we retry by default
