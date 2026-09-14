@@ -207,6 +207,7 @@ def _state_snapshot(state: ProjectState) -> dict:
         "skipped_chunks": list(state.skipped_chunks),
         "needs_review": [s.model_dump() for s in state.needs_review],
         "stale_panels": list(state.stale_panels),
+        "stale_pages": list(state.stale_pages),
         "render_mode": state.render_mode,
         "pages_done": list(state.pages_done),
         "skipped_pages": list(state.skipped_pages),
@@ -518,10 +519,16 @@ def start_regen_job(
     text = source_path.read_text(encoding="utf-8")
     target_keys = list(keys or [])
     if stale:
-        target_keys = list(dict.fromkeys([*target_keys, *state.stale_panels]))
+        # ``stale_panels`` covers panel_compose; ``stale_pages`` covers the
+        # default finished_page mode. A UI "redraw affected" request must be able
+        # to start a job from either, otherwise the merge review flow is a no-op.
+        target_keys = list(dict.fromkeys([*target_keys, *state.stale_panels, *state.stale_pages]))
     if not target_keys:
         raise ValueError("no panel keys to regenerate")
-    force_regen_panels(state, target_keys)
+    # Panel keys (``c0000-p0001``) go through the panel-compose regen bookkeeping.
+    # Finished-page keys (``c0000:page_id``) already live in ``stale_pages`` and
+    # drive the repaint directly, so they must not be forced into ``stale_panels``.
+    force_regen_panels(state, [k for k in target_keys if ":" not in k])
     state.save(out_dir / "state.json")
     return _start_job(text, fmt, style_guide, project_id=project_id, panel_keys=target_keys)
 

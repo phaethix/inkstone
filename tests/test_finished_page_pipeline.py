@@ -386,6 +386,37 @@ def test_finished_page_reletters_from_blank_without_new_image(tmp_path, monkeypa
 
 
 @patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_finished_page_stale_page_repaints_instead_of_reusing_blank(tmp_path, monkeypatch):
+    """A stale page is invalidated for a content reason (e.g. alias merge).
+
+    Its cached blank art predates the identity change, so the page must be sent
+    to the image provider again — re-lettering the old blank would silently keep
+    the wrong face. Regression: the blank-reuse shortcut used to swallow stale
+    pages, making the advertised "merge -> selective redraw" a no-op.
+    """
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+    src = "第一章\n福贵在村口。"
+    asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage()))
+
+    state = ProjectState.load(tmp_path / "state.json")
+    key = next(iter(state.generated.pages))
+    blank = Path(state.generated.pages[key].blank_local)
+    assert blank.exists()
+
+    # Simulate `merge_character_alias`: the page is stale but its blank still exists.
+    state.stale_pages = [key]
+    state.pages_done = [k for k in state.pages_done if k != key]
+    state.save(tmp_path / "state.json")
+
+    img2 = FakeImage()
+    proj = asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=img2))
+
+    assert img2.calls == 1  # art repainted, not just re-lettered
+    assert key not in proj.state.stale_pages  # stale flag cleared after redraw
+    assert key in proj.state.pages_done
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
 def test_finished_page_kwarg_overrides_env_default(tmp_path, monkeypatch):
     # Env says panel_compose; explicit kwarg should win.
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "panel_compose")

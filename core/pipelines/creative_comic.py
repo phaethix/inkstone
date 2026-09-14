@@ -1277,9 +1277,16 @@ async def _creative_comic(
                     and _is_within(existing.blank_local, output_dir)
                     and Path(existing.blank_local).is_file()
                 )
+                # A stale page was invalidated for a *content* reason (e.g. an
+                # alias merge changed the character's identity), so its cached
+                # blank art is wrong and must be repainted. Only reuse the blank
+                # when the art is still valid and merely needs re-lettering (a
+                # missing lettered file or a lettering-version bump).
+                page_is_stale = state_key in state.stale_pages
                 if (
                     blank_ok
                     and existing is not None
+                    and not page_is_stale
                     and existing.lettering_version != LETTERING_VERSION
                 ):
                     pages_dir.mkdir(parents=True, exist_ok=True)
@@ -1303,7 +1310,7 @@ async def _creative_comic(
                 if not _page_needs_generation(state, state_key):
                     continue
                 check_cancel(cancel_check)
-                if blank_ok and existing is not None:
+                if blank_ok and existing is not None and not page_is_stale:
                     pages_dir.mkdir(parents=True, exist_ok=True)
                     local = _page_asset_path(pages_dir, ci, page_index)
                     await asyncio.to_thread(

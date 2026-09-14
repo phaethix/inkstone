@@ -1144,8 +1144,10 @@
       const redraw = $("redrawStale");
       list.innerHTML = "";
       const reviews = job.needs_review || [];
-      const stale = job.stale_panels || [];
-      if (!reviews.length && !stale.length) {
+      const stalePanels = job.stale_panels || [];
+      const stalePages = job.stale_pages || [];
+      const staleCount = stalePanels.length + stalePages.length;
+      if (!reviews.length && !staleCount) {
         wrap.classList.add("hidden");
         redraw.classList.add("hidden");
         return;
@@ -1170,9 +1172,10 @@
         row.appendChild(dismissBtn);
         list.appendChild(row);
       });
-      if (stale.length) {
+      if (staleCount) {
         redraw.classList.remove("hidden");
-        redraw.textContent = "Redraw " + stale.length + " affected panel(s)";
+        const noun = stalePages.length && !stalePanels.length ? "page(s)" : "panel(s)";
+        redraw.textContent = "Redraw " + staleCount + " affected " + noun;
         redraw.onclick = () => regenStale();
       } else {
         redraw.classList.add("hidden");

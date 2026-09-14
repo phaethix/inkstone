@@ -13,6 +13,9 @@ from core.schemas import (
     CharacterAliasSuggestion,
     CharacterAsset,
     ChunkCache,
+    ComicPagePlan,
+    ComicPagePlanSet,
+    PagePanelSpec,
     Panel,
     ProjectState,
     Storyboard,
@@ -104,6 +107,53 @@ def test_apply_review_merge_marks_stale(tmp_path, monkeypatch):
     loaded = ProjectState.load(out / "state.json")
     assert "鸿渐" not in loaded.characters
     assert "鸿渐" in loaded.characters["方鸿渐"].aliases
+
+
+def test_finished_page_merge_marks_stale_pages_and_regen_accepts_them(tmp_path, monkeypatch):
+    """Default finished_page mode: an alias merge must surface redrawable pages.
+
+    ``merge_character_alias`` records finished-page invalidation in
+    ``stale_pages``, not ``stale_panels``. The review snapshot and the
+    ``stale=True`` regen endpoint must understand both, or "redraw affected"
+    is unreachable in the default render mode.
+    """
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(server, "_start_job", lambda *a, **k: ("job1", "proj_page"))
+    project_id = "proj_page"
+    out = tmp_path / project_id
+    out.mkdir()
+    (out / "source.txt").write_text("第一章\n福贵。", encoding="utf-8")
+    page = ComicPagePlan(
+        page_id="u1_p0001",
+        reference_characters=["福贵"],
+        panels=[PagePanelSpec(panel_id="p1", characters=["福贵"])],
+    )
+    state = ProjectState(
+        project_id=project_id,
+        render_mode="finished_page",
+        characters={
+            "徐福贵": CharacterAsset(name="徐福贵"),
+            "福贵": CharacterAsset(name="福贵"),
+        },
+        page_cache={"0": ComicPagePlanSet(unit_id="u1", pages=[page])},
+        pages_done=["c0000:u1_p0001"],
+        needs_review=[
+            CharacterAliasSuggestion(
+                new_name="福贵",
+                candidate="徐福贵",
+                reason="name variant",
+                suggested=True,
+            )
+        ],
+    )
+    state.save(out / "state.json")
+
+    snapshot = server.apply_review(project_id, "merge", "福贵", "徐福贵")
+    assert "c0000:u1_p0001" in snapshot["stale_pages"]
+    assert snapshot["stale_panels"] == []
+
+    job_id, _pid = server.start_regen_job(project_id, stale=True)
+    assert job_id == "job1"
 
 
 def test_seed_job_progress_from_checkpoint(tmp_path, monkeypatch):
