@@ -168,10 +168,25 @@ def _known_character_names(state: ProjectState) -> list[str]:
     return names
 
 
+def _chunk_sort_key(cache_key: str) -> tuple[int, int, str]:
+    """Order ``page_cache`` keys by resolved chunk index, then lexicographically.
+
+    Keys are ``str(chunk_index)``, so plain ``sorted()`` is lexicographic and
+    ranks ``"10"`` before ``"2"``. Past ten chunks the "last 8 layout intents"
+    window would read the wrong chunks, which is a §9 phase 0e defect: the
+    anti-templating window silently becomes the whole book. Non-numeric keys
+    (only reachable if a caller writes one) sort last instead of crashing.
+    """
+    try:
+        return (0, int(cache_key), "")
+    except ValueError:
+        return (1, 0, cache_key)
+
+
 def _recent_layout_intents(state: ProjectState, *, limit: int = 8) -> list[str]:
     """Collect recent page layout_intent strings from cached page plans."""
     intents: list[str] = []
-    for cache_key in sorted(state.page_cache.keys()):
+    for cache_key in sorted(state.page_cache.keys(), key=_chunk_sort_key):
         pageset = state.page_cache.get(cache_key)
         if pageset is None:
             continue
