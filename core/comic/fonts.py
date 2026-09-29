@@ -13,6 +13,7 @@ Fonts are cached module-level: the pipeline renders hundreds of bubbles and
 must not rescan the filesystem per bubble.
 """
 
+import hashlib
 import logging
 import os
 import threading
@@ -179,6 +180,36 @@ def resolve_font(
         return found
     _warn_no_cjk_font()
     return ImageFont.load_default(), "default-no-cjk"
+
+
+def resolved_font_digest(
+    text: str,
+    *,
+    size: int = DEFAULT_CJK_FONT_SIZE,
+    font_path: str | None = None,
+) -> str:
+    """SHA-256 of the bytes of the font that will actually draw ``text``.
+
+    Identity must be the file *content*, not the path: the same path resolves to
+    different bytes on different machines, so a path string cannot distinguish
+    two machines whose lettering differs (§5). The sentinels ``"builtin"`` and
+    ``"builtin-no-cjk"`` stand in for Pillow's bitmap font, which has no file.
+    """
+    if not text_requires_cjk(text):
+        return "builtin"
+    found = _find_cjk_font(size, font_path)
+    if found is None:
+        return "builtin-no-cjk"
+    _font, source = found
+    for prefix in ("font_path:", "INKSTONE_FONT_PATH:"):
+        if source.startswith(prefix):
+            source = source[len(prefix) :]
+            break
+    try:
+        with open(source, "rb") as handle:
+            return hashlib.sha256(handle.read()).hexdigest()
+    except OSError:
+        return "unreadable"
 
 
 def reset_caches() -> None:
