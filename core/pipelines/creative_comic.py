@@ -93,6 +93,7 @@ from core.schemas import (
     Setting,
     Storyboard,
     StoryElements,
+    Tombstone,
 )
 from core.screenwriter import (
     extract_key_beats,
@@ -1386,6 +1387,13 @@ async def _creative_comic(
                             )
                             if state_key not in state.skipped_pages:
                                 state.skipped_pages.append(state_key)
+                            # §6: record outcome/reason so the rejection is a hit on
+                            # resume rather than an eternal retry that burns quota.
+                            state.tombstones[state_key] = Tombstone(
+                                outcome="rejected",
+                                reason="content_policy",
+                                stage="render.page",
+                            )
                             if state_key in state.stale_pages:
                                 state.stale_pages = [k for k in state.stale_pages if k != state_key]
                             state.save(state_path)

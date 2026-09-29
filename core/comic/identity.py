@@ -397,6 +397,29 @@ def force_regen_panels(state: ProjectState, keys: list[str]) -> None:
     state.stale_panels = sorted(stale)
 
 
+def clear_tombstones(state: ProjectState, keys: list[str]) -> list[str]:
+    """Release tombstoned pages so they are retried on the next run.
+
+    Design §6: a tombstone's key never changes, so without this override a page
+    rejected in error would be unretryable forever. §7 ``rebuild --stage render
+    --key <k>`` is the CLI face of this function, and §9 requires the tombstone
+    and its override to ship in the same phase — never ship tombstones first.
+
+    Returns the keys that actually had a tombstone, so a caller can report what
+    changed rather than claiming success for keys that were never tombstones.
+    """
+    key_set = set(keys)
+    released = [k for k in keys if k in state.tombstones]
+    for key in released:
+        del state.tombstones[key]
+    # ``skipped_pages`` is the legacy skip set the pipeline still consults when
+    # deciding whether a page needs generating; leaving the key there would keep
+    # the page skipped and make the override a no-op.
+    state.skipped_pages = [k for k in state.skipped_pages if k not in key_set]
+    state.stale_pages = [k for k in state.stale_pages if k not in key_set]
+    return released
+
+
 def suggestion_from_alias(
     new_name: str,
     candidate: str,

@@ -1401,6 +1401,28 @@ def _now_iso() -> str:
     return datetime.now().astimezone().isoformat()
 
 
+class Tombstone(BaseModel):
+    """A page that terminally failed and must not be retried blindly.
+
+    Design §6: a content-policy rejection produces no artifact, so a
+    content-addressed pipeline would see no record, retry next run, get
+    rejected again, and burn one image call per rejected page on every resume.
+    The tombstone records ``outcome``/``reason`` so a rejection counts as a
+    **hit**; only an explicit human override clears it (§7 ``rebuild``).
+
+    Field names follow the manifest schema in §6. ``stage`` uses the manifest's
+    dotted stage id (``render.page``) rather than a ``Stage`` enum value, so the
+    eventual manifest can absorb this record without a rename.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    outcome: str = "rejected"
+    reason: str = ""
+    stage: str = ""
+    created_at: str = Field(default_factory=_now_iso)
+
+
 class ProjectState(BaseModel):
     """Resumable project state persisted to ``state.json`` between stages."""
 
@@ -1440,7 +1462,14 @@ class ProjectState(BaseModel):
     beat_cache: dict[str, KeyBeatSet] = Field(default_factory=dict)
     pages_done: list[str] = Field(default_factory=list)
     stale_pages: list[str] = Field(default_factory=list)
+    # Pages rejected by the upstream content filter, recorded so a rerun stays
+    # honest instead of retrying blindly. Superseded by ``tombstones`` below,
+    # which additionally carries the reason; kept for the legacy skip set.
     skipped_pages: list[str] = Field(default_factory=list)
+    # Phase 0f: minimal tombstone, keyed by page state key. §6 requires a
+    # rejection to be a *hit* on resume (no external call re-issued), with its
+    # ``outcome``/``reason`` preserved so a human can audit and override it.
+    tombstones: dict[str, Tombstone] = Field(default_factory=dict)
     generated: GeneratedAssets = Field(default_factory=GeneratedAssets)
     visual_bible: VisualBible | None = None
     errors: str = "logs/errors.jsonl"
