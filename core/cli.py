@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 
 from core.comic.coverage import compute_coverage_report, write_coverage_report
+from core.comic.identity import clear_tombstones
 from core.density import DensityEstimate, estimate
 from core.schemas import ProjectState
 
@@ -142,6 +143,29 @@ def _build_parser() -> argparse.ArgumentParser:
         "--span-threshold", type=float, default=0.95, help="Source span backtrace threshold"
     )
 
+    # rebuild：清除墓碑（§7）。当前唯一落地的 stage 是 render 的页级墓碑；
+    # 其他 stage 尚无墓碑存储，显式拒绝以免静默无效。
+    p_rb = sub.add_parser(
+        "rebuild",
+        help="Force regeneration and clear tombstones for a stage subtree.",
+    )
+    p_rb.add_argument(
+        "--out",
+        default="comic_out",
+        help="Generation output directory (contains state.json; default comic_out)",
+    )
+    p_rb.add_argument(
+        "--stage",
+        default="render",
+        help="Stage to rebuild; only 'render' owns page tombstones today (default render)",
+    )
+    p_rb.add_argument(
+        "--key",
+        action="append",
+        default=[],
+        help="Page state key to release, e.g. c0000:u1_p0001 (repeatable)",
+    )
+
     return parser
 
 
@@ -261,6 +285,40 @@ def _run_coverage(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def _run_rebuild(args: argparse.Namespace) -> int:
+    """rebuild 子命令：清除指定 stage 的墓碑，使其在下次运行时重绘（§7）。
+
+    只落地了 render 的页级墓碑；其他 stage 尚无墓碑存储，显式拒绝而不是
+    静默成功，否则用户会以为页面已释放。
+    """
+    if args.stage != "render":
+        print(f"rebuild：stage '{args.stage}' 尚无墓碑存储，当前只支持 render。")
+        return 1
+
+    out = Path(args.out)
+    state_path = out / "state.json"
+    if not state_path.exists():
+        print(f"state.json 未找到：{args.out}（请先运行 generate 或指定 --out）")
+        return 1
+
+    state = ProjectState.load(state_path)
+    keys = list(args.key)
+    # §7: --stage alone targets the whole stage subtree; --key narrows it.
+    if not keys:
+        keys = list(state.tombstones)
+
+    released = clear_tombstones(state, keys)
+    missing = [k for k in keys if k not in released]
+    state.save(state_path)
+
+    for key in released:
+        print(f"已释放墓碑 {key}：下次运行将重绘该页。")
+    for key in missing:
+        print(f"未找到墓碑 {key}：未做任何修改。")
+    print(f"rebuild 完成：释放 {len(released)} 个墓碑。")
+    return 1 if missing else 0
+
+
 def _run_generate(args: argparse.Namespace) -> None:
     """generate 子命令：运行 core.cli_generate（实现收编于 core，任何安装方式可用）。"""
     from core.cli_generate import run_generate
@@ -287,7 +345,7 @@ def main() -> None:
     # 使 scripts/start.sh 改为 `python -m core.cli "$@"` 后行为不变。
     # -h/--help 不插入，否则 `inkstone --help` 会误显示 generate 的帮助。
     first = sys.argv[1] if len(sys.argv) > 1 else ""
-    if first not in ("generate", "plan", "identity", "coverage", "-h", "--help"):
+    if first not in ("generate", "plan", "identity", "coverage", "rebuild", "-h", "--help"):
         sys.argv.insert(1, "generate")
 
     parser = _build_parser()
@@ -301,6 +359,8 @@ def main() -> None:
         _not_implemented("identity", "D3")
     elif args.command == "coverage":
         _run_coverage(args)
+    elif args.command == "rebuild":
+        sys.exit(_run_rebuild(args))
 
 
 if __name__ == "__main__":
