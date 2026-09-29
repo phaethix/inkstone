@@ -10,6 +10,9 @@ values are populated.
 import os
 
 # Env var name constants (for tests, docs, and monkeypatch targets).
+# Every ``os.environ`` read below must reference one of these; a bare string
+# literal would be invisible to ALL_ENV_VARS and to the h_env registry, so
+# tests/test_config.py fails if one reappears.
 ENV_WEBTOON_WARN_MB = "INKSTONE_WEBTOON_WARN_MB"
 ENV_WEBTOON_MAX_PIXELS = "INKSTONE_WEBTOON_MAX_PIXELS"
 ENV_FONT_PATH = "INKSTONE_FONT_PATH"
@@ -21,6 +24,24 @@ ENV_SUPERVISOR_BACKOFF_BASE = "INKSTONE_SUPERVISOR_BACKOFF_BASE"
 ENV_SUPERVISOR_BACKOFF_CAP = "INKSTONE_SUPERVISOR_BACKOFF_CAP"
 ENV_RENDER_MODE = "INKSTONE_RENDER_MODE"
 ENV_PAGE_SIZE = "INKSTONE_PAGE_SIZE"
+ENV_PROVIDER = "PROVIDER"
+ENV_AGNES_API_KEY = "AGNES_API_KEY"
+ENV_AGNES_IMAGE_I2I_MODEL = "AGNES_IMAGE_I2I_MODEL"
+ENV_AGNES_CHAT_MODEL = "AGNES_CHAT_MODEL"
+ENV_AGNES_IMAGE_MAX_RETRIES = "AGNES_IMAGE_MAX_RETRIES"
+ENV_AGNES_IMAGE_RETRY_BASE_DELAY = "AGNES_IMAGE_RETRY_BASE_DELAY"
+ENV_AGNES_RATE_LIMIT = "AGNES_RATE_LIMIT"
+ENV_AGNES_IMAGE_2K_RPM = "AGNES_IMAGE_2K_RPM"
+ENV_AGNES_IMAGE_3K_RPM = "AGNES_IMAGE_3K_RPM"
+ENV_INKSTONE_IMAGE_CONCURRENCY = "INKSTONE_IMAGE_CONCURRENCY"
+ENV_INKSTONE_PANEL_CONTINUITY = "INKSTONE_PANEL_CONTINUITY"
+ENV_OPENAI_COMPAT_BASE_URL = "OPENAI_COMPAT_BASE_URL"
+ENV_OPENAI_COMPAT_API_KEY = "OPENAI_COMPAT_API_KEY"
+ENV_OPENAI_COMPAT_MODEL_T2I = "OPENAI_COMPAT_MODEL_T2I"
+ENV_OPENAI_COMPAT_MODEL_I2I = "OPENAI_COMPAT_MODEL_I2I"
+ENV_OPENAI_COMPAT_CHAT_BASE_URL = "OPENAI_COMPAT_CHAT_BASE_URL"
+ENV_OPENAI_COMPAT_CHAT_API_KEY = "OPENAI_COMPAT_CHAT_API_KEY"
+ENV_OPENAI_COMPAT_CHAT_MODEL = "OPENAI_COMPAT_CHAT_MODEL"
 
 
 def _get(name: str, default: str = "") -> str:
@@ -62,15 +83,15 @@ def env_bool(name: str, default: bool = False) -> bool:
 
 
 def agnes_rate_limit_rpm() -> int:
-    return env_int("AGNES_RATE_LIMIT", 20)
+    return env_int(ENV_AGNES_RATE_LIMIT, 20)
 
 
 def agnes_image_2k_rpm() -> int:
-    return env_int("AGNES_IMAGE_2K_RPM", 10)
+    return env_int(ENV_AGNES_IMAGE_2K_RPM, 10)
 
 
 def agnes_image_3k_rpm() -> int:
-    return env_int("AGNES_IMAGE_3K_RPM", 1)
+    return env_int(ENV_AGNES_IMAGE_3K_RPM, 1)
 
 
 def page_script_enabled() -> bool:
@@ -159,19 +180,19 @@ class ImageConfig:
     panel_continuity: bool
 
     def __init__(self) -> None:
-        self.provider = _get("PROVIDER", "agnes").lower()
-        self.agnes_api_key = _get("AGNES_API_KEY")
-        self.agnes_i2i_model = _get("AGNES_IMAGE_I2I_MODEL")
-        self.openai_compat_base_url = _get("OPENAI_COMPAT_BASE_URL")
-        self.openai_compat_api_key = _get("OPENAI_COMPAT_API_KEY")
+        self.provider = _get(ENV_PROVIDER, "agnes").lower()
+        self.agnes_api_key = _get(ENV_AGNES_API_KEY)
+        self.agnes_i2i_model = _get(ENV_AGNES_IMAGE_I2I_MODEL)
+        self.openai_compat_base_url = _get(ENV_OPENAI_COMPAT_BASE_URL)
+        self.openai_compat_api_key = _get(ENV_OPENAI_COMPAT_API_KEY)
         self.openai_compat_model_t2i = _get(
-            "OPENAI_COMPAT_MODEL_T2I", "gemini-2.0-flash-exp-image-generation"
+            ENV_OPENAI_COMPAT_MODEL_T2I, "gemini-2.0-flash-exp-image-generation"
         )
-        self.openai_compat_model_i2i = _get("OPENAI_COMPAT_MODEL_I2I")
-        self.image_max_retries = env_int("AGNES_IMAGE_MAX_RETRIES", 5)
-        self.image_retry_base_delay = env_float("AGNES_IMAGE_RETRY_BASE_DELAY", 5.0)
-        self.image_concurrency = max(1, env_int("INKSTONE_IMAGE_CONCURRENCY", 3, minimum=1))
-        self.panel_continuity = _get("INKSTONE_PANEL_CONTINUITY", "1").strip().lower() in {
+        self.openai_compat_model_i2i = _get(ENV_OPENAI_COMPAT_MODEL_I2I)
+        self.image_max_retries = env_int(ENV_AGNES_IMAGE_MAX_RETRIES, 5)
+        self.image_retry_base_delay = env_float(ENV_AGNES_IMAGE_RETRY_BASE_DELAY, 5.0)
+        self.image_concurrency = max(1, env_int(ENV_INKSTONE_IMAGE_CONCURRENCY, 3, minimum=1))
+        self.panel_continuity = _get(ENV_INKSTONE_PANEL_CONTINUITY, "1").strip().lower() in {
             "1",
             "true",
             "yes",
@@ -190,9 +211,21 @@ class ChatConfig:
     openai_compat_chat_model: str
 
     def __init__(self) -> None:
-        self.provider = _get("PROVIDER", "agnes").lower()
-        self.agnes_api_key = _get("AGNES_API_KEY")
-        self.agnes_chat_model = _get("AGNES_CHAT_MODEL", "agnes-3.0-flash")
-        self.openai_compat_chat_base_url = _get("OPENAI_COMPAT_CHAT_BASE_URL")
-        self.openai_compat_chat_api_key = _get("OPENAI_COMPAT_CHAT_API_KEY")
-        self.openai_compat_chat_model = _get("OPENAI_COMPAT_CHAT_MODEL")
+        self.provider = _get(ENV_PROVIDER, "agnes").lower()
+        self.agnes_api_key = _get(ENV_AGNES_API_KEY)
+        self.agnes_chat_model = _get(ENV_AGNES_CHAT_MODEL, "agnes-3.0-flash")
+        self.openai_compat_chat_base_url = _get(ENV_OPENAI_COMPAT_CHAT_BASE_URL)
+        self.openai_compat_chat_api_key = _get(ENV_OPENAI_COMPAT_CHAT_API_KEY)
+        self.openai_compat_chat_model = _get(ENV_OPENAI_COMPAT_CHAT_MODEL)
+
+
+# Every environment variable this module reads, collected from the ENV_*
+# constants above. Collected by name prefix rather than listed by hand so a new
+# constant cannot be forgotten; tests/test_env_snapshot.py asserts that the
+# h_env registry partitions this set exactly. The list() snapshot avoids
+# mutating globals() during iteration.
+ALL_ENV_VARS: frozenset[str] = frozenset(
+    value
+    for name, value in list(globals().items())
+    if name.startswith("ENV_") and isinstance(value, str)
+)
