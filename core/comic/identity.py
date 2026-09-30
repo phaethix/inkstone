@@ -33,6 +33,17 @@ _HUMAN_LOCK = (
 )
 
 
+def page_state_key(chunk_index: int, page_index: int) -> str:
+    """Return the positional identity for one finished-page position.
+
+    Phase 0b (§4/§9): a page's identity is its position — ``c{ci:04d}-p{idx:04d}``
+    — matching the convention panel keys already use. The model-generated
+    ``ComicPagePlan.page_id`` is deliberately **not** part of this key: a replan
+    that renames pages would otherwise orphan every recorded page.
+    """
+    return f"c{chunk_index:04d}-p{page_index:04d}"
+
+
 def name_suggests_animal_metaphor(name: str) -> bool:
     """True when ``name`` contains a common animal-metaphor ideograph."""
     return any(ch in _ANIMAL_METAPHOR_CHARS for ch in name or "")
@@ -326,12 +337,12 @@ def merge_character_alias(
             chunk_index = int(cache_key)
         except ValueError:
             continue
-        for plan in pageset.pages:
+        for page_index, plan in enumerate(pageset.pages):
             names = set(plan.reference_characters)
             for panel in plan.panels:
                 names.update(panel.characters)
             if new_name in names:
-                stale_pages.append(f"c{chunk_index:04d}:{plan.page_id}")
+                stale_pages.append(page_state_key(chunk_index, page_index))
         for plan in pageset.pages:
             plan.reference_characters = _rewrite_names(
                 plan.reference_characters, new_name, keep_name
