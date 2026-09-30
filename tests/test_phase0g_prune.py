@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 import time
 from datetime import timedelta
 from pathlib import Path
@@ -109,6 +111,7 @@ def test_plan_prune_selects_old_unreferenced_only(tmp_path):
     plan = plan_prune(tmp_path, parse_older_than("7d"))
     planned = {candidate.path for candidate in plan.candidates}
     assert planned == {orphan_old.resolve()}
+    assert orphan_new.resolve() not in planned
     assert plan.total_bytes == 6
 
 
@@ -177,3 +180,45 @@ def test_plan_prune_corrupt_ledger_still_protects_state_roots(tmp_path):
     plan = plan_prune(tmp_path, parse_older_than("7d"))
 
     assert live.resolve() not in {candidate.path for candidate in plan.candidates}
+
+
+def _run_cli(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, "-m", "core.cli", *args],
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_cli_prune_dry_run_leaves_files(tmp_path):
+    orphan = _write(tmp_path / "panels" / "id-orphan.png", b"o")
+    _age(orphan, 100 * 86400)
+    (tmp_path / "state.json").write_text(ProjectState(project_id="p").model_dump_json())
+
+    completed = _run_cli("prune", "--out", str(tmp_path), "--older-than", "7d")
+
+    assert completed.returncode == 0
+    assert orphan.exists()
+    assert "id-orphan.png" in completed.stdout
+
+
+def test_cli_prune_apply_deletes(tmp_path):
+    orphan = _write(tmp_path / "panels" / "id-orphan.png", b"o")
+    _age(orphan, 100 * 86400)
+    (tmp_path / "state.json").write_text(ProjectState(project_id="p").model_dump_json())
+
+    completed = _run_cli("prune", "--out", str(tmp_path), "--older-than", "7d", "--apply")
+
+    assert completed.returncode == 0
+    assert not orphan.exists()
+
+
+def test_cli_prune_rejects_bad_threshold(tmp_path):
+    (tmp_path / "state.json").write_text(ProjectState(project_id="p").model_dump_json())
+    completed = _run_cli("prune", "--out", str(tmp_path), "--older-than", "soon")
+    assert completed.returncode != 0
+
+
+def test_cli_prune_missing_state_fails(tmp_path):
+    completed = _run_cli("prune", "--out", str(tmp_path), "--older-than", "7d")
+    assert completed.returncode != 0
