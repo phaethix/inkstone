@@ -16,10 +16,18 @@ Status definitions:
 - **Planned**: approved direction, not yet implemented.
 
 Developer onboarding for the shipped tree is [`docs/ONBOARDING.md`](ONBOARDING.md).
-Long-form **target** architecture drafts may still live under local
-`docs/architecture/` (not yet versioned). Until those are published, treat this
-roadmap, the onboarding guide, and the released code as the source of truth for
-status.
+The **target** architecture is now versioned:
+[`docs/architecture/2026-09-28-content-addressed-pipeline-design.md`](architecture/2026-09-28-content-addressed-pipeline-design.md)
+(Chinese version: [`…-design.zh-CN.md`](architecture/2026-09-28-content-addressed-pipeline-design.zh-CN.md)).
+Its three original blockers (L2 continuity cascade, dynamic page DAG, missing
+tombstones) and its majors were verified against the shipped tree and have been
+folded into the design (§2, §4, §6, §12); they are now design requirements rather
+than open findings. The separate review document was never committed to this repo,
+so it is not linked here. Treat this roadmap, the onboarding guide, and the released code as
+the source of truth for **current status**; the architecture document is the source
+of truth for **where the design is heading**. Where they disagree, status wins until
+the migration lands. Additional long-form drafts may still live under local
+`docs/architecture/`.
 
 When completing a change:
 
@@ -80,6 +88,18 @@ Keep these prototypes only as migration material until they conform to the targe
   cannot be mistaken for a release-quality gate.
 - [ ] Calibrate estimates with a public sample; do not promise fixed panels per
   chunk without evidence.
+- [ ] Resolve the three blockers recorded in the [content-addressed pipeline
+  design](architecture/2026-09-28-content-addressed-pipeline-design.md)
+  before starting any migration phase:
+  1. separate **hard inputs** from **soft L2 reference images**, so an alias merge
+     redraws affected pages only and never cascades through the book-wide
+     `previous_page_blank` continuity chain;
+  2. define the scheduler as a **two-phase dynamic DAG** (plan, then expand) with
+     **positional** page identity, replacing the model-generated `page_id` in
+     `_page_state_key`;
+3. add **tombstone manifests** (`outcome: ok | rejected | stopped | awaiting_human`) so
+     content-policy rejections are not re-attempted — and quota burned — on every
+     resume.
 
 ### P1 — Chapter-complete adaptation MVP
 

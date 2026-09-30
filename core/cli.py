@@ -249,6 +249,7 @@ def _run_coverage(args: argparse.Namespace) -> None:
     if not state_path.exists():
         sys.exit(f"state.json 未找到：{args.out}（请先运行 generate 或指定 --out）")
     state = ProjectState.load(state_path)
+    state.migrate_legacy_page_keys()
     page_scripts = [
         cc.page_script for cc in state.chunk_cache.values() if cc.page_script is not None
     ]
@@ -302,6 +303,7 @@ def _run_rebuild(args: argparse.Namespace) -> int:
         return 1
 
     state = ProjectState.load(state_path)
+    state.migrate_legacy_page_keys()
     keys = list(args.key)
     # §7: --stage alone targets the whole stage subtree; --key narrows it.
     if not keys:

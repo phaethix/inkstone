@@ -11,6 +11,7 @@ from core.schemas import (
     CharacterAsset,
     ComicPagePlan,
     ComicPagePlanSet,
+    PagePanelSpec,
     ProjectState,
 )
 
@@ -105,3 +106,34 @@ def test_key_is_unchanged_when_model_page_id_changes(tmp_path, monkeypatch):
     )
     assert "c0000-p0000" in rerun.state.generated.pages
     assert rerun.state.pages_done == ["c0000-p0000"]
+
+
+import web.server as server
+
+
+def test_start_regen_job_treats_positional_page_keys_as_pages(tmp_path, monkeypatch):
+    """A positional page key must reach stale_pages, never stale_panels (0b)."""
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(server, "_start_job", lambda *a, **k: ("job1", "proj1"))
+    project_id = "proj1"
+    out = tmp_path / project_id
+    out.mkdir()
+    (out / "source.txt").write_text("第一章\n福贵。", encoding="utf-8")
+    page = ComicPagePlan(
+        page_id="u1_p0001",
+        reference_characters=["福贵"],
+        panels=[PagePanelSpec(panel_id="p1", characters=["福贵"])],
+    )
+    state = ProjectState(
+        project_id=project_id,
+        render_mode="finished_page",
+        page_cache={"0": ComicPagePlanSet(unit_id="u1", pages=[page])},
+        stale_pages=["c0000-p0000"],
+    )
+    state.save(out / "state.json")
+
+    server.start_regen_job(project_id, stale=True)
+
+    reloaded = ProjectState.load(out / "state.json")
+    assert reloaded.stale_pages == ["c0000-p0000"]
+    assert reloaded.stale_panels == []
