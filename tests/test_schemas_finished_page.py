@@ -102,7 +102,7 @@ def test_generated_page_blank_local_and_lettered_mode():
         page_id="p0001",
         mode="finished_lettered",
     )
-    state = ProjectState(project_id="t", generated={"pages": {"c0000:p0001": page}})
+    state = ProjectState(project_id="t", generated={"pages": {"c0000-p0000": page}})
     loaded = ProjectState.model_validate_json(state.model_dump_json())
-    assert loaded.generated.pages["c0000:p0001"].blank_local.endswith("blank/page_c0000_p0000.png")
-    assert loaded.generated.pages["c0000:p0001"].mode == "finished_lettered"
+    assert loaded.generated.pages["c0000-p0000"].blank_local.endswith("blank/page_c0000_p0000.png")
+    assert loaded.generated.pages["c0000-p0000"].mode == "finished_lettered"

@@ -312,9 +312,9 @@ def test_finished_page_mode_writes_generated_pages(tmp_path, monkeypatch):
     assert page_files
 
     assert proj.state.render_mode == "finished_page"
-    assert "c0000:u1_p0001" in proj.state.generated.pages
-    assert "c0000:u1_p0001" in proj.state.pages_done
-    generated_page = proj.state.generated.pages["c0000:u1_p0001"]
+    assert "c0000-p0000" in proj.state.generated.pages
+    assert "c0000-p0000" in proj.state.pages_done
+    generated_page = proj.state.generated.pages["c0000-p0000"]
     assert generated_page.mode == "finished_lettered"
     assert generated_page.blank_local
     assert Path(generated_page.blank_local).exists()
@@ -448,7 +448,7 @@ def test_finished_page_resumes_after_deleted_page(tmp_path, monkeypatch):
     assert img2.calls == 0  # missing lettered page is rebuilt from the retained blank
     assert chat2.calls == 0  # page plan reused from page_cache
     assert deleted.exists()
-    assert "c0000:u1_p0001" in proj.state.pages_done
+    assert "c0000-p0000" in proj.state.pages_done
 
 
 @patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
@@ -464,8 +464,8 @@ def test_finished_page_filenames_are_position_stable_across_partial_resume(tmp_p
 
     state = ProjectState.load(tmp_path / "state.json")
     assert len(state.generated.pages) == 2
-    first_page = state.generated.pages["c0000:u1_p0001"]
-    second_page = state.generated.pages["c0001:u2_p0001"]
+    first_page = state.generated.pages["c0000-p0000"]
+    second_page = state.generated.pages["c0001-p0000"]
     second_path = Path(second_page.local)
     second_bytes_before = second_path.read_bytes()
 
@@ -478,7 +478,7 @@ def test_finished_page_filenames_are_position_stable_across_partial_resume(tmp_p
     assert Path(first_page.local).exists()  # regenerated at the *same* path
     assert second_path.exists()
     assert second_path.read_bytes() == second_bytes_before  # untouched, not overwritten
-    assert set(proj.state.pages_done) == {"c0000:u1_p0001", "c0001:u2_p0001"}
+    assert set(proj.state.pages_done) == {"c0000-p0000", "c0001-p0000"}
 
 
 class RejectingPageImage(FakeImage):
@@ -498,9 +498,9 @@ def test_finished_page_content_policy_rejection_is_skipped_not_raised(tmp_path, 
     proj = asyncio.run(
         creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=RejectingPageImage())
     )
-    assert "c0000:u1_p0001" in proj.state.skipped_pages
-    assert "c0000:u1_p0001" not in proj.state.pages_done
-    assert "c0000:u1_p0001" not in proj.state.generated.pages
+    assert "c0000-p0000" in proj.state.skipped_pages
+    assert "c0000-p0000" not in proj.state.pages_done
+    assert "c0000-p0000" not in proj.state.generated.pages
 
 
 def test_is_content_policy_rejection_still_used_by_finished_page_path():
@@ -543,8 +543,8 @@ def test_finished_page_falls_back_to_square_when_size_rejected(tmp_path, monkeyp
     proj = asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=img))
 
     assert img.page_sizes == ["1024x1536", "1024x1024"]
-    assert "c0000:u1_p0001" in proj.state.pages_done
-    assert Path(proj.state.generated.pages["c0000:u1_p0001"].local).exists()
+    assert "c0000-p0000" in proj.state.pages_done
+    assert Path(proj.state.generated.pages["c0000-p0000"].local).exists()
 
 
 class FailOncePageImage(FakeImage):
@@ -577,9 +577,9 @@ def test_finished_page_generic_failure_retries_once_with_stricter_prompt(tmp_pat
     assert "STRICT" in img.prompts[1]
     assert "STRICT" not in img.prompts[0]
 
-    assert "c0000:u1_p0001" in proj.state.pages_done
-    assert "c0000:u1_p0001" not in proj.state.skipped_pages
-    assert Path(proj.state.generated.pages["c0000:u1_p0001"].local).exists()
+    assert "c0000-p0000" in proj.state.pages_done
+    assert "c0000-p0000" not in proj.state.skipped_pages
+    assert Path(proj.state.generated.pages["c0000-p0000"].local).exists()
 
 
 @patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
@@ -663,8 +663,8 @@ def test_finished_page_cross_chunk_page_id_collision(tmp_path, monkeypatch):
     assert len(page_files) == 2
     assert img.calls == 3  # 1 portrait + 2 pages (same page_id, different chunks)
 
-    assert set(proj.state.generated.pages) == {"c0000:p0001", "c0001:p0001"}
-    assert set(proj.state.pages_done) == {"c0000:p0001", "c0001:p0001"}
+    assert set(proj.state.generated.pages) == {"c0000-p0000", "c0001-p0000"}
+    assert set(proj.state.pages_done) == {"c0000-p0000", "c0001-p0000"}
     assert len(proj.pages) == 2
     assert proj.pdf and Path(proj.pdf).exists()
 
