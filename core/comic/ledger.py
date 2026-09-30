@@ -20,9 +20,45 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from core.schemas import ProjectState
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _base_name(name: str) -> str:
+    """Strip a ``Name@stage`` suffix so a stage portrait maps to its character."""
+    return (name or "").split("@", 1)[0].strip()
+
+
+def _pages_by_character(state: ProjectState) -> dict[str, list[str]]:
+    """Derive, per character, the positional page ids it appears on (§12).
+
+    Reads ``page_cache`` — the plans the pipeline already produced — so the
+    derivation is zero-quota. Each character's list is de-duplicated.
+    """
+    from core.comic.identity import page_state_key  # local: avoid an import cycle
+
+    out: dict[str, list[str]] = {}
+    for cache_key, pageset in state.page_cache.items():
+        try:
+            chunk_index = int(cache_key)
+        except (TypeError, ValueError):
+            continue
+        for page_index, plan in enumerate(pageset.pages):
+            key = page_state_key(chunk_index, page_index)
+            names: list[str] = list(plan.reference_characters)
+            for panel in plan.panels:
+                names.extend(panel.characters)
+            for raw in names:
+                name = _base_name(raw)
+                if not name:
+                    continue
+                bucket = out.setdefault(name, [])
+                if key not in bucket:
+                    bucket.append(key)
+    return out
 
 
 class ReferenceVersion(BaseModel):
@@ -86,3 +122,34 @@ class ConsistencyLedger(BaseModel):
         except Exception:
             Path(temp_name).unlink(missing_ok=True)
             raise
+
+    def rebuild_from_state(self, state: ProjectState) -> bool:
+        """Refresh every character's ``pages`` and pending set from ``page_cache``.
+
+        Idempotent and zero-quota. ``pages`` is derived; ``pending_pages`` is
+        recomputed as "pages for a reference version above the reviewed one", so
+        it is independent of whether a portrait was regenerated before or after
+        the plans were known. A character's ``reference`` is never cleared here:
+        it records a product decision (§12 invariant 9), not a derivation.
+        Returns ``True`` when anything changed.
+        """
+        derived = _pages_by_character(state)
+        changed = False
+        for name, pages in derived.items():
+            entry = self.characters.get(name)
+            if entry is None:
+                entry = LedgerEntry(pages=list(pages))
+                self.characters[name] = entry
+                changed = True
+            elif entry.pages != pages:
+                entry.pages = list(pages)
+                entry.updated_at = _now_iso()
+                changed = True
+            pending = (
+                list(entry.pages) if entry.reference.version > entry.reviewed_version else []
+            )
+            if entry.pending_pages != pending:
+                entry.pending_pages = pending
+                entry.updated_at = _now_iso()
+                changed = True
+        return changed
