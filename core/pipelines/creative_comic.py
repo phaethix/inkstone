@@ -56,6 +56,7 @@ from core.comic.identity import (
 )
 from core.comic.key_beats import beat_coverage_retry_note, uncovered_must_draw_beats
 from core.comic.layout import LayoutEngine, PanelImage
+from core.comic.ledger import ConsistencyLedger
 from core.comic.page_lettering import LETTERING_VERSION, letter_finished_page
 from core.comic.page_prompt import render_finished_page_prompt
 from core.comic.segmentation import detect_character_aliases, merge_characters, segment_text
@@ -953,6 +954,10 @@ async def _creative_comic(
         panel_key_filter = None
     state.project_id = project_id
     state.render_mode = mode
+    # Phase 0d: the consistency ledger is loaded (or rebuilt from page_cache)
+    # once per run and kept in sync below. It enters no key or fingerprint.
+    ledger_path = output_dir / "consistency.json"
+    ledger = ConsistencyLedger.load_or_rebuild(ledger_path, state)
 
     image_semaphore = asyncio.Semaphore(image_config.image_concurrency)
     engine = ConsistencyEngine()
@@ -1157,6 +1162,19 @@ async def _creative_comic(
                 _, path = result
                 state.characters[name].portrait_local = path
                 state.generated.portraits[name] = path
+                # Phase 0d (§12 consequence 1): record the authoritative
+                # reference. A first-ever portrait establishes the version
+                # without flagging pages we cannot yet enumerate; a
+                # regeneration bumps the version so rebuild marks the
+                # character's pages pending for review.
+                ledger_name = name.split("@", 1)[0]
+                if not ledger.pages_for(ledger_name):
+                    ledger.record_reference(ledger_name, path)
+                    ledger.characters[ledger_name].reviewed_version = (
+                        ledger.characters[ledger_name].reference.version
+                    )
+                else:
+                    ledger.record_reference(ledger_name, path)
                 _report("portrait", _pct())
 
         policy_rejection: Exception | None = None
@@ -1451,10 +1469,14 @@ async def _creative_comic(
                     mode="finished_lettered",
                 )
                 _mark_page_done(state, state_key)
+                if ledger.rebuild_from_state(state):
+                    ledger.save(ledger_path)
                 state.save(state_path)
                 _report("pages", _pct())
 
             _mark_page_chunk_done_if_complete(state, key, pageset, ci)
+            ledger.rebuild_from_state(state)
+            ledger.save(ledger_path)
             state.save(state_path)
             _report("pages", _pct())
             continue
