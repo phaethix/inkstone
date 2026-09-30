@@ -1170,9 +1170,9 @@ async def _creative_comic(
                 ledger_name = name.split("@", 1)[0]
                 if not ledger.pages_for(ledger_name):
                     ledger.record_reference(ledger_name, path)
-                    ledger.characters[ledger_name].reviewed_version = (
-                        ledger.characters[ledger_name].reference.version
-                    )
+                    ledger.characters[ledger_name].reviewed_version = ledger.characters[
+                        ledger_name
+                    ].reference.version
                 else:
                     ledger.record_reference(ledger_name, path)
                 _report("portrait", _pct())

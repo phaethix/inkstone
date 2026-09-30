@@ -169,7 +169,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--key",
         action="append",
         default=[],
-help="Page state key to release, e.g. c0000-p0000 (repeatable)",
+        help="Page state key to release, e.g. c0000-p0000 (repeatable)",
     )
 
     return parser
@@ -310,10 +310,7 @@ def _run_identity(args: argparse.Namespace) -> int:
         entry = ledger.characters[name]
         pending = len(entry.pending_pages)
         ref = entry.reference.version
-        print(
-            f"  - {name}: {len(entry.pages)} 页，参考版本 v{ref}，"
-            f"待复核 {pending} 页"
-        )
+        print(f"  - {name}: {len(entry.pages)} 页，参考版本 v{ref}，待复核 {pending} 页")
     return 0
 
 

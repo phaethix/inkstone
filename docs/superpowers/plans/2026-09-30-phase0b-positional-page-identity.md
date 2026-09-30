@@ -180,8 +180,12 @@ def _legacy_state() -> ProjectState:
     pages = ComicPagePlanSet(
         unit_id="1",
         pages=[
-            ComicPagePlan.model_validate({"page_id": "u1_p0001", "panels": [{"panel_id": "1", "action": "a"}]}),
-            ComicPagePlan.model_validate({"page_id": "u1_p0002", "panels": [{"panel_id": "2", "action": "b"}]}),
+            ComicPagePlan.model_validate(
+                {"page_id": "u1_p0001", "panels": [{"panel_id": "1", "action": "a"}]}
+            ),
+            ComicPagePlan.model_validate(
+                {"page_id": "u1_p0002", "panels": [{"panel_id": "2", "action": "b"}]}
+            ),
         ],
     )
     return ProjectState(
@@ -191,8 +195,14 @@ def _legacy_state() -> ProjectState:
         pages_done=["c0000:u1_p0001"],
         stale_pages=["c0000:u1_p0002"],
         skipped_pages=["c0000:u1_p0002"],
-        generated=GeneratedAssets(pages={"c0000:u1_p0001": GeneratedPage(local="/tmp/a.png", page_id="u1_p0001")}),
-        tombstones={"c0000:u1_p0002": Tombstone(outcome="rejected", reason="content_policy", stage="render.page")},
+        generated=GeneratedAssets(
+            pages={"c0000:u1_p0001": GeneratedPage(local="/tmp/a.png", page_id="u1_p0001")}
+        ),
+        tombstones={
+            "c0000:u1_p0002": Tombstone(
+                outcome="rejected", reason="content_policy", stage="render.page"
+            )
+        },
     )
 
 
@@ -671,7 +681,9 @@ def test_alias_merge_marks_positional_page_keys():
     pages = ComicPagePlanSet(
         unit_id="1",
         pages=[
-            ComicPagePlan.model_validate({"page_id": "u1_p0001", "panels": [{"panel_id": "1", "action": "a"}]}),
+            ComicPagePlan.model_validate(
+                {"page_id": "u1_p0001", "panels": [{"panel_id": "1", "action": "a"}]}
+            ),
             ComicPagePlan.model_validate(
                 {
                     "page_id": "u1_p0002",
@@ -707,24 +719,22 @@ Expected: FAIL — `stale_pages == ["c0000:u1_p0002"]`
 In `core/comic/identity.py`, replace the stale-page collection loop (lines 323-334) so the key comes from position:
 
 ```python
-    stale_pages: list[str] = []
-    for cache_key, pageset in state.page_cache.items():
-        try:
-            chunk_index = int(cache_key)
-        except ValueError:
-            continue
-        for page_index, plan in enumerate(pageset.pages):
-            names = set(plan.reference_characters)
-            for panel in plan.panels:
-                names.update(panel.characters)
-            if new_name in names:
-                stale_pages.append(page_state_key(chunk_index, page_index))
-        for plan in pageset.pages:
-            plan.reference_characters = _rewrite_names(
-                plan.reference_characters, new_name, keep_name
-            )
-            for panel in plan.panels:
-                panel.characters = _rewrite_names(panel.characters, new_name, keep_name)
+stale_pages: list[str] = []
+for cache_key, pageset in state.page_cache.items():
+    try:
+        chunk_index = int(cache_key)
+    except ValueError:
+        continue
+    for page_index, plan in enumerate(pageset.pages):
+        names = set(plan.reference_characters)
+        for panel in plan.panels:
+            names.update(panel.characters)
+        if new_name in names:
+            stale_pages.append(page_state_key(chunk_index, page_index))
+    for plan in pageset.pages:
+        plan.reference_characters = _rewrite_names(plan.reference_characters, new_name, keep_name)
+        for panel in plan.panels:
+            panel.characters = _rewrite_names(panel.characters, new_name, keep_name)
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -855,9 +865,7 @@ def test_resume_of_legacy_state_does_not_repaint(tmp_path, monkeypatch):
     src = "第一章\n福贵在村口。"
 
     first = FakeImage()
-    proj = asyncio.run(
-        creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=first)
-    )
+    proj = asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=first))
     assert first.calls == 2  # 1 portrait + 1 page
 
     # Rewrite the checkpoint to the pre-0b colon format with a renamed page_id,

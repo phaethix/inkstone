@@ -39,9 +39,7 @@ def test_alias_merge_without_ledger_keeps_cache_walk():
 def test_pipeline_writes_ledger_with_positional_pages(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
     src = "第一章\n福贵在村口。"
-    asyncio.run(
-        creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage())
-    )
+    asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage()))
     led = ConsistencyLedger.load(tmp_path / "consistency.json")
     assert "福贵" in led.characters
     pages = led.characters["福贵"].pages
@@ -72,3 +70,21 @@ def test_identity_view_prints_ledger(tmp_path, capsys):
     code = cli._run_identity(type("A", (), {"out": str(out), "view": True})())
     assert code == 0
     assert "福贵" in capsys.readouterr().out
+
+
+def test_ledger_contents_do_not_enter_the_render_fingerprint():
+    from core.pipelines.creative_comic import _render_fingerprint
+    from core.schemas import ModelSnapshot
+
+    snapshot = ModelSnapshot()
+    before = _render_fingerprint(
+        "manhua", snapshot=snapshot, panel_continuity=True, l3_enabled=False
+    )
+    # A ledger full of content must not perturb the fingerprint inputs at all.
+    ConsistencyLedger(
+        characters={"A": LedgerEntry(pages=["c0000-p0000"], pending_pages=["c0000-p0000"])}
+    )
+    after = _render_fingerprint(
+        "manhua", snapshot=snapshot, panel_continuity=True, l3_enabled=False
+    )
+    assert before == after
