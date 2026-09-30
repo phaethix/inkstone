@@ -116,7 +116,14 @@ Per the [content-addressed pipeline design](architecture/2026-09-28-content-addr
   item 17). Landed: schema + atomic IO, derivation, corruption recovery,
   reference versions/pending review, alias-merge queries, pipeline maintenance,
   a `ledger_pending` web snapshot field, and `inkstone identity --view`. The
-  ledger enters no `action_key` or fingerprint (guarded by a test).
+ledger enters no `action_key` or fingerprint (guarded by a test).
+- [x] **0g** Minimal reclaimer: `inkstone prune --older-than <N>d [--apply]` deletes
+  generated image assets whose reference count is zero **and** whose age exceeds
+  the threshold, dry-run by default (§7, resolved items 3 and 22). CAS-independent
+  and zero-quota: today artifacts are written at deterministic, overwritten paths,
+  so the root set is `state.json` + `consistency.json`; `collect_live_refs` is the
+  seam Phase 4's `gc` extends. It ships before Phase 3, the entry point that writes
+  image bytes.
 
 ### P1 — Chapter-complete adaptation MVP
 

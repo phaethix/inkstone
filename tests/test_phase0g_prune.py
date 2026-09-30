@@ -182,6 +182,19 @@ def test_plan_prune_corrupt_ledger_still_protects_state_roots(tmp_path):
     assert live.resolve() not in {candidate.path for candidate in plan.candidates}
 
 
+def test_apply_prune_is_idempotent(tmp_path):
+    orphan = _write(tmp_path / "panels" / "id-orphan.png", b"12345")
+    _age(orphan, 100 * 86400)
+    (tmp_path / "state.json").write_text(ProjectState(project_id="p").model_dump_json())
+
+    first = apply_prune(plan_prune(tmp_path, parse_older_than("7d")))
+    second = apply_prune(plan_prune(tmp_path, parse_older_than("7d")))
+
+    assert first.deleted == 1
+    assert second.deleted == 0
+    assert second.reclaimed_bytes == 0
+
+
 def _run_cli(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
         [sys.executable, "-m", "core.cli", *args],
