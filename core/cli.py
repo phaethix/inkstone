@@ -163,7 +163,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--key",
         action="append",
         default=[],
-        help="Page state key to release, e.g. c0000:u1_p0001 (repeatable)",
+help="Page state key to release, e.g. c0000-p0000 (repeatable)",
     )
 
     return parser
