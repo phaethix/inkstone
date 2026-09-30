@@ -15,6 +15,8 @@ extends with manifest ``outputs``, gate artifacts, and ``supersedes`` chains.
 from __future__ import annotations
 
 import re
+import time
+from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
 
@@ -22,6 +24,15 @@ from core.comic.ledger import ConsistencyLedger
 from core.schemas import ProjectState
 
 _OLDER_THAN_RE = re.compile(r"^(\d+)([dh]?)$")
+
+# Only these globs are ever candidates; everything else (comic.pdf, webtoon.png,
+# state.json, consistency.json, logs) is structurally out of scope.
+_ASSET_GLOBS = (
+    "panels/*.png",
+    "assets/portraits/*.png",
+    "pages/*.png",
+    "pages/blank/*.png",
+)
 
 
 def parse_older_than(text: str) -> timedelta:
@@ -63,3 +74,75 @@ def collect_live_refs(state: ProjectState, ledger: ConsistencyLedger) -> set[Pat
         if entry.reference.path:
             refs.add(Path(entry.reference.path).resolve())
     return refs
+
+
+@dataclass
+class PruneCandidate:
+    """One reclaimable file."""
+
+    path: Path
+    size_bytes: int
+    mtime: float
+
+
+@dataclass
+class PrunePlan:
+    """The outcome of planning: what would be deleted, and how much it weighs."""
+
+    candidates: list[PruneCandidate] = field(default_factory=list)
+
+    def __bool__(self) -> bool:
+        return bool(self.candidates)
+
+    def __len__(self) -> int:
+        return len(self.candidates)
+
+    @property
+    def total_bytes(self) -> int:
+        return sum(candidate.size_bytes for candidate in self.candidates)
+
+
+def _is_within(path: Path, root: Path) -> bool:
+    """True when ``path`` resolves inside ``root`` (mirrors the pipeline helper)."""
+    try:
+        path.resolve().relative_to(root.resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def plan_prune(
+    output_dir: Path, older_than: timedelta, *, now: float | None = None
+) -> PrunePlan:
+    """Compute the reclaimable set: unreferenced AND older than ``older_than``.
+
+    An absent ``state.json`` is a hard error, never "everything is unreferenced":
+    a missing state must not authorise a mass delete.
+    """
+    output_dir = Path(output_dir)
+    state_path = output_dir / "state.json"
+    if not state_path.is_file():
+        raise FileNotFoundError(state_path)
+    state = ProjectState.load(state_path)
+    state.migrate_legacy_page_keys()
+    ledger = ConsistencyLedger.load_or_rebuild(output_dir / "consistency.json", state)
+    live = collect_live_refs(state, ledger)
+
+    cutoff = (now if now is not None else time.time()) - older_than.total_seconds()
+    plan = PrunePlan()
+    for pattern in _ASSET_GLOBS:
+        for path in sorted(output_dir.glob(pattern)):
+            try:
+                stat = path.stat()
+            except FileNotFoundError:
+                continue
+            if not _is_within(path, output_dir):
+                continue
+            if path.resolve() in live:
+                continue
+            if stat.st_mtime >= cutoff:
+                continue
+            plan.candidates.append(
+                PruneCandidate(path=path, size_bytes=stat.st_size, mtime=stat.st_mtime)
+            )
+    return plan

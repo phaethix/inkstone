@@ -278,10 +278,10 @@ def test_plan_prune_selects_old_unreferenced_only(tmp_path, monkeypatch):
     (tmp_path / "assets" / "portraits").mkdir(parents=True)
     (tmp_path / "pages" / "blank").mkdir(parents=True)
 
-    referenced = _write(tmp_path / "panels" / "id-live.png", b"live")
-    orphan_old = _write(tmp_path / "panels" / "id-orphan.png", b"old-orphan")
-    orphan_new = _write(tmp_path / "panels" / "id-fresh.png", b"fresh-orphan")
-    for path in (referenced, orphan_old, orphan_new):
+referenced = _write(tmp_path / "panels" / "id-live.png", b"live")
+    orphan_old = _write(tmp_path / "panels" / "id-orphan.png", b"orphan")
+    orphan_new = _write(tmp_path / "panels" / "id-fresh.png", b"fresh")
+    for path in (referenced, orphan_old):
         _age(path, 10 * 86400)
 
     state = _state_with_assets(tmp_path)
@@ -294,8 +294,8 @@ ledger = ConsistencyLedger()
 
     plan = plan_prune(tmp_path, parse_older_than("7d"))
     planned = {candidate.path for candidate in plan.candidates}
-    assert planned == {orphan_old.resolve()}
-    assert plan.total_bytes == 9
+assert planned == {orphan_old.resolve()}
+    assert plan.total_bytes == 6
 
 
 def test_plan_prune_missing_state_raises(tmp_path):

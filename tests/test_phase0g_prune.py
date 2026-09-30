@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import os
+import time
 from datetime import timedelta
 from pathlib import Path
 
 import pytest
 
 from core.comic.ledger import ConsistencyLedger, LedgerEntry
-from core.comic.prune import collect_live_refs, parse_older_than
+from core.comic.prune import collect_live_refs, parse_older_than, plan_prune
 from core.schemas import (
     CharacterAsset,
     GeneratedAssets,
@@ -71,3 +73,38 @@ def test_collect_live_refs_ignores_empty_paths(tmp_path):
     state.characters["乙"] = CharacterAsset(name="乙", portrait_local=None)
     refs = collect_live_refs(state, ConsistencyLedger())
     assert refs == set()
+
+
+def _age(path: Path, seconds: float) -> None:
+    old = time.time() - seconds
+    os.utime(path, (old, old))
+
+
+def _write(path: Path, payload: bytes = b"x") -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(payload)
+    return path
+
+
+def test_plan_prune_selects_old_unreferenced_only(tmp_path):
+    referenced = _write(tmp_path / "panels" / "id-live.png", b"live")
+    orphan_old = _write(tmp_path / "panels" / "id-orphan.png", b"orphan")
+    orphan_new = _write(tmp_path / "panels" / "id-fresh.png", b"fresh")
+    for path in (referenced, orphan_old):
+        _age(path, 10 * 86400)
+
+    state = _state_with_assets(tmp_path)
+    state.generated.panels["c0000-p0000"].local = str(referenced)
+    ledger = ConsistencyLedger()
+    (tmp_path / "state.json").write_text(state.model_dump_json())
+    (tmp_path / "consistency.json").write_text(ledger.model_dump_json())
+
+    plan = plan_prune(tmp_path, parse_older_than("7d"))
+    planned = {candidate.path for candidate in plan.candidates}
+    assert planned == {orphan_old.resolve()}
+    assert plan.total_bytes == 6
+
+
+def test_plan_prune_missing_state_raises(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        plan_prune(tmp_path, parse_older_than("7d"))
