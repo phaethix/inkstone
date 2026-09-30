@@ -1495,6 +1495,74 @@ class ProjectState(BaseModel):
         """Load and validate state from a ``state.json`` file."""
         return cls.model_validate_json(Path(path).read_text(encoding="utf-8"))
 
+    def migrate_legacy_page_keys(self) -> bool:
+        """Rewrite pre-0b ``c{ci:04d}:{page_id}`` page keys to positional keys.
+
+        Phase 0b made page identity positional (§4/§9). ``state.json`` files
+        written before that change still carry ``c{ci:04d}:{page_id}`` keys; left
+        alone, every recorded page would look un-generated and the next run would
+        repaint the whole book — a billable regression, which 0b's "quota risk:
+        none" forbids. Page order comes from ``page_cache`` (the same plan order
+        the pipeline enumerated), so the rewrite is deterministic and idempotent.
+
+        Keys whose chunk or ``page_id`` is absent from ``page_cache`` are left
+        untouched rather than guessed at.
+
+        Returns ``True`` when any key was rewritten.
+        """
+        # chunk index -> {model page_id: positional index}
+        index_by_chunk: dict[int, dict[str, int]] = {}
+        for cache_key, pageset in self.page_cache.items():
+            try:
+                chunk_index = int(cache_key)
+            except (TypeError, ValueError):
+                continue
+            index_by_chunk[chunk_index] = {
+                plan.page_id: position for position, plan in enumerate(pageset.pages)
+            }
+
+        def _rewrite(legacy_key: str) -> str:
+            if ":" not in legacy_key:
+                return legacy_key
+            prefix, page_id = legacy_key.split(":", 1)
+            if not prefix.startswith("c"):
+                return legacy_key
+            try:
+                chunk_index = int(prefix[1:])
+            except ValueError:
+                return legacy_key
+            position = index_by_chunk.get(chunk_index, {}).get(page_id)
+            if position is None:
+                return legacy_key
+            return f"c{chunk_index:04d}-p{position:04d}"
+
+        changed = False
+
+        rewritten_pages: dict[str, GeneratedPage] = {}
+        for key, record in self.generated.pages.items():
+            new_key = _rewrite(key)
+            if new_key != key:
+                changed = True
+            rewritten_pages[new_key] = record
+        self.generated.pages = rewritten_pages
+
+        for field_name in ("pages_done", "stale_pages", "skipped_pages"):
+            current = getattr(self, field_name)
+            updated = [_rewrite(k) for k in current]
+            if updated != current:
+                changed = True
+            setattr(self, field_name, updated)
+
+        rewritten_tombstones: dict[str, Tombstone] = {}
+        for key, record in self.tombstones.items():
+            new_key = _rewrite(key)
+            if new_key != key:
+                changed = True
+            rewritten_tombstones[new_key] = record
+        self.tombstones = rewritten_tombstones
+
+        return changed
+
 
 def to_tool_schema(model: type[BaseModel], name: str, description: str) -> dict:
     """Turn a Pydantic model into an OpenAI/Agnes function-tool definition.
