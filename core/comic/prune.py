@@ -102,6 +102,14 @@ class PrunePlan:
         return sum(candidate.size_bytes for candidate in self.candidates)
 
 
+@dataclass
+class PruneResult:
+    """What an apply actually reclaimed."""
+
+    deleted: int = 0
+    reclaimed_bytes: int = 0
+
+
 def _is_within(path: Path, root: Path) -> bool:
     """True when ``path`` resolves inside ``root`` (mirrors the pipeline helper)."""
     try:
@@ -146,3 +154,16 @@ def plan_prune(
                 PruneCandidate(path=path, size_bytes=stat.st_size, mtime=stat.st_mtime)
             )
     return plan
+
+
+def apply_prune(plan: PrunePlan) -> PruneResult:
+    """Delete every planned candidate; idempotent when a file vanished first."""
+    result = PruneResult()
+    for candidate in plan.candidates:
+        try:
+            candidate.path.unlink()
+        except FileNotFoundError:
+            pass
+        result.deleted += 1
+        result.reclaimed_bytes += candidate.size_bytes
+    return result
