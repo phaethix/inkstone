@@ -119,9 +119,7 @@ def _is_within(path: Path, root: Path) -> bool:
     return True
 
 
-def plan_prune(
-    output_dir: Path, older_than: timedelta, *, now: float | None = None
-) -> PrunePlan:
+def plan_prune(output_dir: Path, older_than: timedelta, *, now: float | None = None) -> PrunePlan:
     """Compute the reclaimable set: unreferenced AND older than ``older_than``.
 
     An absent ``state.json`` is a hard error, never "everything is unreferenced":
