@@ -50,6 +50,7 @@ from core.comic.identity import (  # noqa: E402
     force_regen_panels,
     merge_character_alias,
 )
+from core.comic.ledger import ConsistencyLedger  # noqa: E402
 from core.pipelines.creative_comic import estimate_progress  # noqa: E402
 from core.pipelines.run_until_complete import PausedRun, run_until_complete  # noqa: E402
 from core.pipelines.timing import estimate_remaining  # noqa: E402
@@ -201,7 +202,11 @@ def _project_dir(project_id: str) -> Path:
     return OUTPUT_DIR / validate_project_id(project_id)
 
 
-def _state_snapshot(state: ProjectState) -> dict:
+def _state_snapshot(state: ProjectState, out_dir: Path | None = None) -> dict:
+    """Snapshot state for the UI; `ledger_pending` aggregates breaks per character."""
+    if out_dir is None:
+        out_dir = OUTPUT_DIR / state.project_id
+    ledger = ConsistencyLedger.load_or_rebuild(out_dir / "consistency.json", state)
     return {
         "skipped": list(state.skipped),
         "skipped_chunks": list(state.skipped_chunks),
@@ -211,6 +216,7 @@ def _state_snapshot(state: ProjectState) -> dict:
         "render_mode": state.render_mode,
         "pages_done": list(state.pages_done),
         "skipped_pages": list(state.skipped_pages),
+        "ledger_pending": ledger.pending_pages(),
     }
 
 
@@ -498,14 +504,16 @@ def _load_project_state(project_id: str) -> tuple[Path, ProjectState]:
 def apply_review(project_id: str, action: str, new_name: str, candidate: str) -> dict:
     """Merge or dismiss an alias suggestion; persist state.json."""
     out_dir, state = _load_project_state(project_id)
+    ledger = ConsistencyLedger.load_or_rebuild(out_dir / "consistency.json", state)
     if action == "merge":
-        merge_character_alias(state, new_name, candidate)
+        merge_character_alias(state, new_name, candidate, ledger=ledger)
     elif action == "dismiss":
         dismiss_character_alias(state, new_name, candidate)
     else:
         raise ValueError("action must be 'merge' or 'dismiss'")
     state.save(out_dir / "state.json")
-    return _state_snapshot(state)
+    ledger.save(out_dir / "consistency.json")
+    return _state_snapshot(state, out_dir)
 
 
 def start_regen_job(
