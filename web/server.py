@@ -487,7 +487,12 @@ def _load_project_state(project_id: str) -> tuple[Path, ProjectState]:
     state_path = out_dir / "state.json"
     if not state_path.is_file():
         raise FileNotFoundError(f"no state.json for project {project_id}")
-    return out_dir, ProjectState.load(state_path)
+    state = ProjectState.load(state_path)
+    # Phase 0b: bring a pre-0b checkpoint onto positional page keys before any
+    # reader (regen bookkeeping, snapshots) interprets them.
+    if state.migrate_legacy_page_keys():
+        state.save(state_path)
+    return out_dir, state
 
 
 def apply_review(project_id: str, action: str, new_name: str, candidate: str) -> dict:
@@ -525,10 +530,16 @@ def start_regen_job(
         target_keys = list(dict.fromkeys([*target_keys, *state.stale_panels, *state.stale_pages]))
     if not target_keys:
         raise ValueError("no panel keys to regenerate")
-    # Panel keys (``c0000-p0001``) go through the panel-compose regen bookkeeping.
-    # Finished-page keys (``c0000:page_id``) already live in ``stale_pages`` and
-    # drive the repaint directly, so they must not be forced into ``stale_panels``.
-    force_regen_panels(state, [k for k in target_keys if ":" not in k])
+    # Panel keys and page keys live in disjoint state fields and never coexist in
+    # one project: ``render_mode`` selects exactly one render path (0b). Route by
+    # the mode, not by guessing from the key string - the positional page key
+    # ``c0000-p0000`` is shape-identical to a panel key, so a delimiter heuristic
+    # would misroute it into ``stale_panels`` and the repaint would be a no-op.
+    if state.render_mode == "finished_page":
+        state.stale_pages = sorted(set(state.stale_pages) | set(target_keys))
+        state.pages_done = [k for k in state.pages_done if k not in set(target_keys)]
+    else:
+        force_regen_panels(state, target_keys)
     state.save(out_dir / "state.json")
     return _start_job(text, fmt, style_guide, project_id=project_id, panel_keys=target_keys)
 

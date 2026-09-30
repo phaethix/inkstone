@@ -70,3 +70,51 @@ def test_migration_leaves_new_format_and_unknown_keys_untouched():
     assert state.migrate_legacy_page_keys() is False
     assert state.pages_done == ["c0000-p0000"]
     assert state.stale_pages == ["c0009:not_in_cache"]
+
+import web.server as server
+
+
+def test_web_load_project_state_migrates_legacy_keys(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    out = tmp_path / "legacy1"
+    out.mkdir()
+    (out / "state.json").write_text(_legacy_state().model_dump_json(), encoding="utf-8")
+
+    _out_dir, loaded = server._load_project_state("legacy1")
+
+    assert loaded.pages_done == ["c0000-p0000"]
+    assert all(":" not in k for k in loaded.generated.pages)
+
+
+import asyncio
+import json
+from unittest.mock import patch
+
+from core.pipelines.creative_comic import creative_comic
+from tests.test_finished_page_pipeline import FakeImage, FakeChat, _fake_export_pdf
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_resume_of_legacy_state_does_not_repaint(tmp_path, monkeypatch):
+    """0b quota risk is none: a pre-0b checkpoint must not trigger a repaint."""
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+    src = "第一章\n福贵在村口。"
+
+    first = FakeImage()
+    asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=first))
+    assert first.calls == 2  # 1 portrait + 1 page
+
+    # Rewrite the checkpoint to the pre-0b colon format with a renamed page_id,
+    # simulating a project created before 0b and replanned since.
+    raw = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
+    raw["pages_done"] = ["c0000:u1_p0001"]
+    raw["generated"]["pages"] = {"c0000:u1_p0001": raw["generated"]["pages"]["c0000-p0000"]}
+    (tmp_path / "state.json").write_text(json.dumps(raw), encoding="utf-8")
+
+    second = FakeImage()
+    resumed = asyncio.run(
+        creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=second)
+    )
+
+    assert second.calls == 0  # page kept, no repaint
+    assert resumed.state.pages_done == ["c0000-p0000"]
