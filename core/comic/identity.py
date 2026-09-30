@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from core.comic.ledger import ConsistencyLedger
 from core.schemas import (
     Appearance,
     CharacterAliasSuggestion,
@@ -285,6 +286,7 @@ def merge_character_alias(
     state: ProjectState,
     new_name: str,
     keep_name: str,
+    ledger: ConsistencyLedger | None = None,
 ) -> list[str]:
     """Merge ``new_name`` into ``keep_name`` and mark affected panels stale.
 
@@ -331,7 +333,11 @@ def merge_character_alias(
     ensure_character_l1(keep)
 
     stale = _panel_keys_referencing(state, new_name)
-    stale_pages: list[str] = []
+    # §12 consequence 3: prefer the ledger's precise page set for the alias;
+    # fall back to walking page_cache when the ledger has no entry for it, so a
+    # project that has not yet rebuilt its ledger still invalidates correctly.
+    ledger_pages = ledger.pages_for(new_name) if ledger is not None else []
+    stale_pages: list[str] = list(ledger_pages)
     for cache_key, pageset in state.page_cache.items():
         try:
             chunk_index = int(cache_key)
@@ -342,13 +348,17 @@ def merge_character_alias(
             for panel in plan.panels:
                 names.update(panel.characters)
             if new_name in names:
-                stale_pages.append(page_state_key(chunk_index, page_index))
+                key = page_state_key(chunk_index, page_index)
+                if key not in stale_pages:
+                    stale_pages.append(key)
         for plan in pageset.pages:
             plan.reference_characters = _rewrite_names(
                 plan.reference_characters, new_name, keep_name
             )
             for panel in plan.panels:
                 panel.characters = _rewrite_names(panel.characters, new_name, keep_name)
+    if ledger is not None:
+        ledger.rename_character(new_name, keep_name)
     # Rewrite cached storyboards after collecting keys.
     for cache in state.chunk_cache.values():
         board = cache.storyboard
