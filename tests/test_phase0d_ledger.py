@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from core.comic.ledger import ConsistencyLedger, LedgerEntry, ReferenceVersion
+from core.schemas import ComicPagePlan, ComicPagePlanSet, PagePanelSpec, ProjectState
 
 
 def test_empty_ledger_round_trips(tmp_path: Path):
@@ -37,9 +38,6 @@ def test_entry_round_trips(tmp_path: Path):
 def test_load_missing_file_returns_empty(tmp_path: Path):
     loaded = ConsistencyLedger.load(tmp_path / "absent.json")
     assert loaded.characters == {}
-
-
-from core.schemas import ComicPagePlan, ComicPagePlanSet, PagePanelSpec, ProjectState
 
 
 def _plan(names: list[str], page_id: str = "p") -> ComicPagePlan:
@@ -94,3 +92,20 @@ def test_rebuild_refreshes_pending_only_above_reviewed_version():
     led.characters["A"].reviewed_version = 2
     led.rebuild_from_state(state)
     assert led.characters["A"].pending_pages == []
+
+
+def test_load_or_rebuild_recovers_from_corruption(tmp_path: Path):
+    path = tmp_path / "consistency.json"
+    path.write_text("{ this is not json", encoding="utf-8")
+    state = _state_with({"0": [["A"]]})
+    led = ConsistencyLedger.load_or_rebuild(path, state)
+    assert led.characters["A"].pages == ["c0000-p0000"]
+
+
+def test_load_or_rebuild_prefers_a_valid_file(tmp_path: Path):
+    path = tmp_path / "consistency.json"
+    ConsistencyLedger(characters={"A": LedgerEntry(pages=["c9999-p9999"])}).save(path)
+    state = _state_with({"0": [["A"]]})
+    led = ConsistencyLedger.load_or_rebuild(path, state)
+    # A valid file is authoritative: it is not overwritten by a rebuild.
+    assert led.characters["A"].pages == ["c9999-p9999"]
