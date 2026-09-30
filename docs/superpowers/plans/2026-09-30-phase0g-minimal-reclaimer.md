@@ -710,7 +710,9 @@ def _run_prune(args: argparse.Namespace) -> int:
     for candidate in plan.candidates:
         print(f"  - {candidate.path}（{candidate.size_bytes} 字节）")
     if not args.apply:
-        print(f"dry-run：将回收 {len(plan)} 个文件，共 {plan.total_bytes} 字节。加 --apply 才会删除。")
+        print(
+            f"dry-run：将回收 {len(plan)} 个文件，共 {plan.total_bytes} 字节。加 --apply 才会删除。"
+        )
         return 0
 
     result = apply_prune(plan)
