@@ -109,3 +109,41 @@ def test_load_or_rebuild_prefers_a_valid_file(tmp_path: Path):
     led = ConsistencyLedger.load_or_rebuild(path, state)
     # A valid file is authoritative: it is not overwritten by a rebuild.
     assert led.characters["A"].pages == ["c9999-p9999"]
+
+
+def test_record_reference_bumps_version_without_touching_pending():
+    led = ConsistencyLedger(characters={"A": LedgerEntry(pages=["c0000-p0000"])})
+    led.record_reference("A", "assets/portraits/A.png")
+    assert led.characters["A"].reference.version == 1
+    assert led.characters["A"].reference.path == "assets/portraits/A.png"
+    # Pending is reconciled by rebuild/pipeline, not by the write itself.
+    assert led.characters["A"].pending_pages == []
+    led.record_reference("A", "assets/portraits/A.png")
+    assert led.characters["A"].reference.version == 2
+
+
+def test_pending_pages_lists_only_non_empty():
+    led = ConsistencyLedger(
+        characters={
+            "A": LedgerEntry(pages=["c0000-p0000"], pending_pages=["c0000-p0000"]),
+            "B": LedgerEntry(pages=["c0000-p0001"]),
+        }
+    )
+    assert led.pending_pages() == {"A": ["c0000-p0000"]}
+
+
+def test_pages_for_missing_character_is_empty():
+    assert ConsistencyLedger().pages_for("nobody") == []
+
+
+def test_rename_character_unions_pages_and_pending():
+    led = ConsistencyLedger(
+        characters={
+            "别名": LedgerEntry(pages=["c0000-p0000"], pending_pages=["c0000-p0000"]),
+            "A": LedgerEntry(pages=["c0001-p0000"]),
+        }
+    )
+    led.rename_character("别名", "A")
+    assert "别名" not in led.characters
+    assert led.characters["A"].pages == ["c0001-p0000", "c0000-p0000"]
+    assert led.characters["A"].pending_pages == ["c0000-p0000"]

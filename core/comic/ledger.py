@@ -101,7 +101,7 @@ class ConsistencyLedger(BaseModel):
         """Load the ledger; a missing file yields an empty ledger.
 
         The ledger is reconstructible from ``page_cache`` (§12 invariant 9), so
-a missing file is not an error.
+        a missing file is not an error.
         """
         p = Path(path)
         if not p.is_file():
@@ -176,3 +176,62 @@ a missing file is not an error.
                 entry.updated_at = _now_iso()
                 changed = True
         return changed
+
+    def pages_for(self, name: str) -> list[str]:
+        """The positional page ids ``name`` appears on (empty when unknown)."""
+        entry = self.characters.get(name)
+        return list(entry.pages) if entry is not None else []
+
+    def record_reference(
+        self,
+        name: str,
+        path: str,
+        content_hash: str | None = None,
+    ) -> None:
+        """Record that ``name``'s authoritative reference was (re)generated.
+
+        Bumps the reference version; ``rebuild_from_state`` then marks the
+        character's pages pending for review. Called on a real generation event,
+        not on a mere path comparison, because a regeneration overwrites the same
+        path and only the event distinguishes it.
+        """
+        entry = self.characters.get(name)
+        if entry is None:
+            entry = LedgerEntry()
+            self.characters[name] = entry
+        entry.reference = ReferenceVersion(
+            path=path,
+            content_hash=content_hash,
+            version=entry.reference.version + 1,
+        )
+        entry.updated_at = _now_iso()
+
+    def pending_pages(self) -> dict[str, list[str]]:
+        """Characters with pending pages, for the aggregated UI panel (§4)."""
+        return {
+            name: list(entry.pending_pages)
+            for name, entry in self.characters.items()
+            if entry.pending_pages
+        }
+
+    def rename_character(self, old: str, new: str) -> None:
+        """Merge ``old``'s entry into ``new`` (alias merge, §12 rule 3)."""
+        if old == new:
+            return
+        incoming = self.characters.pop(old, None)
+        if incoming is None:
+            return
+        target = self.characters.get(new)
+        if target is None:
+            self.characters[new] = incoming
+            return
+        for key in incoming.pages:
+            if key not in target.pages:
+                target.pages.append(key)
+        for key in incoming.pending_pages:
+            if key not in target.pending_pages:
+                target.pending_pages.append(key)
+        target.reviewed_version = max(target.reviewed_version, incoming.reviewed_version)
+        if incoming.reference.version > target.reference.version:
+            target.reference = incoming.reference
+        target.updated_at = _now_iso()
