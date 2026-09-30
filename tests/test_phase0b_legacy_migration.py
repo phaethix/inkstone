@@ -1,5 +1,11 @@
 """Phase 0b: pre-0b ``c{ci:04d}:{page_id}`` keys migrate to positional keys."""
 
+import asyncio
+import json
+from unittest.mock import patch
+
+import web.server as server
+from core.pipelines.creative_comic import creative_comic
 from core.schemas import (
     ComicPagePlan,
     ComicPagePlanSet,
@@ -8,6 +14,7 @@ from core.schemas import (
     ProjectState,
     Tombstone,
 )
+from tests.test_finished_page_pipeline import FakeChat, FakeImage, _fake_export_pdf
 
 
 def _legacy_state() -> ProjectState:
@@ -71,8 +78,6 @@ def test_migration_leaves_new_format_and_unknown_keys_untouched():
     assert state.pages_done == ["c0000-p0000"]
     assert state.stale_pages == ["c0009:not_in_cache"]
 
-import web.server as server
-
 
 def test_web_load_project_state_migrates_legacy_keys(tmp_path, monkeypatch):
     monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
@@ -84,14 +89,6 @@ def test_web_load_project_state_migrates_legacy_keys(tmp_path, monkeypatch):
 
     assert loaded.pages_done == ["c0000-p0000"]
     assert all(":" not in k for k in loaded.generated.pages)
-
-
-import asyncio
-import json
-from unittest.mock import patch
-
-from core.pipelines.creative_comic import creative_comic
-from tests.test_finished_page_pipeline import FakeImage, FakeChat, _fake_export_pdf
 
 
 @patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)

@@ -1,11 +1,16 @@
 """Phase 0b: page identity is positional ``c{ci:04d}-p{idx:04d}`` (§4/§9)."""
 
+import asyncio
+from unittest.mock import patch
+
+import web.server as server
 from core.comic.identity import (
     merge_character_alias,
     page_state_key,
 )
 from core.pipelines.creative_comic import (
     _panel_state_key,
+    creative_comic,
 )
 from core.schemas import (
     CharacterAsset,
@@ -14,6 +19,7 @@ from core.schemas import (
     PagePanelSpec,
     ProjectState,
 )
+from tests.test_finished_page_pipeline import FakeChat, FakeImage, _fake_export_pdf
 
 
 def test_page_state_key_matches_panel_key_shape():
@@ -69,12 +75,6 @@ def test_alias_merge_marks_positional_page_keys():
     assert state.stale_pages == ["c0000-p0001"]
     assert state.pages_done == ["c0000-p0000"]
 
-import asyncio
-from unittest.mock import patch
-
-from core.pipelines.creative_comic import creative_comic
-from tests.test_finished_page_pipeline import FakeImage, FakeChat, _fake_export_pdf
-
 
 @patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
 def test_finished_page_keys_are_positional(tmp_path, monkeypatch):
@@ -106,9 +106,6 @@ def test_key_is_unchanged_when_model_page_id_changes(tmp_path, monkeypatch):
     )
     assert "c0000-p0000" in rerun.state.generated.pages
     assert rerun.state.pages_done == ["c0000-p0000"]
-
-
-import web.server as server
 
 
 def test_start_regen_job_treats_positional_page_keys_as_pages(tmp_path, monkeypatch):

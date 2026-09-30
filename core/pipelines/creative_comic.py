@@ -445,7 +445,6 @@ def previous_page_blank(
 ) -> str | None:
     """Blank-page path for L2 continuity: prior page in-chunk, else last prior chunk."""
     if page_index > 0:
-        prev_plan = pageset.pages[page_index - 1]
         prev_key = page_state_key(chunk_index, page_index - 1)
         prev_gen = state.generated.pages.get(prev_key)
         if prev_gen and prev_gen.blank_local:
@@ -500,7 +499,7 @@ def _page_chunk_complete(
     chunk_index: int,
 ) -> bool:
     """True when every planned page is generated or policy-skipped."""
-    for page_index, plan in enumerate(pageset.pages):
+    for page_index in range(len(pageset.pages)):
         state_key = page_state_key(chunk_index, page_index)
         if state_key in state.stale_pages:
             return False
@@ -524,7 +523,7 @@ def _mark_page_chunk_done_if_complete(
     chunk_index: int,
 ) -> None:
     """Record chunks_done only after every planned page is done or skipped."""
-    for page_index, plan in enumerate(pageset.pages):
+    for page_index in range(len(pageset.pages)):
         state_key = page_state_key(chunk_index, page_index)
         if state_key in state.stale_pages:
             return
