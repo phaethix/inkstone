@@ -101,12 +101,35 @@ class ConsistencyLedger(BaseModel):
         """Load the ledger; a missing file yields an empty ledger.
 
         The ledger is reconstructible from ``page_cache`` (§12 invariant 9), so
-        a missing file is not an error.
+a missing file is not an error.
         """
         p = Path(path)
         if not p.is_file():
             return cls()
         return cls.model_validate_json(p.read_text(encoding="utf-8"))
+
+    @classmethod
+    def load_or_rebuild(
+        cls,
+        path: str | Path,
+        state: ProjectState,
+    ) -> "ConsistencyLedger":
+        """Load the ledger; reconstruct it when the file is absent or corrupt.
+
+        A corrupt ledger must not block a resumable run (§12 invariant 9 is about
+        authority, not fragility): fall back to an empty ledger rebuilt from
+        ``page_cache``. A *valid* file wins — it may hold human decisions a
+        rebuild cannot reproduce.
+        """
+        p = Path(path)
+        if p.is_file():
+            try:
+                return cls.load(p)
+            except Exception:  # noqa: BLE001 - a corrupt ledger is recoverable
+                pass
+        led = cls()
+        led.rebuild_from_state(state)
+        return led
 
     def save(self, path: str | Path) -> None:
         """Persist atomically, so interruption cannot truncate the ledger."""
