@@ -299,10 +299,6 @@ def _stored_panel_key(state: ProjectState, chunk_index: int, panel_index: int) -
     """Return the pipeline-owned identity for a current-version storyboard panel."""
     return _panel_state_key(chunk_index, panel_index)
 
-def _page_state_key(chunk_index: int, page_index: int) -> str:
-    """Deprecated shim; call sites migrate to ``page_state_key`` (§0b)."""
-    return page_state_key(chunk_index, page_index)
-
 
 def _page_asset_path(pages_dir: Path, chunk_index: int, page_index: int) -> Path:
     """Deterministic ``page_XX.png``-style path for one (chunk, page) position.
@@ -450,21 +446,16 @@ def previous_page_blank(
     """Blank-page path for L2 continuity: prior page in-chunk, else last prior chunk."""
     if page_index > 0:
         prev_plan = pageset.pages[page_index - 1]
-        prev_key = _page_state_key(chunk_index, prev_plan.page_id)
+        prev_key = page_state_key(chunk_index, page_index - 1)
         prev_gen = state.generated.pages.get(prev_key)
         if prev_gen and prev_gen.blank_local:
             return prev_gen.blank_local
-    candidates: list[tuple[int, str, str]] = []
-    for key, gen in state.generated.pages.items():
+    candidates: list[tuple[int, int, str]] = []
+    for gen in state.generated.pages.values():
         if not gen.blank_local:
             continue
-        try:
-            prefix, _rest = key.split(":", 1)
-            other_ci = int(prefix[1:])
-        except (ValueError, IndexError):
-            continue
-        if other_ci < chunk_index:
-            candidates.append((other_ci, key, gen.blank_local))
+        if gen.unit_index < chunk_index:
+            candidates.append((gen.unit_index, gen.page_index, gen.blank_local))
     if not candidates:
         return None
     candidates.sort()
@@ -509,8 +500,8 @@ def _page_chunk_complete(
     chunk_index: int,
 ) -> bool:
     """True when every planned page is generated or policy-skipped."""
-    for plan in pageset.pages:
-        state_key = _page_state_key(chunk_index, plan.page_id)
+    for page_index, plan in enumerate(pageset.pages):
+        state_key = page_state_key(chunk_index, page_index)
         if state_key in state.stale_pages:
             return False
         if state_key in state.skipped_pages:
@@ -533,8 +524,8 @@ def _mark_page_chunk_done_if_complete(
     chunk_index: int,
 ) -> None:
     """Record chunks_done only after every planned page is done or skipped."""
-    for plan in pageset.pages:
-        state_key = _page_state_key(chunk_index, plan.page_id)
+    for page_index, plan in enumerate(pageset.pages):
+        state_key = page_state_key(chunk_index, page_index)
         if state_key in state.stale_pages:
             return
         if state_key not in state.pages_done and state_key not in state.skipped_pages:
@@ -1285,7 +1276,7 @@ async def _creative_comic(
                     visual_bible=state.visual_bible,
                 )
                 page_id = plan.page_id
-                state_key = _page_state_key(ci, page_id)
+                state_key = page_state_key(ci, page_index)
                 existing = state.generated.pages.get(state_key)
                 blank_ok = bool(
                     existing

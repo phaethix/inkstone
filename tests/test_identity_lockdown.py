@@ -270,7 +270,7 @@ def test_previous_page_blank_crosses_chunks():
         project_id="p",
         generated=GeneratedAssets(
             pages={
-                "c0000:u1_p0002": GeneratedPage(
+                "c0000-p0001": GeneratedPage(
                     local="/tmp/lettered.png",
                     blank_local="/tmp/prev-chunk.png",
                     page_id="u1_p0002",

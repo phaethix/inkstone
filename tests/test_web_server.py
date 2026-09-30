@@ -136,7 +136,7 @@ def test_finished_page_merge_marks_stale_pages_and_regen_accepts_them(tmp_path, 
             "福贵": CharacterAsset(name="福贵"),
         },
         page_cache={"0": ComicPagePlanSet(unit_id="u1", pages=[page])},
-        pages_done=["c0000:u1_p0001"],
+        pages_done=["c0000-p0000"],
         needs_review=[
             CharacterAliasSuggestion(
                 new_name="福贵",
@@ -149,7 +149,7 @@ def test_finished_page_merge_marks_stale_pages_and_regen_accepts_them(tmp_path, 
     state.save(out / "state.json")
 
     snapshot = server.apply_review(project_id, "merge", "福贵", "徐福贵")
-    assert "c0000:u1_p0001" in snapshot["stale_pages"]
+    assert "c0000-p0000" in snapshot["stale_pages"]
     assert snapshot["stale_panels"] == []
 
     job_id, _pid = server.start_regen_job(project_id, stale=True)

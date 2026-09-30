@@ -17,7 +17,7 @@ def _args(out, keys=(), stage="render"):
     return argparse.Namespace(out=str(out), stage=stage, key=list(keys))
 
 
-def _state_with_tombstone(out, key="c0000:u1_p0001"):
+def _state_with_tombstone(out, key="c0000-p0000"):
     state_path = out / "state.json"
     state = ProjectState.load(state_path) if state_path.exists() else ProjectState(project_id="t")
     state.tombstones[key] = Tombstone(
@@ -43,14 +43,14 @@ def test_rebuild_parser_accepts_stage_and_repeatable_key():
 def test_rebuild_clears_the_tombstone_and_its_skip_record(tmp_path):
     _state_with_tombstone(tmp_path)
 
-    exit_code = _run_rebuild(_args(tmp_path, ["c0000:u1_p0001"]))
+    exit_code = _run_rebuild(_args(tmp_path, ["c0000-p0000"]))
 
     assert exit_code == 0
     saved = ProjectState.load(tmp_path / "state.json")
     assert saved.tombstones == {}
     assert saved.skipped_pages == []
     # Released for regeneration, not silently accepted: the page must be redrawn.
-    assert "c0000:u1_p0001" not in saved.pages_done
+    assert "c0000-p0000" not in saved.pages_done
 
 
 def test_rebuild_reports_an_unknown_key_without_claiming_success(tmp_path, capsys):
@@ -66,7 +66,7 @@ def test_rebuild_rejects_a_non_render_stage(tmp_path, capsys):
     """Only the render stage owns page tombstones; other stages have none yet."""
     _state_with_tombstone(tmp_path)
 
-    exit_code = _run_rebuild(_args(tmp_path, ["c0000:u1_p0001"], stage="letter"))
+    exit_code = _run_rebuild(_args(tmp_path, ["c0000-p0000"], stage="letter"))
 
     assert exit_code == 1
     assert "render" in capsys.readouterr().out
@@ -75,12 +75,12 @@ def test_rebuild_rejects_a_non_render_stage(tmp_path, capsys):
 
 def test_rebuild_without_keys_clears_only_the_named_stage(tmp_path):
     """§7: ``--stage`` alone targets the whole stage; --key narrows it."""
-    _state_with_tombstone(tmp_path, key="c0000:u1_p0001")
-    _state_with_tombstone(tmp_path, key="c0001:u2_p0001")
+    _state_with_tombstone(tmp_path, key="c0000-p0000")
+    _state_with_tombstone(tmp_path, key="c0001-p0000")
 
-    exit_code = _run_rebuild(_args(tmp_path, ["c0000:u1_p0001"]))
+    exit_code = _run_rebuild(_args(tmp_path, ["c0000-p0000"]))
 
     assert exit_code == 0
     saved = ProjectState.load(tmp_path / "state.json")
-    assert "c0000:u1_p0001" not in saved.tombstones
-    assert "c0001:u2_p0001" in saved.tombstones
+    assert "c0000-p0000" not in saved.tombstones
+    assert "c0001-p0000" in saved.tombstones
