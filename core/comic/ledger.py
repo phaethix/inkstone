@@ -97,7 +97,7 @@ class ConsistencyLedger(BaseModel):
     characters: dict[str, LedgerEntry] = Field(default_factory=dict)
 
     @classmethod
-    def load(cls, path: str | Path) -> "ConsistencyLedger":
+    def load(cls, path: str | Path) -> ConsistencyLedger:
         """Load the ledger; a missing file yields an empty ledger.
 
         The ledger is reconstructible from ``page_cache`` (§12 invariant 9), so
@@ -113,7 +113,7 @@ class ConsistencyLedger(BaseModel):
         cls,
         path: str | Path,
         state: ProjectState,
-    ) -> "ConsistencyLedger":
+    ) -> ConsistencyLedger:
         """Load the ledger; reconstruct it when the file is absent or corrupt.
 
         A corrupt ledger must not block a resumable run (§12 invariant 9 is about
@@ -168,9 +168,7 @@ class ConsistencyLedger(BaseModel):
                 entry.pages = list(pages)
                 entry.updated_at = _now_iso()
                 changed = True
-            pending = (
-                list(entry.pages) if entry.reference.version > entry.reviewed_version else []
-            )
+            pending = list(entry.pages) if entry.reference.version > entry.reviewed_version else []
             if entry.pending_pages != pending:
                 entry.pending_pages = pending
                 entry.updated_at = _now_iso()
