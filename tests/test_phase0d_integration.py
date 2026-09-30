@@ -58,3 +58,17 @@ def test_state_snapshot_includes_ledger_pending(monkeypatch, tmp_path):
     state = ProjectState(project_id="p1")
     snap = server._state_snapshot(state)
     assert snap["ledger_pending"] == {}
+
+
+def test_identity_view_prints_ledger(tmp_path, capsys):
+    from core import cli
+
+    out = tmp_path / "proj"
+    out.mkdir()
+    ProjectState(project_id="p1").save(out / "state.json")
+    ConsistencyLedger(characters={"福贵": LedgerEntry(pages=["c0000-p0000"])}).save(
+        out / "consistency.json"
+    )
+    code = cli._run_identity(type("A", (), {"out": str(out), "view": True})())
+    assert code == 0
+    assert "福贵" in capsys.readouterr().out

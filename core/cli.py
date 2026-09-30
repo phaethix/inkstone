@@ -20,6 +20,7 @@ from pathlib import Path
 
 from core.comic.coverage import compute_coverage_report, write_coverage_report
 from core.comic.identity import clear_tombstones
+from core.comic.ledger import ConsistencyLedger
 from core.density import DensityEstimate, estimate
 from core.schemas import ProjectState
 
@@ -95,9 +96,14 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # identity：D3 占位；coverage：D2 实现。
-    p_id = sub.add_parser("identity", help="[Coming in D3] Identity ledger visualization")
-    p_id.add_argument("--view", action="store_true", help="Print alias/impact scope tree")
+    p_id = sub.add_parser("identity", help="Identity ledger: view characters and pending pages")
+    p_id.add_argument("--view", action="store_true", help="Print the consistency ledger")
     p_id.add_argument("--merge", default=None, help="Merge alias: 'new:keep'")
+    p_id.add_argument(
+        "--out",
+        default="comic_out",
+        help="Generation output directory (contains consistency.json; default comic_out)",
+    )
 
     p_cov = sub.add_parser(
         "coverage",
@@ -286,6 +292,31 @@ def _run_coverage(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def _run_identity(args: argparse.Namespace) -> int:
+    """identity 子命令：打印一致性账本（§12）。"""
+    out = Path(args.out)
+    state_path = out / "state.json"
+    if not state_path.exists():
+        print(f"state.json 未找到：{args.out}（请先运行 generate 或指定 --out）")
+        return 1
+    state = ProjectState.load(state_path)
+    state.migrate_legacy_page_keys()
+    ledger = ConsistencyLedger.load_or_rebuild(out / "consistency.json", state)
+    if not ledger.characters:
+        print("账本为空：尚无可显示的角色页集。")
+        return 0
+    print(f"一致性账本：{len(ledger.characters)} 个角色")
+    for name in sorted(ledger.characters):
+        entry = ledger.characters[name]
+        pending = len(entry.pending_pages)
+        ref = entry.reference.version
+        print(
+            f"  - {name}: {len(entry.pages)} 页，参考版本 v{ref}，"
+            f"待复核 {pending} 页"
+        )
+    return 0
+
+
 def _run_rebuild(args: argparse.Namespace) -> int:
     """rebuild 子命令：清除指定 stage 的墓碑，使其在下次运行时重绘（§7）。
 
@@ -358,7 +389,7 @@ def main() -> None:
     elif args.command == "generate":
         _run_generate(args)
     elif args.command == "identity":
-        _not_implemented("identity", "D3")
+        sys.exit(_run_identity(args))
     elif args.command == "coverage":
         _run_coverage(args)
     elif args.command == "rebuild":
