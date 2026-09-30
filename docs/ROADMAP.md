@@ -101,6 +101,23 @@ Keep these prototypes only as migration material until they conform to the targe
      content-policy rejections are not re-attempted — and quota burned — on every
      resume.
 
+### P0 — Content-addressed pipeline migration (0a-0h)
+
+Per the [content-addressed pipeline design](architecture/2026-09-28-content-addressed-pipeline-design.md) §9.
+
+- [x] **0b** Positional page identity: a page's identity is `c{ci:04d}-p{idx:04d}`,
+  converging on the panel-key convention. Model-generated `page_id` no longer
+  participates in identity; a deterministic, zero-quota rewrite on load migrates
+  legacy `c{ci:04d}:{page_id}` keys so a resumed project is not repainted.
+- [x] **0d** Consistency ledger (`consistency.json`, §12): an explicit,
+  authoritative record of which pages each character appears on. It is
+  CAS-independent and zero-quota — page sets are derived from `page_cache`, and
+  the ledger doubles as the decided L2 reference source for Phase 1 (resolved
+  item 17). Landed: schema + atomic IO, derivation, corruption recovery,
+  reference versions/pending review, alias-merge queries, pipeline maintenance,
+  a `ledger_pending` web snapshot field, and `inkstone identity --view`. The
+  ledger enters no `action_key` or fingerprint (guarded by a test).
+
 ### P1 — Chapter-complete adaptation MVP
 
 - [ ] Introduce normalized, globally addressable `SourceUnit` records.
