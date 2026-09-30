@@ -1,8 +1,13 @@
 """Phase 0d: ledger integration with alias merge, pipeline, and the web snapshot."""
 
+import asyncio
+from unittest.mock import patch
+
 from core.comic.identity import merge_character_alias
 from core.comic.ledger import ConsistencyLedger, LedgerEntry
+from core.pipelines.creative_comic import creative_comic
 from core.schemas import CharacterAsset, ProjectState
+from tests.test_finished_page_pipeline import FakeChat, FakeImage, _fake_export_pdf
 
 
 def test_alias_merge_lists_shared_pages_from_ledger():
@@ -30,13 +35,6 @@ def test_alias_merge_without_ledger_keeps_cache_walk():
     assert merge_character_alias(state, "a", "b") == []
 
 
-import asyncio
-from unittest.mock import patch
-
-from core.pipelines.creative_comic import creative_comic
-from tests.test_finished_page_pipeline import FakeChat, FakeImage, _fake_export_pdf
-
-
 @patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
 def test_pipeline_writes_ledger_with_positional_pages(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
@@ -51,3 +49,12 @@ def test_pipeline_writes_ledger_with_positional_pages(tmp_path, monkeypatch):
     # First generation records version 1 and does NOT flag every page pending.
     assert led.characters["福贵"].reference.version == 1
     assert led.characters["福贵"].pending_pages == []
+
+
+def test_state_snapshot_includes_ledger_pending(monkeypatch, tmp_path):
+    from web import server
+
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    state = ProjectState(project_id="p1")
+    snap = server._state_snapshot(state)
+    assert snap["ledger_pending"] == {}
