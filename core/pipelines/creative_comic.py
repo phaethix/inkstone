@@ -51,6 +51,7 @@ from core.comic.identity import (
     ensure_character_l1,
     harden_human_identity_prompt,
     merge_settings,
+    page_state_key,
     suggestion_from_alias,
 )
 from core.comic.key_beats import beat_coverage_retry_note, uncovered_must_draw_beats
@@ -298,10 +299,9 @@ def _stored_panel_key(state: ProjectState, chunk_index: int, panel_index: int) -
     """Return the pipeline-owned identity for a current-version storyboard panel."""
     return _panel_state_key(chunk_index, panel_index)
 
-
-def _page_state_key(chunk_index: int, page_id: str) -> str:
-    """Return the pipeline-owned identity for one (chunk, page_id) position."""
-    return f"c{chunk_index:04d}:{page_id}"
+def _page_state_key(chunk_index: int, page_index: int) -> str:
+    """Deprecated shim; call sites migrate to ``page_state_key`` (§0b)."""
+    return page_state_key(chunk_index, page_index)
 
 
 def _page_asset_path(pages_dir: Path, chunk_index: int, page_index: int) -> Path:
