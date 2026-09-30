@@ -21,6 +21,7 @@ from pathlib import Path
 from core.comic.coverage import compute_coverage_report, write_coverage_report
 from core.comic.identity import clear_tombstones
 from core.comic.ledger import ConsistencyLedger
+from core.comic.prune import apply_prune, parse_older_than, plan_prune
 from core.density import DensityEstimate, estimate
 from core.schemas import ProjectState
 
@@ -103,6 +104,27 @@ def _build_parser() -> argparse.ArgumentParser:
         "--out",
         default="comic_out",
         help="Generation output directory (contains consistency.json; default comic_out)",
+    )
+
+    # prune：最小回收器（§7 阶段 0g）。默认 dry-run，删除需显式 --apply。
+    p_prune = sub.add_parser(
+        "prune",
+        help="Delete unreferenced generated assets older than a threshold (dry-run by default)",
+    )
+    p_prune.add_argument(
+        "--out",
+        default="comic_out",
+        help="Generation output directory (contains state.json; default comic_out)",
+    )
+    p_prune.add_argument(
+        "--older-than",
+        required=True,
+        help="Minimum age of a reclaimable object: e.g. 7d (days), 12h (hours), or a bare integer",
+    )
+    p_prune.add_argument(
+        "--apply",
+        action="store_true",
+        help="Actually delete; omit for a dry-run report",
     )
 
     p_cov = sub.add_parser(
@@ -349,6 +371,42 @@ def _run_rebuild(args: argparse.Namespace) -> int:
     return 1 if missing else 0
 
 
+def _run_prune(args: argparse.Namespace) -> int:
+    """prune 子命令：删除未被引用且超过存活时长的生成资产（§7 阶段 0g）。
+
+    默认 dry-run，只有显式 --apply 才删除；删除条件是引用计数为零 **且**
+    存活时长超过 --older-than（§13 已定第 3 条），两者缺一不可。
+    """
+    try:
+        older_than = parse_older_than(args.older_than)
+    except ValueError as exc:
+        print(f"prune：{exc}")
+        return 2
+
+    out = Path(args.out)
+    try:
+        plan = plan_prune(out, older_than)
+    except FileNotFoundError:
+        print(f"state.json 未找到：{args.out}（请先运行 generate 或指定 --out）")
+        return 1
+
+    if not plan:
+        print("没有可回收的资产：未被引用且超过存活时长的文件为零。")
+        return 0
+
+    for candidate in plan.candidates:
+        print(f"  - {candidate.path}（{candidate.size_bytes} 字节）")
+    if not args.apply:
+        print(
+            f"dry-run：将回收 {len(plan)} 个文件，共 {plan.total_bytes} 字节。加 --apply 才会删除。"
+        )
+        return 0
+
+    result = apply_prune(plan)
+    print(f"已回收 {result.deleted} 个文件，共 {result.reclaimed_bytes} 字节。")
+    return 0
+
+
 def _run_generate(args: argparse.Namespace) -> None:
     """generate 子命令：运行 core.cli_generate（实现收编于 core，任何安装方式可用）。"""
     from core.cli_generate import run_generate
@@ -375,7 +433,16 @@ def main() -> None:
     # 使 scripts/start.sh 改为 `python -m core.cli "$@"` 后行为不变。
     # -h/--help 不插入，否则 `inkstone --help` 会误显示 generate 的帮助。
     first = sys.argv[1] if len(sys.argv) > 1 else ""
-    if first not in ("generate", "plan", "identity", "coverage", "rebuild", "-h", "--help"):
+    if first not in (
+        "generate",
+        "plan",
+        "identity",
+        "coverage",
+        "rebuild",
+        "prune",
+        "-h",
+        "--help",
+    ):
         sys.argv.insert(1, "generate")
 
     parser = _build_parser()
@@ -391,6 +458,8 @@ def main() -> None:
         _run_coverage(args)
     elif args.command == "rebuild":
         sys.exit(_run_rebuild(args))
+    elif args.command == "prune":
+        sys.exit(_run_prune(args))
 
 
 if __name__ == "__main__":
