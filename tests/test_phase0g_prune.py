@@ -10,7 +10,14 @@ from pathlib import Path
 import pytest
 
 from core.comic.ledger import ConsistencyLedger, LedgerEntry
-from core.comic.prune import collect_live_refs, parse_older_than, plan_prune
+from core.comic.prune import (
+    PruneCandidate,
+    PrunePlan,
+    apply_prune,
+    collect_live_refs,
+    parse_older_than,
+    plan_prune,
+)
 from core.schemas import (
     CharacterAsset,
     GeneratedAssets,
@@ -108,3 +115,65 @@ def test_plan_prune_selects_old_unreferenced_only(tmp_path):
 def test_plan_prune_missing_state_raises(tmp_path):
     with pytest.raises(FileNotFoundError):
         plan_prune(tmp_path, parse_older_than("7d"))
+
+
+def test_apply_prune_deletes_and_reports(tmp_path):
+    orphan = _write(tmp_path / "panels" / "id-orphan.png", b"12345")
+    _age(orphan, 10 * 86400)
+    plan = PrunePlan(candidates=[PruneCandidate(path=orphan, size_bytes=5, mtime=0.0)])
+
+    result = apply_prune(plan)
+
+    assert result.deleted == 1
+    assert result.reclaimed_bytes == 5
+    assert not orphan.exists()
+
+
+def test_apply_prune_tolerates_vanished_file(tmp_path):
+    missing = tmp_path / "panels" / "id-gone.png"
+    plan = PrunePlan(candidates=[PruneCandidate(path=missing, size_bytes=5, mtime=0.0)])
+    result = apply_prune(plan)
+    assert result.deleted == 1
+
+
+def test_plan_prune_ignores_non_asset_files(tmp_path):
+    _write(tmp_path / "panels" / "id-orphan.png", b"o")
+    comic_pdf = _write(tmp_path / "comic.pdf", b"%PDF")
+    webtoon = _write(tmp_path / "webtoon.png", b"w")
+    for path in (comic_pdf, webtoon):
+        _age(path, 100 * 86400)
+    state = ProjectState(project_id="p")
+    (tmp_path / "state.json").write_text(state.model_dump_json())
+
+    plan = plan_prune(tmp_path, parse_older_than("7d"))
+
+    planned = {candidate.path for candidate in plan.candidates}
+    assert comic_pdf.resolve() not in planned
+    assert webtoon.resolve() not in planned
+
+
+def test_plan_prune_never_plans_a_referenced_old_file(tmp_path):
+    live = _write(tmp_path / "assets" / "portraits" / "id-live.png", b"keep")
+    _age(live, 100 * 86400)
+    state = ProjectState(project_id="p")
+    state.characters["甲"] = CharacterAsset(name="甲", portrait_local=str(live))
+    (tmp_path / "state.json").write_text(state.model_dump_json())
+
+    plan = plan_prune(tmp_path, parse_older_than("7d"))
+
+    assert live.resolve() not in {candidate.path for candidate in plan.candidates}
+
+
+def test_plan_prune_corrupt_ledger_still_protects_state_roots(tmp_path):
+    live = _write(tmp_path / "panels" / "id-live.png", b"keep")
+    _age(live, 100 * 86400)
+    state = ProjectState(project_id="p")
+    state.generated.panels["c0000-p0000"] = GeneratedPanel(
+        local=str(live), chunk_index=0, panel_index=0
+    )
+    (tmp_path / "state.json").write_text(state.model_dump_json())
+    (tmp_path / "consistency.json").write_text("{ not json")
+
+    plan = plan_prune(tmp_path, parse_older_than("7d"))
+
+    assert live.resolve() not in {candidate.path for candidate in plan.candidates}
