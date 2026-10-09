@@ -73,6 +73,35 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Stop at the budget boundary and do not spend the next day's allowance (default)",
     )
     p_gen.set_defaults(carry_over=False)
+    p_gen.add_argument(
+        "--yes",
+        action="store_true",
+        help="Render past the sample gate without human confirmation; audited into runs.jsonl",
+    )
+
+    p_gate = sub.add_parser(
+        "gate",
+        help="Sample-gate decisions (accept, redraw, accept-and-flag)",
+    )
+    p_gate.add_argument("--out", default="comic_out", help="Project output directory")
+    p_gate.add_argument(
+        "--project",
+        default=None,
+        help="Project id in the shared gate file (default: the output directory name)",
+    )
+    p_gate.add_argument("--key", default=None, help="Page key, e.g. c0000-p0000")
+    p_gate.add_argument(
+        "--decision",
+        choices=["accept", "redraw", "accept-and-flag"],
+        default=None,
+    )
+    p_gate.add_argument(
+        "--reason",
+        choices=["page", "bible"],
+        default=None,
+        help="Why a redraw was rejected: the page, or the visual bible",
+    )
+    p_gate.add_argument("--show", action="store_true", help="Print the stored sample and decisions")
 
     # plan：D1 纯本地预估（不约束 generate）。
     p_plan = sub.add_parser(
@@ -439,8 +468,70 @@ def _run_generate(args: argparse.Namespace) -> None:
             project_id=args.project,
             budget=args.budget,
             carry_over=args.carry_over,
+            gate_yes=args.yes,
         )
     )
+
+
+def _chapter_pages(state: ProjectState | None) -> int | None:
+    """Largest planned chapter, so a grown sample stops at one chapter."""
+    if state is None:
+        return None
+    counts = [len(plan.pages) for plan in state.page_cache.values() if plan.pages]
+    if not counts:
+        return None
+    return max(counts)
+
+
+def _run_gate(args: argparse.Namespace) -> int:
+    """Record or print one project's sample-gate decisions."""
+    from core.comic.gate import GateSession
+    from core.config import data_dir
+
+    out = Path(args.out)
+    project_id = args.project or out.name
+    session = GateSession.load(
+        data_dir=data_dir(),
+        output_dir=out,
+        project_id=project_id,
+    )
+    if session is None:
+        print(f"no sample gate for project {project_id}")
+        return 1
+    if args.decision:
+        if not args.key:
+            print("gate --decision requires --key", file=sys.stderr)
+            return 2
+        state = None
+        state_path = out / "state.json"
+        if state_path.is_file():
+            state = ProjectState.load(state_path)
+        try:
+            session.record(
+                args.key,
+                args.decision,
+                reason_tier=args.reason,
+                state=state,
+                chapter_pages=_chapter_pages(state),
+            )
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        if state is not None:
+            state.save(state_path)
+    project = session.project
+    print(
+        f"sample {len(project.sample_keys)}/{project.sample_size}"
+        f" released={project.released} yes={project.yes}"
+    )
+    if project.paused_key:
+        print(f"paused at {project.paused_key}")
+    for key in project.sample_keys:
+        decision = project.decisions.get(key)
+        label = decision.choice if decision is not None else "undecided"
+        tier = f" ({decision.reason_tier})" if decision is not None and decision.reason_tier else ""
+        print(f"  {key}: {label}{tier}")
+    return 0
 
 
 def _not_implemented(command: str, version: str) -> None:
@@ -457,6 +548,7 @@ def main() -> None:
     first = sys.argv[1] if len(sys.argv) > 1 else ""
     if first not in (
         "generate",
+        "gate",
         "plan",
         "identity",
         "coverage",
@@ -474,6 +566,8 @@ def main() -> None:
         _run_plan(args)
     elif args.command == "generate":
         _run_generate(args)
+    elif args.command == "gate":
+        sys.exit(_run_gate(args))
     elif args.command == "identity":
         sys.exit(_run_identity(args))
     elif args.command == "coverage":

@@ -51,6 +51,7 @@ from core.comic.identity import (  # noqa: E402
     merge_character_alias,
 )
 from core.comic.ledger import ConsistencyLedger  # noqa: E402
+from core.config import data_dir  # noqa: E402
 from core.pipelines.creative_comic import estimate_progress  # noqa: E402
 from core.pipelines.run_until_complete import PausedRun, run_until_complete  # noqa: E402
 from core.pipelines.timing import estimate_remaining  # noqa: E402
@@ -402,6 +403,7 @@ def _run_job(
                 panel_keys=panel_keys,
                 progress_callback=_on_progress,
                 cancel_check=cancel_event.is_set,
+                data_dir=str(data_dir()),
             )
         )
         if isinstance(result, PausedRun):

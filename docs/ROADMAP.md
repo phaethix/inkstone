@@ -134,6 +134,15 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
   Shared accounts live in `quota.jsonl` and `budget.json` under the data directory
   (`INKSTONE_DATA_DIR`, default `~/.inkstone`). Omitting `--budget` keeps today's
   uncapped run, so existing projects are not paused by surprise.
+- [x] **5b** Sample gate. A render batch larger than 30 pages, spanning two chunks
+  when the book has two, pauses for a human decision before the remainder is
+  drawn. `inkstone gate --decision accept|redraw|accept-and-flag` records the
+  per-page card; accept and accept-and-flag release the rest once every sample
+  page is decided that way, and the acceptance rate then moves the next sample
+  (`round(n * 1.618)`, lock, or halve). `--yes` is the audited escape hatch.
+  A resume at the same boundary does not append another stop or issue the
+  call. The gate enters no fingerprint. Shared state is `gate.json` under the
+  data directory when the CLI or web pass it, otherwise the project directory.
 
 ### P1 — Chapter-complete adaptation MVP
 
