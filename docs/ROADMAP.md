@@ -146,8 +146,14 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
 - [x] **0h growth** Doubling the alias-merge sample from 300 pages to 600, with the
   alias still on the same 15 pages, leaves the re-run at 15 stale keys, 16 image
   calls, and 1 chat call. The current architecture already does not grow with book
-  length. The 5x gate still fails (16 is not five times a target of ≤17), so phases
-  0c and 1–3 stay closed.
+  length. The 5x gate still fails (16 is not five times a target of ≤17), so the
+  CAS phases (0c, 2, and 3) stay closed.
+- [x] **1 (contracts)** Stage input declarations. `page_plan` may read earlier
+  layouts only through a window of 8; the declared input is that window plus the
+  summarizer source hashes, not the intent strings and not `page_cache`. Chat
+  stages do not take `{page_size, panel_continuity, l3_enabled}`, and those knobs
+  do not change the structure fingerprint. The L2 continuity image stays a soft
+  reference of `render.page`. This does not add CAS or action keys.
 
 ### P1 — Chapter-complete adaptation MVP
 
