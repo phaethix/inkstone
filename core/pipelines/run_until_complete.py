@@ -16,6 +16,7 @@ from dataclasses import dataclass
 import requests
 
 from core.comic.budget import BudgetPaused, BudgetSpec
+from core.comic.gate import GatePaused
 from core.config import run_deadline_hours, supervisor_backoff_base, supervisor_backoff_cap
 from core.pipelines.cancel import PipelineCancelled, check_cancel
 from core.pipelines.creative_comic import ComicProject, creative_comic
@@ -128,6 +129,8 @@ async def run_until_complete(
     budget: BudgetSpec | None = None,
     data_dir: str | None = None,
     budget_day: str | None = None,
+    gate_yes: bool = False,
+    sample_gate_size: int | None = None,
 ) -> ComicProject | PausedRun:
     """Run ``creative_comic`` until success or wall-clock pause.
 
@@ -173,13 +176,15 @@ async def run_until_complete(
                 budget=budget,
                 data_dir=data_dir,
                 budget_day=budget_day,
+                gate_yes=gate_yes,
+                sample_gate_size=sample_gate_size,
             )
-        except BudgetPaused as exc:
-            # A budget pause is terminal for this invocation. Retrying it as a
-            # transient upstream error would issue no call but would also spin
-            # until the wall-clock deadline.
+        except (BudgetPaused, GatePaused) as exc:
+            # A budget or sample-gate pause is terminal for this invocation.
+            # Retrying it as a transient upstream error would spin until the
+            # wall-clock deadline without issuing the held call.
             elapsed = time.monotonic() - start
-            logger.warning("budget pause: %s", exc)
+            logger.warning("run paused: %s", exc)
             return PausedRun(
                 project_id=pid,
                 output_dir=output_dir,

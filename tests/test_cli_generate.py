@@ -75,6 +75,22 @@ def test_generate_budget_defaults_to_uncapped_and_no_carry_over():
     assert args.carry_over is False
 
 
+def test_generate_yes_defaults_off():
+    args = cli._build_parser().parse_args(["generate", "book.txt"])
+    assert args.yes is False
+    confirmed = cli._build_parser().parse_args(["generate", "book.txt", "--yes"])
+    assert confirmed.yes is True
+
+
+def test_gate_show_is_its_own_command(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["inkstone", "gate", "--show", "--out", str(tmp_path)])
+    monkeypatch.setattr("core.config.data_dir", lambda: tmp_path / "data")
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+    assert exc_info.value.code == 1
+    assert "no sample gate" in capsys.readouterr().out
+
+
 def test_generate_carry_over_is_an_explicit_switch():
     args = cli._build_parser().parse_args(
         ["generate", "book.txt", "--budget", "30", "--carry-over"]

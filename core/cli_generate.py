@@ -20,7 +20,7 @@ from tqdm import tqdm
 
 from core.api import get_chat_provider, get_image_provider
 from core.comic.budget import allocate
-from core.config import ImageConfig, page_script_enabled, render_mode
+from core.config import ImageConfig, data_dir, page_script_enabled, render_mode
 from core.pipelines.run_until_complete import PausedRun, run_until_complete
 
 logger = logging.getLogger(__name__)
@@ -66,6 +66,7 @@ async def _run(
     *,
     budget: int | None = None,
     carry_over: bool = False,
+    gate_yes: bool = False,
 ) -> None:
     text = Path(source).read_text(encoding="utf-8")
     spec = None
@@ -87,12 +88,21 @@ async def _run(
             output_format=fmt,
             progress_callback=on_progress,
             budget=spec,
+            data_dir=str(data_dir()),
+            gate_yes=gate_yes,
         )
 
     if isinstance(result, PausedRun):
         print(f"PAUSED project {result.project_id}: {result.reason}")
         print(f"  progress saved under {result.output_dir}")
-        print("  re-run with the same --project to continue")
+        if "awaiting_human" in result.reason:
+            print(
+                "  decide the sample with: inkstone gate --out "
+                f"{result.output_dir} --key <page> --decision accept|redraw|accept-and-flag"
+            )
+            print("  or re-run with --yes to render the remainder (audited)")
+        else:
+            print("  re-run with the same --project to continue")
         sys.exit(2)
 
     proj = result
@@ -155,6 +165,7 @@ def run_generate(
     *,
     budget: int | None = None,
     carry_over: bool = False,
+    gate_yes: bool = False,
 ) -> int:
     """Validate inputs and run the pipeline. Returns a process exit code."""
     if budget is not None and budget < 0:
@@ -181,7 +192,17 @@ def run_generate(
         out = str(Path("comic_out") / project_id) if project_id else "comic_out"
 
     _configure_background_logging()
-    asyncio.run(_run(source, out, fmt, project_id=project_id, budget=budget, carry_over=carry_over))
+    asyncio.run(
+        _run(
+            source,
+            out,
+            fmt,
+            project_id=project_id,
+            budget=budget,
+            carry_over=carry_over,
+            gate_yes=gate_yes,
+        )
+    )
     return 0
 
 
@@ -229,6 +250,11 @@ def _parse_args(argv=None) -> argparse.Namespace:
         help="Stop at the budget boundary and do not spend the next day's allowance (default)",
     )
     p.set_defaults(carry_over=False)
+    p.add_argument(
+        "--yes",
+        action="store_true",
+        help="Render past the sample gate without human confirmation; audited into runs.jsonl",
+    )
     return p.parse_args(argv)
 
 
@@ -243,6 +269,7 @@ def main() -> None:
             args.project,
             budget=args.budget,
             carry_over=args.carry_over,
+            gate_yes=args.yes,
         )
     )
 

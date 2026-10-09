@@ -310,7 +310,16 @@ async def measure_merge_cost(
         _finished_page_mode(),
         patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf),
     ):
-        await creative_comic(source, output_dir=str(workdir), chat=_chat(), image=CountingImage())
+        # The probe measures a whole sample, including the 300-page script
+        # shape. The sample gate would stop that run at 30 pages, so the
+        # instrument passes the audited escape hatch.
+        await creative_comic(
+            source,
+            output_dir=str(workdir),
+            chat=_chat(),
+            image=CountingImage(),
+            gate_yes=True,
+        )
 
         state = ProjectState.load(state_path)
         pages_completed = len(state.pages_done)
@@ -323,7 +332,13 @@ async def measure_merge_cost(
 
         chat = _chat()
         image = CountingImage()
-        await creative_comic(source, output_dir=str(workdir), chat=chat, image=image)
+        await creative_comic(
+            source,
+            output_dir=str(workdir),
+            chat=chat,
+            image=image,
+            gate_yes=True,
+        )
 
     result = MergeCost(
         pages=chunks * pages_per_chunk,

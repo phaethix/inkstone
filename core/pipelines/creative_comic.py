@@ -48,6 +48,7 @@ from core.comic.consistency import (
     _panel_reference_names,
 )
 from core.comic.export import ExportEngine
+from core.comic.gate import SAMPLE_GATE_SIZE, GatePaused, GateSession
 from core.comic.identity import (
     ensure_character_l1,
     harden_human_identity_prompt,
@@ -804,6 +805,8 @@ async def creative_comic(
     budget: BudgetSpec | None = None,
     data_dir: str | Path | None = None,
     budget_day: str | None = None,
+    gate_yes: bool = False,
+    sample_gate_size: int | None = None,
 ) -> ComicProject:
     """Generate a project while holding its process-level mutation lock."""
     with _project_lock(Path(output_dir)):
@@ -822,6 +825,8 @@ async def creative_comic(
             budget=budget,
             data_dir=data_dir,
             budget_day=budget_day,
+            gate_yes=gate_yes,
+            sample_gate_size=sample_gate_size,
         )
 
 
@@ -845,6 +850,8 @@ async def _creative_comic(
     budget: BudgetSpec | None = None,
     data_dir: str | Path | None = None,
     budget_day: str | None = None,
+    gate_yes: bool = False,
+    sample_gate_size: int | None = None,
 ) -> ComicProject:
     """Generate a comic from ``source_txt`` into ``output_dir``.
 
@@ -876,6 +883,11 @@ async def _creative_comic(
             Defaults to ``core.config.data_dir()`` when ``budget`` is set.
         budget_day: calendar day (``YYYY-MM-DD``, UTC) the account uses.
             Tests pass this; production uses today.
+        gate_yes: render past the sample gate. Audited once into
+            ``runs.jsonl``. The gate never enters a fingerprint.
+        sample_gate_size: pages confirmed before the remainder is released.
+            ``None`` uses the default of 30, which a test holds below a
+            whole book.
 
     Returns:
         A ``ComicProject`` with the final state, produced page paths, and PDF.
@@ -919,6 +931,16 @@ async def _creative_comic(
         # one call or raises BudgetPaused before the provider is touched.
         if session is not None:
             session.charge(stage, item_key)
+
+    # The sample is decided as pages are reached: total_chunks exists only
+    # after segmentation, and allow() is called from the render loops.
+    gate = GateSession.open(
+        data_dir=Path(data_dir) if data_dir is not None else None,
+        output_dir=output_dir,
+        project_id=project_id,
+        yes=gate_yes,
+        sample_size=SAMPLE_GATE_SIZE if sample_gate_size is None else sample_gate_size,
+    )
 
     _report("init", 0.0)
     state_path = output_dir / "state.json"
@@ -1431,6 +1453,11 @@ async def _creative_comic(
                         if name in state.characters and state.characters[name].portrait_local
                     ]
                 refs = [ref for ref in refs if _is_within(ref, output_dir) and Path(ref).is_file()]
+                # Hold past the sample without raising, so a later chunk can
+                # still take the reserved seat. The pause is raised once,
+                # after the sample has been exported.
+                if not gate.allow(state_key, ci, total_chunks=total_chunks):
+                    continue
                 stricter_attempted = False
                 size_fallback_attempted = False
                 active_size = page_size
@@ -1684,6 +1711,8 @@ async def _creative_comic(
                     if state_key in state.panels_done and state_key in state.generated.panels:
                         prev_panel_local = state.generated.panels[state_key].local
                     continue
+                if not gate.allow(state_key, ci, total_chunks=total_chunks):
+                    continue
                 check_cancel(cancel_check)
                 try:
                     generated = await _render_panel(state_key, panel_index, panel, prev_panel_local)
@@ -1705,13 +1734,16 @@ async def _creative_comic(
                 state.save(state_path)
                 _report("panel", _pct())
         else:
+            renderable = [
+                item for item in pending if gate.allow(item[0], ci, total_chunks=total_chunks)
+            ]
             tasks = (
                 _render_panel(state_key, panel_index, panel, None)
-                for state_key, panel_index, panel in pending
+                for state_key, panel_index, panel in renderable
             )
             rendered = await asyncio.gather(*tasks, return_exceptions=True)
             operational_error = None
-            for (state_key, _panel_index, panel), result in zip(pending, rendered, strict=True):
+            for (state_key, _panel_index, panel), result in zip(renderable, rendered, strict=True):
                 if isinstance(result, Exception):
                     if not is_content_policy_rejection(result):
                         operational_error = operational_error or result
@@ -1794,6 +1826,8 @@ async def _creative_comic(
                     pdf = ExportEngine().export_pdf(pages_dir, out=str(output_dir / "comic.pdf"))
 
     state.save(state_path)
+    if gate.awaiting and gate.project.paused_key is not None:
+        raise GatePaused(gate.project.paused_key)
     _report("done", 1.0)
     perf.log_summary()
     return ComicProject(project_id=project_id, state=state, pages=pages, pdf=pdf, webtoon=webtoon)
