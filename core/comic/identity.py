@@ -399,11 +399,17 @@ def merge_character_alias(
 
 
 def _same_alias(suggestion: CharacterAliasSuggestion, new_name: str, candidate: str) -> bool:
-    return suggestion.new_name == new_name and suggestion.candidate == candidate
+    """True when both rows name the same two people, in either order.
+
+    A later extract can introduce the canonical name first. The decision stays
+    the one that was recorded; only a merge's stored direction says which name
+    is kept.
+    """
+    return {suggestion.new_name, suggestion.candidate} == {new_name, candidate}
 
 
 def offer_alias_suggestion(state: ProjectState, suggestion: CharacterAliasSuggestion) -> None:
-    """Queue an alias pair unless a person already dismissed that exact pair."""
+    """Queue an alias pair unless a person already decided that pair."""
     pair = (suggestion.new_name, suggestion.candidate)
     dismissed = any(_same_alias(s, *pair) for s in state.dismissed_aliases)
     merged = any(_same_alias(s, *pair) for s in state.merged_aliases)
