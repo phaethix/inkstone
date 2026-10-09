@@ -54,9 +54,31 @@ def test_the_runtime_window_uses_the_declared_limit():
 
 
 def test_chat_stages_do_not_take_render_only_params():
-    for stage in ("extract", "bible", "beats", "page_plan", "storyboard"):
+    for stage in ("extract", "bible", "beats", "page_plan", "storyboard", "page_script"):
         contract = stage_contract(stage)
         assert contract.hard_inputs.isdisjoint(RENDER_ONLY_PARAMS)
+
+
+def test_local_stages_declare_their_inputs_without_an_accumulated_window():
+    expected = {
+        "portrait": frozenset({"bible_entry_for_character", "character_asset"}),
+        "page_script": frozenset({"source_chunk", "storyboard", "extracted_elements"}),
+        "letter": frozenset({"blank_page", "page_plan", "source_text"}),
+        "export": frozenset({"lettered_pages"}),
+    }
+    for stage, hard in expected.items():
+        contract = stage_contract(stage)
+        assert contract.reads_accumulated is False
+        assert contract.historical_limit is None
+        assert contract.hard_inputs == hard
+        assert contract.hard_inputs.isdisjoint(RENDER_ONLY_PARAMS)
+    assert "font_path" not in stage_contract("letter").hard_inputs
+    portrait = stage_contract("portrait")
+    assert portrait.soft_refs == frozenset({"canonical_portrait_ref"})
+    panel = stage_contract("render.panel")
+    assert panel.reads_accumulated is False
+    assert "prev_panel" in panel.soft_refs
+    assert "prev_panel" not in panel.hard_inputs
 
 
 def test_render_only_params_do_not_change_the_structure_fingerprint(monkeypatch):

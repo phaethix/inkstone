@@ -72,6 +72,34 @@ _STAGES: dict[str, StageContract] = {
         hard_inputs=frozenset({"page_plan", "bible_entries_for_page", "prompt_renderer"}),
         soft_refs=frozenset({"l2_reference"}),
     ),
+    # One character. The earlier portrait of the same person is an i2i reference,
+    # the same class as a page's L2 image: it changes pixels without being a key.
+    "portrait": StageContract(
+        stage="portrait",
+        reads_accumulated=False,
+        hard_inputs=frozenset({"bible_entry_for_character", "character_asset"}),
+        soft_refs=frozenset({"canonical_portrait_ref"}),
+    ),
+    "page_script": _chat("page_script", "source_chunk", "storyboard", "extracted_elements"),
+    "render.panel": StageContract(
+        stage="render.panel",
+        reads_accumulated=False,
+        hard_inputs=frozenset(
+            {"storyboard_panel", "bible_entries_for_panel", "prompt_renderer"}
+        ),
+        soft_refs=frozenset({"prev_panel", "portrait_ref"}),
+    ),
+    # Font bytes belong to h_env. The path string is not an input.
+    "letter": StageContract(
+        stage="letter",
+        reads_accumulated=False,
+        hard_inputs=frozenset({"blank_page", "page_plan", "source_text"}),
+    ),
+    "export": StageContract(
+        stage="export",
+        reads_accumulated=False,
+        hard_inputs=frozenset({"lettered_pages"}),
+    ),
 }
 
 
