@@ -57,7 +57,14 @@ def _chat(stage: str, *hard: str) -> StageContract:
 
 _STAGES: dict[str, StageContract] = {
     "extract": _chat("extract", "source_chunk"),
-    "bible": _chat("bible", "extracted_characters"),
+    # The current bible is the one summary of earlier chunks. Prior chunk text
+    # is not an input. The character table is this project's identities.
+    "bible": StageContract(
+        stage="bible",
+        reads_accumulated=True,
+        hard_inputs=frozenset({"source_chunk", "character_table", "bible_summary"}),
+        historical_limit=1,
+    ),
     "beats": _chat("beats", "source_chunk"),
     "storyboard": _chat("storyboard", "source_chunk", "bible_entries_for_chunk"),
     "page_plan": StageContract(
@@ -119,21 +126,40 @@ def historical_identity(stage: str) -> dict:
     """The key-facing form of a historical dependency.
 
     Limit and summarizer source hashes only. The function takes no project
-    state, so the recent intent strings cannot enter it.
+    state, so the recent intent strings and the bible body cannot enter it.
     """
     contract = stage_contract(stage)
     if contract.historical_limit is None:
         return {}
+    if stage == "page_plan":
+        return {"recent_layouts": _layout_window(contract.historical_limit)}
+    if stage == "bible":
+        return {"bible_summary": _bible_summary(contract.historical_limit)}
+    raise KeyError(f"no historical identity for {stage}")
+
+
+def _layout_window(limit: int) -> dict:
     # Imported lazily: creative_comic imports this module for the limit.
     from core.comic.layout_diversity import layout_diversity_instructions
     from core.pipelines.creative_comic import _recent_layout_intents
 
     return {
-        "recent_layouts": {
-            "limit": contract.historical_limit,
-            "summarizers": {
-                "_recent_layout_intents": _source_hash(_recent_layout_intents),
-                "layout_diversity_instructions": _source_hash(layout_diversity_instructions),
-            },
-        }
+        "limit": limit,
+        "summarizers": {
+            "_recent_layout_intents": _source_hash(_recent_layout_intents),
+            "layout_diversity_instructions": _source_hash(layout_diversity_instructions),
+        },
+    }
+
+
+def _bible_summary(limit: int) -> dict:
+    from core.comic.visual_bible import apply_reconcile
+    from core.screenwriter import reconcile_visual_bible
+
+    return {
+        "limit": limit,
+        "summarizers": {
+            "reconcile_visual_bible": _source_hash(reconcile_visual_bible),
+            "apply_reconcile": _source_hash(apply_reconcile),
+        },
     }

@@ -176,6 +176,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Actually delete; omit for a dry-run report",
     )
 
+    p_verify = sub.add_parser(
+        "verify",
+        help="Check that index manifests and cas objects agree",
+    )
+    p_verify.add_argument(
+        "--out",
+        default="comic_out",
+        help="Project directory that contains index/ and cas/ (default comic_out)",
+    )
+
     p_cov = sub.add_parser(
         "coverage",
         help="Legacy PageScript field report (prototype; not a readability/quality gate).",
@@ -540,6 +550,19 @@ def _not_implemented(command: str, version: str) -> None:
     sys.exit(0)
 
 
+def _run_verify(args: argparse.Namespace) -> int:
+    """Report whether index/ and cas/ describe the same bytes."""
+    from core.comic.cas import verify
+
+    problems = verify(Path(args.out))
+    if problems:
+        for problem in problems:
+            print(problem, file=sys.stderr)
+        return 1
+    print("ok")
+    return 0
+
+
 def main() -> None:
     """统一 CLI 入口。"""
     # 后向兼容：旧用法 `inkstone <source> ...` 无子命令时默认走 generate，
@@ -554,6 +577,7 @@ def main() -> None:
         "coverage",
         "rebuild",
         "prune",
+        "verify",
         "-h",
         "--help",
     ):
@@ -576,6 +600,8 @@ def main() -> None:
         sys.exit(_run_rebuild(args))
     elif args.command == "prune":
         sys.exit(_run_prune(args))
+    elif args.command == "verify":
+        sys.exit(_run_verify(args))
 
 
 if __name__ == "__main__":

@@ -53,6 +53,22 @@ def test_the_runtime_window_uses_the_declared_limit():
     assert len(window) == RECENT_LAYOUT_LIMIT
 
 
+def test_bible_reads_one_summary_rather_than_earlier_chunks():
+    contract = stage_contract("bible")
+    assert contract.reads_accumulated is True
+    assert contract.historical_limit == 1
+    assert contract.hard_inputs == frozenset({"source_chunk", "character_table", "bible_summary"})
+    assert "visual_bible" not in contract.hard_inputs
+    identity = historical_identity("bible")
+    blob = json.dumps(identity)
+    assert set(identity) == {"bible_summary"}
+    assert identity["bible_summary"]["limit"] == 1
+    assert set(identity["bible_summary"]) == {"limit", "summarizers"}
+    assert "recent_layouts" not in identity
+    assert "intent-" not in blob
+    assert "state" not in historical_identity.__code__.co_varnames
+
+
 def test_chat_stages_do_not_take_render_only_params():
     for stage in ("extract", "bible", "beats", "page_plan", "storyboard", "page_script"):
         contract = stage_contract(stage)

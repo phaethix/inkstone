@@ -20,6 +20,7 @@ Providers are injected so the pipeline can be exercised without network.
 
 import asyncio
 import hashlib
+import inspect
 import json
 import logging
 from collections.abc import Callable
@@ -42,11 +43,13 @@ from PIL import Image
 
 from core.api import get_chat_provider, get_image_provider
 from core.comic.budget import BudgetPaused, BudgetSession, BudgetSpec
+from core.comic.cas import letter_action_key, letter_inputs, record_ok, stored_output
 from core.comic.consistency import (
     DEFAULT_PORTRAIT_STYLE,
     ConsistencyEngine,
     _panel_reference_names,
 )
+from core.comic.env_snapshot import h_env
 from core.comic.export import ExportEngine
 from core.comic.gate import SAMPLE_GATE_SIZE, GatePaused, GateSession
 from core.comic.identity import (
@@ -333,17 +336,64 @@ def _page_asset_path(pages_dir: Path, chunk_index: int, page_index: int) -> Path
     return pages_dir / f"page_c{chunk_index:04d}_p{page_index:04d}.png"
 
 
+# Hashed once at import. A monkeypatch of the lettering function must not
+# change the key of bytes already stored under the real source.
+_LETTER_STAGE_SRC = hashlib.sha256(
+    inspect.getsource(letter_finished_page).encode("utf-8")
+).hexdigest()
+
+
+def _plan_json(plan: ComicPagePlan) -> str:
+    payload = plan.model_dump(mode="json")
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
 def _letter_page_from_blank(
     blank_path: Path,
     local_path: Path,
     plan: ComicPagePlan,
     *,
     source_text: str = "",
+    output_dir: Path | None = None,
 ) -> None:
-    """Render deferred lettering from a persisted blank page."""
+    """Render deferred lettering from a persisted blank page.
+
+    When ``output_dir`` is set, an ``ok`` manifest for the same blank, plan,
+    and environment is copied into place. A miss stores the new bytes.
+    """
+    plan_json = _plan_json(plan)
+    root = Path(output_dir) if output_dir is not None else None
+    key = ""
+    env = ""
+    if root is not None:
+        env = h_env(text=source_text or plan_json)
+        key = letter_action_key(
+            blank=blank_path.read_bytes(),
+            plan_json=plan_json,
+            env=env,
+            stage_src=_LETTER_STAGE_SRC,
+        )
+        cached = stored_output(root, key)
+        if cached is not None:
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            local_path.write_bytes(cached)
+            return
     with Image.open(blank_path) as blank:
         lettered = letter_finished_page(blank, plan, source_text=source_text)
+    local_path.parent.mkdir(parents=True, exist_ok=True)
     lettered.save(local_path)
+    if root is None:
+        return
+    record_ok(
+        root,
+        key=key,
+        stage="letter",
+        stage_src=_LETTER_STAGE_SRC,
+        env=env,
+        inputs=letter_inputs(blank_path.read_bytes(), plan_json),
+        name=local_path.name,
+        data=local_path.read_bytes(),
+    )
 
 
 def _finished_page_files(pages_dir: Path) -> list[Path]:
@@ -1418,6 +1468,7 @@ async def _creative_comic(
                             local,
                             plan,
                             source_text=chunk,
+                            output_dir=output_dir,
                         )
                     )
                     existing.local = str(local)
@@ -1440,6 +1491,7 @@ async def _creative_comic(
                             local,
                             plan,
                             source_text=chunk,
+                            output_dir=output_dir,
                         )
                     )
                     existing.local = str(local)
@@ -1556,6 +1608,7 @@ async def _creative_comic(
                         local,
                         plan,
                         source_text=chunk,
+                        output_dir=output_dir,
                     )
                 )
                 state.generated.pages[state_key] = GeneratedPage(
