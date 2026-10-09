@@ -144,11 +144,15 @@ def test_d2_pipeline_skipped_pages_on_policy_rejection(tmp_path, monkeypatch):
 
 
 def test_d2_pipeline_extension_block_is_small():
-    """creative_comic.py 在 storyboard 后、panels 前仅插入一个扩展块（净增 ≤22 行）。"""
+    """The page-script block stays a small extension (≤23 non-blank lines).
+
+    The bound was 22 until phase 5a added the single budget charge in front of
+    ``plan_page_script``. Raise it only when that block gains a real line.
+    """
     path = Path(__file__).resolve().parents[1] / "core" / "pipelines" / "creative_comic.py"
     text = path.read_text(encoding="utf-8")
     start = text.index("# ---- page-script")
     end = text.index("# ---- panels ----", start)
     block = text[start:end]
     added = [ln for ln in block.splitlines() if ln.strip()]
-    assert len(added) <= 22
+    assert len(added) <= 23

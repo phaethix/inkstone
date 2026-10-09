@@ -191,6 +191,7 @@ comic_out/<project_id>/
 | `core/comic/voice.py` | Speaker / timeline sanitize |
 | `core/comic/key_beats.py` | Must-draw beat coverage |
 | `core/comic/export.py` | PDF (optional `manga2pdf`) + webtoon PNG |
+| `core/comic/budget.py` | Per-run call budget and stage reservations (`--budget`) |
 | `core/density.py` | Offline `inkstone plan` estimator (does not control generate) |
 | `core/comic/coverage.py` | Legacy PageScript report |
 

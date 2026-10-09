@@ -8,6 +8,7 @@ values are populated.
 """
 
 import os
+from pathlib import Path
 
 # Env var name constants (for tests, docs, and monkeypatch targets).
 # Every ``os.environ`` read below must reference one of these; a bare string
@@ -33,6 +34,7 @@ ENV_AGNES_IMAGE_RETRY_BASE_DELAY = "AGNES_IMAGE_RETRY_BASE_DELAY"
 ENV_AGNES_RATE_LIMIT = "AGNES_RATE_LIMIT"
 ENV_AGNES_IMAGE_2K_RPM = "AGNES_IMAGE_2K_RPM"
 ENV_AGNES_IMAGE_3K_RPM = "AGNES_IMAGE_3K_RPM"
+ENV_INKSTONE_DATA_DIR = "INKSTONE_DATA_DIR"
 ENV_INKSTONE_IMAGE_CONCURRENCY = "INKSTONE_IMAGE_CONCURRENCY"
 ENV_INKSTONE_PANEL_CONTINUITY = "INKSTONE_PANEL_CONTINUITY"
 ENV_OPENAI_COMPAT_BASE_URL = "OPENAI_COMPAT_BASE_URL"
@@ -131,6 +133,18 @@ def webtoon_max_pixels(*, default: int = DEFAULT_WEBTOON_MAX_PIXELS) -> int:
 
 def font_path() -> str:
     return _get(ENV_FONT_PATH, "").strip()
+
+
+def data_dir() -> Path:
+    """Shared directory for cross-project quota and budget accounts (§6, §12).
+
+    The path itself never enters a key: it chooses where accounting is stored,
+    not what bytes a stage produces.
+    """
+    raw = _get(ENV_INKSTONE_DATA_DIR, "").strip()
+    if raw:
+        return Path(raw).expanduser()
+    return Path.home() / ".inkstone"
 
 
 def error_log_name() -> str | None:

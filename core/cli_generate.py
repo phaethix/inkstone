@@ -19,7 +19,8 @@ from pathlib import Path
 from tqdm import tqdm
 
 from core.api import get_chat_provider, get_image_provider
-from core.config import ImageConfig
+from core.comic.budget import allocate
+from core.config import ImageConfig, page_script_enabled, render_mode
 from core.pipelines.run_until_complete import PausedRun, run_until_complete
 
 logger = logging.getLogger(__name__)
@@ -57,8 +58,26 @@ def _progress_display(stream=None):
         yield on_progress
 
 
-async def _run(source: str, out: str, fmt: str, project_id: str | None = None) -> None:
+async def _run(
+    source: str,
+    out: str,
+    fmt: str,
+    project_id: str | None = None,
+    *,
+    budget: int | None = None,
+    carry_over: bool = False,
+) -> None:
     text = Path(source).read_text(encoding="utf-8")
+    spec = None
+    if budget is not None:
+        # page_script is funded only when that prototype path is on, so an
+        # unused reservation does not shrink the render allowance.
+        spec = allocate(
+            budget,
+            carry_over=carry_over,
+            render_mode=render_mode(),
+            page_script=page_script_enabled(),
+        )
 
     with _progress_display() as on_progress:
         result = await run_until_complete(
@@ -67,6 +86,7 @@ async def _run(source: str, out: str, fmt: str, project_id: str | None = None) -
             project_id=project_id,
             output_format=fmt,
             progress_callback=on_progress,
+            budget=spec,
         )
 
     if isinstance(result, PausedRun):
@@ -132,8 +152,14 @@ def run_generate(
     out: str | None,
     fmt: str,
     project_id: str | None,
+    *,
+    budget: int | None = None,
+    carry_over: bool = False,
 ) -> int:
     """Validate inputs and run the pipeline. Returns a process exit code."""
+    if budget is not None and budget < 0:
+        print("budget must be >= 0", file=sys.stderr)
+        return 2
     if not _providers_configured():
         print(_missing_credentials_message(), file=sys.stderr)
         return 1
@@ -155,7 +181,7 @@ def run_generate(
         out = str(Path("comic_out") / project_id) if project_id else "comic_out"
 
     _configure_background_logging()
-    asyncio.run(_run(source, out, fmt, project_id=project_id))
+    asyncio.run(_run(source, out, fmt, project_id=project_id, budget=budget, carry_over=carry_over))
     return 0
 
 
@@ -183,13 +209,42 @@ def _parse_args(argv=None) -> argparse.Namespace:
         default="page",
         help="output format: flip-page PDF (default) or vertical webtoon PNG",
     )
+    p.add_argument(
+        "--budget",
+        type=int,
+        default=None,
+        help="Max billable calls this run; the run pauses when the reservation is spent",
+    )
+    carry = p.add_mutually_exclusive_group()
+    carry.add_argument(
+        "--carry-over",
+        dest="carry_over",
+        action="store_true",
+        help="On a later calendar day, re-arm the same budget (default: do not)",
+    )
+    carry.add_argument(
+        "--no-carry-over",
+        dest="carry_over",
+        action="store_false",
+        help="Stop at the budget boundary and do not spend the next day's allowance (default)",
+    )
+    p.set_defaults(carry_over=False)
     return p.parse_args(argv)
 
 
 def main() -> None:
     """Standalone entry point (used by the examples/ thin wrapper)."""
     args = _parse_args()
-    sys.exit(run_generate(args.source, args.out, args.format, args.project))
+    sys.exit(
+        run_generate(
+            args.source,
+            args.out,
+            args.format,
+            args.project,
+            budget=args.budget,
+            carry_over=args.carry_over,
+        )
+    )
 
 
 if __name__ == "__main__":

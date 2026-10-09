@@ -124,6 +124,16 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
   so the root set is `state.json` + `consistency.json`; `collect_live_refs` is the
   seam Phase 4's `gc` extends. It ships before Phase 3, the entry point that writes
   image bytes.
+- [x] **5a** Quota budget. `inkstone generate --budget N` caps billable calls for
+  that run. Each stage has its own reservation (a render overrun cannot spend the
+  extract reservation) and one call is withheld as a recovery reserve when the
+  budget is at least 2. Exhaustion pauses at the item boundary, writes one
+  `runs.jsonl` stop, and a resume at the same boundary does not append another or
+  issue the call. `--no-carry-over` is the default: a later calendar day does not
+  re-arm the allowance; `--carry-over` does. The budget enters no fingerprint.
+  Shared accounts live in `quota.jsonl` and `budget.json` under the data directory
+  (`INKSTONE_DATA_DIR`, default `~/.inkstone`). Omitting `--budget` keeps today's
+  uncapped run, so existing projects are not paused by surprise.
 
 ### P1 — Chapter-complete adaptation MVP
 
