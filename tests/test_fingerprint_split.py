@@ -12,6 +12,7 @@ from core.pipelines.creative_comic import (
 )
 from core.schemas import CharacterAsset, ChunkCache, ModelSnapshot, ProjectState
 from tests.test_creative_comic import FakeChat, FakeImage, _fake_export_pdf
+from tests.test_finished_page_pipeline import FakeChat as FinishedChat
 
 _SNAPSHOT = ModelSnapshot(chat="chat|url|m", t2i="t2i|url|m", i2i="i2i|url|m")
 
@@ -240,3 +241,53 @@ def test_legacy_state_with_matching_combined_fingerprint_migrates(tmp_path):
     assert loaded.render_fingerprint
     assert loaded.source_fingerprint == loaded.structure_fingerprint
     assert set(loaded.chunk_cache) == cache_keys
+
+
+class _StoryboardChat(FinishedChat):
+    """Finished-page chat, plus a storyboard for the mode switch."""
+
+    def __init__(self):
+        super().__init__()
+        self.storyboards = 0
+
+    async def chat_function_call(self, messages, tools, tool_choice, **kw):
+        name = tool_choice["function"]["name"]
+        if name != "plan_storyboard":
+            return await super().chat_function_call(messages, tools, tool_choice, **kw)
+        self.calls += 1
+        self.storyboards += 1
+        return {
+            "chapter_id": "ch01",
+            "panels": [
+                {
+                    "panel_id": "ch01_p01",
+                    "characters_present": ["福贵"],
+                    "setting_ref": "村口",
+                    "action": "walks through the village entrance",
+                    "reference_characters": ["福贵"],
+                    "size": "1024x1024",
+                }
+            ],
+        }
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_panel_compose_does_not_reuse_a_finished_page_completion(tmp_path, monkeypatch):
+    """§5: a missing storyboard is a miss, not a hit on the finished-page cache."""
+    src = "第一章\n福贵在村口。"
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+    monkeypatch.setenv("INKSTONE_PAGE_SCRIPT", "0")
+    asyncio.run(
+        creative_comic(src, output_dir=str(tmp_path), chat=FinishedChat(), image=FakeImage())
+    )
+    saved = ProjectState.load(tmp_path / "state.json")
+    assert saved.chunk_cache
+    assert all(cached.storyboard is None for cached in saved.chunk_cache.values())
+
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "panel_compose")
+    chat = _StoryboardChat()
+    proj = asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=chat, image=FakeImage()))
+
+    assert chat.storyboards == 1
+    assert proj.state.chunk_cache["0"].storyboard is not None
+    assert proj.state.panels_done
