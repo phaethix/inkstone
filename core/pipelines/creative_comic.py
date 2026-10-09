@@ -43,7 +43,14 @@ from PIL import Image
 
 from core.api import get_chat_provider, get_image_provider
 from core.comic.budget import BudgetPaused, BudgetSession, BudgetSpec
-from core.comic.cas import letter_action_key, letter_inputs, record_ok, stored_output
+from core.comic.cas import (
+    export_action_key,
+    export_inputs,
+    letter_action_key,
+    letter_inputs,
+    record_ok,
+    stored_output,
+)
 from core.comic.consistency import (
     DEFAULT_PORTRAIT_STYLE,
     ConsistencyEngine,
@@ -341,6 +348,9 @@ def _page_asset_path(pages_dir: Path, chunk_index: int, page_index: int) -> Path
 _LETTER_STAGE_SRC = hashlib.sha256(
     inspect.getsource(letter_finished_page).encode("utf-8")
 ).hexdigest()
+_EXPORT_STAGE_SRC = hashlib.sha256(
+    inspect.getsource(ExportEngine.export_pdf).encode("utf-8")
+).hexdigest()
 
 
 def _plan_json(plan: ComicPagePlan) -> str:
@@ -394,6 +404,39 @@ def _letter_page_from_blank(
         name=local_path.name,
         data=local_path.read_bytes(),
     )
+
+
+def _export_pdf_with_manifest(pages_dir: Path, output_dir: Path) -> str:
+    """Build ``comic.pdf``, or copy it when the same pages were already bound."""
+    out = output_dir / "comic.pdf"
+    files = sorted(pages_dir.glob("page_*.png"))
+    if not files:
+        files = sorted(p for p in pages_dir.glob("*.png") if p.name.lower() != "webtoon.png")
+    blobs = [path.read_bytes() for path in files]
+    env = h_env(text="")
+    key = export_action_key(
+        pages=blobs,
+        layout="TwoPageRight",
+        direction="R2L",
+        env=env,
+        stage_src=_EXPORT_STAGE_SRC,
+    )
+    cached = stored_output(output_dir, key)
+    if cached is not None:
+        out.write_bytes(cached)
+        return str(out)
+    pdf = ExportEngine().export_pdf(pages_dir, out=str(out))
+    record_ok(
+        output_dir,
+        key=key,
+        stage="export",
+        stage_src=_EXPORT_STAGE_SRC,
+        env=env,
+        inputs=export_inputs(blobs),
+        name=out.name,
+        data=Path(pdf).read_bytes(),
+    )
+    return pdf
 
 
 def _finished_page_files(pages_dir: Path) -> list[Path]:
@@ -1863,7 +1906,7 @@ async def _creative_comic(
                 pages = webtoon_paths
             else:
                 with perf.measure("export"):
-                    pdf = ExportEngine().export_pdf(pages_dir, out=str(output_dir / "comic.pdf"))
+                    pdf = _export_pdf_with_manifest(pages_dir, output_dir)
                 pages = [str(p) for p in page_files]
     else:
         state.stage = "layout"
@@ -1897,7 +1940,7 @@ async def _creative_comic(
                 webtoon = pages[0] if pages else None
             else:
                 with perf.measure("export"):
-                    pdf = ExportEngine().export_pdf(pages_dir, out=str(output_dir / "comic.pdf"))
+                    pdf = _export_pdf_with_manifest(pages_dir, output_dir)
 
     state.save(state_path)
     if gate.awaiting and gate.project.paused_key is not None:

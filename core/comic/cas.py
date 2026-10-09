@@ -97,6 +97,33 @@ def letter_inputs(blank: bytes, plan_json: str) -> list[str]:
     ]
 
 
+def export_inputs(pages: list[bytes]) -> list[str]:
+    """Ordered content ids of the page images an export will bind."""
+    return ["sha256:" + _hex_digest(page) for page in pages]
+
+
+def export_action_key(
+    *,
+    pages: list[bytes],
+    layout: str,
+    direction: str,
+    env: str,
+    stage_src: str,
+) -> str:
+    """Key an export from the page bytes plus the binding layout.
+
+    The page images already contain lettering, so this key does not take
+    ``page_size`` or the other render-only knobs.
+    """
+    return action_key(
+        stage="export",
+        stage_src=stage_src,
+        inputs=export_inputs(pages),
+        params={"layout": layout, "direction": direction},
+        env=env,
+    )
+
+
 def letter_action_key(*, blank: bytes, plan_json: str, env: str, stage_src: str) -> str:
     """Key a lettering step from the blank bytes, the plan, and ``h_env``.
 

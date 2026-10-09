@@ -193,6 +193,9 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
   The same blank, plan, and environment copies the stored bytes instead of
   drawing again. A different blank letters again. Render keys stay off the
   generate path.
+- [x] **2 (export)** Binding the page images into `comic.pdf` writes a manifest.
+  The same page bytes and the same layout copy the stored PDF. A changed page
+  binds again.
 
 ### P1 — Chapter-complete adaptation MVP
 
