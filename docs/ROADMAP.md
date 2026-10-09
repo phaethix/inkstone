@@ -196,6 +196,9 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
 - [x] **2 (export)** Binding the page images into `comic.pdf` writes a manifest.
   The same page bytes and the same layout copy the stored PDF. A changed page
   binds again.
+- [x] **2 (verify in CI)** A CI job builds a temporary project from a few KB of
+  synthetic bytes, runs `inkstone verify`, and fails when one object is
+  deleted. No example book is committed.
 
 ### P1 — Chapter-complete adaptation MVP
 
