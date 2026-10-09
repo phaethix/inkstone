@@ -1,6 +1,7 @@
 import asyncio
 from unittest.mock import patch
 
+from core.comic.identity import dismiss_character_alias
 from core.config import ImageConfig
 from core.pipelines.creative_comic import (
     _input_fingerprint,
@@ -211,6 +212,25 @@ def test_source_change_keeps_the_alias_review_queue(tmp_path):
     assert loaded.needs_review == [suggestion]
     assert loaded.tombstones == {}
     assert loaded.structure_fingerprint == _structure_fingerprint(src_b)
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_source_change_keeps_a_dismissed_alias(tmp_path):
+    """A dismiss is a human decision, so a rebuilt projection must not reopen it."""
+    src_a = "第一章\n方鸿渐在甲板上。"
+    asyncio.run(creative_comic(src_a, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage()))
+    state = ProjectState.load(tmp_path / "state.json")
+    state.needs_review = [
+        CharacterAliasSuggestion(new_name="鸿渐", candidate="方鸿渐", reason="x"),
+    ]
+    dismiss_character_alias(state, "鸿渐", "方鸿渐")
+    state.save(tmp_path / "state.json")
+
+    src_b = "第一章\n方鸿渐改在图书馆读书。"
+    asyncio.run(creative_comic(src_b, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage()))
+    loaded = ProjectState.load(tmp_path / "state.json")
+    assert [(s.new_name, s.candidate) for s in loaded.dismissed_aliases] == [("鸿渐", "方鸿渐")]
+    assert loaded.needs_review == []
 
 
 @patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)

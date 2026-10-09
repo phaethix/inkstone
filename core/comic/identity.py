@@ -397,14 +397,44 @@ def merge_character_alias(
     return list(stale)
 
 
+def _same_alias(suggestion: CharacterAliasSuggestion, new_name: str, candidate: str) -> bool:
+    return suggestion.new_name == new_name and suggestion.candidate == candidate
+
+
+def offer_alias_suggestion(state: ProjectState, suggestion: CharacterAliasSuggestion) -> None:
+    """Queue an alias pair unless a person already dismissed that exact pair."""
+    pair = (suggestion.new_name, suggestion.candidate)
+    dismissed = any(_same_alias(s, *pair) for s in state.dismissed_aliases)
+    queued = any(_same_alias(s, *pair) for s in state.needs_review)
+    if dismissed or queued:
+        return
+    state.needs_review.append(suggestion)
+
+
 def dismiss_character_alias(
     state: ProjectState,
     new_name: str,
     candidate: str,
 ) -> None:
-    """Remove a review suggestion without merging identities."""
+    """Remove a review suggestion without merging identities.
+
+    The pair is recorded so a later extract cannot put it back on the queue.
+    """
+    if not any(_same_alias(s, new_name, candidate) for s in state.dismissed_aliases):
+        kept = next(
+            (s for s in state.needs_review if _same_alias(s, new_name, candidate)),
+            None,
+        )
+        record = kept
+        if record is None:
+            record = CharacterAliasSuggestion(
+                new_name=new_name,
+                candidate=candidate,
+                reason="dismissed",
+            )
+        state.dismissed_aliases.append(record)
     state.needs_review = [
-        s for s in state.needs_review if not (s.new_name == new_name and s.candidate == candidate)
+        s for s in state.needs_review if not _same_alias(s, new_name, candidate)
     ]
 
 

@@ -1457,6 +1457,9 @@ class ProjectState(BaseModel):
     # Populated by the alias detector so a person called by a variant name is not
     # silently forked into a second character.
     needs_review: list[CharacterAliasSuggestion] = Field(default_factory=list)
+    # Pairs a person dismissed. Absence from ``needs_review`` is not enough:
+    # the detector would offer the same pair again after a re-extract.
+    dismissed_aliases: list[CharacterAliasSuggestion] = Field(default_factory=list)
     # Per-chunk cache of extraction + storyboard results so a resume reuses them
     # instead of re-calling the (billable) chat API for already-planned chunks.
     chunk_cache: dict[str, ChunkCache] = Field(default_factory=dict)

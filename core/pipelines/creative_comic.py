@@ -53,6 +53,7 @@ from core.comic.identity import (
     ensure_character_l1,
     harden_human_identity_prompt,
     merge_settings,
+    offer_alias_suggestion,
     page_state_key,
     suggestion_from_alias,
 )
@@ -997,6 +998,7 @@ async def _creative_comic(
         )
         if carried is not None:
             fresh.needs_review = list(carried.needs_review)
+            fresh.dismissed_aliases = list(carried.dismissed_aliases)
         return fresh
 
     soft_invalidated_this_run = False
@@ -1129,9 +1131,7 @@ async def _creative_comic(
         # Surface likely alias variants for human review (never auto-merged).
         hints = list(detect_character_aliases(state.characters, new_names))
         for name, cand, reason in hints:
-            sugg = suggestion_from_alias(name, cand, reason)
-            if sugg not in state.needs_review:
-                state.needs_review.append(sugg)
+            offer_alias_suggestion(state, suggestion_from_alias(name, cand, reason))
         if state.visual_bible is None or fresh_extract or new_names:
             _charge("bible", f"c{ci:04d}")
             try:
