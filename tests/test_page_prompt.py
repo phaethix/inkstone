@@ -1,5 +1,6 @@
 from core.comic.page_prompt import render_finished_page_prompt
-from core.schemas import CharacterAsset, ComicPagePlan
+from core.comic.visual_bible import bible_entries_for_page
+from core.schemas import CharacterAsset, CharacterCanon, ComicPagePlan, VisualBible
 
 
 def test_prompt_includes_layout_lettering_and_identity():
@@ -117,3 +118,36 @@ def test_finished_page_prompt_locks_metaphorical_huniu():
     assert "NOT a literal animal" in text
     assert "human character" in text
     assert "sturdy woman in traditional clothes" in text
+
+
+def test_page_prompt_omits_a_character_who_is_not_on_the_page():
+    bible = VisualBible(
+        characters={
+            "福贵": CharacterCanon(
+                canonical_name="福贵", face_lock="weathered farmer UNIQUE_ON_PAGE"
+            ),
+            "春生": CharacterCanon(
+                canonical_name="春生", face_lock="young landlord UNIQUE_OFF_PAGE"
+            ),
+        }
+    )
+    plan = ComicPagePlan.model_validate(
+        {
+            "page_id": "p1",
+            "purpose": "arrive",
+            "layout_intent": "wide establishing",
+            "panels": [{"panel_id": "1", "action": "walks in", "characters": ["福贵"]}],
+            "reference_characters": ["福贵"],
+        }
+    )
+    text = render_finished_page_prompt(
+        plan,
+        characters_by_name={
+            "福贵": CharacterAsset(name="福贵", l1_prompt="a farmer"),
+        },
+        settings_by_name={},
+        visual_bible=bible,
+    )
+    assert "UNIQUE_ON_PAGE" in text
+    assert "UNIQUE_OFF_PAGE" not in text
+    assert list(bible_entries_for_page(bible, ["福贵"])) == ["福贵"]
