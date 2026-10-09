@@ -69,6 +69,22 @@ def test_run_generate_requires_source_when_no_bundled_scene(monkeypatch, capsys)
     assert "source file is required" in capsys.readouterr().err
 
 
+def test_generate_budget_defaults_to_uncapped_and_no_carry_over():
+    args = cli._build_parser().parse_args(["generate", "book.txt"])
+    assert args.budget is None
+    assert args.carry_over is False
+
+
+def test_generate_carry_over_is_an_explicit_switch():
+    args = cli._build_parser().parse_args(
+        ["generate", "book.txt", "--budget", "30", "--carry-over"]
+    )
+    assert args.budget == 30
+    assert args.carry_over is True
+    blocked = cli._build_parser().parse_args(["generate", "book.txt", "--no-carry-over"])
+    assert blocked.carry_over is False
+
+
 def test_default_scene_found_in_repo_checkout():
     scene = cli_generate._default_scene()
     assert scene is not None

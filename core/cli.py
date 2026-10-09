@@ -53,6 +53,26 @@ def _build_parser() -> argparse.ArgumentParser:
         default="page",
         help="page=vertical PDF / webtoon=long-strip PNG",
     )
+    p_gen.add_argument(
+        "--budget",
+        type=int,
+        default=None,
+        help="Max billable calls this run; the run pauses when the reservation is spent",
+    )
+    carry = p_gen.add_mutually_exclusive_group()
+    carry.add_argument(
+        "--carry-over",
+        dest="carry_over",
+        action="store_true",
+        help="On a later calendar day, re-arm the same budget (default: do not)",
+    )
+    carry.add_argument(
+        "--no-carry-over",
+        dest="carry_over",
+        action="store_false",
+        help="Stop at the budget boundary and do not spend the next day's allowance (default)",
+    )
+    p_gen.set_defaults(carry_over=False)
 
     # plan：D1 纯本地预估（不约束 generate）。
     p_plan = sub.add_parser(
@@ -417,6 +437,8 @@ def _run_generate(args: argparse.Namespace) -> None:
             out=args.out,
             fmt=args.format,
             project_id=args.project,
+            budget=args.budget,
+            carry_over=args.carry_over,
         )
     )
 

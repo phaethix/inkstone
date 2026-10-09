@@ -36,6 +36,7 @@ from core.config import (
     ENV_AGNES_RATE_LIMIT,
     ENV_ERROR_LOG,
     ENV_FONT_PATH,
+    ENV_INKSTONE_DATA_DIR,
     ENV_INKSTONE_IMAGE_CONCURRENCY,
     ENV_INKSTONE_PANEL_CONTINUITY,
     ENV_L3,
@@ -90,6 +91,7 @@ H_ENV_REGISTERED: frozenset[str] = frozenset(
 H_ENV_EXCLUDED: frozenset[str] = frozenset(
     {
         ENV_FONT_PATH,
+        ENV_INKSTONE_DATA_DIR,
         ENV_INKSTONE_IMAGE_CONCURRENCY,
         ENV_AGNES_RATE_LIMIT,
         ENV_AGNES_IMAGE_2K_RPM,

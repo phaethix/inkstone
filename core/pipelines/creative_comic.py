@@ -41,6 +41,7 @@ except ImportError:  # pragma: no cover - exercised only outside Windows
 from PIL import Image
 
 from core.api import get_chat_provider, get_image_provider
+from core.comic.budget import BudgetPaused, BudgetSession, BudgetSpec
 from core.comic.consistency import (
     DEFAULT_PORTRAIT_STYLE,
     ConsistencyEngine,
@@ -79,7 +80,15 @@ from core.comic.visual_bible import (
     sync_characters_from_bible,
 )
 from core.comic.voice import sanitize_plan_voice
-from core.config import ImageConfig, finished_page_size, l3_enabled, page_script_enabled
+from core.config import (
+    ImageConfig,
+    finished_page_size,
+    l3_enabled,
+    page_script_enabled,
+)
+from core.config import (
+    data_dir as config_data_dir,
+)
 from core.config import render_mode as config_render_mode
 from core.perf import PerfCollector
 from core.pipelines.cancel import check_cancel
@@ -792,6 +801,9 @@ async def creative_comic(
     panel_keys: list[str] | None = None,
     cancel_check: Callable[[], bool] | None = None,
     render_mode: str | None = None,
+    budget: BudgetSpec | None = None,
+    data_dir: str | Path | None = None,
+    budget_day: str | None = None,
 ) -> ComicProject:
     """Generate a project while holding its process-level mutation lock."""
     with _project_lock(Path(output_dir)):
@@ -807,6 +819,9 @@ async def creative_comic(
             panel_keys=panel_keys,
             cancel_check=cancel_check,
             render_mode=render_mode,
+            budget=budget,
+            data_dir=data_dir,
+            budget_day=budget_day,
         )
 
 
@@ -827,6 +842,9 @@ async def _creative_comic(
     panel_keys: list[str] | None = None,
     cancel_check: Callable[[], bool] | None = None,
     render_mode: str | None = None,
+    budget: BudgetSpec | None = None,
+    data_dir: str | Path | None = None,
+    budget_day: str | None = None,
 ) -> ComicProject:
     """Generate a comic from ``source_txt`` into ``output_dir``.
 
@@ -850,6 +868,14 @@ async def _creative_comic(
             no LayoutEngine collage) or ``"panel_compose"`` (legacy
             storyboard -> panels -> LayoutEngine grid path). Falls back to
             ``core.config.render_mode()`` when unset.
+        budget: when set, each billable call is charged against this
+            reservation and a shortfall raises ``BudgetPaused`` before the
+            call (§12). ``None`` preserves the unbounded run. Budget never
+            enters a fingerprint.
+        data_dir: shared directory for ``quota.jsonl`` and ``budget.json``.
+            Defaults to ``core.config.data_dir()`` when ``budget`` is set.
+        budget_day: calendar day (``YYYY-MM-DD``, UTC) the account uses.
+            Tests pass this; production uses today.
 
     Returns:
         A ``ComicProject`` with the final state, produced page paths, and PDF.
@@ -878,6 +904,22 @@ async def _creative_comic(
             progress_callback(_progress_label(stage), percent)
 
     project_id = project_id or output_dir.name or "comic"
+    session: BudgetSession | None = None
+    if budget is not None:
+        session = BudgetSession.open(
+            data_dir=Path(data_dir) if data_dir is not None else config_data_dir(),
+            project_id=project_id,
+            output_dir=output_dir,
+            spec=budget,
+            today=budget_day,
+        )
+
+    def _charge(stage: str, item_key: str) -> None:
+        # No-op when the caller did not pass a budget. A charge either commits
+        # one call or raises BudgetPaused before the provider is touched.
+        if session is not None:
+            session.charge(stage, item_key)
+
     _report("init", 0.0)
     state_path = output_dir / "state.json"
     # Persist source so Web/CLI regen can resume without re-uploading text.
@@ -1023,6 +1065,7 @@ async def _creative_comic(
         fresh_extract = elements is None
         if elements is None:
             state.stage = "extract"
+            _charge("extract", f"c{ci:04d}")
             try:
                 with perf.measure("extract"):
                     elements = await extract_story_elements(chunk, chat=chat)
@@ -1055,6 +1098,7 @@ async def _creative_comic(
             if sugg not in state.needs_review:
                 state.needs_review.append(sugg)
         if state.visual_bible is None or fresh_extract or new_names:
+            _charge("bible", f"c{ci:04d}")
             try:
                 recon = await reconcile_visual_bible(
                     chunk,
@@ -1128,6 +1172,7 @@ async def _creative_comic(
             if base_ref and _is_within(base_ref, output_dir) and Path(base_ref).is_file():
                 refs = [base_ref]
             async with image_semaphore:
+                _charge("portrait", name)
                 with perf.measure("portrait"):
                     out = await image.generate_single_image(
                         f"{prompt}, {comic_style}",
@@ -1157,6 +1202,9 @@ async def _creative_comic(
             for name, result in zip(group, group_results, strict=True):
                 assigned_names.append(name)
                 portrait_results.append(result)
+                if isinstance(result, BudgetPaused):
+                    state.save(state_path)
+                    raise result
                 if isinstance(result, Exception):
                     continue
                 _, path = result
@@ -1211,6 +1259,7 @@ async def _creative_comic(
                     with perf.measure("page_plan"):
                         beats = state.beat_cache.get(key)
                         if beats is None:
+                            _charge("beats", f"c{ci:04d}")
                             try:
                                 beats = await extract_key_beats(chunk, elements, chat=chat)
                                 state.beat_cache[key] = beats
@@ -1221,6 +1270,7 @@ async def _creative_comic(
                                     beat_exc,
                                 )
                                 beats = None
+                        _charge("page_plan", f"c{ci:04d}")
                         pageset = await plan_comic_pages(
                             chunk,
                             elements,
@@ -1236,6 +1286,7 @@ async def _creative_comic(
                                     "chunk %s uncovered must_draw beats; retrying page plan once",
                                     ci,
                                 )
+                                _charge("page_plan", f"c{ci:04d}")
                                 pageset = await plan_comic_pages(
                                     chunk,
                                     elements,
@@ -1384,6 +1435,7 @@ async def _creative_comic(
                 size_fallback_attempted = False
                 active_size = page_size
                 while True:
+                    _charge("render", state_key)
                     try:
                         async with image_semaphore:
                             with perf.measure("page"):
@@ -1484,6 +1536,7 @@ async def _creative_comic(
         # ---- storyboard (only when not cached) ----
         if board is None:
             state.stage = "storyboard"
+            _charge("storyboard", f"c{ci:04d}")
             try:
                 with perf.measure("storyboard"):
                     board = await plan_storyboard(chunk, elements, chat=chat)
@@ -1505,6 +1558,7 @@ async def _creative_comic(
         # ---- page-script ----
         # Optional legacy PageScript metadata (NOT a quality gate). Off by default.
         if _page_script_enabled() and state.chunk_cache.get(key, ChunkCache()).page_script is None:
+            _charge("page_script", f"c{ci:04d}")
             try:
                 with perf.measure("page_script"):
                     ps = await plan_page_script(board, elements, chunk, chat=chat)
@@ -1584,6 +1638,7 @@ async def _creative_comic(
             )
             refs = [ref for ref in refs if _is_within(ref, output_dir) and Path(ref).is_file()]
             async with image_semaphore:
+                _charge("render", state_key)
                 with perf.measure("panel"):
                     out = await image.generate_single_image(
                         prompt, reference_image_paths=refs, size=panel.size
