@@ -1,6 +1,7 @@
 """tests/test_creative_comic.py — orchestration end-to-end (fakes, no network)."""
 
 import asyncio
+import shutil
 from pathlib import Path
 from unittest.mock import patch
 
@@ -360,6 +361,9 @@ def test_legacy_generated_panel_metadata_is_restored_from_storyboard(tmp_path, m
         generated.panel_index = 0
         generated.dialogue = None
     state.save(state_path)
+    # The first collage is already stored. Drop it so this run reaches layout
+    # and shows the dialogue restored from the storyboard.
+    shutil.rmtree(tmp_path / "index", ignore_errors=True)
 
     captured = []
 

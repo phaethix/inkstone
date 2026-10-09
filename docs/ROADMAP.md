@@ -206,6 +206,10 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
 - [x] **2 (webtoon)** Stacking pages or panels into `webtoon.png` writes a
   manifest. The same images and the same drawn text copy the stored strip. A
   changed panel or a changed line stacks again.
+- [x] **2 (layout)** Collaging panels into page sheets writes one manifest for
+  every sheet. The same panels and the same drawn text copy those sheets. A
+  changed line collages again. A rejected collage is not bound into a PDF until
+  `rebuild --stage layout` releases it.
 
 ### P1 — Chapter-complete adaptation MVP
 

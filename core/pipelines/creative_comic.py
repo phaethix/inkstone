@@ -48,10 +48,13 @@ from core.comic.cas import (
     export_action_key,
     export_inputs,
     is_hit,
+    layout_action_key,
     letter_action_key,
     letter_inputs,
     load_manifest,
+    record_files,
     record_ok,
+    stored_files,
     stored_output,
     webtoon_action_key,
 )
@@ -358,6 +361,9 @@ _EXPORT_STAGE_SRC = hashlib.sha256(
 _WEBTOON_STAGE_SRC = hashlib.sha256(
     inspect.getsource(LayoutEngine._compose_webtoon).encode("utf-8")
 ).hexdigest()
+_LAYOUT_STAGE_SRC = hashlib.sha256(
+    inspect.getsource(LayoutEngine._compose_pages).encode("utf-8")
+).hexdigest()
 
 
 def _plan_json(plan: ComicPagePlan) -> str:
@@ -511,6 +517,58 @@ def _export_webtoon_with_manifest(
         inputs=export_inputs(blobs),
         name=out.name,
         data=Path(paths[0]).read_bytes(),
+    )
+    return paths
+
+
+def _layout_pages_with_manifest(
+    panels: list[PanelImage], pages_dir: Path, output_dir: Path
+) -> list[str] | None:
+    """Collage panel sheets, or copy them when the same panels were already bound.
+
+    ``None`` means a non-ok manifest: the collage is not rebuilt, and the caller
+    should not bind a PDF from whatever sheets happen to be on disk.
+    """
+    if not panels:
+        return []
+    blobs = [_panel_png_bytes(panel) for panel in panels]
+    lettering = _webtoon_lettering(panels)
+    text = "\n".join(piece for row in lettering for piece in row.values() if piece)
+    env = h_env(text=text)
+    engine = LayoutEngine()
+    key = layout_action_key(
+        pages=blobs,
+        lettering=lettering,
+        page_width=engine.page_width,
+        cell_height=engine.cell_height,
+        bg=[int(channel) for channel in engine.bg],
+        env=env,
+        stage_src=_LAYOUT_STAGE_SRC,
+    )
+    recorded = load_manifest(output_dir, key)
+    if recorded is not None and is_hit(recorded) and recorded.outcome != "ok":
+        return None
+    cached = stored_files(output_dir, key)
+    if cached is not None:
+        pages_dir.mkdir(parents=True, exist_ok=True)
+        restored: list[str] = []
+        for name, data in cached:
+            dest = pages_dir / Path(name).name
+            dest.write_bytes(data)
+            restored.append(str(dest))
+        return restored
+    pages_dir.mkdir(parents=True, exist_ok=True)
+    paths = engine.compose(panels, pages_dir, layout_mode="page")
+    if not paths:
+        return []
+    record_files(
+        output_dir,
+        key=key,
+        stage="layout",
+        stage_src=_LAYOUT_STAGE_SRC,
+        env=env,
+        inputs=export_inputs(blobs),
+        files=[(Path(path).name, Path(path).read_bytes()) for path in paths],
     )
     return paths
 
@@ -2002,17 +2060,17 @@ async def _creative_comic(
 
         if panel_imgs:
             with perf.measure("layout"):
-                engine_layout = LayoutEngine()
                 if output_format == "webtoon":
                     pages = _export_webtoon_with_manifest(panel_imgs, pages_dir, output_dir)
                 else:
-                    pages = engine_layout.compose(panel_imgs, pages_dir, layout_mode="page")
+                    laid_out = _layout_pages_with_manifest(panel_imgs, pages_dir, output_dir)
+                    pages = [] if laid_out is None else laid_out
 
             state.stage = "export"
             _report("export", 0.95)
             if output_format == "webtoon":
                 webtoon = pages[0] if pages else None
-            else:
+            elif pages:
                 with perf.measure("export"):
                     pdf = _export_pdf_with_manifest(pages_dir, output_dir)
 

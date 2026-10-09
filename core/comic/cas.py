@@ -146,6 +146,32 @@ def webtoon_action_key(
     )
 
 
+def layout_action_key(
+    *,
+    pages: list[bytes],
+    lettering: list[dict[str, str]],
+    page_width: int,
+    cell_height: int,
+    bg: list[int],
+    env: str,
+    stage_src: str,
+) -> str:
+    """Key a page collage from the panel bytes and the text drawn on them."""
+    return action_key(
+        stage="layout",
+        stage_src=stage_src,
+        inputs=export_inputs(pages),
+        params={
+            "bg": bg,
+            "cell_height": cell_height,
+            "layout": "page",
+            "lettering": lettering,
+            "page_width": page_width,
+        },
+        env=env,
+    )
+
+
 def letter_action_key(*, blank: bytes, plan_json: str, env: str, stage_src: str) -> str:
     """Key a lettering step from the blank bytes, the plan, and ``h_env``.
 
@@ -170,6 +196,46 @@ def stored_output(root: Path, key: str) -> bytes | None:
     if not path.is_file():
         return None
     return path.read_bytes()
+
+
+def stored_files(root: Path, key: str) -> list[tuple[str, bytes]] | None:
+    """Return every ``ok`` output, or ``None`` when one blob is missing."""
+    manifest = load_manifest(root, key)
+    if manifest is None or manifest.outcome != "ok" or not manifest.outputs:
+        return None
+    files: list[tuple[str, bytes]] = []
+    for item in manifest.outputs:
+        path = object_path(root, item.content)
+        if not path.is_file():
+            return None
+        files.append((item.name, path.read_bytes()))
+    return files
+
+
+def record_files(
+    root: Path,
+    *,
+    key: str,
+    stage: str,
+    stage_src: str,
+    env: str,
+    inputs: list[str],
+    files: list[tuple[str, bytes]],
+) -> None:
+    """Store each file and write one ``ok`` manifest whose outputs keep that order."""
+    outputs = [ManifestOutput(name=name, content=put_bytes(root, data)) for name, data in files]
+    save_manifest(
+        root,
+        Manifest(
+            key=key,
+            stage=stage,
+            outcome="ok",
+            inputs=list(inputs),
+            outputs=outputs,
+            stage_src=stage_src,
+            env=env,
+        ),
+    )
 
 
 def record_ok(

@@ -27,6 +27,7 @@ from core.comic.layout import PanelImage
 from core.pipelines.creative_comic import (
     _export_pdf_with_manifest,
     _export_webtoon_with_manifest,
+    _layout_pages_with_manifest,
     _letter_page_from_blank,
     letter_finished_page,
 )
@@ -337,3 +338,59 @@ def test_a_rejected_webtoon_stays_rejected_until_rebuild(tmp_path, monkeypatch):
     _export_webtoon_with_manifest(panels, pages, tmp_path)
     assert calls["n"] == 2
     assert (pages / "webtoon.png").read_bytes() == b"strip-v1"
+
+
+def _counting_layout(monkeypatch):
+    calls = {"n": 0}
+
+    def fake(self, panels, output_dir, *, layout_mode="page"):
+        calls["n"] += 1
+        paths = []
+        for name, payload in (("page_01.png", b"sheet-1"), ("page_02.png", b"sheet-2")):
+            path = Path(output_dir) / name
+            path.write_bytes(payload)
+            paths.append(str(path))
+        return paths
+
+    monkeypatch.setattr("core.pipelines.creative_comic.LayoutEngine.compose", fake)
+    return calls
+
+
+def test_a_second_layout_copies_every_sheet(tmp_path, monkeypatch):
+    image = Image.new("RGB", (8, 8), (1, 2, 3))
+    panels = [PanelImage(image), PanelImage(image, dialogue="后一句")]
+    calls = _counting_layout(monkeypatch)
+    pages = tmp_path / "pages"
+    first = _layout_pages_with_manifest(panels, pages, tmp_path)
+    assert [Path(path).name for path in first] == ["page_01.png", "page_02.png"]
+    for path in first:
+        Path(path).unlink()
+
+    second = _layout_pages_with_manifest(panels, pages, tmp_path)
+    assert [Path(path).read_bytes() for path in second] == [b"sheet-1", b"sheet-2"]
+    assert calls["n"] == 1
+
+    _layout_pages_with_manifest([PanelImage(image, dialogue="改了")], pages, tmp_path)
+    assert calls["n"] == 2
+    assert verify(tmp_path) == []
+
+
+def test_a_rejected_layout_is_not_rebuilt_until_rebuild(tmp_path, monkeypatch):
+    panels = [PanelImage(Image.new("RGB", (8, 8), (4, 5, 6)))]
+    calls = _counting_layout(monkeypatch)
+    pages = tmp_path / "pages"
+    first = _layout_pages_with_manifest(panels, pages, tmp_path)
+    key = _only_key(tmp_path)
+    rewrite_manifest(tmp_path, key, outcome="rejected", reason="content_policy", outputs=[])
+    for path in first:
+        Path(path).unlink()
+
+    assert _layout_pages_with_manifest(panels, pages, tmp_path) is None
+    assert calls["n"] == 1
+    assert list(pages.glob("page_*.png")) == []
+
+    exit_code = _run_rebuild(argparse.Namespace(out=str(tmp_path), stage="layout", key=[key]))
+    assert exit_code == 0
+    restored = _layout_pages_with_manifest(panels, pages, tmp_path)
+    assert calls["n"] == 2
+    assert [Path(path).read_bytes() for path in restored] == [b"sheet-1", b"sheet-2"]
