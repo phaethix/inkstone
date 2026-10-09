@@ -146,8 +146,8 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
 - [x] **0h growth** Doubling the alias-merge sample from 300 pages to 600, with the
   alias still on the same 15 pages, leaves the re-run at 15 stale keys, 16 image
   calls, and 1 chat call. The current architecture already does not grow with book
-  length. The 5x gate still fails (16 is not five times a target of ≤17), so the
-  CAS phases (0c, 2, and 3) stay closed.
+  length. The 5x gate still fails (16 is not five times a target of ≤17). Phase 3
+  stays off the generate path. Phase 2's object store is the part that has started.
 - [x] **1 (contracts)** Stage input declarations. `page_plan` may read earlier
   layouts only through a window of 8; the declared input is that window plus the
   summarizer source hashes, not the intent strings and not `page_cache`. Chat
@@ -181,6 +181,18 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
 - [x] **1 (alias pair)** A dismiss or a merge matches the two names in either
   order. A later extract that introduces the canonical name first does not
   reopen the queue, and a merge still folds toward the recorded canonical.
+- [x] **1 (bible summary)** `bible` reads one current summary, not earlier
+  chunks. Its declared input is that summary plus the summarizer source hashes.
+  The summary body stays out of the declaration.
+- [x] **2 (store)** A project can hold `cas/` objects and `index/` manifests.
+  An object is written once under its content hash. Rewriting a manifest keeps
+  the key and records `supersedes`. `inkstone verify --out ...` checks that
+  every output exists and matches its hash, and that a non-ok outcome has a
+  reason. It does not reconcile `state.json`.
+- [x] **2 (letter)** Finished-page lettering writes a manifest under the project.
+  The same blank, plan, and environment copies the stored bytes instead of
+  drawing again. A different blank letters again. Render keys stay off the
+  generate path.
 
 ### P1 — Chapter-complete adaptation MVP
 
