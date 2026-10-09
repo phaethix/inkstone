@@ -31,7 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on the fixed 300-page sample (20 chunks x 15 pages, alias on 5 pages of chunks 4/9/14) the
   re-run spends **16 image calls** (15 stale pages redrawn plus one constant) and **1 chat
   call** (`reconcile_visual_bible`), replacing the design's "15 to 190" / "15 to 20" estimates
-  in the §9 threshold table.
+  in the §9 threshold table. The same merge on 600 pages, alias still on those 15, spends the
+  same 16 image calls and 1 chat call, so the re-run does not grow with book length.
 - **L3 face overlay is now OFF by default** (`INKSTONE_L3=1` to enable). The cv2/OpenCV
   face-swap pastes a close-up portrait face onto generated panels and deforms stylized faces
   whenever pose/angle/lighting differ (which is most of the time in comic art). Consistency now

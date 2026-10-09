@@ -9,6 +9,7 @@ which is the value being discovered.
 import asyncio
 
 from core.comic.merge_cost_probe import (
+    GROWTH_CHUNKS,
     SAMPLE_AFFECTED_CHUNKS,
     SAMPLE_AFFECTED_PAGES_PER_CHUNK,
     SAMPLE_CHUNKS,
@@ -63,6 +64,23 @@ def test_probe_repaints_at_least_the_affected_pages(tmp_path):
 
     assert report.image_calls >= report.affected_pages
     assert report.total_calls == report.chat_calls + report.image_calls
+
+
+def test_doubling_the_book_does_not_change_the_merge_cost(tmp_path):
+    """§9: 600 pages, the alias still on 15, and the re-run must not grow.
+
+    Measured once: both sizes spend 15 stale pages, 16 image calls, and 1 chat
+    call. The equality is the growth rule; the absolute numbers are the table.
+    """
+    base = asyncio.run(measure_merge_cost(tmp_path / "base"))
+    grown = asyncio.run(measure_merge_cost(tmp_path / "grown", chunks=GROWTH_CHUNKS))
+
+    assert base.pages == 300
+    assert grown.pages == GROWTH_CHUNKS * SAMPLE_PAGES_PER_CHUNK == 600
+    assert grown.affected_pages == base.affected_pages == 15
+    assert len(grown.merged_keys) == len(base.merged_keys) == 15
+    assert grown.chat_calls == base.chat_calls == 1
+    assert grown.image_calls == base.image_calls == 16
 
 
 def test_probe_is_network_free(tmp_path, monkeypatch):
