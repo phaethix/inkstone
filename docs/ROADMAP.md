@@ -203,6 +203,9 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
   run does not letter or bind that key again. `inkstone rebuild --stage
   letter|export --key ...` drops the manifest, and the following run does the
   work. An ok manifest stays.
+- [x] **2 (webtoon)** Stacking pages or panels into `webtoon.png` writes a
+  manifest. The same images and the same drawn text copy the stored strip. A
+  changed panel or a changed line stacks again.
 
 ### P1 — Chapter-complete adaptation MVP
 

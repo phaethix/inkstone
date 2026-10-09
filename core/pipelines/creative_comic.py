@@ -21,6 +21,7 @@ Providers are injected so the pipeline can be exercised without network.
 import asyncio
 import hashlib
 import inspect
+import io
 import json
 import logging
 from collections.abc import Callable
@@ -52,6 +53,7 @@ from core.comic.cas import (
     load_manifest,
     record_ok,
     stored_output,
+    webtoon_action_key,
 )
 from core.comic.consistency import (
     DEFAULT_PORTRAIT_STYLE,
@@ -353,6 +355,9 @@ _LETTER_STAGE_SRC = hashlib.sha256(
 _EXPORT_STAGE_SRC = hashlib.sha256(
     inspect.getsource(ExportEngine.export_pdf).encode("utf-8")
 ).hexdigest()
+_WEBTOON_STAGE_SRC = hashlib.sha256(
+    inspect.getsource(LayoutEngine._compose_webtoon).encode("utf-8")
+).hexdigest()
 
 
 def _plan_json(plan: ComicPagePlan) -> str:
@@ -447,6 +452,67 @@ def _export_pdf_with_manifest(pages_dir: Path, output_dir: Path) -> str:
         data=Path(pdf).read_bytes(),
     )
     return pdf
+
+
+def _panel_png_bytes(panel: PanelImage) -> bytes:
+    buffer = io.BytesIO()
+    panel.image.convert("RGB").save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _webtoon_lettering(panels: list[PanelImage]) -> list[dict[str, str]]:
+    return [
+        {
+            "caption": panel.caption or "",
+            "dialogue": panel.dialogue or "",
+            "sfx": panel.sfx or "",
+        }
+        for panel in panels
+    ]
+
+
+def _export_webtoon_with_manifest(
+    panels: list[PanelImage], pages_dir: Path, output_dir: Path
+) -> list[str]:
+    """Stack a webtoon strip, or copy it when the same panels were already bound."""
+    if not panels:
+        return []
+    out = pages_dir / "webtoon.png"
+    blobs = [_panel_png_bytes(panel) for panel in panels]
+    lettering = _webtoon_lettering(panels)
+    text = "\n".join(piece for row in lettering for piece in row.values() if piece)
+    env = h_env(text=text)
+    engine = LayoutEngine()
+    key = webtoon_action_key(
+        pages=blobs,
+        lettering=lettering,
+        page_width=engine.page_width,
+        env=env,
+        stage_src=_WEBTOON_STAGE_SRC,
+    )
+    recorded = load_manifest(output_dir, key)
+    if recorded is not None and is_hit(recorded) and recorded.outcome != "ok":
+        return [str(out)]
+    cached = stored_output(output_dir, key)
+    if cached is not None:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(cached)
+        return [str(out)]
+    pages_dir.mkdir(parents=True, exist_ok=True)
+    paths = engine.compose(panels, pages_dir, layout_mode="webtoon")
+    if not paths:
+        return []
+    record_ok(
+        output_dir,
+        key=key,
+        stage="export",
+        stage_src=_WEBTOON_STAGE_SRC,
+        env=env,
+        inputs=export_inputs(blobs),
+        name=out.name,
+        data=Path(paths[0]).read_bytes(),
+    )
+    return paths
 
 
 def _finished_page_files(pages_dir: Path) -> list[Path]:
@@ -1909,9 +1975,7 @@ async def _creative_comic(
             if output_format == "webtoon":
                 panel_imgs = [PanelImage(Image.open(p)) for p in page_files]
                 with perf.measure("layout"):
-                    webtoon_paths = LayoutEngine().compose(
-                        panel_imgs, pages_dir, layout_mode="webtoon"
-                    )
+                    webtoon_paths = _export_webtoon_with_manifest(panel_imgs, pages_dir, output_dir)
                 webtoon = webtoon_paths[0] if webtoon_paths else None
                 pages = webtoon_paths
             else:
@@ -1940,7 +2004,7 @@ async def _creative_comic(
             with perf.measure("layout"):
                 engine_layout = LayoutEngine()
                 if output_format == "webtoon":
-                    pages = engine_layout.compose(panel_imgs, pages_dir, layout_mode="webtoon")
+                    pages = _export_webtoon_with_manifest(panel_imgs, pages_dir, output_dir)
                 else:
                     pages = engine_layout.compose(panel_imgs, pages_dir, layout_mode="page")
 

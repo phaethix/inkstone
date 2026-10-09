@@ -124,6 +124,28 @@ def export_action_key(
     )
 
 
+def webtoon_action_key(
+    *,
+    pages: list[bytes],
+    lettering: list[dict[str, str]],
+    page_width: int,
+    env: str,
+    stage_src: str,
+) -> str:
+    """Key a webtoon strip from the panel bytes and the text drawn on them.
+
+    ``INKSTONE_WEBTOON_MAX_PIXELS`` stays out: it only refuses an oversized
+    canvas. A strip that was produced does not change with that limit.
+    """
+    return action_key(
+        stage="export",
+        stage_src=stage_src,
+        inputs=export_inputs(pages),
+        params={"layout": "webtoon", "lettering": lettering, "page_width": page_width},
+        env=env,
+    )
+
+
 def letter_action_key(*, blank: bytes, plan_json: str, env: str, stage_src: str) -> str:
     """Key a lettering step from the blank bytes, the plan, and ``h_env``.
 
