@@ -158,6 +158,10 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
   characters on that page. An off-page canon cannot appear in the prompt, so a
   later key for the page cannot depend on the rest of the book. Style, era, and
   color stay global.
+- [x] **0a (resolved size)** A finished page records the size the provider
+  accepted. When the portrait-shaped request is rejected, `resolved_size` is the
+  square fallback, not the configured string. Old `state.json` files load with
+  the field empty.
 
 ### P1 — Chapter-complete adaptation MVP
 

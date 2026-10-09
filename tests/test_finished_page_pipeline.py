@@ -316,6 +316,7 @@ def test_finished_page_mode_writes_generated_pages(tmp_path, monkeypatch):
     assert "c0000-p0000" in proj.state.pages_done
     generated_page = proj.state.generated.pages["c0000-p0000"]
     assert generated_page.mode == "finished_lettered"
+    assert generated_page.resolved_size == "1024x1536"
     assert generated_page.blank_local
     assert Path(generated_page.blank_local).exists()
     assert Path(generated_page.local).exists()
@@ -544,6 +545,7 @@ def test_finished_page_falls_back_to_square_when_size_rejected(tmp_path, monkeyp
 
     assert img.page_sizes == ["1024x1536", "1024x1024"]
     assert "c0000-p0000" in proj.state.pages_done
+    assert proj.state.generated.pages["c0000-p0000"].resolved_size == "1024x1024"
     assert Path(proj.state.generated.pages["c0000-p0000"].local).exists()
 
 
