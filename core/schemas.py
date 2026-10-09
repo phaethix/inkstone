@@ -1070,6 +1070,9 @@ class GeneratedPage(BaseModel):
     local: str
     blank_local: str | None = None
     lettering_version: str = ""
+    # The size the provider accepted for this page. A square fallback must be
+    # recorded here; a later key has to hash this, not the configured string.
+    resolved_size: str = ""
     page_id: str = ""
     unit_index: int = 0
     page_index: int = 0

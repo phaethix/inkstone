@@ -1549,6 +1549,7 @@ async def _creative_comic(
                     local=str(local),
                     blank_local=str(blank_path),
                     lettering_version=LETTERING_VERSION,
+                    resolved_size=active_size,
                     page_id=page_id,
                     unit_index=ci,
                     page_index=page_index,
