@@ -1,6 +1,8 @@
 """Phase 2: objects and manifests under a project, checked by verify."""
 
 import inspect
+import subprocess
+import sys
 from pathlib import Path
 
 from PIL import Image
@@ -14,6 +16,7 @@ from core.comic.cas import (
     load_manifest,
     put_bytes,
     read_bytes,
+    record_ok,
     rewrite_manifest,
     save_manifest,
     verify,
@@ -154,3 +157,45 @@ def test_a_second_export_copies_the_stored_pdf(tmp_path, monkeypatch):
     _export_pdf_with_manifest(pages, tmp_path)
     assert calls["n"] == 2
     assert verify(tmp_path) == []
+
+
+def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-m", "core.cli", *args],
+        capture_output=True,
+        text=True,
+    )
+
+
+def _programmatic_fixture(root: Path) -> Path:
+    """A few KB of synthetic bytes and one manifest. No example book is stored."""
+    data = b"synthetic-page" * 256
+    key = action_key(stage="letter", stage_src="src", inputs=[], params={}, env="env")
+    record_ok(
+        root,
+        key=key,
+        stage="letter",
+        stage_src="src",
+        env="env",
+        inputs=[],
+        name="page.bin",
+        data=data,
+    )
+    stored = list((root / "cas").rglob("*.bin"))
+    assert len(stored) == 1
+    return stored[0]
+
+
+def test_cli_verify_accepts_a_programmatic_fixture(tmp_path):
+    _programmatic_fixture(tmp_path)
+    completed = _run_cli("verify", "--out", str(tmp_path))
+    assert completed.returncode == 0
+    assert completed.stdout.strip() == "ok"
+
+
+def test_cli_verify_fails_when_one_object_is_deleted(tmp_path):
+    blob = _programmatic_fixture(tmp_path)
+    blob.unlink()
+    completed = _run_cli("verify", "--out", str(tmp_path))
+    assert completed.returncode == 1
+    assert "missing" in completed.stderr
