@@ -10,7 +10,14 @@ from core.pipelines.creative_comic import (
     _structure_fingerprint,
     creative_comic,
 )
-from core.schemas import CharacterAsset, ChunkCache, ModelSnapshot, ProjectState
+from core.schemas import (
+    CharacterAliasSuggestion,
+    CharacterAsset,
+    ChunkCache,
+    ModelSnapshot,
+    ProjectState,
+    Tombstone,
+)
 from tests.test_creative_comic import FakeChat, FakeImage, _fake_export_pdf
 from tests.test_finished_page_pipeline import FakeChat as FinishedChat
 
@@ -180,6 +187,30 @@ def test_source_change_drops_chunk_cache(tmp_path):
     assert chat2.calls > 0
     state2 = ProjectState.load(tmp_path / "state.json")
     assert state2.structure_fingerprint == _structure_fingerprint(src_b)
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_source_change_keeps_the_alias_review_queue(tmp_path):
+    """§8 invariant 6: discarding the projection must not drop human decisions."""
+    src_a = "第一章\n方鸿渐在甲板上。"
+    asyncio.run(creative_comic(src_a, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage()))
+    suggestion = CharacterAliasSuggestion(
+        new_name="鸿渐",
+        candidate="方鸿渐",
+        reason="kept by a person",
+        suggested=True,
+    )
+    state = ProjectState.load(tmp_path / "state.json")
+    state.needs_review = [suggestion]
+    state.tombstones["c0000-p0000"] = Tombstone(reason="content_policy", stage="render.page")
+    state.save(tmp_path / "state.json")
+
+    src_b = "第一章\n方鸿渐改在图书馆读书。"
+    asyncio.run(creative_comic(src_b, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage()))
+    loaded = ProjectState.load(tmp_path / "state.json")
+    assert loaded.needs_review == [suggestion]
+    assert loaded.tombstones == {}
+    assert loaded.structure_fingerprint == _structure_fingerprint(src_b)
 
 
 @patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
