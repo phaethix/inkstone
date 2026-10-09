@@ -1,5 +1,6 @@
 """Phase 2: objects and manifests under a project, checked by verify."""
 
+import argparse
 import inspect
 import subprocess
 import sys
@@ -7,6 +8,7 @@ from pathlib import Path
 
 from PIL import Image
 
+from core.cli import _run_rebuild
 from core.comic.cas import (
     Manifest,
     ManifestOutput,
@@ -199,3 +201,82 @@ def test_cli_verify_fails_when_one_object_is_deleted(tmp_path):
     completed = _run_cli("verify", "--out", str(tmp_path))
     assert completed.returncode == 1
     assert "missing" in completed.stderr
+
+
+def _only_key(root: Path) -> str:
+    stored = list((root / "index").glob("*.json"))
+    assert len(stored) == 1
+    return "sha256:" + stored[0].stem
+
+
+def test_a_rejected_letter_stays_rejected_until_rebuild(tmp_path, monkeypatch):
+    blank = tmp_path / "blank.png"
+    local = tmp_path / "page.png"
+    _blank(blank, (10, 20, 30))
+    plan = ComicPagePlan(page_id="p")
+    calls = {"n": 0}
+    real = letter_finished_page
+
+    def counting(image, page_plan, **kwargs):
+        calls["n"] += 1
+        return real(image, page_plan, **kwargs)
+
+    monkeypatch.setattr("core.pipelines.creative_comic.letter_finished_page", counting)
+    _letter_page_from_blank(blank, local, plan, source_text="福贵", output_dir=tmp_path)
+    key = _only_key(tmp_path)
+    rewrite_manifest(tmp_path, key, outcome="rejected", reason="content_policy", outputs=[])
+    local.unlink()
+
+    _letter_page_from_blank(blank, local, plan, source_text="福贵", output_dir=tmp_path)
+    assert calls["n"] == 1
+    assert not local.exists()
+
+    exit_code = _run_rebuild(argparse.Namespace(out=str(tmp_path), stage="letter", key=[key]))
+    assert exit_code == 0
+    _letter_page_from_blank(blank, local, plan, source_text="福贵", output_dir=tmp_path)
+    assert calls["n"] == 2
+    assert local.is_file()
+    assert verify(tmp_path) == []
+
+
+def test_a_rejected_export_stays_rejected_until_rebuild(tmp_path, monkeypatch):
+    pages = tmp_path / "pages"
+    pages.mkdir()
+    Image.new("RGB", (8, 8), (1, 2, 3)).save(pages / "page_c0000_p0000.png")
+    calls = {"n": 0}
+
+    def fake(self, page_dir, out="comic.pdf", layout="TwoPageRight", direction="R2L"):
+        calls["n"] += 1
+        Path(out).write_bytes(b"%PDF-1.4 fake")
+        return out
+
+    monkeypatch.setattr("core.pipelines.creative_comic.ExportEngine.export_pdf", fake)
+    _export_pdf_with_manifest(pages, tmp_path)
+    key = _only_key(tmp_path)
+    rewrite_manifest(tmp_path, key, outcome="rejected", reason="content_policy", outputs=[])
+    (tmp_path / "comic.pdf").unlink()
+
+    _export_pdf_with_manifest(pages, tmp_path)
+    assert calls["n"] == 1
+    assert not (tmp_path / "comic.pdf").exists()
+
+    exit_code = _run_rebuild(argparse.Namespace(out=str(tmp_path), stage="export", key=[key]))
+    assert exit_code == 0
+    _export_pdf_with_manifest(pages, tmp_path)
+    assert calls["n"] == 2
+    assert (tmp_path / "comic.pdf").read_bytes() == b"%PDF-1.4 fake"
+
+
+def test_rebuild_leaves_an_ok_letter_manifest(tmp_path):
+    blank = tmp_path / "blank.png"
+    local = tmp_path / "page.png"
+    _blank(blank, (10, 20, 30))
+    plan = ComicPagePlan(page_id="p")
+    _letter_page_from_blank(blank, local, plan, source_text="福贵", output_dir=tmp_path)
+    key = _only_key(tmp_path)
+
+    exit_code = _run_rebuild(argparse.Namespace(out=str(tmp_path), stage="letter", key=[key]))
+
+    assert exit_code == 1
+    assert load_manifest(tmp_path, key) is not None
+    assert load_manifest(tmp_path, key).outcome == "ok"

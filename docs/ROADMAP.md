@@ -199,6 +199,10 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
 - [x] **2 (verify in CI)** A CI job builds a temporary project from a few KB of
   synthetic bytes, runs `inkstone verify`, and fails when one object is
   deleted. No example book is committed.
+- [x] **2 (tombstone)** A rejected letter or export manifest is a hit. The next
+  run does not letter or bind that key again. `inkstone rebuild --stage
+  letter|export --key ...` drops the manifest, and the following run does the
+  work. An ok manifest stays.
 
 ### P1 — Chapter-complete adaptation MVP
 
