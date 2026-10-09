@@ -46,8 +46,10 @@ from core.comic.budget import BudgetPaused, BudgetSession, BudgetSpec
 from core.comic.cas import (
     export_action_key,
     export_inputs,
+    is_hit,
     letter_action_key,
     letter_inputs,
+    load_manifest,
     record_ok,
     stored_output,
 )
@@ -369,7 +371,9 @@ def _letter_page_from_blank(
     """Render deferred lettering from a persisted blank page.
 
     When ``output_dir`` is set, an ``ok`` manifest for the same blank, plan,
-    and environment is copied into place. A miss stores the new bytes.
+    and environment is copied into place. A non-ok manifest is a hit too, so
+    the page is not lettered again until ``rebuild`` releases it. A miss stores
+    the new bytes.
     """
     plan_json = _plan_json(plan)
     root = Path(output_dir) if output_dir is not None else None
@@ -383,6 +387,9 @@ def _letter_page_from_blank(
             env=env,
             stage_src=_LETTER_STAGE_SRC,
         )
+        recorded = load_manifest(root, key)
+        if recorded is not None and is_hit(recorded) and recorded.outcome != "ok":
+            return
         cached = stored_output(root, key)
         if cached is not None:
             local_path.parent.mkdir(parents=True, exist_ok=True)
@@ -421,6 +428,9 @@ def _export_pdf_with_manifest(pages_dir: Path, output_dir: Path) -> str:
         env=env,
         stage_src=_EXPORT_STAGE_SRC,
     )
+    recorded = load_manifest(output_dir, key)
+    if recorded is not None and is_hit(recorded) and recorded.outcome != "ok":
+        return str(out)
     cached = stored_output(output_dir, key)
     if cached is not None:
         out.write_bytes(cached)

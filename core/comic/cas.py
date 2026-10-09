@@ -254,6 +254,29 @@ def is_hit(manifest: Manifest) -> bool:
     return manifest.outcome in HIT_OUTCOMES
 
 
+def release_tombstones(root: Path, *, stage: str, keys: list[str] | None = None) -> list[str]:
+    """Delete non-ok manifests for ``stage`` so the next run re-attempts them.
+
+    ``keys`` narrows the set. An ``ok`` manifest stays, and the bytes under
+    ``cas/`` stay with it: a tombstone's previous outputs are still an audit
+    trail. An empty index releases nothing.
+    """
+    index = root / "index"
+    if not index.is_dir():
+        return []
+    wanted = set(keys) if keys else None
+    released: list[str] = []
+    for path in sorted(index.glob("*.json")):
+        manifest = Manifest.model_validate_json(path.read_text(encoding="utf-8"))
+        if manifest.stage != stage or manifest.outcome == "ok":
+            continue
+        if wanted is not None and manifest.key not in wanted:
+            continue
+        path.unlink()
+        released.append(manifest.key)
+    return released
+
+
 def verify(root: Path) -> list[str]:
     """Report disagreements between ``index/`` and ``cas/``.
 

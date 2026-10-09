@@ -230,8 +230,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "--span-threshold", type=float, default=0.95, help="Source span backtrace threshold"
     )
 
-    # rebuild：清除墓碑（§7）。当前唯一落地的 stage 是 render 的页级墓碑；
-    # 其他 stage 尚无墓碑存储，显式拒绝以免静默无效。
+    # rebuild：清除墓碑（§7）。render 清 state.json 里的页级墓碑；
+    # letter 与 export 清清单里的非 ok 记录。其余 stage 显式拒绝。
     p_rb = sub.add_parser(
         "rebuild",
         help="Force regeneration and clear tombstones for a stage subtree.",
@@ -244,7 +244,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_rb.add_argument(
         "--stage",
         default="render",
-        help="Stage to rebuild; only 'render' owns page tombstones today (default render)",
+        help="Stage to rebuild: render, letter, or export (default render)",
     )
     p_rb.add_argument(
         "--key",
@@ -395,14 +395,32 @@ def _run_identity(args: argparse.Namespace) -> int:
     return 0
 
 
-def _run_rebuild(args: argparse.Namespace) -> int:
-    """rebuild 子命令：清除指定 stage 的墓碑，使其在下次运行时重绘（§7）。
+def _run_rebuild_manifests(args: argparse.Namespace) -> int:
+    """Drop non-ok letter or export manifests so the next run re-attempts them."""
+    from core.comic.cas import release_tombstones
 
-    只落地了 render 的页级墓碑；其他 stage 尚无墓碑存储，显式拒绝而不是
-    静默成功，否则用户会以为页面已释放。
+    out = Path(args.out)
+    keys = list(args.key)
+    released = release_tombstones(out, stage=args.stage, keys=keys or None)
+    missing = [key for key in keys if key not in released]
+    for key in released:
+        print(f"已释放墓碑 {key}：下次运行将重做该步。")
+    for key in missing:
+        print(f"未找到墓碑 {key}：未做任何修改。")
+    print(f"rebuild 完成：释放 {len(released)} 个墓碑。")
+    return 1 if missing else 0
+
+
+def _run_rebuild(args: argparse.Namespace) -> int:
+    """rebuild 子命令：清除指定 stage 的墓碑，使其在下次运行时重做（§7）。
+
+    render 的墓碑在 state.json。letter 与 export 的墓碑是非 ok 清单。
+    其余 stage 显式拒绝，否则用户会以为该步已释放。
     """
+    if args.stage in {"letter", "export"}:
+        return _run_rebuild_manifests(args)
     if args.stage != "render":
-        print(f"rebuild：stage '{args.stage}' 尚无墓碑存储，当前只支持 render。")
+        print(f"rebuild：stage '{args.stage}' 尚无墓碑存储，当前支持 render、letter、export。")
         return 1
 
     out = Path(args.out)

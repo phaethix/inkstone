@@ -62,11 +62,11 @@ def test_rebuild_reports_an_unknown_key_without_claiming_success(tmp_path, capsy
     assert "c0000:does_not_exist" in capsys.readouterr().out
 
 
-def test_rebuild_rejects_a_non_render_stage(tmp_path, capsys):
-    """Only the render stage owns page tombstones; other stages have none yet."""
+def test_rebuild_rejects_a_stage_without_tombstones(tmp_path, capsys):
+    """Extract has no tombstone store. Letter and export clear manifests."""
     _state_with_tombstone(tmp_path)
 
-    exit_code = _run_rebuild(_args(tmp_path, ["c0000-p0000"], stage="letter"))
+    exit_code = _run_rebuild(_args(tmp_path, ["c0000-p0000"], stage="extract"))
 
     assert exit_code == 1
     assert "render" in capsys.readouterr().out
