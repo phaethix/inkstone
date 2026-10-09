@@ -231,7 +231,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # rebuild：清除墓碑（§7）。render 清 state.json 里的页级墓碑；
-    # letter 与 export 清清单里的非 ok 记录。其余 stage 显式拒绝。
+    # letter、export、layout 清清单里的非 ok 记录。其余 stage 显式拒绝。
     p_rb = sub.add_parser(
         "rebuild",
         help="Force regeneration and clear tombstones for a stage subtree.",
@@ -244,7 +244,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_rb.add_argument(
         "--stage",
         default="render",
-        help="Stage to rebuild: render, letter, or export (default render)",
+        help="Stage to rebuild: render, letter, export, or layout (default render)",
     )
     p_rb.add_argument(
         "--key",
@@ -414,13 +414,15 @@ def _run_rebuild_manifests(args: argparse.Namespace) -> int:
 def _run_rebuild(args: argparse.Namespace) -> int:
     """rebuild 子命令：清除指定 stage 的墓碑，使其在下次运行时重做（§7）。
 
-    render 的墓碑在 state.json。letter 与 export 的墓碑是非 ok 清单。
+    render 的墓碑在 state.json。letter、export、layout 的墓碑是非 ok 清单。
     其余 stage 显式拒绝，否则用户会以为该步已释放。
     """
-    if args.stage in {"letter", "export"}:
+    if args.stage in {"letter", "export", "layout"}:
         return _run_rebuild_manifests(args)
     if args.stage != "render":
-        print(f"rebuild：stage '{args.stage}' 尚无墓碑存储，当前支持 render、letter、export。")
+        print(
+            f"rebuild：stage '{args.stage}' 尚无墓碑存储，当前支持 render、letter、export、layout。"
+        )
         return 1
 
     out = Path(args.out)
