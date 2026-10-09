@@ -49,6 +49,7 @@ from core.comic.identity import (  # noqa: E402
     dismiss_character_alias,
     force_regen_panels,
     merge_character_alias,
+    remember_merged_alias,
 )
 from core.comic.ledger import ConsistencyLedger  # noqa: E402
 from core.config import data_dir  # noqa: E402
@@ -509,6 +510,7 @@ def apply_review(project_id: str, action: str, new_name: str, candidate: str) ->
     ledger = ConsistencyLedger.load_or_rebuild(out_dir / "consistency.json", state)
     if action == "merge":
         merge_character_alias(state, new_name, candidate, ledger=ledger)
+        remember_merged_alias(state, new_name, candidate)
     elif action == "dismiss":
         dismiss_character_alias(state, new_name, candidate)
     else:

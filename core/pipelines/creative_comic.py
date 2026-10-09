@@ -50,6 +50,8 @@ from core.comic.consistency import (
 from core.comic.export import ExportEngine
 from core.comic.gate import SAMPLE_GATE_SIZE, GatePaused, GateSession
 from core.comic.identity import (
+    apply_recorded_merges,
+    elements_with_recorded_merges,
     ensure_character_l1,
     harden_human_identity_prompt,
     merge_settings,
@@ -999,6 +1001,7 @@ async def _creative_comic(
         if carried is not None:
             fresh.needs_review = list(carried.needs_review)
             fresh.dismissed_aliases = list(carried.dismissed_aliases)
+            fresh.merged_aliases = list(carried.merged_aliases)
         return fresh
 
     soft_invalidated_this_run = False
@@ -1124,7 +1127,11 @@ async def _creative_comic(
 
         # Merge characters; generate a portrait only for first-seen names.
         state.characters, new_names = merge_characters(state.characters, elements.characters)
+        apply_recorded_merges(state, ledger)
+        planned_elements = elements_with_recorded_merges(elements, state)
         for name in new_names:
+            if name not in state.characters:
+                continue
             ensure_character_l1(state.characters[name], source_text=chunk)
         state.settings = merge_settings(state.settings, elements.settings)
 
@@ -1308,7 +1315,7 @@ async def _creative_comic(
                         _charge("page_plan", f"c{ci:04d}")
                         pageset = await plan_comic_pages(
                             chunk,
-                            elements,
+                            planned_elements,
                             chat=chat,
                             recent_layouts=_recent_layout_intents(state),
                             visual_bible=state.visual_bible,
@@ -1324,7 +1331,7 @@ async def _creative_comic(
                                 _charge("page_plan", f"c{ci:04d}")
                                 pageset = await plan_comic_pages(
                                     chunk,
-                                    elements,
+                                    planned_elements,
                                     chat=chat,
                                     recent_layouts=_recent_layout_intents(state),
                                     visual_bible=state.visual_bible,
@@ -1580,7 +1587,7 @@ async def _creative_comic(
             _charge("storyboard", f"c{ci:04d}")
             try:
                 with perf.measure("storyboard"):
-                    board = await plan_storyboard(chunk, elements, chat=chat)
+                    board = await plan_storyboard(chunk, planned_elements, chat=chat)
             except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
                 if is_content_policy_rejection(exc):
                     logger.warning(
@@ -1602,7 +1609,7 @@ async def _creative_comic(
             _charge("page_script", f"c{ci:04d}")
             try:
                 with perf.measure("page_script"):
-                    ps = await plan_page_script(board, elements, chunk, chat=chat)
+                    ps = await plan_page_script(board, planned_elements, chunk, chat=chat)
             except Exception as exc:  # noqa: BLE001
                 if is_content_policy_rejection(exc):
                     logger.warning(

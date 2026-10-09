@@ -1,13 +1,16 @@
 """tests/test_identity.py — character/setting identity helpers."""
 
 from core.comic.identity import (
+    apply_recorded_merges,
     build_l1_from_appearance,
     dismiss_character_alias,
+    elements_with_recorded_merges,
     force_regen_panels,
     is_high_confidence_alias,
     merge_character_alias,
     merge_settings,
     offer_alias_suggestion,
+    remember_merged_alias,
 )
 from core.schemas import (
     Appearance,
@@ -18,6 +21,7 @@ from core.schemas import (
     ProjectState,
     Setting,
     Storyboard,
+    StoryElements,
 )
 
 
@@ -126,6 +130,39 @@ def test_dismissed_alias_is_not_offered_again():
         ),
     )
     assert state.needs_review == []
+
+
+def test_recorded_merge_folds_the_alias_and_stays_off_the_queue():
+    suggestion = CharacterAliasSuggestion(new_name="鸿渐", candidate="方鸿渐", reason="merged")
+    state = ProjectState(
+        project_id="p",
+        characters={
+            "方鸿渐": CharacterAsset(name="方鸿渐", l1_prompt="keep"),
+            "鸿渐": CharacterAsset(name="鸿渐", l1_prompt="alias"),
+        },
+        merged_aliases=[suggestion],
+        dismissed_aliases=[suggestion],
+    )
+    apply_recorded_merges(state)
+    assert "鸿渐" not in state.characters
+    assert "鸿渐" in state.characters["方鸿渐"].aliases
+    assert state.dismissed_aliases == []
+    apply_recorded_merges(state)
+    assert len(state.merged_aliases) == 1
+    offer_alias_suggestion(state, suggestion)
+    assert state.needs_review == []
+
+    elements = StoryElements(
+        characters=[
+            CharacterAsset(name="方鸿渐"),
+            CharacterAsset(name="鸿渐"),
+        ]
+    )
+    planned = elements_with_recorded_merges(elements, state)
+    assert [character.name for character in planned.characters] == ["方鸿渐"]
+    assert [character.name for character in elements.characters] == ["方鸿渐", "鸿渐"]
+    remember_merged_alias(state, "鸿渐", "方鸿渐")
+    assert len(state.merged_aliases) == 1
 
 
 def test_force_regen_panels_clears_done_and_skipped():
