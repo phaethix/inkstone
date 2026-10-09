@@ -169,6 +169,9 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
   `letter`, and `export` declare their inputs. None of them reads an accumulated
   window. The previous panel and the canonical portrait stay soft references.
   Lettering does not take the font path as an input.
+- [x] **1 (human state)** Replacing the projection because the source changed
+  keeps `needs_review`. Page tombstones belong to the discarded projection and
+  are dropped with it.
 
 ### P1 — Chapter-complete adaptation MVP
 

@@ -983,8 +983,11 @@ async def _creative_comic(
             bible_hash=bible_hash,
         )
 
-    def _fresh_state() -> ProjectState:
-        return ProjectState(
+    def _fresh_state(*, carried: ProjectState | None = None) -> ProjectState:
+        # Derived caches are rebuilt from the new source. The alias queue is a
+        # human decision (§8 invariant 6) and is not among those caches.
+        # Tombstones stay behind: they name pages of the discarded projection.
+        fresh = ProjectState(
             project_id=project_id,
             source_file=str(output_dir),
             source_fingerprint=struct,
@@ -992,6 +995,9 @@ async def _creative_comic(
             render_fingerprint=_render_for_bible(),
             model_snapshot=snapshot,
         )
+        if carried is not None:
+            fresh.needs_review = list(carried.needs_review)
+        return fresh
 
     soft_invalidated_this_run = False
     if state_path.exists():
@@ -1007,9 +1013,9 @@ async def _creative_comic(
                 state.render_fingerprint = expected_render
                 state.source_fingerprint = struct
             else:
-                state = _fresh_state()
+                state = _fresh_state(carried=persisted)
         elif persisted.structure_fingerprint != struct:
-            state = _fresh_state()
+            state = _fresh_state(carried=persisted)
         elif persisted.render_fingerprint != expected_render:
             state = persisted
             _soft_invalidate_render(state)
