@@ -1460,6 +1460,9 @@ class ProjectState(BaseModel):
     # Pairs a person dismissed. Absence from ``needs_review`` is not enough:
     # the detector would offer the same pair again after a re-extract.
     dismissed_aliases: list[CharacterAliasSuggestion] = Field(default_factory=list)
+    # Pairs a person merged. The alias row is derivable and disappears with the
+    # projection; this record is what folds the two names again on re-extract.
+    merged_aliases: list[CharacterAliasSuggestion] = Field(default_factory=list)
     # Per-chunk cache of extraction + storyboard results so a resume reuses them
     # instead of re-calling the (billable) chat API for already-planned chunks.
     chunk_cache: dict[str, ChunkCache] = Field(default_factory=dict)

@@ -107,6 +107,7 @@ def test_apply_review_merge_marks_stale(tmp_path, monkeypatch):
     loaded = ProjectState.load(out / "state.json")
     assert "鸿渐" not in loaded.characters
     assert "鸿渐" in loaded.characters["方鸿渐"].aliases
+    assert [(s.new_name, s.candidate) for s in loaded.merged_aliases] == [("鸿渐", "方鸿渐")]
 
 
 def test_finished_page_merge_marks_stale_pages_and_regen_accepts_them(tmp_path, monkeypatch):

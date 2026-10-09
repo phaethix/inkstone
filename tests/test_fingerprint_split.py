@@ -1,7 +1,7 @@
 import asyncio
 from unittest.mock import patch
 
-from core.comic.identity import dismiss_character_alias
+from core.comic.identity import dismiss_character_alias, remember_merged_alias
 from core.config import ImageConfig
 from core.pipelines.creative_comic import (
     _input_fingerprint,
@@ -230,6 +230,26 @@ def test_source_change_keeps_a_dismissed_alias(tmp_path):
     asyncio.run(creative_comic(src_b, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage()))
     loaded = ProjectState.load(tmp_path / "state.json")
     assert [(s.new_name, s.candidate) for s in loaded.dismissed_aliases] == [("鸿渐", "方鸿渐")]
+    assert loaded.needs_review == []
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_source_change_keeps_a_merged_alias(tmp_path):
+    """A merge is a human decision, so a rebuilt projection must fold the alias again."""
+    src_a = "第一章\n方鸿渐在甲板上。"
+    asyncio.run(creative_comic(src_a, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage()))
+    state = ProjectState.load(tmp_path / "state.json")
+    state.characters["鸿渐"] = state.characters["方鸿渐"].model_copy(update={"name": "鸿渐"})
+    state.needs_review = [
+        CharacterAliasSuggestion(new_name="鸿渐", candidate="方鸿渐", reason="x"),
+    ]
+    remember_merged_alias(state, "鸿渐", "方鸿渐")
+    state.save(tmp_path / "state.json")
+
+    src_b = "第一章\n方鸿渐改在图书馆读书。"
+    asyncio.run(creative_comic(src_b, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage()))
+    loaded = ProjectState.load(tmp_path / "state.json")
+    assert [(s.new_name, s.candidate) for s in loaded.merged_aliases] == [("鸿渐", "方鸿渐")]
     assert loaded.needs_review == []
 
 

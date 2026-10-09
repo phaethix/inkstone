@@ -175,6 +175,9 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
 - [x] **1 (dismissed alias)** Dismissing an alias records the pair. A later
   extract, including one after the source changes, does not put that pair back
   on `needs_review`. Old `state.json` files load with the record empty.
+- [x] **1 (merged alias)** Merging an alias records the pair. A later extract
+  that sees both names folds them again before portraits and planning, and does
+  not reopen the review queue. The cached extract text stays unchanged.
 
 ### P1 — Chapter-complete adaptation MVP
 

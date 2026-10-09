@@ -16,6 +16,7 @@ from core.schemas import (
     ComicPagePlan,
     ProjectState,
     Setting,
+    StoryElements,
 )
 
 _HIGH_CONFIDENCE_MARKERS = (
@@ -405,10 +406,67 @@ def offer_alias_suggestion(state: ProjectState, suggestion: CharacterAliasSugges
     """Queue an alias pair unless a person already dismissed that exact pair."""
     pair = (suggestion.new_name, suggestion.candidate)
     dismissed = any(_same_alias(s, *pair) for s in state.dismissed_aliases)
+    merged = any(_same_alias(s, *pair) for s in state.merged_aliases)
     queued = any(_same_alias(s, *pair) for s in state.needs_review)
-    if dismissed or queued:
+    if dismissed or merged or queued:
         return
     state.needs_review.append(suggestion)
+
+
+def remember_merged_alias(state: ProjectState, new_name: str, candidate: str) -> None:
+    """Record a human merge so a later extract folds the same pair again."""
+    if not any(_same_alias(s, new_name, candidate) for s in state.merged_aliases):
+        kept = next(
+            (s for s in state.needs_review if _same_alias(s, new_name, candidate)),
+            None,
+        )
+        record = kept
+        if record is None:
+            record = CharacterAliasSuggestion(
+                new_name=new_name,
+                candidate=candidate,
+                reason="merged",
+            )
+        state.merged_aliases.append(record)
+    state.needs_review = [s for s in state.needs_review if not _same_alias(s, new_name, candidate)]
+    state.dismissed_aliases = [
+        s for s in state.dismissed_aliases if not _same_alias(s, new_name, candidate)
+    ]
+
+
+def apply_recorded_merges(
+    state: ProjectState,
+    ledger: ConsistencyLedger | None = None,
+) -> None:
+    """Fold aliases a person already merged, when both names are present again."""
+    for record in list(state.merged_aliases):
+        if record.new_name not in state.characters or record.candidate not in state.characters:
+            continue
+        merge_character_alias(state, record.new_name, record.candidate, ledger=ledger)
+        remember_merged_alias(state, record.new_name, record.candidate)
+
+
+def elements_with_recorded_merges(elements: StoryElements, state: ProjectState) -> StoryElements:
+    """Return a plan-facing copy whose alias names use the merged canonical."""
+    alias_to_keep = {s.new_name: s.candidate for s in state.merged_aliases}
+    if not alias_to_keep:
+        return elements
+    rewritten: list[CharacterAsset] = []
+    seen: set[str] = set()
+    changed = False
+    for character in elements.characters:
+        name = alias_to_keep.get(character.name, character.name)
+        if name != character.name:
+            changed = True
+            character = character.model_copy(update={"name": name})
+        if name in seen:
+            changed = True
+            continue
+        seen.add(name)
+        rewritten.append(character)
+    if not changed:
+        return elements
+    return elements.model_copy(update={"characters": rewritten})
 
 
 def dismiss_character_alias(
