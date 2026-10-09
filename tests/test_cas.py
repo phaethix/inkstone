@@ -23,8 +23,10 @@ from core.comic.cas import (
     save_manifest,
     verify,
 )
+from core.comic.layout import PanelImage
 from core.pipelines.creative_comic import (
     _export_pdf_with_manifest,
+    _export_webtoon_with_manifest,
     _letter_page_from_blank,
     letter_finished_page,
 )
@@ -280,3 +282,58 @@ def test_rebuild_leaves_an_ok_letter_manifest(tmp_path):
     assert exit_code == 1
     assert load_manifest(tmp_path, key) is not None
     assert load_manifest(tmp_path, key).outcome == "ok"
+
+
+def _counting_webtoon(monkeypatch):
+    calls = {"n": 0}
+
+    def fake(self, panels, output_dir, *, layout_mode="page"):
+        calls["n"] += 1
+        path = Path(output_dir) / "webtoon.png"
+        path.write_bytes(b"strip-v1")
+        return [str(path)]
+
+    monkeypatch.setattr("core.pipelines.creative_comic.LayoutEngine.compose", fake)
+    return calls
+
+
+def test_a_second_webtoon_copies_the_stored_strip(tmp_path, monkeypatch):
+    image = Image.new("RGB", (8, 8), (1, 2, 3))
+    panels = [PanelImage(image)]
+    calls = _counting_webtoon(monkeypatch)
+    pages = tmp_path / "pages"
+    first = _export_webtoon_with_manifest(panels, pages, tmp_path)
+    assert calls["n"] == 1
+    Path(first[0]).unlink()
+    second = _export_webtoon_with_manifest(panels, pages, tmp_path)
+    assert Path(second[0]).read_bytes() == b"strip-v1"
+    assert calls["n"] == 1
+
+    changed = [PanelImage(Image.new("RGB", (8, 8), (9, 9, 9)))]
+    _export_webtoon_with_manifest(changed, pages, tmp_path)
+    assert calls["n"] == 2
+
+    spoken = [PanelImage(image, dialogue="福贵")]
+    _export_webtoon_with_manifest(spoken, pages, tmp_path)
+    assert calls["n"] == 3
+    assert verify(tmp_path) == []
+
+
+def test_a_rejected_webtoon_stays_rejected_until_rebuild(tmp_path, monkeypatch):
+    panels = [PanelImage(Image.new("RGB", (8, 8), (1, 2, 3)))]
+    calls = _counting_webtoon(monkeypatch)
+    pages = tmp_path / "pages"
+    _export_webtoon_with_manifest(panels, pages, tmp_path)
+    key = _only_key(tmp_path)
+    rewrite_manifest(tmp_path, key, outcome="rejected", reason="content_policy", outputs=[])
+    (pages / "webtoon.png").unlink()
+
+    _export_webtoon_with_manifest(panels, pages, tmp_path)
+    assert calls["n"] == 1
+    assert not (pages / "webtoon.png").exists()
+
+    exit_code = _run_rebuild(argparse.Namespace(out=str(tmp_path), stage="export", key=[key]))
+    assert exit_code == 0
+    _export_webtoon_with_manifest(panels, pages, tmp_path)
+    assert calls["n"] == 2
+    assert (pages / "webtoon.png").read_bytes() == b"strip-v1"
