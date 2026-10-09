@@ -165,6 +165,10 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
 - [x] **1 (render mode)** Switching a finished-page project to `panel_compose`
   plans the missing storyboard. A finished-page completion is not treated as a
   storyboard hit.
+- [x] **1 (remaining stages)** `portrait`, `page_script`, `render.panel`,
+  `letter`, and `export` declare their inputs. None of them reads an accumulated
+  window. The previous panel and the canonical portrait stay soft references.
+  Lettering does not take the font path as an input.
 
 ### P1 — Chapter-complete adaptation MVP
 
