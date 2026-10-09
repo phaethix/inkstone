@@ -1456,6 +1456,33 @@ def ensure_stage_portrait_assets(state: ProjectState) -> None:
                 )
 
 
+def bible_entries_for_page(
+    bible: VisualBible | None, names: list[str]
+) -> dict[str, CharacterCanon]:
+    """Canons for the names on one page, not the rest of the book.
+
+    An alias merge of someone who does not appear here must not change this
+    page's inputs (§5). Global style and color stay on the bible object; they
+    are not character entries.
+    """
+    if bible is None:
+        return {}
+    found: dict[str, CharacterCanon] = {}
+    for name in names:
+        base = resolve_canonical_name(name, bible)
+        canon = bible.characters.get(base)
+        if canon is not None:
+            found[base] = canon
+    return found
+
+
+def page_scoped_bible(bible: VisualBible | None, names: list[str]) -> VisualBible | None:
+    """A copy of ``bible`` whose character table is only ``names``."""
+    if bible is None:
+        return None
+    return bible.model_copy(update={"characters": bible_entries_for_page(bible, names)})
+
+
 def resolve_canonical_name(name: str, bible: VisualBible | None) -> str:
     """Resolve ``name`` to canonical bible character name when possible."""
     if bible is None:

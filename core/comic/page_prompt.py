@@ -21,6 +21,7 @@ from core.comic.visual_bible import (
     format_color_bible_block,
     format_identity_line,
     l1_from_canon,
+    page_scoped_bible,
     parse_stage_ref,
     resolve_canonical_name,
     resolve_character_asset,
@@ -58,6 +59,12 @@ def render_finished_page_prompt(
     lettering: Literal["deferred", "in_image"] = "deferred",
     visual_bible: VisualBible | None = None,
 ) -> str:
+    # Character locks are page-scoped. Style, era, and color stay; an off-page
+    # canon must not enter the prompt or a future key.
+    page_names = list(plan.reference_characters)
+    for panel in plan.panels:
+        page_names.extend(panel.characters)
+    visual_bible = page_scoped_bible(visual_bible, page_names)
     lines: list[str] = [
         "Finished readable manga/comic page, A4 portrait single image,",
         "dynamic panel layout with gutters (not a flat labeled grid collage),",

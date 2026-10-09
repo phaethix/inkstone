@@ -154,6 +154,10 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
   stages do not take `{page_size, panel_continuity, l3_enabled}`, and those knobs
   do not change the structure fingerprint. The L2 continuity image stays a soft
   reference of `render.page`. This does not add CAS or action keys.
+- [x] **1 (page bible)** A finished-page prompt carries bible entries only for the
+  characters on that page. An off-page canon cannot appear in the prompt, so a
+  later key for the page cannot depend on the rest of the book. Style, era, and
+  color stay global.
 
 ### P1 — Chapter-complete adaptation MVP
 
