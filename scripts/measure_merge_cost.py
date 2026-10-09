@@ -18,6 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.comic.merge_cost_probe import (  # noqa: E402
+    GROWTH_CHUNKS,
     SAMPLE_AFFECTED_CHUNKS,
     SAMPLE_AFFECTED_PAGES_PER_CHUNK,
     SAMPLE_CHUNKS,
@@ -28,7 +29,9 @@ from core.comic.merge_cost_probe import (  # noqa: E402
 
 async def main() -> None:
     with tempfile.TemporaryDirectory() as workdir:
-        report = await measure_merge_cost(Path(workdir))
+        root = Path(workdir)
+        report = await measure_merge_cost(root / "base")
+        grown = await measure_merge_cost(root / "grown", chunks=GROWTH_CHUNKS)
 
     print("alias-merge cost under the current architecture")
     print(
@@ -48,7 +51,9 @@ async def main() -> None:
         "| Item | Current architecture | Migration target |\n"
         f"| Image calls (render) | {report.image_calls} | <= 17 |\n"
         f"| Chat calls (extract / plan) | {report.chat_calls} | <= 3 |\n"
-        "| Growth with book length | record from a 600-page run | O(affected pages) |"
+        f"| Growth with book length | {grown.pages} pages, alias still on "
+        f"{grown.affected_pages}: {len(grown.merged_keys)} stale, "
+        f"{grown.image_calls} image, {grown.chat_calls} chat | O(affected pages) |"
     )
 
 

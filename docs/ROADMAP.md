@@ -143,6 +143,11 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
   A resume at the same boundary does not append another stop or issue the
   call. The gate enters no fingerprint. Shared state is `gate.json` under the
   data directory when the CLI or web pass it, otherwise the project directory.
+- [x] **0h growth** Doubling the alias-merge sample from 300 pages to 600, with the
+  alias still on the same 15 pages, leaves the re-run at 15 stale keys, 16 image
+  calls, and 1 chat call. The current architecture already does not grow with book
+  length. The 5x gate still fails (16 is not five times a target of ≤17), so phases
+  0c and 1–3 stay closed.
 
 ### P1 — Chapter-complete adaptation MVP
 

@@ -46,6 +46,9 @@ SAMPLE_CHUNKS = 20
 SAMPLE_PAGES_PER_CHUNK = 15
 SAMPLE_AFFECTED_CHUNKS = (4, 9, 14)
 SAMPLE_AFFECTED_PAGES_PER_CHUNK = 5
+# The same 15 affected pages on a book twice as long. §9's growth rule is that
+# the re-run's call count must not change when unaffected pages are added.
+GROWTH_CHUNKS = 40
 
 BASE_NAME = "方鸿渐"
 ALIAS_NAME = "鸿渐"
