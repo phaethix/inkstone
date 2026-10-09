@@ -1,6 +1,7 @@
 """Phase 2: objects and manifests under a project, checked by verify."""
 
 import inspect
+from pathlib import Path
 
 from PIL import Image
 
@@ -17,7 +18,11 @@ from core.comic.cas import (
     save_manifest,
     verify,
 )
-from core.pipelines.creative_comic import _letter_page_from_blank, letter_finished_page
+from core.pipelines.creative_comic import (
+    _export_pdf_with_manifest,
+    _letter_page_from_blank,
+    letter_finished_page,
+)
 from core.schemas import ComicPagePlan
 
 
@@ -124,3 +129,28 @@ def test_a_second_letter_copies_the_stored_bytes(tmp_path, monkeypatch):
     _blank(blank, (90, 10, 10))
     _letter_page_from_blank(blank, local, plan, source_text="福贵", output_dir=tmp_path)
     assert calls["n"] == 2
+
+
+def test_a_second_export_copies_the_stored_pdf(tmp_path, monkeypatch):
+    pages = tmp_path / "pages"
+    pages.mkdir()
+    Image.new("RGB", (8, 8), (1, 2, 3)).save(pages / "page_c0000_p0000.png")
+    calls = {"n": 0}
+
+    def fake(self, page_dir, out="comic.pdf", layout="TwoPageRight", direction="R2L"):
+        calls["n"] += 1
+        Path(out).write_bytes(b"%PDF-1.4 fake")
+        return out
+
+    monkeypatch.setattr("core.pipelines.creative_comic.ExportEngine.export_pdf", fake)
+    first = _export_pdf_with_manifest(pages, tmp_path)
+    assert calls["n"] == 1
+    Path(first).unlink()
+    second = _export_pdf_with_manifest(pages, tmp_path)
+    assert Path(second).read_bytes() == b"%PDF-1.4 fake"
+    assert calls["n"] == 1
+
+    Image.new("RGB", (8, 8), (9, 9, 9)).save(pages / "page_c0000_p0000.png")
+    _export_pdf_with_manifest(pages, tmp_path)
+    assert calls["n"] == 2
+    assert verify(tmp_path) == []
