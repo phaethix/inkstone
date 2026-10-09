@@ -172,6 +172,9 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
 - [x] **1 (human state)** Replacing the projection because the source changed
   keeps `needs_review`. Page tombstones belong to the discarded projection and
   are dropped with it.
+- [x] **1 (dismissed alias)** Dismissing an alias records the pair. A later
+  extract, including one after the source changes, does not put that pair back
+  on `needs_review`. Old `state.json` files load with the record empty.
 
 ### P1 — Chapter-complete adaptation MVP
 

@@ -7,6 +7,7 @@ from core.comic.identity import (
     is_high_confidence_alias,
     merge_character_alias,
     merge_settings,
+    offer_alias_suggestion,
 )
 from core.schemas import (
     Appearance,
@@ -105,6 +106,26 @@ def test_dismiss_alias_only_clears_review():
     dismiss_character_alias(state, "鸿渐", "方鸿渐")
     assert state.needs_review == []
     assert "鸿渐" in state.characters
+    assert [(s.new_name, s.candidate) for s in state.dismissed_aliases] == [("鸿渐", "方鸿渐")]
+    dismiss_character_alias(state, "鸿渐", "方鸿渐")
+    assert len(state.dismissed_aliases) == 1
+
+
+def test_dismissed_alias_is_not_offered_again():
+    state = ProjectState(project_id="p")
+    suggestion = CharacterAliasSuggestion(new_name="鸿渐", candidate="方鸿渐", reason="x")
+    state.needs_review = [suggestion]
+    dismiss_character_alias(state, "鸿渐", "方鸿渐")
+    offer_alias_suggestion(
+        state,
+        CharacterAliasSuggestion(
+            new_name="鸿渐",
+            candidate="方鸿渐",
+            reason="name variant (normalized/substring match)",
+            suggested=True,
+        ),
+    )
+    assert state.needs_review == []
 
 
 def test_force_regen_panels_clears_done_and_skipped():

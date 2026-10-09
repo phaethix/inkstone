@@ -9,7 +9,7 @@ import re
 from collections.abc import Iterable
 from typing import Literal
 
-from core.comic.identity import merge_character_alias, suggestion_from_alias
+from core.comic.identity import merge_character_alias, offer_alias_suggestion, suggestion_from_alias
 from core.schemas import (
     CharacterAsset,
     CharacterCanon,
@@ -1295,11 +1295,7 @@ def _ensure_canonical_character(
 
 
 def _append_needs_review(out: ProjectState, suggestion) -> None:
-    if not any(
-        s.new_name == suggestion.new_name and s.candidate == suggestion.candidate
-        for s in out.needs_review
-    ):
-        out.needs_review.append(suggestion)
+    offer_alias_suggestion(out, suggestion)
 
 
 def _role_for_character(out: ProjectState, name: str) -> str:
