@@ -178,6 +178,9 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
 - [x] **1 (merged alias)** Merging an alias records the pair. A later extract
   that sees both names folds them again before portraits and planning, and does
   not reopen the review queue. The cached extract text stays unchanged.
+- [x] **1 (alias pair)** A dismiss or a merge matches the two names in either
+  order. A later extract that introduces the canonical name first does not
+  reopen the queue, and a merge still folds toward the recorded canonical.
 
 ### P1 — Chapter-complete adaptation MVP
 

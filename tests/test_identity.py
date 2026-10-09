@@ -165,6 +165,41 @@ def test_recorded_merge_folds_the_alias_and_stays_off_the_queue():
     assert len(state.merged_aliases) == 1
 
 
+def test_a_reversed_alias_pair_keeps_the_recorded_decision():
+    dismissed = ProjectState(
+        project_id="p",
+        dismissed_aliases=[
+            CharacterAliasSuggestion(new_name="鸿渐", candidate="方鸿渐", reason="dismissed"),
+        ],
+    )
+    offer_alias_suggestion(
+        dismissed,
+        CharacterAliasSuggestion(new_name="方鸿渐", candidate="鸿渐", reason="name variant"),
+    )
+    assert dismissed.needs_review == []
+    dismiss_character_alias(dismissed, "方鸿渐", "鸿渐")
+    assert len(dismissed.dismissed_aliases) == 1
+
+    merged = ProjectState(
+        project_id="p",
+        characters={
+            "方鸿渐": CharacterAsset(name="方鸿渐", l1_prompt="keep"),
+            "鸿渐": CharacterAsset(name="鸿渐", l1_prompt="alias"),
+        },
+        merged_aliases=[
+            CharacterAliasSuggestion(new_name="鸿渐", candidate="方鸿渐", reason="merged"),
+        ],
+    )
+    offer_alias_suggestion(
+        merged,
+        CharacterAliasSuggestion(new_name="方鸿渐", candidate="鸿渐", reason="name variant"),
+    )
+    assert merged.needs_review == []
+    apply_recorded_merges(merged)
+    assert "鸿渐" not in merged.characters
+    assert "鸿渐" in merged.characters["方鸿渐"].aliases
+
+
 def test_force_regen_panels_clears_done_and_skipped():
     state = ProjectState(
         project_id="p",
