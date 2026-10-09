@@ -1,0 +1,111 @@
+"""core.comic.stage_contract — what each stage may read (§5, phase 1).
+
+A content key, when it exists, may contain only what a stage declares. Three
+classes:
+
+- Hard inputs change the bytes and belong in the key.
+- Soft references (the L2 continuity image) do not. Only the selection policy
+  would.
+- A historical dependency is accumulated from other items. It is declared, then
+  bounded. The bound is a window size plus the summarizer's source hash, never
+  the raw collection and never the summary strings. Putting those strings in a
+  key would re-plan every later chunk when one early layout changed.
+
+Same key does not mean the provider will return the same pixels. Image
+generation is stochastic. A hit means the stored bytes are accepted in place
+of spending another call.
+
+Render-only knobs ``{page_size, panel_continuity, l3_enabled}`` change pixels,
+not the chat caches. They are absent from every chat stage's hard inputs.
+``render_mode`` is deliberately not in that set: it selects a different plan.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import inspect
+from dataclasses import dataclass
+
+RECENT_LAYOUT_LIMIT = 8
+RENDER_ONLY_PARAMS = frozenset({"page_size", "panel_continuity", "l3_enabled"})
+
+
+@dataclass(frozen=True)
+class StageContract:
+    """The inputs one stage is allowed to depend on."""
+
+    stage: str
+    reads_accumulated: bool
+    hard_inputs: frozenset[str]
+    soft_refs: frozenset[str] = frozenset()
+    historical_limit: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.reads_accumulated and self.historical_limit is None:
+            raise ValueError(f"{self.stage} reads accumulated state but declares no bound")
+        if not self.reads_accumulated and self.historical_limit is not None:
+            raise ValueError(f"{self.stage} declares a bound but reads no accumulated state")
+        if self.hard_inputs & self.soft_refs:
+            raise ValueError(f"{self.stage} lists an input as both hard and soft")
+        if not self.stage.startswith("render") and self.hard_inputs & RENDER_ONLY_PARAMS:
+            raise ValueError(f"{self.stage} takes a render-only param as a hard input")
+
+
+def _chat(stage: str, *hard: str) -> StageContract:
+    return StageContract(stage=stage, reads_accumulated=False, hard_inputs=frozenset(hard))
+
+
+_STAGES: dict[str, StageContract] = {
+    "extract": _chat("extract", "source_chunk"),
+    "bible": _chat("bible", "extracted_characters"),
+    "beats": _chat("beats", "source_chunk"),
+    "storyboard": _chat("storyboard", "source_chunk", "bible_entries_for_chunk"),
+    "page_plan": StageContract(
+        stage="page_plan",
+        reads_accumulated=True,
+        hard_inputs=frozenset({"source_chunk", "beats", "bible_entries_for_page"}),
+        historical_limit=RECENT_LAYOUT_LIMIT,
+    ),
+    "render.page": StageContract(
+        stage="render.page",
+        reads_accumulated=False,
+        hard_inputs=frozenset({"page_plan", "bible_entries_for_page", "prompt_renderer"}),
+        soft_refs=frozenset({"l2_reference"}),
+    ),
+}
+
+
+def stage_contract(stage: str) -> StageContract:
+    """Return the declared contract. An unknown stage is a registration miss."""
+    try:
+        return _STAGES[stage]
+    except KeyError as exc:
+        raise KeyError(f"no stage contract for {stage}") from exc
+
+
+def _source_hash(fn) -> str:
+    return hashlib.sha256(inspect.getsource(fn).encode("utf-8")).hexdigest()
+
+
+def historical_identity(stage: str) -> dict:
+    """The key-facing form of a historical dependency.
+
+    Limit and summarizer source hashes only. The function takes no project
+    state, so the recent intent strings cannot enter it.
+    """
+    contract = stage_contract(stage)
+    if contract.historical_limit is None:
+        return {}
+    # Imported lazily: creative_comic imports this module for the limit.
+    from core.comic.layout_diversity import layout_diversity_instructions
+    from core.pipelines.creative_comic import _recent_layout_intents
+
+    return {
+        "recent_layouts": {
+            "limit": contract.historical_limit,
+            "summarizers": {
+                "_recent_layout_intents": _source_hash(_recent_layout_intents),
+                "layout_diversity_instructions": _source_hash(layout_diversity_instructions),
+            },
+        }
+    }

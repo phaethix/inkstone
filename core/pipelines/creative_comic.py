@@ -62,6 +62,7 @@ from core.comic.ledger import ConsistencyLedger
 from core.comic.page_lettering import LETTERING_VERSION, letter_finished_page
 from core.comic.page_prompt import render_finished_page_prompt
 from core.comic.segmentation import detect_character_aliases, merge_characters, segment_text
+from core.comic.stage_contract import RECENT_LAYOUT_LIMIT
 from core.comic.visual_bible import (
     apply_reconcile,
     backfill_panel_characters,
@@ -196,8 +197,14 @@ def _chunk_sort_key(cache_key: str) -> tuple[int, int, str]:
         return (1, 0, cache_key)
 
 
-def _recent_layout_intents(state: ProjectState, *, limit: int = 8) -> list[str]:
-    """Collect recent page layout_intent strings from cached page plans."""
+def _recent_layout_intents(state: ProjectState, *, limit: int = RECENT_LAYOUT_LIMIT) -> list[str]:
+    """Collect recent page layout_intent strings from cached page plans.
+
+    The returned strings are a planner hint. They are not a key input: the
+    declared input is the window size plus the summarizer source hash
+    (``stage_contract.historical_identity``). Putting the strings in a key
+    would re-plan every later chunk when one early layout changed.
+    """
     intents: list[str] = []
     for cache_key in sorted(state.page_cache.keys(), key=_chunk_sort_key):
         pageset = state.page_cache.get(cache_key)
