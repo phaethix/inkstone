@@ -20,7 +20,6 @@ Providers are injected so the pipeline can be exercised without network.
 
 import asyncio
 import hashlib
-import inspect
 import io
 import json
 import logging
@@ -65,6 +64,7 @@ from core.comic.consistency import (
 )
 from core.comic.env_snapshot import h_env
 from core.comic.export import ExportEngine
+from core.comic.fonts import text_requires_cjk
 from core.comic.gate import SAMPLE_GATE_SIZE, GatePaused, GateSession
 from core.comic.identity import (
     apply_recorded_merges,
@@ -77,12 +77,27 @@ from core.comic.identity import (
     suggestion_from_alias,
 )
 from core.comic.key_beats import beat_coverage_retry_note, uncovered_must_draw_beats
-from core.comic.layout import LayoutEngine, PanelImage
+from core.comic.layout import LayoutEngine, PanelImage, _line_height
 from core.comic.ledger import ConsistencyLedger
-from core.comic.page_lettering import LETTERING_VERSION, letter_finished_page
+from core.comic.lettering_lang import (
+    sanitize_lettering_text,
+    source_lettering_script,
+    strip_pinyin_glosses,
+    truncate_lettering,
+)
+from core.comic.page_lettering import (
+    LETTERING_VERSION,
+    _avoid_overlap,
+    _clamp_box,
+    _heuristic_box,
+    _safe_anchor,
+    fit_lettering_box,
+    letter_finished_page,
+    resolve_lettering_jobs,
+)
 from core.comic.page_prompt import render_finished_page_prompt
 from core.comic.segmentation import detect_character_aliases, merge_characters, segment_text
-from core.comic.stage_contract import RECENT_LAYOUT_LIMIT
+from core.comic.stage_contract import RECENT_LAYOUT_LIMIT, stage_source_hash
 from core.comic.visual_bible import (
     apply_reconcile,
     backfill_panel_characters,
@@ -350,20 +365,60 @@ def _page_asset_path(pages_dir: Path, chunk_index: int, page_index: int) -> Path
     return pages_dir / f"page_c{chunk_index:04d}_p{page_index:04d}.png"
 
 
-# Hashed once at import. A monkeypatch of the lettering function must not
-# change the key of bytes already stored under the real source.
-_LETTER_STAGE_SRC = hashlib.sha256(
-    inspect.getsource(letter_finished_page).encode("utf-8")
-).hexdigest()
-_EXPORT_STAGE_SRC = hashlib.sha256(
-    inspect.getsource(ExportEngine.export_pdf).encode("utf-8")
-).hexdigest()
-_WEBTOON_STAGE_SRC = hashlib.sha256(
-    inspect.getsource(LayoutEngine._compose_webtoon).encode("utf-8")
-).hexdigest()
-_LAYOUT_STAGE_SRC = hashlib.sha256(
-    inspect.getsource(LayoutEngine._compose_pages).encode("utf-8")
-).hexdigest()
+# Hashed once at import. A monkeypatch of a stage function must not change the
+# key of bytes already stored under the real source. Each tuple is the behaviour
+# that stage draws or binds. The page grid is not part of lettering, and the
+# pipeline function is not part of any of them.
+_DRAW_SOURCES = (
+    LayoutEngine._bubble_height,
+    LayoutEngine._draw_bubble,
+    LayoutEngine._draw_caption,
+    LayoutEngine._draw_sfx,
+    LayoutEngine._wrap_chars,
+    LayoutEngine._wrap_text,
+    LayoutEngine._wrap_words,
+    _line_height,
+)
+_LETTER_SOURCES = (
+    *_DRAW_SOURCES,
+    _avoid_overlap,
+    _clamp_box,
+    _heuristic_box,
+    _safe_anchor,
+    fit_lettering_box,
+    letter_finished_page,
+    resolve_lettering_jobs,
+    sanitize_lettering_text,
+    source_lettering_script,
+    strip_pinyin_glosses,
+    text_requires_cjk,
+    truncate_lettering,
+)
+_LAYOUT_SOURCES = (
+    *_DRAW_SOURCES,
+    LayoutEngine._cols_for,
+    LayoutEngine._compose_pages,
+    LayoutEngine._lettering_reserve,
+    LayoutEngine._paginate,
+    LayoutEngine._place_panel,
+    LayoutEngine._render_page,
+)
+_WEBTOON_SOURCES = (
+    *_DRAW_SOURCES,
+    LayoutEngine._compose_webtoon,
+    LayoutEngine._panel_strip_height,
+)
+_EXPORT_SOURCES = (
+    ExportEngine._export_pdf_pil_batched,
+    ExportEngine._merge_pdf_parts,
+    ExportEngine._save_pil_batch,
+    ExportEngine._try_img2pdf,
+    ExportEngine.export_pdf,
+)
+_LETTER_STAGE_SRC = stage_source_hash(*_LETTER_SOURCES)
+_EXPORT_STAGE_SRC = stage_source_hash(*_EXPORT_SOURCES)
+_WEBTOON_STAGE_SRC = stage_source_hash(*_WEBTOON_SOURCES)
+_LAYOUT_STAGE_SRC = stage_source_hash(*_LAYOUT_SOURCES)
 
 
 def _plan_json(plan: ComicPagePlan) -> str:
