@@ -80,7 +80,8 @@ def test_local_stages_declare_their_inputs_without_an_accumulated_window():
         "portrait": frozenset({"bible_entry_for_character", "character_asset"}),
         "page_script": frozenset({"source_chunk", "storyboard", "extracted_elements"}),
         "letter": frozenset({"blank_page", "page_plan", "source_text"}),
-        "export": frozenset({"lettered_pages"}),
+        "export": frozenset({"bound_images", "binding"}),
+        "layout": frozenset({"panel_images", "drawn_text", "page_geometry"}),
     }
     for stage, hard in expected.items():
         contract = stage_contract(stage)
@@ -89,6 +90,8 @@ def test_local_stages_declare_their_inputs_without_an_accumulated_window():
         assert contract.hard_inputs == hard
         assert contract.hard_inputs.isdisjoint(RENDER_ONLY_PARAMS)
     assert "font_path" not in stage_contract("letter").hard_inputs
+    assert historical_identity("layout") == {}
+    assert historical_identity("export") == {}
     portrait = stage_contract("portrait")
     assert portrait.soft_refs == frozenset({"canonical_portrait_ref"})
     panel = stage_contract("render.panel")

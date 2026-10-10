@@ -210,6 +210,9 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
   every sheet. The same panels and the same drawn text copy those sheets. A
   changed line collages again. A rejected collage is not bound into a PDF until
   `rebuild --stage layout` releases it.
+- [x] **1 (layout contract)** `layout` declares the panels, the drawn text, and
+  the page geometry. `export` declares the bound images and the binding. Neither
+  reads an accumulated window or a render-only knob.
 
 ### P1 — Chapter-complete adaptation MVP
 

@@ -13,7 +13,9 @@ from core.comic.cas import (
     Manifest,
     ManifestOutput,
     action_key,
+    export_action_key,
     is_hit,
+    layout_action_key,
     letter_action_key,
     load_manifest,
     put_bytes,
@@ -22,6 +24,7 @@ from core.comic.cas import (
     rewrite_manifest,
     save_manifest,
     verify,
+    webtoon_action_key,
 )
 from core.comic.layout import PanelImage
 from core.pipelines.creative_comic import (
@@ -54,6 +57,54 @@ def test_letter_key_follows_the_blank_and_the_env():
     assert "panel_continuity" not in letter_action_key.__code__.co_varnames
     assert "l3_enabled" not in letter_action_key.__code__.co_varnames
     assert action_key(stage="extract", stage_src="src", inputs=[], params={}, env="env-b") != base
+
+
+def test_binding_keys_follow_the_images_and_omit_render_knobs():
+    page = b"page"
+    empty = [{"caption": "", "dialogue": "", "sfx": ""}]
+    pdf = export_action_key(
+        pages=[page], layout="TwoPageRight", direction="R2L", env="e", stage_src="s"
+    )
+    assert (
+        export_action_key(
+            pages=[page], layout="TwoPageRight", direction="L2R", env="e", stage_src="s"
+        )
+        != pdf
+    )
+    strip = webtoon_action_key(
+        pages=[page], lettering=empty, page_width=1400, env="e", stage_src="s"
+    )
+    assert strip != pdf
+    spoken = [{"caption": "", "dialogue": "福贵", "sfx": ""}]
+    assert (
+        webtoon_action_key(pages=[page], lettering=spoken, page_width=1400, env="e", stage_src="s")
+        != strip
+    )
+    collage = layout_action_key(
+        pages=[page],
+        lettering=empty,
+        page_width=1400,
+        cell_height=1000,
+        bg=[255, 255, 255],
+        env="e",
+        stage_src="s",
+    )
+    assert (
+        layout_action_key(
+            pages=[page],
+            lettering=empty,
+            page_width=1400,
+            cell_height=1000,
+            bg=[0, 0, 0],
+            env="e",
+            stage_src="s",
+        )
+        != collage
+    )
+    for fn in (export_action_key, webtoon_action_key, layout_action_key):
+        assert "page_size" not in fn.__code__.co_varnames
+        assert "panel_continuity" not in fn.__code__.co_varnames
+        assert "l3_enabled" not in fn.__code__.co_varnames
 
 
 def test_rewrite_keeps_the_key_and_records_what_it_replaced(tmp_path):
