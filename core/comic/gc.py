@@ -3,22 +3,27 @@
 ``prune`` still owns deterministic image paths. This module owns ``cas/``.
 A blob stays when a manifest names it as an input or an output, when a
 non-ok manifest lists it in ``supersedes``, when the ledger stores its
-content hash or a path inside ``cas/``, or when ``gate.json`` names it.
-Anything else is reclaimable only after it is also older than the threshold.
+content hash or a path inside ``cas/``, or when a still-pending sample page's
+file has those bytes. Anything else is reclaimable only after it is also
+older than the threshold.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from datetime import timedelta
 from pathlib import Path
 
 from core.comic.cas import Manifest
+from core.comic.gate import GateFile
 from core.comic.ledger import ConsistencyLedger
 from core.comic.prune import PruneCandidate, PrunePlan, PruneResult, apply_prune
+from core.schemas import ProjectState
 
 _HEX = frozenset("0123456789abcdef")
+_ACCEPTED = frozenset({"accept", "accept_and_flag"})
 
 
 class GcError(Exception):
@@ -55,7 +60,73 @@ def _is_within(path: Path, root: Path) -> bool:
     return True
 
 
-def live_content_ids(root: Path) -> set[str]:
+def _file_digest(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _pending_sample_keys(gate: GateFile) -> list[str]:
+    """Sample pages that still await a decision.
+
+    An accepted page, a released sample, and a ``--yes`` sample are done.
+    A redraw is still pending: the bytes on disk are the ones under review.
+    """
+    keys: list[str] = []
+    for project in gate.projects.values():
+        if project.released or project.yes:
+            continue
+        for key in project.sample_keys:
+            decision = project.decisions.get(key)
+            if decision is not None and decision.choice in _ACCEPTED:
+                continue
+            keys.append(key)
+    return keys
+
+
+def _page_artifact_paths(state: ProjectState, key: str) -> list[str]:
+    paths: list[str] = []
+    page = state.generated.pages.get(key)
+    if page is not None:
+        paths.extend(path for path in (page.local, page.blank_local) if path)
+    panel = state.generated.panels.get(key)
+    if panel is not None and panel.local:
+        paths.append(panel.local)
+    return paths
+
+
+def _gate_ids(root: Path, gate_path: Path) -> set[str]:
+    try:
+        payload = json.loads(gate_path.read_text(encoding="utf-8"))
+        gate = GateFile.model_validate(payload)
+    except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
+        raise GcError(f"unreadable {gate_path.name}") from exc
+    found = _ids_in(payload)
+    keys = _pending_sample_keys(gate)
+    if not keys:
+        return found
+    state_path = root / "state.json"
+    if not state_path.is_file():
+        return found
+    try:
+        state = ProjectState.load(state_path)
+        state.migrate_legacy_page_keys()
+    except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
+        raise GcError("unreadable state.json") from exc
+    for key in keys:
+        for raw in _page_artifact_paths(state, key):
+            file = Path(raw)
+            if not file.is_absolute():
+                file = root / file
+            if not file.is_file() or not _is_within(file, root):
+                continue
+            found.add(_file_digest(file))
+    return found
+
+
+def live_content_ids(root: Path, *, gate_files: list[Path] | None = None) -> set[str]:
     """Bare digests gc must keep. Unreadable roots raise instead of looking empty."""
     root = Path(root)
     live: set[str] = set()
@@ -103,20 +174,29 @@ def live_content_ids(root: Path) -> set[str]:
             if digest is not None:
                 live.add(digest)
 
-    gate_path = root / "gate.json"
-    if gate_path.is_file():
-        try:
-            payload = json.loads(gate_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-            raise GcError("unreadable gate.json") from exc
-        live.update(_ids_in(payload))
+    gate_paths = [root / "gate.json"]
+    if gate_files:
+        gate_paths.extend(gate_files)
+    seen: set[Path] = set()
+    for gate_path in gate_paths:
+        resolved = gate_path.resolve()
+        if resolved in seen or not gate_path.is_file():
+            continue
+        seen.add(resolved)
+        live.update(_gate_ids(root, gate_path))
     return live
 
 
-def plan_gc(root: Path, older_than: timedelta, *, now: float | None = None) -> PrunePlan:
+def plan_gc(
+    root: Path,
+    older_than: timedelta,
+    *,
+    now: float | None = None,
+    gate_files: list[Path] | None = None,
+) -> PrunePlan:
     """Objects under ``cas/`` that nothing names and that are old enough."""
     root = Path(root)
-    live = live_content_ids(root)
+    live = live_content_ids(root, gate_files=gate_files)
     cutoff = (now if now is not None else time.time()) - older_than.total_seconds()
     plan = PrunePlan()
     cas_root = root / "cas"

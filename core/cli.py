@@ -594,6 +594,7 @@ def _run_gc(args: argparse.Namespace) -> int:
     """gc 子命令：回收未被清单、账本或闸门引用且超过存活时长的 cas 对象。"""
     from core.comic.gc import GcError, apply_gc, plan_gc
     from core.comic.prune import parse_older_than
+    from core.config import data_dir
 
     try:
         older_than = parse_older_than(args.older_than)
@@ -601,8 +602,13 @@ def _run_gc(args: argparse.Namespace) -> int:
         print(f"gc：{exc}")
         return 2
 
+    shared = data_dir() / "gate.json"
     try:
-        plan = plan_gc(Path(args.out), older_than)
+        plan = plan_gc(
+            Path(args.out),
+            older_than,
+            gate_files=[shared] if shared.is_file() else None,
+        )
     except GcError as exc:
         print(f"gc：{exc}")
         return 1
