@@ -162,6 +162,10 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
   accepted. When the portrait-shaped request is rejected, `resolved_size` is the
   square fallback, not the configured string. Old `state.json` files load with
   the field empty.
+- [x] **0a (letter size)** A letter key uses that accepted size. A square
+  fallback re-letters the stored blank and does not call the image provider.
+  The same size copies the stored page. An empty `resolved_size` keeps the key
+  that was stored for the configured size.
 - [x] **1 (render mode)** Switching a finished-page project to `panel_compose`
   plans the missing storyboard. A finished-page completion is not treated as a
   storyboard hit.

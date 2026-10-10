@@ -190,6 +190,37 @@ def test_a_second_letter_copies_the_stored_bytes(tmp_path, monkeypatch):
     assert calls["n"] == 2
 
 
+def test_a_fallback_size_reletters_the_stored_blank(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKSTONE_PAGE_SIZE", "1024x1536")
+    blank = tmp_path / "blank.png"
+    local = tmp_path / "page.png"
+    _blank(blank, (10, 20, 30))
+    blank_bytes = blank.read_bytes()
+    plan = ComicPagePlan(page_id="p")
+    calls = {"n": 0}
+    real = letter_finished_page
+
+    def counting(image, page_plan, **kwargs):
+        calls["n"] += 1
+        return real(image, page_plan, **kwargs)
+
+    monkeypatch.setattr("core.pipelines.creative_comic.letter_finished_page", counting)
+    _letter_page_from_blank(
+        blank, local, plan, source_text="福贵", output_dir=tmp_path, resolved_size="1024x1536"
+    )
+    assert calls["n"] == 1
+    _letter_page_from_blank(
+        blank, local, plan, source_text="福贵", output_dir=tmp_path, resolved_size="1024x1536"
+    )
+    assert calls["n"] == 1
+    _letter_page_from_blank(
+        blank, local, plan, source_text="福贵", output_dir=tmp_path, resolved_size="1024x1024"
+    )
+    assert calls["n"] == 2
+    assert blank.read_bytes() == blank_bytes
+    assert verify(tmp_path) == []
+
+
 def test_a_second_export_copies_the_stored_pdf(tmp_path, monkeypatch):
     pages = tmp_path / "pages"
     pages.mkdir()
