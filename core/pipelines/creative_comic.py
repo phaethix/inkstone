@@ -63,8 +63,8 @@ from core.comic.consistency import (
     _panel_reference_names,
 )
 from core.comic.env_snapshot import h_env
-from core.comic.export import ExportEngine
-from core.comic.fonts import text_requires_cjk
+from core.comic.export import ExportEngine, _pdf_batch_size
+from core.comic.fonts import resolve_font, text_requires_cjk
 from core.comic.gate import SAMPLE_GATE_SIZE, GatePaused, GateSession
 from core.comic.identity import (
     apply_recorded_merges,
@@ -77,7 +77,7 @@ from core.comic.identity import (
     suggestion_from_alias,
 )
 from core.comic.key_beats import beat_coverage_retry_note, uncovered_must_draw_beats
-from core.comic.layout import LayoutEngine, PanelImage, _line_height
+from core.comic.layout import LayoutEngine, PanelImage, _line_height, _webtoon_max_pixels
 from core.comic.ledger import ConsistencyLedger
 from core.comic.lettering_lang import (
     sanitize_lettering_text,
@@ -378,6 +378,7 @@ _DRAW_SOURCES = (
     LayoutEngine._wrap_text,
     LayoutEngine._wrap_words,
     _line_height,
+    text_requires_cjk,
 )
 _LETTER_SOURCES = (
     *_DRAW_SOURCES,
@@ -391,8 +392,15 @@ _LETTER_SOURCES = (
     sanitize_lettering_text,
     source_lettering_script,
     strip_pinyin_glosses,
-    text_requires_cjk,
     truncate_lettering,
+)
+# These are called by a hashed stage and left out on purpose. Batch size and the
+# webtoon pixel cap do not change a file that was produced. The font file's
+# bytes already enter ``h_env``, so the resolver's source does not.
+_STAGE_SOURCE_EXCLUDED = (
+    _pdf_batch_size,
+    _webtoon_max_pixels,
+    resolve_font,
 )
 _LAYOUT_SOURCES = (
     *_DRAW_SOURCES,
