@@ -8,13 +8,26 @@ of the structure fingerprint, which is what the chat caches key on.
 
 import json
 
+from core.comic.export import ExportEngine, _pdf_batch_size
+from core.comic.layout import LayoutEngine
+from core.comic.page_lettering import letter_finished_page
 from core.comic.stage_contract import (
     RECENT_LAYOUT_LIMIT,
     RENDER_ONLY_PARAMS,
     historical_identity,
     stage_contract,
+    stage_source_hash,
 )
-from core.pipelines.creative_comic import _recent_layout_intents, _structure_fingerprint
+from core.pipelines.creative_comic import (
+    _EXPORT_SOURCES,
+    _LAYOUT_SOURCES,
+    _LETTER_SOURCES,
+    _LETTER_STAGE_SRC,
+    _WEBTOON_SOURCES,
+    _creative_comic,
+    _recent_layout_intents,
+    _structure_fingerprint,
+)
 from core.schemas import ComicPagePlan, ComicPagePlanSet, ProjectState
 
 
@@ -110,6 +123,21 @@ def test_render_only_params_do_not_change_the_structure_fingerprint(monkeypatch)
     monkeypatch.setenv("INKSTONE_L3", "1")
     monkeypatch.setenv("INKSTONE_PANEL_CONTINUITY", "1")
     assert _structure_fingerprint(source) == first
+
+
+def test_local_stage_sources_are_the_declared_drawers():
+    assert _LETTER_STAGE_SRC == stage_source_hash(*_LETTER_SOURCES)
+    assert _LETTER_STAGE_SRC != stage_source_hash(letter_finished_page)
+    assert LayoutEngine._draw_bubble in _LETTER_SOURCES
+    assert LayoutEngine._compose_pages not in _LETTER_SOURCES
+    assert LayoutEngine._paginate in _LAYOUT_SOURCES
+    assert letter_finished_page not in _LAYOUT_SOURCES
+    assert LayoutEngine._compose_webtoon in _WEBTOON_SOURCES
+    assert LayoutEngine._compose_pages not in _WEBTOON_SOURCES
+    assert ExportEngine.export_pdf in _EXPORT_SOURCES
+    assert _pdf_batch_size not in _EXPORT_SOURCES
+    for sources in (_LETTER_SOURCES, _LAYOUT_SOURCES, _WEBTOON_SOURCES, _EXPORT_SOURCES):
+        assert _creative_comic not in sources
 
 
 def test_render_page_keeps_the_continuity_image_soft():

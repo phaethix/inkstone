@@ -124,6 +124,21 @@ def stage_contract(stage: str) -> StageContract:
         raise KeyError(f"no stage contract for {stage}") from exc
 
 
+def stage_source_hash(*functions) -> str:
+    """Hash the declared behaviour of a stage, not its callers or its types.
+
+    The functions are named in the payload and sorted by qualified name, so
+    declaration order does not matter and an orchestration edit does not.
+    """
+    if not functions:
+        raise ValueError("a stage source hash needs at least one function")
+    parts = []
+    ordered = sorted(functions, key=lambda fn: f"{fn.__module__}.{fn.__qualname__}")
+    for fn in ordered:
+        parts.append(f"{fn.__module__}.{fn.__qualname__}\n{inspect.getsource(fn)}")
+    return hashlib.sha256("".join(parts).encode("utf-8")).hexdigest()
+
+
 def _source_hash(fn) -> str:
     return hashlib.sha256(inspect.getsource(fn).encode("utf-8")).hexdigest()
 

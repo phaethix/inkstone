@@ -213,6 +213,9 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
 - [x] **2 (font)** A changed font re-letters a finished page from its stored
   blank. The image provider is not called, and the blank bytes stay as they
   were. The same font copies the stored page.
+- [x] **2 (stage source)** Letter, layout, webtoon, and export keys hash the
+  functions that draw or bind their bytes. A page-grid change is not part of
+  lettering. The pipeline function stays out of those hashes.
 - [x] **1 (layout contract)** `layout` declares the panels, the drawn text, and
   the page geometry. `export` declares the bound images and the binding. Neither
   reads an accumulated window or a render-only knob.
