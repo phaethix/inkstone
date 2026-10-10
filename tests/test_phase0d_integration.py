@@ -1,10 +1,16 @@
 """Phase 0d: ledger integration with alias merge, pipeline, and the web snapshot."""
 
 import asyncio
+import os
+import time
+from pathlib import Path
 from unittest.mock import patch
 
+from core.comic.cas import object_path
+from core.comic.gc import plan_gc
 from core.comic.identity import merge_character_alias
 from core.comic.ledger import ConsistencyLedger, LedgerEntry
+from core.comic.prune import parse_older_than
 from core.pipelines.creative_comic import creative_comic
 from core.schemas import CharacterAsset, ProjectState
 from tests.test_finished_page_pipeline import FakeChat, FakeImage, _fake_export_pdf
@@ -47,6 +53,14 @@ def test_pipeline_writes_ledger_with_positional_pages(tmp_path, monkeypatch):
     # First generation records version 1 and does NOT flag every page pending.
     assert led.characters["福贵"].reference.version == 1
     assert led.characters["福贵"].pending_pages == []
+    ref = led.characters["福贵"].reference
+    assert ref.content_hash and ref.content_hash.startswith("sha256:")
+    blob = object_path(tmp_path, ref.content_hash)
+    assert blob.read_bytes() == Path(ref.path).read_bytes()
+    stamp = time.time() - 100 * 86400
+    os.utime(blob, (stamp, stamp))
+    plan = plan_gc(tmp_path, parse_older_than("7d"))
+    assert blob.resolve() not in {candidate.path.resolve() for candidate in plan.candidates}
 
 
 def test_state_snapshot_includes_ledger_pending(monkeypatch, tmp_path):

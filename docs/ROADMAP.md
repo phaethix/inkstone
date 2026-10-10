@@ -227,6 +227,9 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
   older than the threshold. A manifest input or output, a rejected manifest's
   previous bytes, a ledger content hash, and a hash named in `gate.json` stay.
   `--apply` is what deletes. An unreadable manifest refuses the plan.
+- [x] **4 (ledger bytes)** Recording a portrait copies its bytes into `cas/` and
+  stores that content hash on the ledger. `gc` leaves the object in place, so
+  the authoritative reference still resolves after the age threshold.
 - [x] **1 (layout contract)** `layout` declares the panels, the drawn text, and
   the page geometry. `export` declares the bound images and the binding. Neither
   reads an accumulated window or a render-only knob.
