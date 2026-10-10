@@ -6,7 +6,11 @@ one early page cannot re-plan the rest of the book. Render-only knobs stay out
 of the structure fingerprint, which is what the chat caches key on.
 """
 
+import ast
+import importlib
+import inspect
 import json
+import textwrap
 
 from core.comic.export import ExportEngine, _pdf_batch_size
 from core.comic.layout import LayoutEngine
@@ -23,6 +27,7 @@ from core.pipelines.creative_comic import (
     _LAYOUT_SOURCES,
     _LETTER_SOURCES,
     _LETTER_STAGE_SRC,
+    _STAGE_SOURCE_EXCLUDED,
     _WEBTOON_SOURCES,
     _creative_comic,
     _recent_layout_intents,
@@ -138,6 +143,54 @@ def test_local_stage_sources_are_the_declared_drawers():
     assert _pdf_batch_size not in _EXPORT_SOURCES
     for sources in (_LETTER_SOURCES, _LAYOUT_SOURCES, _WEBTOON_SOURCES, _EXPORT_SOURCES):
         assert _creative_comic not in sources
+
+
+def _call_names(fn) -> set[str]:
+    tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Name):
+            names.add(func.id)
+        elif isinstance(func, ast.Attribute):
+            names.add(func.attr)
+    return names
+
+
+def _visible_functions(module_name: str) -> dict[str, object]:
+    module = importlib.import_module(module_name)
+    visible: dict[str, object] = {}
+    for obj in vars(module).values():
+        if inspect.isfunction(obj) and obj.__module__.startswith("core."):
+            visible.setdefault(obj.__name__, obj)
+        elif inspect.isclass(obj) and obj.__module__.startswith("core."):
+            for meth in vars(obj).values():
+                if inspect.isfunction(meth):
+                    visible.setdefault(meth.__name__, meth)
+    return visible
+
+
+def test_a_direct_callee_is_declared_or_explicitly_left_out():
+    excluded = set(_STAGE_SOURCE_EXCLUDED)
+    missing: list[str] = []
+    groups = {
+        "letter": _LETTER_SOURCES,
+        "layout": _LAYOUT_SOURCES,
+        "webtoon": _WEBTOON_SOURCES,
+        "export": _EXPORT_SOURCES,
+    }
+    for stage, sources in groups.items():
+        declared = set(sources)
+        for fn in sources:
+            visible = _visible_functions(fn.__module__)
+            for name in _call_names(fn):
+                callee = visible.get(name)
+                if callee is None or callee in declared or callee in excluded:
+                    continue
+                missing.append(f"{stage}: {fn.__qualname__} calls {callee.__module__}.{name}")
+    assert missing == []
 
 
 def test_render_page_keeps_the_continuity_image_soft():

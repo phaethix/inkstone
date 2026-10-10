@@ -219,6 +219,10 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
 - [x] **2 (shorter collage)** A collage that writes fewer sheets deletes the
   extra `page_NN.png` files. A finished-page file in the same directory stays.
   The PDF binder therefore sees only the sheets this collage produced.
+- [x] **2 (source closure)** A direct callee of a local stage is in that stage's
+  hash. Wrapping CJK and Latin on different lines is part of the collage and
+  the strip. The font resolver, the PDF batch size, and the webtoon pixel cap
+  stay out.
 - [x] **1 (layout contract)** `layout` declares the panels, the drawn text, and
   the page geometry. `export` declares the bound images and the binding. Neither
   reads an accumulated window or a render-only knob.
