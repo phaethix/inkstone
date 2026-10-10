@@ -176,6 +176,26 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Actually delete; omit for a dry-run report",
     )
 
+    p_gc = sub.add_parser(
+        "gc",
+        help="Delete unreferenced cas objects older than a threshold (dry-run by default)",
+    )
+    p_gc.add_argument(
+        "--out",
+        default="comic_out",
+        help="Project directory (contains cas/; default comic_out)",
+    )
+    p_gc.add_argument(
+        "--older-than",
+        required=True,
+        help="Minimum age of a reclaimable object: e.g. 7d (days), 12h (hours), or a bare integer",
+    )
+    p_gc.add_argument(
+        "--apply",
+        action="store_true",
+        help="Actually delete; omit for a dry-run report",
+    )
+
     p_verify = sub.add_parser(
         "verify",
         help="Check that index manifests and cas objects agree",
@@ -570,6 +590,40 @@ def _not_implemented(command: str, version: str) -> None:
     sys.exit(0)
 
 
+def _run_gc(args: argparse.Namespace) -> int:
+    """gc 子命令：回收未被清单、账本或闸门引用且超过存活时长的 cas 对象。"""
+    from core.comic.gc import GcError, apply_gc, plan_gc
+    from core.comic.prune import parse_older_than
+
+    try:
+        older_than = parse_older_than(args.older_than)
+    except ValueError as exc:
+        print(f"gc：{exc}")
+        return 2
+
+    try:
+        plan = plan_gc(Path(args.out), older_than)
+    except GcError as exc:
+        print(f"gc：{exc}")
+        return 1
+
+    if not plan:
+        print("没有可回收的对象：未被引用且超过存活时长的文件为零。")
+        return 0
+
+    for candidate in plan.candidates:
+        print(f"  - {candidate.path}（{candidate.size_bytes} 字节）")
+    if not args.apply:
+        print(
+            f"dry-run：将回收 {len(plan)} 个对象，共 {plan.total_bytes} 字节。加 --apply 才会删除。"
+        )
+        return 0
+
+    result = apply_gc(plan)
+    print(f"已回收 {result.deleted} 个对象，共 {result.reclaimed_bytes} 字节。")
+    return 0
+
+
 def _run_verify(args: argparse.Namespace) -> int:
     """Report whether index/ and cas/ describe the same bytes."""
     from core.comic.cas import verify
@@ -597,6 +651,7 @@ def main() -> None:
         "coverage",
         "rebuild",
         "prune",
+        "gc",
         "verify",
         "-h",
         "--help",
@@ -620,6 +675,8 @@ def main() -> None:
         sys.exit(_run_rebuild(args))
     elif args.command == "prune":
         sys.exit(_run_prune(args))
+    elif args.command == "gc":
+        sys.exit(_run_gc(args))
     elif args.command == "verify":
         sys.exit(_run_verify(args))
 

@@ -195,6 +195,7 @@ comic_out/<project_id>/
 | `core/comic/gate.py` | Sample gate and per-page decisions (`--yes`, `inkstone gate`) |
 | `core/comic/stage_contract.py` | Declared stage inputs: hard, soft, and the bounded layout window |
 | `core/comic/cas.py` | Content-addressed objects, manifests, and `verify` |
+| `core/comic/gc.py` | Reclaim unreferenced `cas/` objects (`inkstone gc`) |
 | `core/density.py` | Offline `inkstone plan` estimator (does not control generate) |
 | `core/comic/coverage.py` | Legacy PageScript report |
 

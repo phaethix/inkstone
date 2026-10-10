@@ -223,6 +223,10 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
   hash. Wrapping CJK and Latin on different lines is part of the collage and
   the strip. The font resolver, the PDF batch size, and the webtoon pixel cap
   stay out.
+- [x] **4 (gc)** `inkstone gc` lists `cas/` objects nothing names, once they are
+  older than the threshold. A manifest input or output, a rejected manifest's
+  previous bytes, a ledger content hash, and a hash named in `gate.json` stay.
+  `--apply` is what deletes. An unreadable manifest refuses the plan.
 - [x] **1 (layout contract)** `layout` declares the panels, the drawn text, and
   the page geometry. `export` declares the bound images and the binding. Neither
   reads an accumulated window or a render-only knob.
