@@ -336,6 +336,16 @@ def _input_fingerprint(
     )
 
 
+def _portrait_content_id(output_dir: Path, path: str) -> str | None:
+    """Store a portrait that lives inside the project and return its content id."""
+    file = Path(path)
+    if not file.is_absolute():
+        file = output_dir / file
+    if file.is_file() and _is_within(file, output_dir):
+        return put_bytes(output_dir, file.read_bytes())
+    return None
+
+
 def _record_portrait_reference(
     ledger: ConsistencyLedger, output_dir: Path, name: str, path: str
 ) -> None:
@@ -344,11 +354,26 @@ def _record_portrait_reference(
     The path stays the file the rest of the pipeline reads. The hash is what
     ``gc`` keeps, so the authoritative reference survives after the age threshold.
     """
-    content_hash = None
-    file = Path(path)
-    if file.is_file() and _is_within(file, output_dir):
-        content_hash = put_bytes(output_dir, file.read_bytes())
-    ledger.record_reference(name, path, content_hash=content_hash)
+    ledger.record_reference(name, path, content_hash=_portrait_content_id(output_dir, path))
+
+
+def _bind_missing_portrait_hashes(ledger: ConsistencyLedger, output_dir: Path) -> bool:
+    """Fill ``content_hash`` for references written before portraits entered ``cas/``.
+
+    The version and the pending pages stay as they are. A missing file, or a
+    path outside the project, is left unset.
+    """
+    changed = False
+    for entry in ledger.characters.values():
+        ref = entry.reference
+        if ref.content_hash or not ref.path:
+            continue
+        content_hash = _portrait_content_id(output_dir, ref.path)
+        if content_hash is None:
+            continue
+        ref.content_hash = content_hash
+        changed = True
+    return changed
 
 
 def _is_within(path: str | Path, root: Path) -> bool:
@@ -1421,6 +1446,8 @@ async def _creative_comic(
     # once per run and kept in sync below. It enters no key or fingerprint.
     ledger_path = output_dir / "consistency.json"
     ledger = ConsistencyLedger.load_or_rebuild(ledger_path, state)
+    if _bind_missing_portrait_hashes(ledger, output_dir):
+        ledger.save(ledger_path)
 
     image_semaphore = asyncio.Semaphore(image_config.image_concurrency)
     engine = ConsistencyEngine()

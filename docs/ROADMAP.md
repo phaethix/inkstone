@@ -230,6 +230,10 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
 - [x] **4 (ledger bytes)** Recording a portrait copies its bytes into `cas/` and
   stores that content hash on the ledger. `gc` leaves the object in place, so
   the authoritative reference still resolves after the age threshold.
+- [x] **4 (older portraits)** A ledger whose reference has a path and no content
+  hash copies that file into `cas/` on the next run. The version and the pending
+  pages stay as they were. A missing file, or a path outside the project, stays
+  unset.
 - [x] **1 (layout contract)** `layout` declares the panels, the drawn text, and
   the page geometry. `export` declares the bound images and the binding. Neither
   reads an accumulated window or a render-only knob.
