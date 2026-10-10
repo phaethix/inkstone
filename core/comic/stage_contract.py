@@ -91,9 +91,7 @@ _STAGES: dict[str, StageContract] = {
     "render.panel": StageContract(
         stage="render.panel",
         reads_accumulated=False,
-        hard_inputs=frozenset(
-            {"storyboard_panel", "bible_entries_for_panel", "prompt_renderer"}
-        ),
+        hard_inputs=frozenset({"storyboard_panel", "bible_entries_for_panel", "prompt_renderer"}),
         soft_refs=frozenset({"prev_panel", "portrait_ref"}),
     ),
     # Font bytes belong to h_env. The path string is not an input.
@@ -102,10 +100,18 @@ _STAGES: dict[str, StageContract] = {
         reads_accumulated=False,
         hard_inputs=frozenset({"blank_page", "page_plan", "source_text"}),
     ),
+    # The sheets already contain lettering. Binding is layout, direction, and,
+    # for a webtoon, the text drawn while stacking plus the strip width.
     "export": StageContract(
         stage="export",
         reads_accumulated=False,
-        hard_inputs=frozenset({"lettered_pages"}),
+        hard_inputs=frozenset({"bound_images", "binding"}),
+    ),
+    # One collage of the panels handed to this call. Earlier pages are not an input.
+    "layout": StageContract(
+        stage="layout",
+        reads_accumulated=False,
+        hard_inputs=frozenset({"panel_images", "drawn_text", "page_geometry"}),
     ),
 }
 
