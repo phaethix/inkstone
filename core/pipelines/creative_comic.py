@@ -475,10 +475,20 @@ def _plan_json(plan: ComicPagePlan) -> str:
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def _letter_key(blank: bytes, plan: ComicPagePlan, source_text: str) -> tuple[str, str, str]:
-    """Return the letter key, its environment digest, and the canonical plan."""
+def _letter_key(
+    blank: bytes,
+    plan: ComicPagePlan,
+    source_text: str,
+    *,
+    resolved_size: str | None = None,
+) -> tuple[str, str, str]:
+    """Return the letter key, its environment digest, and the canonical plan.
+
+    ``resolved_size`` is the size the provider accepted. A square fallback
+    therefore misses a key that was stored for the configured size.
+    """
     plan_json = _plan_json(plan)
-    env = h_env(text=source_text or plan_json)
+    env = h_env(text=source_text or plan_json, resolved_size=resolved_size or None)
     key = letter_action_key(blank=blank, plan_json=plan_json, env=env, stage_src=_LETTER_STAGE_SRC)
     return key, env, plan_json
 
@@ -489,13 +499,17 @@ def _letter_resume_status(
     plan: ComicPagePlan,
     source_text: str,
     output_dir: Path,
+    *,
+    resolved_size: str | None = None,
 ) -> str:
     """``current`` when the lettered file is the stored hit for this environment.
 
     ``tombstone`` is a non-ok hit: do not letter and do not paint. ``miss``
     means the blank can be lettered again, including after a font change.
     """
-    key, _env, _plan_json = _letter_key(blank_path.read_bytes(), plan, source_text)
+    key, _env, _plan_json = _letter_key(
+        blank_path.read_bytes(), plan, source_text, resolved_size=resolved_size
+    )
     recorded = load_manifest(output_dir, key)
     if recorded is not None and is_hit(recorded) and recorded.outcome != "ok":
         return "tombstone"
@@ -512,6 +526,7 @@ def _letter_page_from_blank(
     *,
     source_text: str = "",
     output_dir: Path | None = None,
+    resolved_size: str | None = None,
 ) -> None:
     """Render deferred lettering from a persisted blank page.
 
@@ -525,7 +540,9 @@ def _letter_page_from_blank(
     env = ""
     plan_json = ""
     if root is not None:
-        key, env, plan_json = _letter_key(blank_path.read_bytes(), plan, source_text)
+        key, env, plan_json = _letter_key(
+            blank_path.read_bytes(), plan, source_text, resolved_size=resolved_size
+        )
         recorded = load_manifest(root, key)
         if recorded is not None and is_hit(recorded) and recorded.outcome != "ok":
             return
@@ -937,6 +954,7 @@ def _page_chunk_complete(
             _plan_ready_to_letter(state, plan),
             source_text,
             output_dir,
+            resolved_size=rec.resolved_size or None,
         )
         if status == "miss":
             return False
@@ -1804,7 +1822,12 @@ async def _creative_comic(
                 if blank_ok and existing is not None and not page_is_stale:
                     local = _page_asset_path(pages_dir, ci, page_index)
                     status = _letter_resume_status(
-                        Path(existing.blank_local), local, plan, chunk, output_dir
+                        Path(existing.blank_local),
+                        local,
+                        plan,
+                        chunk,
+                        output_dir,
+                        resolved_size=existing.resolved_size or None,
                     )
                     if status == "tombstone":
                         continue
@@ -1818,6 +1841,7 @@ async def _creative_comic(
                                 plan,
                                 source_text=chunk,
                                 output_dir=output_dir,
+                                resolved_size=existing.resolved_size or None,
                             )
                         )
                         existing.local = str(local)
@@ -1938,6 +1962,7 @@ async def _creative_comic(
                         plan,
                         source_text=chunk,
                         output_dir=output_dir,
+                        resolved_size=active_size,
                     )
                 )
                 state.generated.pages[state_key] = GeneratedPage(
