@@ -6,9 +6,9 @@ and saved like ``state.json``, and it enters no ``action_key`` or fingerprint
 (§8 invariant 3, §12 invariant 10). Page identities are the 0b positional form
 ``c{ci:04d}-p{idx:04d}`` only — never a model ``page_id`` (§4).
 
-Phase 0d lands the schema, maintenance, and queries with zero quota and no CAS.
-Phase 1 points the §4 tier-2 reference at this ledger's authoritative version;
-``content_hash`` is reserved for that and stays ``None`` until the CAS exists.
+Phase 0d lands the schema, maintenance, and queries with zero quota.
+A recorded portrait stores its bytes in ``cas/`` and sets ``content_hash`` to
+that id. Ledgers written before that field stay ``None``.
 """
 
 from __future__ import annotations
@@ -67,7 +67,7 @@ class ReferenceVersion(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     path: str = ""
-    # Reserved for Phase 1: the CAS content hash. ``None`` until the CAS lands.
+    # ``sha256:`` id of the portrait bytes in ``cas/``. ``None`` on older ledgers.
     content_hash: str | None = None
     version: int = 0
 

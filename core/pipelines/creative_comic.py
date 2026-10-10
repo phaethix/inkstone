@@ -51,6 +51,7 @@ from core.comic.cas import (
     letter_action_key,
     letter_inputs,
     load_manifest,
+    put_bytes,
     record_files,
     record_ok,
     stored_files,
@@ -333,6 +334,21 @@ def _input_fingerprint(
         panel_continuity=panel_continuity,
         l3_enabled=l3_enabled,
     )
+
+
+def _record_portrait_reference(
+    ledger: ConsistencyLedger, output_dir: Path, name: str, path: str
+) -> None:
+    """Copy a portrait into ``cas/`` and record that hash on the ledger.
+
+    The path stays the file the rest of the pipeline reads. The hash is what
+    ``gc`` keeps, so the authoritative reference survives after the age threshold.
+    """
+    content_hash = None
+    file = Path(path)
+    if file.is_file() and _is_within(file, output_dir):
+        content_hash = put_bytes(output_dir, file.read_bytes())
+    ledger.record_reference(name, path, content_hash=content_hash)
 
 
 def _is_within(path: str | Path, root: Path) -> bool:
@@ -1624,12 +1640,12 @@ async def _creative_comic(
                 # character's pages pending for review.
                 ledger_name = name.split("@", 1)[0]
                 if not ledger.pages_for(ledger_name):
-                    ledger.record_reference(ledger_name, path)
+                    _record_portrait_reference(ledger, output_dir, ledger_name, path)
                     ledger.characters[ledger_name].reviewed_version = ledger.characters[
                         ledger_name
                     ].reference.version
                 else:
-                    ledger.record_reference(ledger_name, path)
+                    _record_portrait_reference(ledger, output_dir, ledger_name, path)
                 _report("portrait", _pct())
 
         policy_rejection: Exception | None = None
