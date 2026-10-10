@@ -497,9 +497,7 @@ def dismiss_character_alias(
                 reason="dismissed",
             )
         state.dismissed_aliases.append(record)
-    state.needs_review = [
-        s for s in state.needs_review if not _same_alias(s, new_name, candidate)
-    ]
+    state.needs_review = [s for s in state.needs_review if not _same_alias(s, new_name, candidate)]
 
 
 def force_regen_panels(state: ProjectState, keys: list[str]) -> None:
