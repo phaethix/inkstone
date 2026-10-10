@@ -600,6 +600,21 @@ def _export_webtoon_with_manifest(
     return paths
 
 
+def _drop_stale_panel_sheets(pages_dir: Path, keep: list[str]) -> None:
+    """Remove panel sheets the current collage did not write.
+
+    Finished-page files (``page_c*_p*.png``) stay. A shorter collage must not
+    leave ``page_03.png`` behind for the PDF binder to pick up.
+    """
+    kept = {Path(path).name for path in keep}
+    if not pages_dir.is_dir():
+        return
+    for path in pages_dir.glob("page_*.png"):
+        if path.match("page_c*_p*.png") or path.name in kept:
+            continue
+        path.unlink()
+
+
 def _layout_pages_with_manifest(
     panels: list[PanelImage], pages_dir: Path, output_dir: Path
 ) -> list[str] | None:
@@ -635,11 +650,13 @@ def _layout_pages_with_manifest(
             dest = pages_dir / Path(name).name
             dest.write_bytes(data)
             restored.append(str(dest))
+        _drop_stale_panel_sheets(pages_dir, restored)
         return restored
     pages_dir.mkdir(parents=True, exist_ok=True)
     paths = engine.compose(panels, pages_dir, layout_mode="page")
     if not paths:
         return []
+    _drop_stale_panel_sheets(pages_dir, paths)
     record_files(
         output_dir,
         key=key,

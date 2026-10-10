@@ -426,6 +426,38 @@ def test_a_second_layout_copies_every_sheet(tmp_path, monkeypatch):
     assert verify(tmp_path) == []
 
 
+def test_a_shorter_collage_drops_the_extra_sheet(tmp_path, monkeypatch):
+    calls = {"n": 0}
+
+    def fake(self, panels, output_dir, *, layout_mode="page"):
+        calls["n"] += 1
+        names = ("page_01.png", "page_02.png") if calls["n"] == 1 else ("page_01.png",)
+        paths = []
+        for name in names:
+            path = Path(output_dir) / name
+            path.write_bytes(name.encode("utf-8"))
+            paths.append(str(path))
+        return paths
+
+    monkeypatch.setattr("core.pipelines.creative_comic.LayoutEngine.compose", fake)
+    pages = tmp_path / "pages"
+    pages.mkdir()
+    finished = pages / "page_c0000_p0000.png"
+    finished.write_bytes(b"finished")
+    image = Image.new("RGB", (8, 8), (1, 2, 3))
+    _layout_pages_with_manifest(
+        [PanelImage(image), PanelImage(image, dialogue="后一句")], pages, tmp_path
+    )
+    assert (pages / "page_02.png").is_file()
+
+    _layout_pages_with_manifest([PanelImage(image, dialogue="只剩一张")], pages, tmp_path)
+
+    assert calls["n"] == 2
+    assert not (pages / "page_02.png").exists()
+    assert (pages / "page_01.png").read_bytes() == b"page_01.png"
+    assert finished.read_bytes() == b"finished"
+
+
 def test_a_rejected_layout_is_not_rebuilt_until_rebuild(tmp_path, monkeypatch):
     panels = [PanelImage(Image.new("RGB", (8, 8), (4, 5, 6)))]
     calls = _counting_layout(monkeypatch)

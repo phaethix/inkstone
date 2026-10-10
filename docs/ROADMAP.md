@@ -216,6 +216,9 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
 - [x] **2 (stage source)** Letter, layout, webtoon, and export keys hash the
   functions that draw or bind their bytes. A page-grid change is not part of
   lettering. The pipeline function stays out of those hashes.
+- [x] **2 (shorter collage)** A collage that writes fewer sheets deletes the
+  extra `page_NN.png` files. A finished-page file in the same directory stays.
+  The PDF binder therefore sees only the sheets this collage produced.
 - [x] **1 (layout contract)** `layout` declares the panels, the drawn text, and
   the page geometry. `export` declares the bound images and the binding. Neither
   reads an accumulated window or a render-only knob.
