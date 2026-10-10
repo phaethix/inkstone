@@ -9,6 +9,7 @@ from unittest.mock import patch
 from PIL import Image
 
 from core.api import ChatProvider, ImageProvider
+from core.pipelines import creative_comic as pipeline
 from core.pipelines.creative_comic import (
     _render_fingerprint,
     creative_comic,
@@ -384,6 +385,56 @@ def test_finished_page_reletters_from_blank_without_new_image(tmp_path, monkeypa
     assert img2.prompts == []
     assert Path(proj2.state.generated.pages[key].local).exists()
     assert proj2.state.generated.pages[key].mode == "finished_lettered"
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_a_changed_font_reletters_the_stored_blank(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+    out = str(tmp_path)
+    env = {"value": "font-a"}
+    monkeypatch.setattr(pipeline, "h_env", lambda **_kwargs: env["value"])
+    calls = {"n": 0}
+    real = pipeline.letter_finished_page
+
+    def counting(image, page_plan, **kwargs):
+        calls["n"] += 1
+        return real(image, page_plan, **kwargs)
+
+    monkeypatch.setattr(pipeline, "letter_finished_page", counting)
+    asyncio.run(
+        creative_comic(
+            "第一章\n福贵在村口。", output_dir=out, chat=FakeChat(), image=RecordingImage()
+        )
+    )
+    state = ProjectState.load(tmp_path / "state.json")
+    key = next(iter(state.generated.pages))
+    blank = Path(state.generated.pages[key].blank_local)
+    blank_bytes = blank.read_bytes()
+    assert calls["n"] == 1
+
+    asyncio.run(
+        creative_comic(
+            "第一章\n福贵在村口。", output_dir=out, chat=FakeChat(), image=RecordingImage()
+        )
+    )
+    assert calls["n"] == 1
+
+    env["value"] = "font-b"
+    img2 = RecordingImage()
+    proj = asyncio.run(
+        creative_comic("第一章\n福贵在村口。", output_dir=out, chat=FakeChat(), image=img2)
+    )
+
+    assert calls["n"] == 2
+    assert img2.prompts == []
+    assert blank.read_bytes() == blank_bytes
+    assert Path(proj.state.generated.pages[key].local).is_file()
+    letter_manifests = [
+        path
+        for path in (tmp_path / "index").glob("*.json")
+        if '"stage": "letter"' in path.read_text(encoding="utf-8")
+    ]
+    assert len(letter_manifests) == 2
 
 
 @patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)

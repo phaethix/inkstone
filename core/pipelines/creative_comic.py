@@ -371,6 +371,36 @@ def _plan_json(plan: ComicPagePlan) -> str:
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+def _letter_key(blank: bytes, plan: ComicPagePlan, source_text: str) -> tuple[str, str, str]:
+    """Return the letter key, its environment digest, and the canonical plan."""
+    plan_json = _plan_json(plan)
+    env = h_env(text=source_text or plan_json)
+    key = letter_action_key(blank=blank, plan_json=plan_json, env=env, stage_src=_LETTER_STAGE_SRC)
+    return key, env, plan_json
+
+
+def _letter_resume_status(
+    blank_path: Path,
+    local_path: Path,
+    plan: ComicPagePlan,
+    source_text: str,
+    output_dir: Path,
+) -> str:
+    """``current`` when the lettered file is the stored hit for this environment.
+
+    ``tombstone`` is a non-ok hit: do not letter and do not paint. ``miss``
+    means the blank can be lettered again, including after a font change.
+    """
+    key, _env, _plan_json = _letter_key(blank_path.read_bytes(), plan, source_text)
+    recorded = load_manifest(output_dir, key)
+    if recorded is not None and is_hit(recorded) and recorded.outcome != "ok":
+        return "tombstone"
+    cached = stored_output(output_dir, key)
+    if cached is None or not local_path.is_file() or local_path.read_bytes() != cached:
+        return "miss"
+    return "current"
+
+
 def _letter_page_from_blank(
     blank_path: Path,
     local_path: Path,
@@ -386,18 +416,12 @@ def _letter_page_from_blank(
     the page is not lettered again until ``rebuild`` releases it. A miss stores
     the new bytes.
     """
-    plan_json = _plan_json(plan)
     root = Path(output_dir) if output_dir is not None else None
     key = ""
     env = ""
+    plan_json = ""
     if root is not None:
-        env = h_env(text=source_text or plan_json)
-        key = letter_action_key(
-            blank=blank_path.read_bytes(),
-            plan_json=plan_json,
-            env=env,
-            stage_src=_LETTER_STAGE_SRC,
-        )
+        key, env, plan_json = _letter_key(blank_path.read_bytes(), plan, source_text)
         recorded = load_manifest(root, key)
         if recorded is not None and is_hit(recorded) and recorded.outcome != "ok":
             return
@@ -740,14 +764,36 @@ def _mark_page_done(state: ProjectState, state_key: str) -> None:
         state.pages_done.append(state_key)
 
 
+def _plan_ready_to_letter(state: ProjectState, plan: ComicPagePlan) -> ComicPagePlan:
+    """Apply the same plan rewrite the page loop uses before lettering."""
+    if state.visual_bible is not None:
+        plan = backfill_panel_characters(plan, _known_character_names(state))
+        plan = resolve_panel_stage_refs(plan, state.visual_bible)
+        plan = sanitize_plan_voice(plan, state.visual_bible)
+    else:
+        plan = sanitize_plan_voice(plan, None)
+    return canonicalize_page_plan(
+        plan,
+        known_names=_known_character_names(state),
+        visual_bible=state.visual_bible,
+    )
+
+
 def _page_chunk_complete(
     state: ProjectState,
     pageset: ComicPagePlanSet,
     output_dir: Path,
     chunk_index: int,
+    source_text: str,
 ) -> bool:
-    """True when every planned page is generated or policy-skipped."""
-    for page_index in range(len(pageset.pages)):
+    """True when every planned page is generated or policy-skipped.
+
+    A finished page whose letter key misses — a font change, for example — is
+    not complete, so the blank is lettered again. A rejected letter stays
+    complete: it is not retried from this check.
+    """
+    pages_dir = output_dir / "pages"
+    for page_index, plan in enumerate(pageset.pages):
         state_key = page_state_key(chunk_index, page_index)
         if state_key in state.stale_pages:
             return False
@@ -760,6 +806,18 @@ def _page_chunk_complete(
             or not _is_within(rec.local, output_dir)
             or not Path(rec.local).exists()
         ):
+            return False
+        if not rec.blank_local or not Path(rec.blank_local).is_file():
+            continue
+        local = _page_asset_path(pages_dir, chunk_index, page_index)
+        status = _letter_resume_status(
+            Path(rec.blank_local),
+            local,
+            _plan_ready_to_letter(state, plan),
+            source_text,
+            output_dir,
+        )
+        if status == "miss":
             return False
     return True
 
@@ -1308,7 +1366,7 @@ async def _creative_comic(
             chunk_complete = (
                 pageset is not None
                 and key in set(state.chunks_done)
-                and _page_chunk_complete(state, pageset, output_dir, ci)
+                and _page_chunk_complete(state, pageset, output_dir, ci, chunk)
                 and panel_key_filter is None
             )
             if chunk_complete and state.visual_bible is not None:
@@ -1604,17 +1662,7 @@ async def _creative_comic(
             state.stage = "pages"
             check_cancel(cancel_check)
             for page_index, plan in enumerate(pageset.pages):
-                if state.visual_bible is not None:
-                    plan = backfill_panel_characters(plan, _known_character_names(state))
-                    plan = resolve_panel_stage_refs(plan, state.visual_bible)
-                    plan = sanitize_plan_voice(plan, state.visual_bible)
-                else:
-                    plan = sanitize_plan_voice(plan, None)
-                plan = canonicalize_page_plan(
-                    plan,
-                    known_names=_known_character_names(state),
-                    visual_bible=state.visual_bible,
-                )
+                plan = _plan_ready_to_letter(state, plan)
                 page_id = plan.page_id
                 state_key = page_state_key(ci, page_index)
                 existing = state.generated.pages.get(state_key)
@@ -1626,58 +1674,39 @@ async def _creative_comic(
                 )
                 # A stale page was invalidated for a *content* reason (e.g. an
                 # alias merge changed the character's identity), so its cached
-                # blank art is wrong and must be repainted. Only reuse the blank
-                # when the art is still valid and merely needs re-lettering (a
-                # missing lettered file or a lettering-version bump).
+                # blank art is wrong and must be repainted. A font or lettering
+                # change reuses that blank: the letter key misses, and only the
+                # overlay is drawn again.
                 page_is_stale = state_key in state.stale_pages
-                if (
-                    blank_ok
-                    and existing is not None
-                    and not page_is_stale
-                    and existing.lettering_version != LETTERING_VERSION
-                ):
-                    pages_dir.mkdir(parents=True, exist_ok=True)
+                if blank_ok and existing is not None and not page_is_stale:
                     local = _page_asset_path(pages_dir, ci, page_index)
-                    await asyncio.to_thread(
-                        partial(
-                            _letter_page_from_blank,
-                            Path(existing.blank_local),
-                            local,
-                            plan,
-                            source_text=chunk,
-                            output_dir=output_dir,
-                        )
+                    status = _letter_resume_status(
+                        Path(existing.blank_local), local, plan, chunk, output_dir
                     )
-                    existing.local = str(local)
-                    existing.mode = "finished_lettered"
-                    existing.lettering_version = LETTERING_VERSION
-                    _mark_page_done(state, state_key)
-                    state.save(state_path)
-                    _report("pages", _pct())
+                    if status == "tombstone":
+                        continue
+                    if status != "current" or existing.lettering_version != LETTERING_VERSION:
+                        pages_dir.mkdir(parents=True, exist_ok=True)
+                        await asyncio.to_thread(
+                            partial(
+                                _letter_page_from_blank,
+                                Path(existing.blank_local),
+                                local,
+                                plan,
+                                source_text=chunk,
+                                output_dir=output_dir,
+                            )
+                        )
+                        existing.local = str(local)
+                        existing.mode = "finished_lettered"
+                        existing.lettering_version = LETTERING_VERSION
+                        _mark_page_done(state, state_key)
+                        state.save(state_path)
+                        _report("pages", _pct())
                     continue
                 if not _page_needs_generation(state, state_key):
                     continue
                 check_cancel(cancel_check)
-                if blank_ok and existing is not None and not page_is_stale:
-                    pages_dir.mkdir(parents=True, exist_ok=True)
-                    local = _page_asset_path(pages_dir, ci, page_index)
-                    await asyncio.to_thread(
-                        partial(
-                            _letter_page_from_blank,
-                            Path(existing.blank_local),
-                            local,
-                            plan,
-                            source_text=chunk,
-                            output_dir=output_dir,
-                        )
-                    )
-                    existing.local = str(local)
-                    existing.mode = "finished_lettered"
-                    existing.lettering_version = LETTERING_VERSION
-                    _mark_page_done(state, state_key)
-                    state.save(state_path)
-                    _report("pages", _pct())
-                    continue
                 prev_blank_path = previous_page_blank(
                     state, pageset, chunk_index=ci, page_index=page_index
                 )

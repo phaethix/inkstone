@@ -9,8 +9,8 @@ A project gains two directories:
 ``_reconcile_state``: that helper deletes missing files, and verify exists
 to report them.
 
-The generate path does not consult these keys yet. Letter and export are
-the stages this store is for; render stays on the existing files.
+Letter, layout, and export consult these keys. A font change re-letters
+from the stored blank. Render stays on the existing files.
 """
 
 from __future__ import annotations
