@@ -1,9 +1,8 @@
 """core.comic.prune — minimal reclaimer over generated image artifacts (§7, phase 0g).
 
-The CAS and ``index/`` do not exist yet (Phases 2-3); today every artifact is
-written at a deterministic path and overwritten in place, so the set of files a
-resumable run still needs is exactly the set of paths the live state references.
-This module deletes the complement, but only when it is also old enough:
+Content-addressed objects are reclaimed by ``core.comic.gc``. This module
+covers the deterministic paths a resumable run still names in ``state.json``
+and the ledger, and deletes the complement only when it is also old enough:
 
     delete only when the reference count is zero AND the object is older than a
     threshold (content-addressed design §7; resolved item 3 in §13).
