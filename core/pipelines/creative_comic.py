@@ -569,6 +569,24 @@ def _letter_page_from_blank(
     )
 
 
+def _bound_image_size(blobs: list[bytes]) -> str | None:
+    """Pixel sizes of the images a binder consumes, as ``WIDTHxHEIGHT``.
+
+    One size shared by every image stays a single string, so a book drawn at
+    the configured size keeps the key already stored. Mixed images join their
+    sizes in bind order.
+    """
+    sizes: list[str] = []
+    for blob in blobs:
+        with Image.open(io.BytesIO(blob)) as image:
+            sizes.append(f"{image.size[0]}x{image.size[1]}")
+    if not sizes:
+        return None
+    if len(set(sizes)) == 1:
+        return sizes[0]
+    return ",".join(sizes)
+
+
 def _export_pdf_with_manifest(pages_dir: Path, output_dir: Path) -> str:
     """Build ``comic.pdf``, or copy it when the same pages were already bound."""
     out = output_dir / "comic.pdf"
@@ -576,7 +594,7 @@ def _export_pdf_with_manifest(pages_dir: Path, output_dir: Path) -> str:
     if not files:
         files = sorted(p for p in pages_dir.glob("*.png") if p.name.lower() != "webtoon.png")
     blobs = [path.read_bytes() for path in files]
-    env = h_env(text="")
+    env = h_env(text="", resolved_size=_bound_image_size(blobs))
     key = export_action_key(
         pages=blobs,
         layout="TwoPageRight",
@@ -632,7 +650,7 @@ def _export_webtoon_with_manifest(
     blobs = [_panel_png_bytes(panel) for panel in panels]
     lettering = _webtoon_lettering(panels)
     text = "\n".join(piece for row in lettering for piece in row.values() if piece)
-    env = h_env(text=text)
+    env = h_env(text=text, resolved_size=_bound_image_size(blobs))
     engine = LayoutEngine()
     key = webtoon_action_key(
         pages=blobs,
@@ -694,7 +712,7 @@ def _layout_pages_with_manifest(
     blobs = [_panel_png_bytes(panel) for panel in panels]
     lettering = _webtoon_lettering(panels)
     text = "\n".join(piece for row in lettering for piece in row.values() if piece)
-    env = h_env(text=text)
+    env = h_env(text=text, resolved_size=_bound_image_size(blobs))
     engine = LayoutEngine()
     key = layout_action_key(
         pages=blobs,

@@ -26,6 +26,7 @@ from core.comic.cas import (
     verify,
     webtoon_action_key,
 )
+from core.comic.env_snapshot import h_env
 from core.comic.layout import PanelImage
 from core.pipelines.creative_comic import (
     _export_pdf_with_manifest,
@@ -244,6 +245,38 @@ def test_a_second_export_copies_the_stored_pdf(tmp_path, monkeypatch):
     _export_pdf_with_manifest(pages, tmp_path)
     assert calls["n"] == 2
     assert verify(tmp_path) == []
+
+
+def test_binding_records_image_pixels_not_the_configured_page_size(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKSTONE_PAGE_SIZE", "1024x1536")
+    pages = tmp_path / "pages"
+    pages.mkdir()
+    Image.new("RGB", (8, 8), (1, 2, 3)).save(pages / "page_01.png")
+    Image.new("RGB", (8, 8), (4, 5, 6)).save(pages / "page_02.png")
+    calls = {"n": 0}
+
+    def fake(self, page_dir, out="comic.pdf", layout="TwoPageRight", direction="R2L"):
+        calls["n"] += 1
+        Path(out).write_bytes(b"%PDF-1.4 fake")
+        return out
+
+    monkeypatch.setattr("core.pipelines.creative_comic.ExportEngine.export_pdf", fake)
+    _export_pdf_with_manifest(pages, tmp_path)
+    monkeypatch.setenv("INKSTONE_PAGE_SIZE", "999x999")
+    _export_pdf_with_manifest(pages, tmp_path)
+    assert calls["n"] == 1
+    stored = next((tmp_path / "index").glob("*.json"))
+    manifest = Manifest.model_validate_json(stored.read_text())
+    assert manifest.env == h_env(text="", resolved_size="8x8")
+
+    Image.new("RGB", (9, 10), (7, 7, 7)).save(pages / "page_02.png")
+    _export_pdf_with_manifest(pages, tmp_path)
+    assert calls["n"] == 2
+    envs = [
+        Manifest.model_validate_json(path.read_text()).env
+        for path in (tmp_path / "index").glob("*.json")
+    ]
+    assert h_env(text="", resolved_size="8x8,9x10") in envs
 
 
 def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
@@ -487,6 +520,25 @@ def test_a_shorter_collage_drops_the_extra_sheet(tmp_path, monkeypatch):
     assert not (pages / "page_02.png").exists()
     assert (pages / "page_01.png").read_bytes() == b"page_01.png"
     assert finished.read_bytes() == b"finished"
+
+
+def test_a_page_size_setting_does_not_restack_or_recollage(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKSTONE_PAGE_SIZE", "1024x1536")
+    image = Image.new("RGB", (8, 8), (1, 2, 3))
+    panels = [PanelImage(image)]
+    webtoon_calls = _counting_webtoon(monkeypatch)
+    _export_webtoon_with_manifest(panels, tmp_path / "strip", tmp_path / "strip-out")
+    monkeypatch.setenv("INKSTONE_PAGE_SIZE", "999x999")
+    _export_webtoon_with_manifest(panels, tmp_path / "strip", tmp_path / "strip-out")
+    assert webtoon_calls["n"] == 1
+
+    layout_calls = _counting_layout(monkeypatch)
+    collage = tmp_path / "collage"
+    bound = [PanelImage(image), PanelImage(image)]
+    _layout_pages_with_manifest(bound, collage, tmp_path / "layout-out")
+    monkeypatch.setenv("INKSTONE_PAGE_SIZE", "1024x1536")
+    _layout_pages_with_manifest(bound, collage, tmp_path / "layout-out")
+    assert layout_calls["n"] == 1
 
 
 def test_a_rejected_layout_is_not_rebuilt_until_rebuild(tmp_path, monkeypatch):
