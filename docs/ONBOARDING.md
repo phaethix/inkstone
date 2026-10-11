@@ -180,6 +180,7 @@ comic_out/<project_id>/
 |---|---|
 | `core/screenwriter.py` | Structured extract / plan / reconcile |
 | `core/comic/segmentation.py` | Chapter/token split; `source_units`; `merge_characters`; alias detect |
+| `core/comic/adaptation.py` | Per-unit `AdaptationPlan` copied from key beats; no extra model call |
 | `core/comic/identity.py` | L1 from appearance; evidence check; alias merge/dismiss |
 | `core/comic/visual_bible.py` | Canon, stages (`Name@child`), locks, sanitize |
 | `core/comic/consistency.py` | L1/L2/L3 engine |

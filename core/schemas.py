@@ -912,6 +912,51 @@ class SourceUnit(BaseModel):
         return coerce_str(value)
 
 
+class NarrativeBeat(BaseModel):
+    """One dramatizable moment inside a source unit.
+
+    ``status`` is required or optional. ``depends_on`` names earlier beats in
+    the same unit, in the order they were recorded.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    beat_id: str
+    unit_id: str
+    summary: str = ""
+    status: Literal["required", "optional"] = "required"
+    depends_on: list[str] = Field(default_factory=list)
+
+    @field_validator("beat_id", "unit_id", "summary", mode="before")
+    @classmethod
+    def _coerce_text(cls, value: Any) -> Any:
+        return coerce_str(value)
+
+    @field_validator("depends_on", mode="before")
+    @classmethod
+    def _coerce_depends(cls, value: Any) -> Any:
+        return coerce_str_list(value)
+
+
+class AdaptationPlan(BaseModel):
+    """The beats recorded for one source unit."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    unit_id: str
+    beats: list[NarrativeBeat] = Field(default_factory=list)
+
+    @field_validator("unit_id", mode="before")
+    @classmethod
+    def _coerce_unit_id(cls, value: Any) -> Any:
+        return coerce_str(value)
+
+    @field_validator("beats", mode="before")
+    @classmethod
+    def _coerce_beats(cls, value: Any) -> Any:
+        return coerce_model_list(value, NarrativeBeat)
+
+
 class KeyBeat(BaseModel):
     """A dramatizable turning point that should appear as drawable scene(s)."""
 
@@ -1465,6 +1510,9 @@ class ProjectState(BaseModel):
     # Positional slices of the normalized source. Empty on states saved before
     # the records existed; the next run fills them without a new chat call.
     source_units: list[SourceUnit] = Field(default_factory=list)
+    # Per source unit. Empty until a run copies key beats into the unit that
+    # contains their chunk. The plans do not enter a fingerprint.
+    adaptation_plans: dict[str, AdaptationPlan] = Field(default_factory=dict)
     created_at: str = Field(default_factory=_now_iso)
     model_snapshot: ModelSnapshot = Field(default_factory=ModelSnapshot)
     stage: Stage = "extract"
