@@ -14,6 +14,7 @@ import logging
 import requests
 
 from core.api import get_chat_provider
+from core.comic.adaptation import assign_panel_beat_ids
 from core.comic.lettering_lang import (
     lettering_field_mismatches,
     sanitize_plan_lettering,
@@ -81,7 +82,8 @@ EXTRACT_TOOL = to_tool_schema(
 STORYBOARD_TOOL = to_tool_schema(
     Storyboard,
     "plan_storyboard",
-    "Plan the comic panels for one chunk of text as structured data.",
+    "Plan the comic panels for one chunk of text as structured data. "
+    "When key beats are provided, set beat_ids on the panels that stage them.",
 )
 PAGE_PLAN_TOOL = to_tool_schema(
     ComicPagePlanSet,
@@ -211,13 +213,21 @@ async def plan_storyboard(
     chat=None,
     panel_budget: int | None = None,
     enforce_budget: bool = False,
+    key_beats: KeyBeatSet | None = None,
 ) -> Storyboard:
     """Plan the panels for ``text`` given already-extracted ``elements``."""
     chat = chat or get_chat_provider()
+    beats_blob = ""
+    if key_beats is not None and key_beats.beats:
+        beats_blob = (
+            "Key beats to stage (set beat_ids on the panels that show them):\n"
+            f"{key_beats.model_dump_json()}\n\n"
+        )
     context = (
         f"{sanitize_text(text)}\n\n"
         "Extracted story elements (reuse these names and descriptions):\n"
         f"{elements.model_dump_json()}\n\n"
+        f"{beats_blob}"
         f"{_budget_sentence(panel_budget)}"
         "Reminder: caption / dialogue / sfx must match the source language "
         "(if the excerpt is Chinese, lettering must be Chinese — never English translation). "
@@ -236,6 +246,11 @@ async def plan_storyboard(
     board = Storyboard.model_validate(args)
     if panel_budget is not None and enforce_budget:
         board = board.model_copy(update={"panels": board.panels[:panel_budget]})
+    if key_beats is not None and key_beats.beats:
+        assign_panel_beat_ids(board.panels, key_beats.beats)
+    else:
+        for panel in board.panels:
+            panel.beat_ids = []
     return board
 
 

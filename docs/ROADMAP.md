@@ -267,7 +267,11 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
   are optional. Each beat after the first depends on the previous beat in that
   unit. A chunk that sits in two units is left unassigned. The copy does not
   call a model and does not enter a fingerprint.
-- [ ] Generate beat-constrained storyboard panels with explicit `beat_ids`.
+- [x] Generate beat-constrained storyboard panels with explicit `beat_ids`.
+  A panel keeps a beat id only when that beat was already extracted. Each
+  required beat is written onto a panel. Optional beats stay unnamed unless a
+  panel already named them. A chunk with no beats keeps empty `beat_ids`, and
+  the storyboard call does not gain another model call.
 - [ ] Add a reader-visible lettering layer: separate caption, dialogue and SFX.
   - **Local:** MVP lettering fields + layout drawers shipped (caption bar /
     dialogue bubble / sfx outline). Face-aware placement still open.
