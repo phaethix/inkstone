@@ -93,7 +93,9 @@ Keep these prototypes only as migration material until they conform to the targe
   cannot be mistaken for a release-quality gate. `coverage` prints a prototype
   banner before any ratio. It stays off unless `INKSTONE_PAGE_SCRIPT=1`.
 - [ ] Calibrate estimates with a public sample; do not promise fixed panels per
-  chunk without evidence.
+  chunk without evidence. `inkstone plan --out` uses panel and page counts a
+  project has already planned. The Journey to the West excerpt has no committed
+  drawings, so its estimate stays the experience rate.
 - [ ] Phase 3 stays closed. The 5x gate still fails: 16 image calls is not five
   times a target of ≤17, and the 600-page count is already flat. Hard and soft
   inputs, positional page identity, and letter/export/layout tombstones have
@@ -255,7 +257,10 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
 
 ### P1 — Chapter-complete adaptation MVP
 
-- [ ] Introduce normalized, globally addressable `SourceUnit` records.
+- [x] Introduce normalized, globally addressable `SourceUnit` records. A unit is
+  `u{index:04d}` plus a character span of the normalized source. The spans
+  concatenate back to that source. They are stored on the project and do not
+  enter a fingerprint. A heading that uses 回 is still one unit.
 - [ ] Generate per-chapter `AdaptationPlan` and `NarrativeBeat` records with
   required / optional status and causal dependencies.
 - [ ] Generate beat-constrained storyboard panels with explicit `beat_ids`.

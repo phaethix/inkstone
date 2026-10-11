@@ -120,6 +120,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_plan.add_argument("--book", required=True, help="Novel text file path")
     p_plan.add_argument(
+        "--out",
+        default=None,
+        help="Project directory. When it already has plans, the estimate uses those counts",
+    )
+    p_plan.add_argument(
         "--density",
         choices=["A", "B", "C"],
         default="B",
@@ -312,11 +317,47 @@ def _print_plan(est: DensityEstimate) -> None:
         print(f"提示 : {w}")
 
 
+def _planned_counts(state: ProjectState) -> tuple[list[int], list[int]]:
+    """Per-chunk panel and page counts already stored on a project."""
+    keys = set(state.page_cache) | {
+        key for key, cache in state.chunk_cache.items() if cache.storyboard is not None
+    }
+
+    def _sort_key(key: str) -> tuple[int, str]:
+        return (int(key), "") if str(key).isdigit() else (10**9, str(key))
+
+    panels: list[int] = []
+    pages: list[int] = []
+    for key in sorted(keys, key=_sort_key):
+        pageset = state.page_cache.get(key)
+        if pageset is not None and pageset.pages:
+            pages.append(len(pageset.pages))
+            panels.append(sum(len(page.panels) for page in pageset.pages))
+            continue
+        cache = state.chunk_cache.get(key)
+        if cache is not None and cache.storyboard is not None:
+            panels.append(len(cache.storyboard.panels))
+    if len(pages) != len(panels):
+        pages = []
+    return panels, pages
+
+
 def _run_plan(args: argparse.Namespace) -> None:
     """plan 子命令：读 book → core.density.estimate → 打印（纯本地）。"""
     path = Path(args.book)
     if not path.exists():
         sys.exit(f"book file not found: {args.book}")
+    observed_panels = None
+    observed_pages = None
+    out = getattr(args, "out", None)
+    if out:
+        state_path = Path(out) / "state.json"
+        if state_path.is_file():
+            planned_panels, planned_pages = _planned_counts(ProjectState.load(state_path))
+            observed_panels = planned_panels or None
+            observed_pages = planned_pages or None
+        else:
+            print(f"Note: {state_path} 不存在，格数仍按经验档位。")
     try:
         est = estimate(
             str(path),
@@ -325,6 +366,8 @@ def _run_plan(args: argparse.Namespace) -> None:
             api=args.api,
             concurrency=args.concurrency,
             price_per_panel=args.price_per_panel,
+            observed_panels=observed_panels,
+            observed_pages=observed_pages,
         )
     except ValueError as exc:
         sys.exit(f"ERROR: {exc}")

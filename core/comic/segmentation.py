@@ -14,7 +14,7 @@ Two pure helpers used by the comic pipeline:
 import re
 from collections.abc import Iterable
 
-from core.schemas import CharacterAsset
+from core.schemas import CharacterAsset, SourceUnit
 
 # Chapter / volume headings at the start of a line.
 _ENGLISH_NUMBERS = (
@@ -54,6 +54,45 @@ def _chapter_blocks(text: str) -> list[str]:
     ends = [m.start() for m in matches] + [len(text)]
     blocks = [text[s:e].strip() for s, e in zip(starts, ends, strict=False)]
     return [b for b in blocks if b]
+
+
+def source_units(text: str) -> list[SourceUnit]:
+    """Split the normalized source into non-overlapping, addressable slices.
+
+    Chapter headings start a new unit. A headingless text is one unit. The
+    slices concatenate back to the normalized source, so an offset is a global
+    address rather than a position inside an overlapping pipeline chunk.
+    """
+    canonical = text.replace("\r\n", "\n").replace("\r", "\n")
+    if not canonical:
+        return []
+    cuts = [0]
+    cuts.extend(m.start() for m in _HEADING_RE.finditer(canonical) if m.start() > 0)
+    cuts.append(len(canonical))
+    spans = [(cuts[i], cuts[i + 1]) for i in range(len(cuts) - 1) if cuts[i] < cuts[i + 1]]
+    if len(spans) > 1 and not canonical[spans[0][0] : spans[0][1]].strip():
+        spans = [(spans[0][0], spans[1][1]), *spans[2:]]
+    units: list[SourceUnit] = []
+    for index, (start, end) in enumerate(spans):
+        piece = canonical[start:end]
+        heading = ""
+        for line in piece.split("\n"):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if _HEADING_RE.match(stripped):
+                heading = stripped
+            break
+        units.append(
+            SourceUnit(
+                unit_id=f"u{index:04d}",
+                start=start,
+                end=end,
+                heading=heading,
+                text=piece,
+            )
+        )
+    return units
 
 
 def _lines(block: str) -> list[str]:

@@ -6,9 +6,13 @@ import json
 import pytest
 
 from core.cli import _build_parser, _run_coverage, _run_plan
+from core.density import estimate
 from core.schemas import (
     CausalLink,
     ChunkCache,
+    ComicPagePlan,
+    ComicPagePlanSet,
+    PagePanelSpec,
     PageScript,
     PageScriptPage,
     ProjectState,
@@ -175,3 +179,44 @@ def test_cli_plan_prints_d2_expectation(tmp_path, capsys):
     assert "信息完备分镜" not in out
     assert "需 coverage 验收" not in out
     assert "D2 预期" not in out
+
+
+def test_plan_uses_counts_already_stored_on_the_project(tmp_path, capsys):
+    book = tmp_path / "book.txt"
+    book.write_text("第一章\n石猴出世。", encoding="utf-8")
+    state = ProjectState(
+        project_id="p",
+        page_cache={
+            "0": ComicPagePlanSet(
+                pages=[
+                    ComicPagePlan(
+                        page_id="p1",
+                        panels=[
+                            PagePanelSpec(panel_id="a"),
+                            PagePanelSpec(panel_id="b"),
+                        ],
+                    ),
+                    ComicPagePlan(
+                        page_id="p2",
+                        panels=[PagePanelSpec(panel_id="c")],
+                    ),
+                ]
+            )
+        },
+    )
+    state.save(tmp_path / "state.json")
+    _run_plan(
+        argparse.Namespace(
+            book=str(book),
+            density="B",
+            format="page",
+            api="agnes",
+            concurrency=4,
+            price_per_panel=None,
+            out=str(tmp_path),
+        )
+    )
+    est = estimate(book, density="B", observed_panels=[3], observed_pages=[2])
+    out = capsys.readouterr().out
+    assert f"{est.panels} 格 / {est.pages} 页" in out
+    assert "已规划" in out

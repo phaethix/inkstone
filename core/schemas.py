@@ -890,6 +890,28 @@ class ComicPagePlan(BaseModel):
         return coerce_str_list(value)
 
 
+class SourceUnit(BaseModel):
+    """A positional slice of the normalized source.
+
+    ``unit_id`` is ``u{index:04d}``. ``start`` and ``end`` are character offsets
+    into that normalized text, and ``text`` is exactly ``source[start:end]``.
+    The records are derived from the source, so they do not enter a fingerprint.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    unit_id: str
+    start: int
+    end: int
+    heading: str = ""
+    text: str = ""
+
+    @field_validator("unit_id", "heading", "text", mode="before")
+    @classmethod
+    def _coerce_text(cls, value: Any) -> Any:
+        return coerce_str(value)
+
+
 class KeyBeat(BaseModel):
     """A dramatizable turning point that should appear as drawable scene(s)."""
 
@@ -1440,6 +1462,9 @@ class ProjectState(BaseModel):
     # loads as the tier generate used before density was stored.
     density: Literal["A", "B", "C"] = "B"
     panels_per_chunk: int = 8
+    # Positional slices of the normalized source. Empty on states saved before
+    # the records existed; the next run fills them without a new chat call.
+    source_units: list[SourceUnit] = Field(default_factory=list)
     created_at: str = Field(default_factory=_now_iso)
     model_snapshot: ModelSnapshot = Field(default_factory=ModelSnapshot)
     stage: Stage = "extract"

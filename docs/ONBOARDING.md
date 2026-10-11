@@ -179,7 +179,7 @@ comic_out/<project_id>/
 | File | Role |
 |---|---|
 | `core/screenwriter.py` | Structured extract / plan / reconcile |
-| `core/comic/segmentation.py` | Chapter/token split; `merge_characters`; alias detect |
+| `core/comic/segmentation.py` | Chapter/token split; `source_units`; `merge_characters`; alias detect |
 | `core/comic/identity.py` | L1 from appearance; evidence check; alias merge/dismiss |
 | `core/comic/visual_bible.py` | Canon, stages (`Name@child`), locks, sanitize |
 | `core/comic/consistency.py` | L1/L2/L3 engine |
@@ -198,7 +198,7 @@ comic_out/<project_id>/
 | `core/comic/cas.py` | Content-addressed objects, manifests, and `verify` |
 | `core/comic/gc.py` | Reclaim unreferenced `cas/` objects (`inkstone gc`) |
 | `core/comic/runs.py` | Append-only `runs.jsonl` audit of image and chat attempts |
-| `core/density.py` | Density tiers. `inkstone plan` estimates cost; `generate --density` passes the tier to planning |
+| `core/density.py` | Density tiers. `plan` estimates cost; `plan --out` uses counts already planned; `generate --density` passes the tier to planning |
 | `core/comic/coverage.py` | Legacy PageScript report |
 
 ### Surfaces
