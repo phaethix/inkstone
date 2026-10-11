@@ -82,6 +82,8 @@ def test_cli_coverage_text_pass(tmp_path, capsys):
     _make_state(tmp_path, _full_pass(), SOURCE)
     _run_coverage(_cov_args(tmp_path))  # 无 strict → 退出码 0
     out = capsys.readouterr().out
+    assert "prototype report" in out
+    assert "not a readability or quality gate" in out
     assert "必含信息覆盖率" in out
     assert "原文回溯率" in out
     assert "全部达标" in out
@@ -167,7 +169,9 @@ def test_cli_plan_prints_d2_expectation(tmp_path, capsys):
     )
     out = capsys.readouterr().out
     assert "PageScript" in out
-    assert "原型" in out or "optional" in out.lower()
-    assert "信息完备分镜" in out
+    assert "原型" in out
+    assert "INKSTONE_PAGE_SCRIPT" in out
+    assert "不是成片质量门" in out
+    assert "信息完备分镜" not in out
     assert "需 coverage 验收" not in out
     assert "D2 预期" not in out

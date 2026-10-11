@@ -1,17 +1,14 @@
-"""core.cli — Inkstone 统一命令行入口（D1）。
+"""core.cli — Inkstone 统一命令行入口。
 
-收编既有 ``examples/generate_comic.py`` 为 ``generate`` 子命令，并新增纯本地
-的 ``plan`` 子命令（D1 密度预估）。 ``identity``/``coverage`` 为 D2/D3 占位，
-本期不实现。
+``generate`` 跑整条管线。``plan`` 离线估计体量，不调用模型。``gate``、
+``identity``、``prune``、``gc``、``verify`` 和 ``rebuild`` 是已发布的项目命令。
+``coverage`` 只核对旧 PageScript 字段，不是成片质量门。
 
-设计取舍：
-- ``plan`` 完全离线（不读 AGNES_API_KEY、不调 API），复用 ``core.density.estimate``
-  （内部用既有 ``segment_text``）给出格数/页数/成本/时长与 webtoon 体积预警，
-  让用户在下单渲染前先知道体量，避免盲跑长任务。计费后端 / 并发 / 单价由
-  ``--api`` / ``--concurrency`` / ``--price-per-panel`` 显式指定。
-- ``generate`` 仅做薄壳转发，不改既有管线逻辑。
-- 后向兼容：旧用法 ``inkstone <source> ...``（无子命令）默认走 ``generate``，
-  使 ``scripts/start.sh`` 改为 ``python -m core.cli "$@"`` 后行为不变。
+``plan`` 复用 ``core.density.estimate``（内部用 ``segment_text``），给出格数、
+页数、成本、时长和 webtoon 体积预警。计费后端、并发和单价由 ``--api``、
+``--concurrency``、``--price-per-panel`` 显式指定。
+
+旧用法 ``inkstone <source> ...``（无子命令）仍走 ``generate``。
 """
 
 import argparse
@@ -27,7 +24,7 @@ from core.schemas import ProjectState
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    """构造带 4 个子命令的顶层解析器。"""
+    """构造顶层解析器。"""
     parser = argparse.ArgumentParser(
         prog="inkstone",
         description="Inkstone novel-to-comic generator",
@@ -78,6 +75,16 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Render past the sample gate without human confirmation; audited into runs.jsonl",
     )
+    p_gen.add_argument(
+        "--density",
+        choices=["A", "B", "C"],
+        default="B",
+        help=(
+            "Panel budget for planning: A=main plot overview/主线概览, "
+            "B=chapter-complete/章级完整 (default), C=near-original/近原著. "
+            "A change replans the book."
+        ),
+    )
 
     p_gate = sub.add_parser(
         "gate",
@@ -106,7 +113,10 @@ def _build_parser() -> argparse.ArgumentParser:
     # plan：D1 纯本地预估（不约束 generate）。
     p_plan = sub.add_parser(
         "plan",
-        help="Offline density/cost/duration estimate (does not control generate).",
+        help=(
+            "Offline density/cost/duration estimate. Uncalibrated. "
+            "generate --density uses the same tier."
+        ),
     )
     p_plan.add_argument("--book", required=True, help="Novel text file path")
     p_plan.add_argument(
@@ -117,7 +127,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "A=main plot overview/主线概览 (sparse) "
             "B=chapter-complete/章级完整 (default) "
             "C=near-original/近原著 (dense); "
-            "estimate only, does not control generate"
+            "same tier as generate --density"
         ),
     )
     p_plan.add_argument(
@@ -145,7 +155,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="openai-compat unit price (CNY/panel); omit to show a price placeholder",
     )
 
-    # identity：D3 占位；coverage：D2 实现。
     p_id = sub.add_parser("identity", help="Identity ledger: view characters and pending pages")
     p_id.add_argument("--view", action="store_true", help="Print the consistency ledger")
     p_id.add_argument("--merge", default=None, help="Merge alias: 'new:keep'")
@@ -290,7 +299,7 @@ def _human_duration(minutes: int) -> str:
 
 def _print_plan(est: DensityEstimate) -> None:
     """Print a structured density estimate (experimental / uncalibrated)."""
-    print("[experimental] inkstone plan — density estimate (does not control generate)")
+    print("[experimental] inkstone plan — uncalibrated density estimate")
     # Agnes free-tier copy prefixes "Agnes 免费档 →"; openai-compat shows a price.
     cost_line = est.cost_label
     if "R6" in cost_line:
@@ -321,16 +330,18 @@ def _run_plan(args: argparse.Namespace) -> None:
         sys.exit(f"ERROR: {exc}")
     _print_plan(est)
     print(
-        "Note: uncalibrated estimate only; generate ignores --density "
-        "until the density contract lands."
+        "Note: uncalibrated estimate. "
+        "inkstone generate --density uses this tier and replans when it changes."
     )
-    # PageScript 粗估（不依赖实际渲染）：以布局分页常数 4 估出分镜页数与必含信息条数。
-    d2_pages = -(-est.panels // 4)  # ceil(panels / PANELS_PER_PAGE)
-    print(f"PageScript 预估（原型，可选）: 信息完备分镜约 {d2_pages} 页，必含信息约 {d2_pages} 条")
+    print(
+        "PageScript（原型，默认关闭）: 设置 INKSTONE_PAGE_SCRIPT=1 才会写入。"
+        "inkstone coverage 只核对那些字段，不是成片质量门。"
+    )
 
 
 def _print_coverage(report) -> None:
     """以人类可读的三行百分比 + 不达标页清单打印 CoverageReport。"""
+    print("PageScript prototype report. These ratios are not a readability or quality gate.")
     for label, metric in (
         ("必含信息覆盖率", report.required_coverage),
         ("因果链完整率", report.causal_coverage),
@@ -519,6 +530,7 @@ def _run_generate(args: argparse.Namespace) -> None:
             budget=args.budget,
             carry_over=args.carry_over,
             gate_yes=args.yes,
+            density=args.density,
         )
     )
 
@@ -582,12 +594,6 @@ def _run_gate(args: argparse.Namespace) -> int:
         tier = f" ({decision.reason_tier})" if decision is not None and decision.reason_tier else ""
         print(f"  {key}: {label}{tier}")
     return 0
-
-
-def _not_implemented(command: str, version: str) -> None:
-    """identity/coverage 占位：本期(D1)未实现，给出明确提示并正常退出。"""
-    print(f"子命令 `{command}` 尚未实现（{version}，本期 D1 不包含，敬请期待）。")
-    sys.exit(0)
 
 
 def _run_gc(args: argparse.Namespace) -> int:

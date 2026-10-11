@@ -67,6 +67,7 @@ async def _run(
     budget: int | None = None,
     carry_over: bool = False,
     gate_yes: bool = False,
+    density: str | None = None,
 ) -> None:
     text = Path(source).read_text(encoding="utf-8")
     spec = None
@@ -90,6 +91,7 @@ async def _run(
             budget=spec,
             data_dir=str(data_dir()),
             gate_yes=gate_yes,
+            density=density,
         )
 
     if isinstance(result, PausedRun):
@@ -166,6 +168,7 @@ def run_generate(
     budget: int | None = None,
     carry_over: bool = False,
     gate_yes: bool = False,
+    density: str | None = None,
 ) -> int:
     """Validate inputs and run the pipeline. Returns a process exit code."""
     if budget is not None and budget < 0:
@@ -201,6 +204,7 @@ def run_generate(
             budget=budget,
             carry_over=carry_over,
             gate_yes=gate_yes,
+            density=density,
         )
     )
     return 0
@@ -255,6 +259,16 @@ def _parse_args(argv=None) -> argparse.Namespace:
         action="store_true",
         help="Render past the sample gate without human confirmation; audited into runs.jsonl",
     )
+    p.add_argument(
+        "--density",
+        choices=["A", "B", "C"],
+        default="B",
+        help=(
+            "Panel budget for planning: A=main plot overview/主线概览, "
+            "B=chapter-complete/章级完整 (default), C=near-original/近原著. "
+            "A change replans the book."
+        ),
+    )
     return p.parse_args(argv)
 
 
@@ -270,6 +284,7 @@ def main() -> None:
             budget=args.budget,
             carry_over=args.carry_over,
             gate_yes=args.yes,
+            density=args.density,
         )
     )
 

@@ -100,14 +100,15 @@ center-standee pages are discouraged.
 `dialogue` + `speaker`; page-level `timeline` (`present` / `past` / `liminal`).
 
 **Fingerprints** — `structure_fingerprint` invalidates extract/storyboard cache
-when source/pipeline version changes. `render_fingerprint` soft-invalidates
+when the source, the pipeline version, or the density tier changes. Tier B at
+8 panels per chunk stays out of that hash. `render_fingerprint` soft-invalidates
 pages/portraits when style, model, L3, render mode, page size, or bible hash
 changes. Resume must not re-pay the chat API for unchanged chunks.
 
-**D1 density / D2 PageScript** — prototypes on `main`, **not quality gates**.
-`inkstone plan` estimates cost/pages only; it does **not** constrain `generate`.
-`inkstone coverage` reports leftover PageScript fields (`INKSTONE_PAGE_SCRIPT=1`).
-Do not present them as completed product features.
+**D1 density / D2 PageScript** — `generate --density` stores the tier and passes
+its panel budget to planning. `inkstone plan` is still an uncalibrated estimate,
+not a quality gate. `inkstone coverage` reports leftover PageScript fields
+(`INKSTONE_PAGE_SCRIPT=1`). Do not present PageScript as a completed product feature.
 
 **Resume / cancel** — `state.json` is written atomically. The web UI and CLI
 share `comic_out/<project_id>/`. Cooperative cancel via `cancel_check`. Content
@@ -196,14 +197,15 @@ comic_out/<project_id>/
 | `core/comic/stage_contract.py` | Declared stage inputs: hard, soft, and the bounded layout window |
 | `core/comic/cas.py` | Content-addressed objects, manifests, and `verify` |
 | `core/comic/gc.py` | Reclaim unreferenced `cas/` objects (`inkstone gc`) |
-| `core/density.py` | Offline `inkstone plan` estimator (does not control generate) |
+| `core/comic/runs.py` | Append-only `runs.jsonl` audit of image and chat attempts |
+| `core/density.py` | Density tiers. `inkstone plan` estimates cost; `generate --density` passes the tier to planning |
 | `core/comic/coverage.py` | Legacy PageScript report |
 
 ### Surfaces
 
 | File | Role |
 |---|---|
-| `core/cli.py` | `inkstone generate \| plan \| coverage`; `identity` is a stub |
+| `core/cli.py` | `generate`, `plan`, `gate`, `identity`, `prune`, `gc`, `verify`, `rebuild`; `coverage` is the PageScript prototype |
 | `core/cli_generate.py` | tqdm + credential checks; packaged entry (not `examples/`) |
 | `web/server.py` | Local UI backend; jobs in memory; artifacts on disk |
 | `web/index.html` | Tailwind SPA; GitHub Pages demo mode if `/api/health` is absent |
@@ -259,9 +261,8 @@ non-overwritable `face_lock` are on the consistency/fidelity line of work.
 
 **Next approved product work** (see roadmap):
 
-- **P0** — Make density a real contract; isolate or rename D1/D2 so they cannot
-  be mistaken for release gates; keep README/CLI/docs consistent with shipped
-  behavior.
+- **P0** — Calibrate the page-count estimate with a public-domain sample. Density
+  is already a planning budget, and PageScript stays a prototype report.
 - **P1** — Chapter-complete adaptation: `SourceUnit` → `NarrativeBeat` →
   beat-constrained storyboard/lettering → structural coverage. Validate on one
   public-domain chapter before a whole book.

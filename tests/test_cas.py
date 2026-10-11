@@ -20,6 +20,7 @@ from core.comic.cas import (
     load_manifest,
     put_bytes,
     read_bytes,
+    record_files,
     record_ok,
     rewrite_manifest,
     save_manifest,
@@ -45,6 +46,51 @@ def test_put_bytes_is_addressed_by_content_and_is_not_rewritten(tmp_path):
     assert read_bytes(tmp_path, first) == b"page-bytes"
     stored = list((tmp_path / "cas").rglob("*.bin"))
     assert len(stored) == 1
+
+
+def test_a_new_manifest_records_when_it_was_written(tmp_path):
+    from datetime import datetime, timezone
+
+    key = "sha256:" + "ab" * 32
+    record_ok(
+        tmp_path,
+        key=key,
+        stage="letter",
+        stage_src="src",
+        env="env",
+        inputs=[],
+        name="page.png",
+        data=b"page",
+    )
+    manifest = load_manifest(tmp_path, key)
+    assert manifest is not None
+    stamp = datetime.fromisoformat(manifest.created_at)
+    assert stamp.tzinfo is not None
+    assert stamp <= datetime.now(timezone.utc)
+
+    rewritten = rewrite_manifest(
+        tmp_path,
+        key,
+        outcome="rejected",
+        reason="bad",
+        outputs=[],
+    )
+    assert rewritten.created_at == manifest.created_at
+    assert rewritten.key == key
+
+    files_key = "sha256:" + "cd" * 32
+    record_files(
+        tmp_path,
+        key=files_key,
+        stage="layout",
+        stage_src="src",
+        env="env",
+        inputs=[],
+        files=[("page_01.png", b"one"), ("page_02.png", b"two")],
+    )
+    stored = load_manifest(tmp_path, files_key)
+    assert stored is not None
+    assert datetime.fromisoformat(stored.created_at).tzinfo is not None
 
 
 def test_letter_key_follows_the_blank_and_the_env():

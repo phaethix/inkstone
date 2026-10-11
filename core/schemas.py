@@ -1436,6 +1436,10 @@ class ProjectState(BaseModel):
     source_fingerprint: str = ""
     structure_fingerprint: str = ""
     render_fingerprint: str = ""
+    # Planning budget. B / 8 is the historical default, so an older state.json
+    # loads as the tier generate used before density was stored.
+    density: Literal["A", "B", "C"] = "B"
+    panels_per_chunk: int = 8
     created_at: str = Field(default_factory=_now_iso)
     model_snapshot: ModelSnapshot = Field(default_factory=ModelSnapshot)
     stage: Stage = "extract"

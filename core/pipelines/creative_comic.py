@@ -97,6 +97,7 @@ from core.comic.page_lettering import (
     resolve_lettering_jobs,
 )
 from core.comic.page_prompt import render_finished_page_prompt
+from core.comic.runs import bind_audit, clear_audit, image_failure, image_intent
 from core.comic.segmentation import detect_character_aliases, merge_characters, segment_text
 from core.comic.stage_contract import RECENT_LAYOUT_LIMIT, stage_source_hash
 from core.comic.visual_bible import (
@@ -128,6 +129,7 @@ from core.config import (
     data_dir as config_data_dir,
 )
 from core.config import render_mode as config_render_mode
+from core.density import PANELS_PER_CHUNK_B, DensityTier, get_density_plan
 from core.perf import PerfCollector
 from core.pipelines.cancel import check_cancel
 from core.schemas import (
@@ -190,10 +192,31 @@ def _model_snapshot(chat, image) -> ModelSnapshot:
     )
 
 
-def _structure_fingerprint(source_txt: str) -> str:
+def _require_density(density: str | None) -> DensityTier:
+    if density is None or density == "B":
+        return "B"
+    if density == "A":
+        return "A"
+    if density == "C":
+        return "C"
+    raise ValueError(f"density must be A, B, or C, got {density!r}")
+
+
+def _structure_fingerprint(
+    source_txt: str,
+    *,
+    density: str = "B",
+    panels_per_chunk: int = PANELS_PER_CHUNK_B,
+) -> str:
     canonical = source_txt.replace("\r\n", "\n").replace("\r", "\n")
+    body: dict[str, object] = {"pipeline": _PIPELINE_STATE_VERSION, "source": canonical}
+    # Tier B at the historical panel count stays out of the hash, so a project
+    # planned before density was stored still resumes.
+    if density != "B" or panels_per_chunk != PANELS_PER_CHUNK_B:
+        body["density"] = density
+        body["panels_per_chunk"] = panels_per_chunk
     payload = json.dumps(
-        {"pipeline": _PIPELINE_STATE_VERSION, "source": canonical},
+        body,
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
@@ -1259,6 +1282,7 @@ async def creative_comic(
     budget_day: str | None = None,
     gate_yes: bool = False,
     sample_gate_size: int | None = None,
+    density: str | None = None,
 ) -> ComicProject:
     """Generate a project while holding its process-level mutation lock."""
     with _project_lock(Path(output_dir)):
@@ -1279,6 +1303,7 @@ async def creative_comic(
             budget_day=budget_day,
             gate_yes=gate_yes,
             sample_gate_size=sample_gate_size,
+            density=density,
         )
 
 
@@ -1304,6 +1329,7 @@ async def _creative_comic(
     budget_day: str | None = None,
     gate_yes: bool = False,
     sample_gate_size: int | None = None,
+    density: str | None = None,
 ) -> ComicProject:
     """Generate a comic from ``source_txt`` into ``output_dir``.
 
@@ -1340,11 +1366,15 @@ async def _creative_comic(
         sample_gate_size: pages confirmed before the remainder is released.
             ``None`` uses the default of 30, which a test holds below a
             whole book.
+        density: planning tier ``A`` / ``B`` / ``C``. ``None`` is ``B``, the
+            tier stored before this field existed. A different tier changes the
+            structure fingerprint and the panel budget passed to planning.
 
     Returns:
         A ``ComicProject`` with the final state, produced page paths, and PDF.
     """
     output_dir = Path(output_dir)
+    clear_audit()
     (output_dir / "panels").mkdir(parents=True, exist_ok=True)
     (output_dir / "assets" / "portraits").mkdir(parents=True, exist_ok=True)
     pages_dir = output_dir / "pages"
@@ -1383,6 +1413,13 @@ async def _creative_comic(
         # one call or raises BudgetPaused before the provider is touched.
         if session is not None:
             session.charge(stage, item_key)
+        # Chat records itself from this binding. Image stages clear it so a
+        # portrait or a page is not attributed to the chat item before it.
+        # BudgetPaused above leaves the previous binding untouched.
+        if stage in {"extract", "bible", "beats", "page_plan", "storyboard", "page_script"}:
+            bind_audit(output_dir, stage, item_key)
+        else:
+            clear_audit()
 
     # The sample is decided as pages are reached: total_chunks exists only
     # after segmentation, and allow() is called from the render loops.
@@ -1413,7 +1450,12 @@ async def _creative_comic(
         panel_continuity=image_config.panel_continuity,
         l3_enabled=l3_on,
     )
-    struct = _structure_fingerprint(source_txt)
+    density_plan = get_density_plan(_require_density(density))
+    struct = _structure_fingerprint(
+        source_txt,
+        density=density_plan.tier,
+        panels_per_chunk=density_plan.panels_per_chunk,
+    )
 
     def _render_for_bible(visual_bible=None) -> str:
         bible_version, bible_hash = _bible_fingerprint_kwargs(visual_bible)
@@ -1473,6 +1515,8 @@ async def _creative_comic(
             state = persisted
     else:
         state = _fresh_state()
+    state.density = density_plan.tier
+    state.panels_per_chunk = density_plan.panels_per_chunk
     if soft_invalidated_this_run and panel_key_filter is not None:
         logger.info("render fingerprint changed: ignoring panel_keys filter, redrawing all panels")
         panel_key_filter = None
@@ -1659,12 +1703,18 @@ async def _creative_comic(
                 refs = [base_ref]
             async with image_semaphore:
                 _charge("portrait", name)
-                with perf.measure("portrait"):
-                    out = await image.generate_single_image(
-                        f"{prompt}, {comic_style}",
-                        reference_image_paths=refs,
-                        size="1024x1024",
-                    )
+                sent = f"{prompt}, {comic_style}"
+                image_intent(output_dir, stage="portrait", key=name, prompt=sent, size="1024x1024")
+                try:
+                    with perf.measure("portrait"):
+                        out = await image.generate_single_image(
+                            sent,
+                            reference_image_paths=refs,
+                            size="1024x1024",
+                        )
+                except Exception as exc:  # noqa: BLE001 — log the class, then keep the portrait error
+                    image_failure(output_dir, stage="portrait", key=name, error=exc)
+                    raise
             path = _asset_path(output_dir, "assets/portraits", name)
             await asyncio.to_thread(out.save, str(path))
             return name, str(path)
@@ -1764,6 +1814,8 @@ async def _creative_comic(
                             recent_layouts=_recent_layout_intents(state),
                             visual_bible=state.visual_bible,
                             key_beats=beats,
+                            panel_budget=density_plan.panels_per_chunk,
+                            enforce_budget=density_plan.tier != "B",
                         )
                         if beats is not None:
                             missing = uncovered_must_draw_beats(beats, pageset)
@@ -1781,6 +1833,8 @@ async def _creative_comic(
                                     visual_bible=state.visual_bible,
                                     key_beats=beats,
                                     extra_user_note=beat_coverage_retry_note(missing),
+                                    panel_budget=density_plan.panels_per_chunk,
+                                    enforce_budget=density_plan.tier != "B",
                                 )
                 except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
                     if is_content_policy_rejection(exc):
@@ -1906,6 +1960,13 @@ async def _creative_comic(
                 active_size = page_size
                 while True:
                     _charge("render", state_key)
+                    image_intent(
+                        output_dir,
+                        stage="render",
+                        key=state_key,
+                        prompt=prompt,
+                        size=active_size,
+                    )
                     try:
                         async with image_semaphore:
                             with perf.measure("page"):
@@ -1914,6 +1975,7 @@ async def _creative_comic(
                                 )
                         break
                     except Exception as exc:  # noqa: BLE001 — preserve policy skip behavior
+                        image_failure(output_dir, stage="render", key=state_key, error=exc)
                         if is_content_policy_rejection(exc):
                             logger.warning(
                                 "page %s skipped: content filter rejected it (%s)", page_id, exc
@@ -2012,7 +2074,13 @@ async def _creative_comic(
             _charge("storyboard", f"c{ci:04d}")
             try:
                 with perf.measure("storyboard"):
-                    board = await plan_storyboard(chunk, planned_elements, chat=chat)
+                    board = await plan_storyboard(
+                        chunk,
+                        planned_elements,
+                        chat=chat,
+                        panel_budget=density_plan.panels_per_chunk,
+                        enforce_budget=density_plan.tier != "B",
+                    )
             except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
                 if is_content_policy_rejection(exc):
                     logger.warning(
@@ -2112,10 +2180,17 @@ async def _creative_comic(
             refs = [ref for ref in refs if _is_within(ref, output_dir) and Path(ref).is_file()]
             async with image_semaphore:
                 _charge("render", state_key)
-                with perf.measure("panel"):
-                    out = await image.generate_single_image(
-                        prompt, reference_image_paths=refs, size=panel.size
-                    )
+                image_intent(
+                    output_dir, stage="render", key=state_key, prompt=prompt, size=panel.size
+                )
+                try:
+                    with perf.measure("panel"):
+                        out = await image.generate_single_image(
+                            prompt, reference_image_paths=refs, size=panel.size
+                        )
+                except Exception as exc:  # noqa: BLE001 — log the class, then keep the panel error
+                    image_failure(output_dir, stage="render", key=state_key, error=exc)
+                    raise
             local = _asset_path(output_dir, "panels", state_key)
             await asyncio.to_thread(out.save, str(local))
 

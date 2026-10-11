@@ -56,7 +56,7 @@ Every novel-to-comic tool we surveyed in 2026 runs on a **paid** model — Gemin
 
 Inkstone is an **independent implementation, not a fork** — inspired by [`lcy362/agnes-video-generator`](https://github.com/lcy362/agnes-video-generator) (MIT) but carrying none of its source tree. Attribution is recorded in [NOTICE](NOTICE).
 
-> **An honest trade-off.** Free, cloud-only Agnes with no GPU caps how far character consistency can reach. The strongest approaches (IP-Adapter / InsightFace) need a local GPU running SDXL/Flux — incompatible with Inkstone's zero-cost premise. So Inkstone trades *perfect* consistency for *zero-cost + no-GPU + out-of-the-box*, using L1+L2+L3 as the best feasible strategy. Stated plainly, not hidden.
+> **An honest trade-off.** Free, cloud-only Agnes with no GPU caps how far character consistency can reach. The strongest approaches (IP-Adapter / InsightFace) need a local GPU running SDXL/Flux — incompatible with Inkstone's zero-cost premise. So Inkstone trades *perfect* consistency for *zero-cost + no-GPU + out-of-the-box*, using L1+L2. L3 is opt-in and off by default. Stated plainly, not hidden.
 
 **Finished-page mode (default)** generates whole-page art with empty lettering chrome; Inkstone overlays caption/dialogue/sfx using real fonts (CJK-capable). This avoids model-painted glyph distortion. Set `INKSTONE_RENDER_MODE=panel_compose` for the legacy per-panel path. Unlettered art is cached under `pages/blank/` so resume can re-letter without another image API call.
 
@@ -75,7 +75,7 @@ The core challenge — **cross-panel character consistency without a GPU** — i
 | Layer | Strategy | Default |
 |-------|----------|:-------:|
 | **L1** | Appearance-derived prompt hard-description | ✅ on |
-| **L2** | Reference img2img from prior panels | ✅ on |
+| **L2** | Reference img2img from the character portrait | ✅ on |
 | **L3** | PIL/OpenCV face overlay | ❌ off (opt-in) |
 
 Backed by a reliability layer (rate limiting, retries, and `state.json` resumption). Alias variants are flagged for **human merge/dismiss** (never silent); merges mark affected panels stale for selective redraw.
@@ -124,6 +124,14 @@ On Windows use `.\scripts\start.ps1`. Sample inputs ship in `examples/` (`scene1
 
 > **Status:** M1–M4 (provider foundation, comic pipeline, long-form hardening and open-source release) have shipped. See the [Roadmap](docs/ROADMAP.md) for released capability, local prototypes and the approved long-form plan.
 
+```bash
+uv run inkstone plan --book examples/scene1.txt            # offline size estimate; does not draw
+uv run inkstone generate examples/scene1.txt --density B   # draw; --budget N pauses at a call limit
+uv run inkstone identity --out comic_out --view            # character ledger
+```
+
+`inkstone coverage` reads legacy PageScript fields and is not a quality gate. Those fields are written only when `INKSTONE_PAGE_SCRIPT=1`.
+
 ## Web UI
 
 A zero-dependency local UI (Tailwind SPA + a `http.server` backend — **no new pip package**) wraps the same pipeline:
@@ -154,6 +162,8 @@ Inkstone is configured through environment variables (copy `.env.example` → `.
 | `PROVIDER` | | `agnes` | `openai_compat` routes to configured OpenAI-style base URLs. |
 | `OPENAI_COMPAT_*` | | — | Base URL / key / models when `PROVIDER=openai_compat`. |
 | `INKSTONE_L3` | | `0` | Enable the experimental L3 PIL/OpenCV face overlay (`1` to turn on). |
+| `INKSTONE_PAGE_SCRIPT` | | `0` | Write legacy PageScript metadata. Off. Not a quality gate. |
+| `INKSTONE_DATA_DIR` | | `~/.inkstone` | Shared quota, budget, and sample-gate files. |
 | `INKSTONE_RENDER_MODE` | | `finished_page` | Default: one finished comic page per image call. Set `panel_compose` to use the legacy storyboard → panel → layout path (recovery when finished pages fail). |
 | `INKSTONE_PAGE_SIZE` | | `1024x1536` | Finished-page image size. If the provider rejects the size, Inkstone retries once with `1024x1024`. |
 | `INKSTONE_FONT_PATH` | | (auto) | TrueType/OpenType font for dialogue bubbles. |
