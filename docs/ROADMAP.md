@@ -261,8 +261,12 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
   `u{index:04d}` plus a character span of the normalized source. The spans
   concatenate back to that source. They are stored on the project and do not
   enter a fingerprint. A heading that uses 回 is still one unit.
-- [ ] Generate per-chapter `AdaptationPlan` and `NarrativeBeat` records with
-  required / optional status and causal dependencies.
+- [x] Generate per-chapter `AdaptationPlan` and `NarrativeBeat` records with
+  required / optional status and causal dependencies. A plan is stored per
+  source unit. A key beat the extractor marked must-draw is required; the rest
+  are optional. Each beat after the first depends on the previous beat in that
+  unit. A chunk that sits in two units is left unassigned. The copy does not
+  call a model and does not enter a fingerprint.
 - [ ] Generate beat-constrained storyboard panels with explicit `beat_ids`.
 - [ ] Add a reader-visible lettering layer: separate caption, dialogue and SFX.
   - **Local:** MVP lettering fields + layout drawers shipped (caption bar /

@@ -42,6 +42,7 @@ except ImportError:  # pragma: no cover - exercised only outside Windows
 from PIL import Image
 
 from core.api import get_chat_provider, get_image_provider
+from core.comic.adaptation import sync_adaptation_plans
 from core.comic.budget import BudgetPaused, BudgetSession, BudgetSpec
 from core.comic.cas import (
     export_action_key,
@@ -1547,6 +1548,7 @@ async def _creative_comic(
 
     with perf.measure("segment"):
         chunks = segment_text(source_txt)
+    sync_adaptation_plans(state, chunks)
     total_chunks = len(chunks) or 1
 
     def _pct() -> float:
@@ -1805,6 +1807,7 @@ async def _creative_comic(
                             try:
                                 beats = await extract_key_beats(chunk, elements, chat=chat)
                                 state.beat_cache[key] = beats
+                                sync_adaptation_plans(state, chunks)
                             except Exception as beat_exc:  # noqa: BLE001
                                 logger.warning(
                                     "chunk %s key-beat extract failed (%s); continuing",
