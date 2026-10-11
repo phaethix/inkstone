@@ -50,7 +50,8 @@ def _run(tmp_path, image, *, spec):
 
 def _stops(tmp_path):
     path = tmp_path / "out" / "runs.jsonl"
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+    return [row for row in rows if row["kind"] == "stop"]
 
 
 def _quota_stages(tmp_path):

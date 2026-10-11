@@ -1,6 +1,7 @@
 """tests.test_d2_pipeline — creative_comic 集成：page_script 写入/续跑/拒绝（fakes，不网络）。"""
 
 import asyncio
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -101,6 +102,10 @@ def test_d2_pipeline_writes_and_resumes_page_script(tmp_path, monkeypatch):
     asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=chat, image=FakeImage()))
     # 2 chunks → 2 extract + 2 reconcile + 2 storyboard + 2 page_script = 8
     assert chat.calls == 8
+    logged = (tmp_path / "runs.jsonl").read_text(encoding="utf-8")
+    stages = [json.loads(line)["stage"] for line in logged.splitlines()]
+    assert stages.count("page_script") == 2
+    assert "You are a comic scriptwriter" not in logged
     state = ProjectState.load(tmp_path / "state.json")
     for key in ("0", "1"):
         ps = state.chunk_cache[key].page_script
@@ -110,6 +115,7 @@ def test_d2_pipeline_writes_and_resumes_page_script(tmp_path, monkeypatch):
     chat2 = D2FakeChat()
     asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=chat2, image=FakeImage()))
     assert chat2.calls == 0
+    assert (tmp_path / "runs.jsonl").read_text(encoding="utf-8") == logged
     state2 = ProjectState.load(tmp_path / "state.json")
     for key in ("0", "1"):
         assert state2.chunk_cache[key].page_script is not None

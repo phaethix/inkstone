@@ -334,6 +334,25 @@ def test_finished_page_mode_writes_generated_pages(tmp_path, monkeypatch):
     assert img2.calls == 0
     assert chat2.calls == 0
     assert proj2.state.pages_done == proj.state.pages_done
+    lines = [
+        json.loads(line)
+        for line in (tmp_path / "runs.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    intents = [row for row in lines if row["kind"] == "intent"]
+    assert [(row["stage"], row["key"]) for row in intents] == [
+        ("extract", "c0000"),
+        ("bible", "c0000"),
+        ("portrait", "福贵"),
+        ("beats", "c0000"),
+        ("page_plan", "c0000"),
+        ("render", "c0000-p0000"),
+    ]
+    assert all(row["size"] for row in intents if row["stage"] in {"portrait", "render"})
+    assert all(row["prompt_hash"] for row in intents)
+    logged = (tmp_path / "runs.jsonl").read_text(encoding="utf-8")
+    assert "portrait of a farmer" not in logged
+    assert "Finished readable" not in logged
+    assert "You are a comic scriptwriter" not in logged
 
 
 @patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
@@ -553,6 +572,24 @@ def test_finished_page_content_policy_rejection_is_skipped_not_raised(tmp_path, 
     assert "c0000-p0000" in proj.state.skipped_pages
     assert "c0000-p0000" not in proj.state.pages_done
     assert "c0000-p0000" not in proj.state.generated.pages
+    logged = (tmp_path / "runs.jsonl").read_text(encoding="utf-8")
+    rows = [json.loads(line) for line in logged.splitlines()]
+    assert rows[-1]["kind"] == "failure"
+    assert rows[-1]["error"] == "RuntimeError"
+    assert rows[-1]["stage"] == "render"
+    assert rows[-1]["key"] == "c0000-p0000"
+    assert any(row["stage"] == "extract" and row["kind"] == "intent" for row in rows)
+    assert "page rejected" not in logged
+
+    before = len(rows)
+    asyncio.run(
+        creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=RejectingPageImage())
+    )
+    after = [
+        json.loads(line)
+        for line in (tmp_path / "runs.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert len(after) == before
 
 
 def test_is_content_policy_rejection_still_used_by_finished_page_path():

@@ -20,6 +20,7 @@ from core.comic.lettering_lang import (
     source_lettering_script,
     strip_mismatched_lettering,
 )
+from core.comic.runs import note_chat_attempt, note_chat_failure
 from core.schemas import (
     ComicPagePlanSet,
     KeyBeatSet,
@@ -32,6 +33,17 @@ from core.schemas import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+async def _audited_chat(chat, messages, tools, tool_choice):
+    """Issue one forced call and audit it when a run has bound a scope."""
+    note_chat_attempt(json.dumps(messages, ensure_ascii=False))
+    try:
+        return await chat.chat_function_call(messages, tools, tool_choice)
+    except Exception as exc:  # noqa: BLE001 — log the class, then keep the chat error
+        note_chat_failure(exc)
+        raise
+
 
 SYSTEM_PROMPT = (
     "You are a comic scriptwriter. Extract story elements and plan storyboards "
@@ -143,7 +155,8 @@ async def extract_story_elements(text: str, *, chat=None) -> StoryElements:
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": sanitize_text(text)},
     ]
-    args = await chat.chat_function_call(
+    args = await _audited_chat(
+        chat,
         messages,
         [EXTRACT_TOOL],
         _tool_choice("extract_story_elements"),
@@ -151,13 +164,61 @@ async def extract_story_elements(text: str, *, chat=None) -> StoryElements:
     return StoryElements.model_validate(args)
 
 
-async def plan_storyboard(text: str, elements: StoryElements, *, chat=None) -> Storyboard:
+def _budget_sentence(panel_budget: int | None) -> str:
+    if panel_budget is None:
+        return ""
+    return (
+        f"Panel budget for this excerpt: about {panel_budget} panels. "
+        "Use fewer when the excerpt is thin, and do not exceed this budget. "
+    )
+
+
+def _clip_page_plan(
+    pageset: ComicPagePlanSet,
+    panel_budget: int | None,
+    *,
+    enforce: bool,
+) -> ComicPagePlanSet:
+    """Keep the first ``panel_budget`` panels and the boxes that still name one.
+
+    Tier B is the budget every existing book was planned without a cap, so the
+    sentence is the whole contract there. A and C are an explicit change, and
+    those extra panels are dropped.
+    """
+    if panel_budget is None or not enforce:
+        return pageset
+    remaining = panel_budget
+    kept = []
+    for page in pageset.pages:
+        if remaining <= 0:
+            break
+        panels = page.panels[:remaining]
+        if not panels:
+            continue
+        ids = {panel.panel_id for panel in panels}
+        boxes = [box for box in page.lettering_boxes if box.panel_id in ids]
+        kept.append(page.model_copy(update={"panels": panels, "lettering_boxes": boxes}))
+        remaining -= len(panels)
+    if not kept:
+        return pageset
+    return pageset.model_copy(update={"pages": kept})
+
+
+async def plan_storyboard(
+    text: str,
+    elements: StoryElements,
+    *,
+    chat=None,
+    panel_budget: int | None = None,
+    enforce_budget: bool = False,
+) -> Storyboard:
     """Plan the panels for ``text`` given already-extracted ``elements``."""
     chat = chat or get_chat_provider()
     context = (
         f"{sanitize_text(text)}\n\n"
         "Extracted story elements (reuse these names and descriptions):\n"
         f"{elements.model_dump_json()}\n\n"
+        f"{_budget_sentence(panel_budget)}"
         "Reminder: caption / dialogue / sfx must match the source language "
         "(if the excerpt is Chinese, lettering must be Chinese — never English translation). "
         "Split narration into caption, speech into dialogue, and onomatopoeia into sfx."
@@ -166,12 +227,16 @@ async def plan_storyboard(text: str, elements: StoryElements, *, chat=None) -> S
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": context},
     ]
-    args = await chat.chat_function_call(
+    args = await _audited_chat(
+        chat,
         messages,
         [STORYBOARD_TOOL],
         _tool_choice("plan_storyboard"),
     )
-    return Storyboard.model_validate(args)
+    board = Storyboard.model_validate(args)
+    if panel_budget is not None and enforce_budget:
+        board = board.model_copy(update={"panels": board.panels[:panel_budget]})
+    return board
 
 
 async def extract_key_beats(text: str, elements: StoryElements, *, chat=None) -> KeyBeatSet:
@@ -190,7 +255,8 @@ async def extract_key_beats(text: str, elements: StoryElements, *, chat=None) ->
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": user},
     ]
-    args = await chat.chat_function_call(
+    args = await _audited_chat(
+        chat,
         messages,
         [KEY_BEATS_TOOL],
         _tool_choice("extract_key_beats"),
@@ -207,6 +273,8 @@ async def plan_comic_pages(
     visual_bible=None,
     key_beats: KeyBeatSet | None = None,
     extra_user_note: str = "",
+    panel_budget: int | None = None,
+    enforce_budget: bool = False,
 ) -> ComicPagePlanSet:
     """Plan finished readable pages for ``text`` given ``elements``."""
     from core.comic.layout_diversity import layout_diversity_instructions
@@ -238,6 +306,7 @@ async def plan_comic_pages(
         f"Known elements:\n{elements.model_dump_json()}\n\n"
         f"{beats_blob}"
         "Plan finished readable pages (not a flat 2x2 collage). "
+        f"{_budget_sentence(panel_budget)}"
         "Each page needs purpose, layout_intent, panels, and lettering_boxes. "
         f"{diversity}"
         f"{voice}"
@@ -248,7 +317,8 @@ async def plan_comic_pages(
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": user},
     ]
-    args = await chat.chat_function_call(
+    args = await _audited_chat(
+        chat,
         messages,
         [PAGE_PLAN_TOOL],
         _tool_choice("plan_comic_pages"),
@@ -270,7 +340,8 @@ async def plan_comic_pages(
                 "content": user + "\n\nCRITICAL: previous plan mixed languages. Fix lettering now.",
             },
         ]
-        args = await chat.chat_function_call(
+        args = await _audited_chat(
+            chat,
             messages,
             [PAGE_PLAN_TOOL],
             _tool_choice("plan_comic_pages"),
@@ -292,7 +363,7 @@ async def plan_comic_pages(
                 "pages": [sanitize_plan_lettering(page, "cjk") for page in pageset.pages],
             }
         )
-    return pageset
+    return _clip_page_plan(pageset, panel_budget, enforce=enforce_budget)
 
 
 async def reconcile_visual_bible(
@@ -365,7 +436,8 @@ async def reconcile_visual_bible(
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": user},
     ]
-    args = await chat.chat_function_call(
+    args = await _audited_chat(
+        chat,
         messages,
         [RECONCILE_BIBLE_TOOL],
         _tool_choice("reconcile_visual_bible"),
@@ -408,9 +480,7 @@ async def plan_page_script(
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": context},
     ]
-    args = await chat.chat_function_call(
-        messages, [PAGE_SCRIPT_TOOL], _tool_choice("plan_page_script")
-    )
+    args = await _audited_chat(chat, messages, [PAGE_SCRIPT_TOOL], _tool_choice("plan_page_script"))
     ps = PageScript.model_validate(args)
     # 服务端反推 span.text，保证与 chunk 切片自洽（模型偏移略偏也不破坏一致性）。
     for page in ps.pages:

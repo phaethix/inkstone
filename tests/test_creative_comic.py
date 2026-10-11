@@ -1,6 +1,7 @@
 """tests/test_creative_comic.py — orchestration end-to-end (fakes, no network)."""
 
 import asyncio
+import json
 import shutil
 from pathlib import Path
 from unittest.mock import patch
@@ -92,12 +93,27 @@ def test_creative_comic_generates_and_resumes(tmp_path):
     assert proj.pdf and Path(proj.pdf).exists()
     assert img.calls == 3  # 1 portrait + 2 panels (char reused on 2nd chunk)
     assert chat.calls == 6  # 2 extract + 2 reconcile + 2 storyboard (page_script off by default)
+    logged = (tmp_path / "runs.jsonl").read_text(encoding="utf-8")
+    intents = [json.loads(line)["stage"] for line in logged.splitlines()]
+    assert intents == [
+        "extract",
+        "bible",
+        "portrait",
+        "storyboard",
+        "render",
+        "extract",
+        "bible",
+        "storyboard",
+        "render",
+    ]
+    assert "You are a comic scriptwriter" not in logged
 
     # Resume: everything is in state.json, so no new generation happens.
     chat2, img2 = FakeChat(), FakeImage()
     asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=chat2, image=img2))
     assert img2.calls == 0
     assert chat2.calls == 0
+    assert (tmp_path / "runs.jsonl").read_text(encoding="utf-8") == logged
 
 
 @patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)

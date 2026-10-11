@@ -1,0 +1,170 @@
+"""Density is a planning budget stored on the project."""
+
+import asyncio
+from unittest.mock import patch
+
+import pytest
+
+from core.cli import _build_parser
+from core.density import PANELS_PER_CHUNK_A, PANELS_PER_CHUNK_B
+from core.pipelines.creative_comic import _structure_fingerprint, creative_comic
+from core.schemas import ProjectState, StoryElements
+from core.screenwriter import plan_comic_pages, plan_storyboard
+from tests.test_creative_comic import FakeChat, FakeImage, _fake_export_pdf
+
+
+def test_tier_b_keeps_the_historical_structure_fingerprint():
+    source = "第一章\n方鸿渐在甲板上。"
+    historical = _structure_fingerprint(source)
+    assert _structure_fingerprint(source, density="B", panels_per_chunk=PANELS_PER_CHUNK_B) == (
+        historical
+    )
+    assert _structure_fingerprint(source, density="A", panels_per_chunk=PANELS_PER_CHUNK_A) != (
+        historical
+    )
+
+
+def test_an_older_state_loads_the_default_tier():
+    loaded = ProjectState.model_validate_json('{"project_id":"p1"}')
+    assert loaded.density == "B"
+    assert loaded.panels_per_chunk == PANELS_PER_CHUNK_B
+
+
+class _BudgetChat:
+    def __init__(self, payload):
+        self.payload = payload
+        self.user = ""
+
+    async def chat_function_call(self, messages, tools, tool_choice, **kwargs):
+        self.user = messages[1]["content"]
+        return self.payload
+
+
+def test_a_storyboard_keeps_only_the_budgeted_panels():
+    chat = _BudgetChat(
+        {
+            "chapter_id": "ch",
+            "panels": [{"panel_id": str(i), "action": "walks"} for i in range(5)],
+        }
+    )
+    board = asyncio.run(
+        plan_storyboard("甲板上。", StoryElements(), chat=chat, panel_budget=2, enforce_budget=True)
+    )
+    assert [panel.panel_id for panel in board.panels] == ["0", "1"]
+    assert "about 2 panels" in chat.user
+
+
+def test_a_page_plan_drops_panels_past_the_budget_and_their_boxes():
+    chat = _BudgetChat(
+        {
+            "unit_id": "1",
+            "pages": [
+                {
+                    "page_id": "p1",
+                    "purpose": "arrive",
+                    "layout_intent": "wide top",
+                    "panels": [
+                        {"panel_id": "a", "action": "walks"},
+                        {"panel_id": "b", "action": "stops"},
+                    ],
+                    "lettering_boxes": [
+                        {
+                            "kind": "caption",
+                            "panel_id": "a",
+                            "x": 0.1,
+                            "y": 0.1,
+                            "w": 0.2,
+                            "h": 0.1,
+                        },
+                        {
+                            "kind": "caption",
+                            "panel_id": "b",
+                            "x": 0.1,
+                            "y": 0.4,
+                            "w": 0.2,
+                            "h": 0.1,
+                        },
+                    ],
+                },
+                {
+                    "page_id": "p2",
+                    "purpose": "look",
+                    "layout_intent": "inset",
+                    "panels": [
+                        {"panel_id": "c", "action": "looks"},
+                        {"panel_id": "d", "action": "turns"},
+                    ],
+                    "lettering_boxes": [
+                        {
+                            "kind": "caption",
+                            "panel_id": "d",
+                            "x": 0.1,
+                            "y": 0.1,
+                            "w": 0.2,
+                            "h": 0.1,
+                        }
+                    ],
+                },
+            ],
+        }
+    )
+    pageset = asyncio.run(
+        plan_comic_pages(
+            "甲板上。", StoryElements(), chat=chat, panel_budget=3, enforce_budget=True
+        )
+    )
+    assert [[panel.panel_id for panel in page.panels] for page in pageset.pages] == [
+        ["a", "b"],
+        ["c"],
+    ]
+    assert pageset.pages[1].lettering_boxes == []
+    assert "about 3 panels" in chat.user
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_a_density_change_replans_and_the_same_tier_does_not(tmp_path):
+    src = "第一章\n方鸿渐在甲板上。"
+    chat, img = FakeChat(), FakeImage()
+    proj = asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=chat, image=img))
+    assert proj.state.density == "B"
+    assert proj.state.panels_per_chunk == PANELS_PER_CHUNK_B
+    assert chat.calls > 0
+
+    chat_same, img_same = FakeChat(), FakeImage()
+    asyncio.run(
+        creative_comic(src, output_dir=str(tmp_path), chat=chat_same, image=img_same, density="B")
+    )
+    assert chat_same.calls == 0
+    assert img_same.calls == 0
+
+    chat_a, img_a = FakeChat(), FakeImage()
+    proj_a = asyncio.run(
+        creative_comic(src, output_dir=str(tmp_path), chat=chat_a, image=img_a, density="A")
+    )
+    assert chat_a.calls > 0
+    assert img_a.calls > 0
+    assert proj_a.state.density == "A"
+    assert proj_a.state.panels_per_chunk == PANELS_PER_CHUNK_A
+    assert proj_a.state.structure_fingerprint == _structure_fingerprint(
+        src, density="A", panels_per_chunk=PANELS_PER_CHUNK_A
+    )
+
+
+def test_generate_defaults_to_tier_b():
+    args = _build_parser().parse_args(["generate", "book.txt"])
+    assert args.density == "B"
+    chosen = _build_parser().parse_args(["generate", "book.txt", "--density", "C"])
+    assert chosen.density == "C"
+
+
+def test_an_unknown_density_is_rejected(tmp_path):
+    with pytest.raises(ValueError, match="density must be"):
+        asyncio.run(
+            creative_comic(
+                "第一章\n方鸿渐。",
+                output_dir=str(tmp_path),
+                chat=FakeChat(),
+                image=FakeImage(),
+                density="D",
+            )
+        )

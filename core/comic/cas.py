@@ -10,7 +10,8 @@ A project gains two directories:
 to report them.
 
 Letter, layout, and export consult these keys. A font change re-letters
-from the stored blank. Render stays on the existing files.
+from the stored blank. A new manifest records when it was written.
+Render stays on the existing files.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ import hashlib
 import json
 import os
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -58,6 +60,10 @@ class Manifest(BaseModel):
     created_at: str = ""
     supersedes: list[str] = Field(default_factory=list)
     cost: ManifestCost = Field(default_factory=ManifestCost)
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _hex_digest(data: bytes) -> str:
@@ -234,6 +240,7 @@ def record_files(
             outputs=outputs,
             stage_src=stage_src,
             env=env,
+            created_at=_now_iso(),
         ),
     )
 
@@ -261,6 +268,7 @@ def record_ok(
             outputs=[ManifestOutput(name=name, content=content)],
             stage_src=stage_src,
             env=env,
+            created_at=_now_iso(),
         ),
     )
 

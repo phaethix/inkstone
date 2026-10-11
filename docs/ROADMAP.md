@@ -56,7 +56,7 @@ When completing a change:
 
 Do **not** present the current D1/D2 code as a completed quality feature:
 
-- density tiers currently estimate cost/pages only; they do not control actual panel count;
+- density tiers now set the planning budget and the structure fingerprint; the page-count estimate is still uncalibrated;
 - PageScript is created after storyboard, so it cannot restore omitted narrative beats;
 - coverage currently checks non-empty fields and substring matches, not reader-visible information;
 - policy-rejected pages must not be excluded from a final completeness denominator.
@@ -68,9 +68,12 @@ Keep these prototypes only as migration material until they conform to the targe
 ### P0 — Make the current state honest and deterministic
 
 - [x] Deferred lettering for finished pages: model paints empty chrome; Inkstone overlays caption/dialogue/sfx with CJK-capable fonts. Unlettered art under `pages/blank/` enables resume re-lettering without re-calling the image API. Spec: [`docs/superpowers/specs/2026-07-31-deferred-lettering-design.md`](superpowers/specs/2026-07-31-deferred-lettering-design.md) (local on `feat/deferred-lettering` until merged).
-- [ ] Make density a real contract: persist it in `ProjectState`, include it in
+- [x] Make density a real contract: persist it in `ProjectState`, include it in
   the structure fingerprint (`render_fingerprint` covers style/model/L3), pass a
-  budget to planning, and invalidate affected caches.
+  budget to planning, and invalidate affected caches. Tier B at 8 panels per
+  chunk keeps the fingerprint a project already stored, and the panels a planner
+  returns are kept. A or C replans, drops the derived caches, and keeps only
+  that many panels.
   - **Local (v0.1.2):** structure/render fingerprint split landed — style, model,
     and L3 changes soft-invalidate panels/portraits only; `chunk_cache` is reused.
     Legacy states still compare the combined hash until migrated.
@@ -82,24 +85,19 @@ Keep these prototypes only as migration material until they conform to the targe
     provider honesty, web Origin/body caps, dotenv no longer skips on preset
     `AGNES_API_KEY`, `inkstone plan` marked `[experimental]` (see
     `docs/superpowers/plans/2026-07-27-deep-dive-layout-web-fixes.md`).
-- [ ] Reconcile README, configuration defaults, CLI help and historical docs so
-  they do not contradict released behavior.
-- [ ] Isolate, rename or remove the old PageScript / coverage prototype so it
-  cannot be mistaken for a release-quality gate.
+- [x] Reconcile README, configuration defaults, CLI help and historical docs so
+  they do not contradict released behavior. The CLI describes the shipped
+  commands. `identity` is the ledger. `plan` no longer prints a required-info
+  count that was only the page count.
+- [x] Isolate, rename or remove the old PageScript / coverage prototype so it
+  cannot be mistaken for a release-quality gate. `coverage` prints a prototype
+  banner before any ratio. It stays off unless `INKSTONE_PAGE_SCRIPT=1`.
 - [ ] Calibrate estimates with a public sample; do not promise fixed panels per
   chunk without evidence.
-- [ ] Resolve the three blockers recorded in the [content-addressed pipeline
-  design](architecture/2026-09-28-content-addressed-pipeline-design.md)
-  before starting any migration phase:
-  1. separate **hard inputs** from **soft L2 reference images**, so an alias merge
-     redraws affected pages only and never cascades through the book-wide
-     `previous_page_blank` continuity chain;
-  2. define the scheduler as a **two-phase dynamic DAG** (plan, then expand) with
-     **positional** page identity, replacing the model-generated `page_id` in
-     `_page_state_key`;
-3. add **tombstone manifests** (`outcome: ok | rejected | stopped | awaiting_human`) so
-     content-policy rejections are not re-attempted — and quota burned — on every
-     resume.
+- [ ] Phase 3 stays closed. The 5x gate still fails: 16 image calls is not five
+  times a target of ≤17, and the 600-page count is already flat. Hard and soft
+  inputs, positional page identity, and letter/export/layout tombstones have
+  landed. The two-phase scheduler and render/extract action keys have not.
 
 ### P0 — Content-addressed pipeline migration (0a-0h)
 
@@ -169,6 +167,12 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
 - [x] **0a (bound size)** A PDF, a strip, and a collage record the pixel size of
   the images they bind. Changing the configured page size does not rebuild them
   when those images stay. Mixed pages record each size in bind order.
+- [x] **2 (manifest time)** A new letter, export, or layout manifest records when
+  it was written. Rewriting that manifest in place keeps the original time.
+- [x] **call audit** An image or chat call appends an intent before the provider
+  is touched, and a failure appends the exception class. The prompt and the error
+  text stay out of `runs.jsonl`. A resume that does not call does not append
+  another line. A chat call outside a run writes nothing.
 - [x] **1 (render mode)** Switching a finished-page project to `panel_compose`
   plans the missing storyboard. A finished-page completion is not treated as a
   storyboard hit.

@@ -131,6 +131,7 @@ async def run_until_complete(
     budget_day: str | None = None,
     gate_yes: bool = False,
     sample_gate_size: int | None = None,
+    density: str | None = None,
 ) -> ComicProject | PausedRun:
     """Run ``creative_comic`` until success or wall-clock pause.
 
@@ -178,6 +179,7 @@ async def run_until_complete(
                 budget_day=budget_day,
                 gate_yes=gate_yes,
                 sample_gate_size=sample_gate_size,
+                density=density,
             )
         except (BudgetPaused, GatePaused) as exc:
             # A budget or sample-gate pause is terminal for this invocation.

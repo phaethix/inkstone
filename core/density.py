@@ -5,18 +5,16 @@ panels a novel will become, how many pages that is, what it costs, and how long
 it will take. This module answers those questions **purely locally** — it never
 touches the network — so the estimate is instant and free.
 
-Design notes for the next milestones:
-- ``DensityPlan`` is intentionally tiny and stable so D2 can serialize it into
-  ``ProjectState.density`` and fold ``tier`` / ``panels_per_chunk`` into the
-  input fingerprint without a schema change.
-- ``DensityEstimate`` carries a few *hook* fields (``tier``, ``panels_per_chunk``,
-  ``description``, ``output_format``, ``output_name``) that D2 will reuse; this
-  milestone does not compute the fingerprint itself.
+``ProjectState.density`` stores the tier, and generate passes ``panels_per_chunk``
+to planning. Tier B at the historical panel count stays out of the structure
+fingerprint so an older project still resumes. Another tier changes that
+fingerprint and the planner sees the new budget. The page-count estimate below
+is still an uncalibrated experience value.
 
 The panel-per-chunk numbers (A/B/C) and the per-page / per-minute rates are
 **experience values** awaiting calibration against a real 《三体》 sample.
 
-Product brief alignment (not yet a generation contract — estimate only):
+Product brief alignment:
 A 主线概览 (sparser) → B 章级完整 (default) → C 近原著 (denser).
 """
 
@@ -32,9 +30,8 @@ from core.config import webtoon_warn_mb
 # Experience constants (to be calibrated against a real 《三体》 sample)
 # --------------------------------------------------------------------------- #
 
-# Product brief alignment (not yet a generation contract — estimate only):
 # A 主线概览 (sparser) → B 章级完整 (default) → C 近原著 (denser).
-# Numbers remain uncalibrated experience values.
+# Numbers remain uncalibrated experience values. The tier is the planning budget.
 PANELS_PER_CHUNK_A = 3  # 主线概览
 PANELS_PER_CHUNK_B = 8  # 章级完整 / 标准
 PANELS_PER_CHUNK_C = 14  # 近原著
