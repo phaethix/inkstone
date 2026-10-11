@@ -654,6 +654,10 @@ class Panel(BaseModel):
     # the sole authority at render time. Kept for legacy state.json compatibility.
     panel_prompt: SkipJsonSchema[str] = ""
     reference_characters: list[str] = Field(default_factory=list)
+    beat_ids: list[str] = Field(
+        default_factory=list,
+        description="Ids of the key beats this panel stages. Use only ids that were provided.",
+    )
     size: str = "1024x1024"
 
     @model_validator(mode="before")
@@ -694,7 +698,7 @@ class Panel(BaseModel):
     def _coerce_text(cls, value: Any) -> Any:
         return coerce_str(value)
 
-    @field_validator("characters_present", "reference_characters", mode="before")
+    @field_validator("characters_present", "reference_characters", "beat_ids", mode="before")
     @classmethod
     def _coerce_name_lists(cls, value: Any) -> Any:
         return coerce_str_list(value)
@@ -731,6 +735,10 @@ class PagePanelSpec(BaseModel):
     lettering_notes: str = ""
     speaker: str = ""
     timeline: Literal["present", "past", "liminal", ""] = ""
+    beat_ids: list[str] = Field(
+        default_factory=list,
+        description="Ids of the key beats this panel stages. Use only ids that were provided.",
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -787,7 +795,7 @@ class PagePanelSpec(BaseModel):
             return text
         return ""
 
-    @field_validator("characters", mode="before")
+    @field_validator("characters", "beat_ids", mode="before")
     @classmethod
     def _coerce_characters(cls, value: Any) -> Any:
         return coerce_str_list(value)

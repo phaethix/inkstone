@@ -5,7 +5,16 @@ others are optional. Each beat after the first depends on the previous beat
 in that same unit. A chunk that sits in more than one unit is left unassigned.
 """
 
-from core.schemas import AdaptationPlan, KeyBeat, NarrativeBeat, ProjectState, SourceUnit
+from core.schemas import (
+    AdaptationPlan,
+    ComicPagePlanSet,
+    KeyBeat,
+    KeyBeatSet,
+    NarrativeBeat,
+    ProjectState,
+    SourceUnit,
+    Storyboard,
+)
 
 
 def adaptation_plan(unit_id: str, beats: list[KeyBeat]) -> AdaptationPlan:
@@ -35,8 +44,7 @@ def _slice_of(haystack: list[str], needle: list[str]) -> bool:
         return False
     width = len(needle)
     return any(
-        haystack[index : index + width] == needle
-        for index in range(len(haystack) - width + 1)
+        haystack[index : index + width] == needle for index in range(len(haystack) - width + 1)
     )
 
 
@@ -108,3 +116,102 @@ def sync_adaptation_plans(state: ProjectState, chunks: list[str]) -> None:
         if current is not None and current.beats:
             continue
         state.adaptation_plans[unit_id] = adaptation_plan(unit_id, beat_set.beats)
+
+
+def _beat_id(beat: KeyBeat | NarrativeBeat) -> str:
+    return beat.beat_id
+
+
+def _is_required(beat: KeyBeat | NarrativeBeat) -> bool:
+    if isinstance(beat, KeyBeat):
+        return beat.must_draw
+    return beat.status == "required"
+
+
+def assign_panel_beat_ids(panels: list, beats: list[KeyBeat] | list[NarrativeBeat]) -> None:
+    """Keep only known beat ids, and place each required beat on a panel.
+
+    A panel that already names a known beat keeps it. A required beat nobody
+    named is written onto the earliest panel that has none, then onto the last
+    panel once every panel has one. Optional beats are not invented.
+    """
+    known = {_beat_id(beat) for beat in beats if _beat_id(beat)}
+    required: list[str] = []
+    for beat in beats:
+        beat_id = _beat_id(beat)
+        if beat_id and _is_required(beat) and beat_id not in required:
+            required.append(beat_id)
+    if not panels:
+        return
+    for panel in panels:
+        panel.beat_ids = [beat_id for beat_id in panel.beat_ids if beat_id in known]
+    covered = {beat_id for panel in panels for beat_id in panel.beat_ids}
+    missing = [beat_id for beat_id in required if beat_id not in covered]
+    open_panels = [panel for panel in panels if not panel.beat_ids] or [panels[-1]]
+    for index, beat_id in enumerate(missing):
+        target = open_panels[min(index, len(open_panels) - 1)]
+        if beat_id not in target.beat_ids:
+            target.beat_ids.append(beat_id)
+
+
+def stamp_storyboard_beats(board: Storyboard, beats: KeyBeatSet) -> bool:
+    """Write known beats onto a storyboard. Return whether any panel changed."""
+    before = [list(panel.beat_ids) for panel in board.panels]
+    assign_panel_beat_ids(board.panels, beats.beats)
+    return [list(panel.beat_ids) for panel in board.panels] != before
+
+
+def stamp_page_panel_beats(pageset: ComicPagePlanSet, beats: KeyBeatSet) -> bool:
+    """Copy a chunk's key beats onto the page panels that have to stage them."""
+    before = [
+        (list(page.covers_beats), [list(panel.beat_ids) for panel in page.panels])
+        for page in pageset.pages
+    ]
+    known = {beat.beat_id for beat in beats.beats if beat.beat_id}
+    for page in pageset.pages:
+        page.covers_beats = [beat_id for beat_id in page.covers_beats if beat_id in known]
+        if page.panels and not any(panel.beat_ids for panel in page.panels):
+            for index, beat_id in enumerate(page.covers_beats):
+                target = page.panels[min(index, len(page.panels) - 1)]
+                if beat_id not in target.beat_ids:
+                    target.beat_ids.append(beat_id)
+        assign_panel_beat_ids(page.panels, beats.beats)
+        for panel in page.panels:
+            for beat_id in panel.beat_ids:
+                if beat_id not in page.covers_beats:
+                    page.covers_beats.append(beat_id)
+    after = [
+        (list(page.covers_beats), [list(panel.beat_ids) for panel in page.panels])
+        for page in pageset.pages
+    ]
+    return before != after
+
+
+def key_beats_for_chunk(
+    state: ProjectState, chunk_key: str, chunks: list[str]
+) -> KeyBeatSet | None:
+    """Beats already stored for this chunk. Never calls a model."""
+    cached = state.beat_cache.get(chunk_key)
+    if cached is not None and cached.beats:
+        return cached
+    if not str(chunk_key).isdigit():
+        return None
+    index = int(chunk_key)
+    if index >= len(chunks):
+        return None
+    unit_id = owning_unit(state.source_units, chunks[index])
+    if unit_id is None:
+        return None
+    plan = state.adaptation_plans.get(unit_id)
+    if plan is None or not plan.beats:
+        return None
+    return KeyBeatSet(
+        beats=[
+            KeyBeat(
+                beat_id=beat.beat_id,
+                summary=beat.summary,
+                must_draw=beat.status == "required",
+            )
+            for beat in plan.beats
+        ]
+    )

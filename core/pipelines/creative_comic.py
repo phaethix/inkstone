@@ -42,7 +42,13 @@ except ImportError:  # pragma: no cover - exercised only outside Windows
 from PIL import Image
 
 from core.api import get_chat_provider, get_image_provider
-from core.comic.adaptation import sync_adaptation_plans
+from core.comic.adaptation import (
+    assign_panel_beat_ids,
+    key_beats_for_chunk,
+    stamp_page_panel_beats,
+    stamp_storyboard_beats,
+    sync_adaptation_plans,
+)
 from core.comic.budget import BudgetPaused, BudgetSession, BudgetSpec
 from core.comic.cas import (
     export_action_key,
@@ -1569,6 +1575,15 @@ async def _creative_comic(
         board = cached.storyboard if cached else None
         elements = cached.elements if cached else None
         pageset = state.page_cache.get(key)
+        known_beats = key_beats_for_chunk(state, key, chunks)
+        if board is not None and known_beats is not None:
+            if stamp_storyboard_beats(board, known_beats):
+                state.save(state_path)
+        if mode == "finished_page" and pageset is not None:
+            cached_beats = state.beat_cache.get(key)
+            if cached_beats is not None and cached_beats.beats:
+                if stamp_page_panel_beats(pageset, cached_beats):
+                    state.save(state_path)
 
         # Fully planned chunk: cached, marked done, every panel/page present on
         # disk. Re-running reuses the cache so the billable chat API is never
@@ -1862,6 +1877,10 @@ async def _creative_comic(
                 state.save(state_path)
                 _report("page_plan", _pct())
 
+            cached_beats = state.beat_cache.get(key)
+            if pageset is not None and cached_beats is not None and cached_beats.beats:
+                stamp_page_panel_beats(pageset, cached_beats)
+
             # Model-structured output sometimes reuses page_id across chunks.
             # State keys are the raw page_id, so remint duplicates rather than
             # silently overwriting an earlier page's generated record.
@@ -2089,6 +2108,7 @@ async def _creative_comic(
                         chat=chat,
                         panel_budget=density_plan.panels_per_chunk,
                         enforce_budget=density_plan.tier != "B",
+                        key_beats=key_beats_for_chunk(state, key, chunks),
                     )
             except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
                 if is_content_policy_rejection(exc):
@@ -2104,6 +2124,10 @@ async def _creative_comic(
             state.chunk_cache.setdefault(key, ChunkCache()).storyboard = board
             state.save(state_path)
             _report("storyboard", _pct())
+
+        known_beats = key_beats_for_chunk(state, key, chunks)
+        if board is not None and known_beats is not None:
+            assign_panel_beat_ids(board.panels, known_beats.beats)
 
         # ---- page-script ----
         # Optional legacy PageScript metadata (NOT a quality gate). Off by default.
