@@ -166,6 +166,9 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
   fallback re-letters the stored blank and does not call the image provider.
   The same size copies the stored page. An empty `resolved_size` keeps the key
   that was stored for the configured size.
+- [x] **0a (bound size)** A PDF, a strip, and a collage record the pixel size of
+  the images they bind. Changing the configured page size does not rebuild them
+  when those images stay. Mixed pages record each size in bind order.
 - [x] **1 (render mode)** Switching a finished-page project to `panel_compose`
   plans the missing storyboard. A finished-page completion is not treated as a
   storyboard hit.
