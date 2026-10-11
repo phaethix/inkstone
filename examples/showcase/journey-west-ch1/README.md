@@ -20,7 +20,9 @@ From the repo root (with the inkstone env active):
 inkstone plan --book examples/showcase/journey-west-ch1/source.txt --density B --format page
 ```
 
-`plan` is marked `[experimental]` and does **not** constrain `generate`.
+`plan` is marked `[experimental]`. Its panel rate is an experience value until
+you pass `--out` pointing at a project that already has plans. `generate
+--density` uses the same tier and replans when the tier changes.
 
 ## Generate (needs AGNES_API_KEY)
 

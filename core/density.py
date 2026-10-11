@@ -151,6 +151,22 @@ def _output_name(output_format: str) -> str:
     return "webtoon.png" if output_format == "webtoon" else "comic.pdf"
 
 
+def _scale_observed(chunks: int, observed: list[int]) -> int:
+    """Spread planned per-chunk counts across the text's chunks.
+
+    Planned chunks keep their counts. A chunk the project has not planned yet
+    uses the average of the ones it has. Counts past the text are ignored.
+    """
+    if chunks <= 0:
+        return 0
+    used = observed[:chunks]
+    if not used:
+        return 0
+    average = sum(used) / len(used)
+    missing = chunks - len(used)
+    return sum(used) + int(round(average * missing))
+
+
 def estimate(
     book_path: str | Path,
     density: DensityTier = "B",
@@ -159,6 +175,8 @@ def estimate(
     concurrency: int = 4,
     price_per_panel: float | None = None,
     asset_dir: str | None = None,
+    observed_panels: list[int] | None = None,
+    observed_pages: list[int] | None = None,
 ) -> DensityEstimate:
     """Estimate density, cost, and duration for a novel **without any API call**.
 
@@ -174,6 +192,10 @@ def estimate(
         concurrency: parallel panel workers assumed for the duration estimate.
         price_per_panel: ¥ per panel for ``openai-compat``; ``None`` → "按单价".
         asset_dir: reserved hook for D2 (asset/output location); unused now.
+        observed_panels: per-chunk panel counts already planned. When set, the
+            experience rate is not used for the panel total.
+        observed_pages: per-chunk page counts already planned. When set, pages
+            are that total instead of ``panels / 4``.
 
     Returns:
         A :class:`DensityEstimate` with all projected counts, the cost string,
@@ -195,6 +217,13 @@ def estimate(
     panels_per_chunk = plan.panels_per_chunk
     panels = chunks * panels_per_chunk
     pages = ceil(panels / PANELS_PER_PAGE)
+    if observed_panels:
+        panels = _scale_observed(chunks, observed_panels)
+        used = observed_panels[:chunks]
+        if used:
+            panels_per_chunk = max(1, int(round(sum(used) / len(used))))
+    if observed_pages:
+        pages = _scale_observed(chunks, observed_pages)
 
     # Wall-clock estimate. Guard concurrency so a bad input can't divide by zero.
     effective_concurrency = max(1, int(concurrency))
@@ -210,6 +239,9 @@ def estimate(
         warnings.append(f"源文件过小（{total_chars} 字符），仅 {chunks} 段，预估仅供参考")
     if webtoon_msg:
         warnings.append(webtoon_msg)
+    if observed_panels or observed_pages:
+        planned = min(len(observed_panels or observed_pages or []), chunks)
+        warnings.append(f"格数来自已规划的 {planned} 段，不是经验档位。")
 
     return DensityEstimate(
         total_chars=total_chars,

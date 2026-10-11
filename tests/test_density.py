@@ -18,6 +18,7 @@ from core.density import (
     PANELS_PER_CHUNK_C,
     PANELS_PER_PAGE,
     DensityEstimate,
+    _scale_observed,
     estimate,
     get_density_plan,
 )
@@ -171,6 +172,35 @@ def test_concurrency_zero_is_safe(tmp_path):
     book = _write(tmp_path, _BODY)
     est = estimate(book, density="B", concurrency=0)  # must not divide by zero
     assert est.estimated_minutes == -(-est.panels // (1 * 2))
+
+
+def test_planned_counts_replace_the_experience_rate(tmp_path):
+    book = _write(tmp_path, "第一章\n石猴出世。")
+    bare = estimate(book, density="B")
+    est = estimate(
+        book,
+        density="B",
+        observed_panels=[3] * bare.chunks,
+        observed_pages=[1] * bare.chunks,
+    )
+    assert est.panels == 3 * bare.chunks
+    assert est.pages == bare.chunks
+    assert any("已规划" in warning for warning in est.warnings)
+
+
+def test_an_unplanned_chunk_uses_the_planned_average():
+    assert _scale_observed(3, [2]) == 6
+    assert _scale_observed(2, [3, 5]) == 8
+    assert _scale_observed(1, [3, 9]) == 3
+
+
+def test_the_public_excerpt_keeps_the_experience_rate():
+    path = Path(__file__).resolve().parents[1] / "examples/showcase/journey-west-ch1/source.txt"
+    est = estimate(path, density="B")
+    assert path.read_text(encoding="utf-8").strip()
+    assert est.chunks >= 1
+    assert est.panels == est.chunks * PANELS_PER_CHUNK_B
+    assert not any("已规划" in warning for warning in est.warnings)
 
 
 def test_default_threshold_from_constant(tmp_path, monkeypatch):

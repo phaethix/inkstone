@@ -98,7 +98,12 @@ from core.comic.page_lettering import (
 )
 from core.comic.page_prompt import render_finished_page_prompt
 from core.comic.runs import bind_audit, clear_audit, image_failure, image_intent
-from core.comic.segmentation import detect_character_aliases, merge_characters, segment_text
+from core.comic.segmentation import (
+    detect_character_aliases,
+    merge_characters,
+    segment_text,
+    source_units,
+)
 from core.comic.stage_contract import RECENT_LAYOUT_LIMIT, stage_source_hash
 from core.comic.visual_bible import (
     apply_reconcile,
@@ -1517,6 +1522,7 @@ async def _creative_comic(
         state = _fresh_state()
     state.density = density_plan.tier
     state.panels_per_chunk = density_plan.panels_per_chunk
+    state.source_units = source_units(source_txt)
     if soft_invalidated_this_run and panel_key_filter is not None:
         logger.info("render fingerprint changed: ignoring panel_keys filter, redrawing all panels")
         panel_key_filter = None
