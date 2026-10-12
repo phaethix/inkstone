@@ -184,6 +184,7 @@ class ComicProject:
     pages: list[str] = field(default_factory=list)
     pdf: str | None = None
     webtoon: str | None = None
+    cbz: str | None = None
 
 
 # Bumped only when the *structure* fingerprint (extract/storyboard cache) must
@@ -509,6 +510,9 @@ _EXPORT_SOURCES = (
 )
 _LETTER_STAGE_SRC = stage_source_hash(*_LETTER_SOURCES)
 _EXPORT_STAGE_SRC = stage_source_hash(*_EXPORT_SOURCES)
+# Kept off the PDF hash. A CBZ is a different binder, and adding it must not
+# change the key of a PDF that was already stored.
+_CBZ_STAGE_SRC = stage_source_hash(ExportEngine.export_cbz)
 _WEBTOON_STAGE_SRC = stage_source_hash(*_WEBTOON_SOURCES)
 _LAYOUT_STAGE_SRC = stage_source_hash(*_LAYOUT_SOURCES)
 
@@ -664,6 +668,42 @@ def _export_pdf_with_manifest(pages_dir: Path, output_dir: Path) -> str:
         data=Path(pdf).read_bytes(),
     )
     return pdf
+
+
+def _export_cbz_with_manifest(pages_dir: Path, output_dir: Path) -> str:
+    """Build ``comic.cbz``, or copy it when the same pages were already bound."""
+    out = output_dir / "comic.cbz"
+    files = sorted(pages_dir.glob("page_*.png"))
+    if not files:
+        files = sorted(p for p in pages_dir.glob("*.png") if p.name.lower() != "webtoon.png")
+    blobs = [path.read_bytes() for path in files]
+    env = h_env(text="", resolved_size=_bound_image_size(blobs))
+    key = export_action_key(
+        pages=blobs,
+        layout="cbz",
+        direction="R2L",
+        env=env,
+        stage_src=_CBZ_STAGE_SRC,
+    )
+    recorded = load_manifest(output_dir, key)
+    if recorded is not None and is_hit(recorded) and recorded.outcome != "ok":
+        return str(out)
+    cached = stored_output(output_dir, key)
+    if cached is not None:
+        out.write_bytes(cached)
+        return str(out)
+    cbz = ExportEngine().export_cbz(pages_dir, out=str(out))
+    record_ok(
+        output_dir,
+        key=key,
+        stage="export",
+        stage_src=_CBZ_STAGE_SRC,
+        env=env,
+        inputs=export_inputs(blobs),
+        name=out.name,
+        data=Path(cbz).read_bytes(),
+    )
+    return cbz
 
 
 def _panel_png_bytes(panel: PanelImage) -> bytes:
@@ -1359,8 +1399,8 @@ async def _creative_comic(
         project_id: identifier stored in state (defaults to the dir name).
         chat / image: provider instances (defaults from the factories).
         style_guide: optional global style appended to every panel prompt.
-        output_format: ``"page"`` for a flip-page PDF (default) or ``"webtoon"``
-            for a single vertical strip PNG (no external CLI required).
+        output_format: ``"page"`` for a flip-page PDF (default), ``"cbz"`` for a
+            zip of those pages, or ``"webtoon"`` for a single vertical strip PNG.
         progress_callback: optional ``callback(stage, percent)`` invoked during
             generation. ``percent`` is ``None`` when the stage has no reliable
             completion percentage; otherwise it ranges from 0.0 to 1.0.
@@ -2331,6 +2371,7 @@ async def _creative_comic(
 
     pdf: str | None = None
     webtoon: str | None = None
+    cbz: str | None = None
     pages: list[str] = []
 
     if mode == "finished_page":
@@ -2347,6 +2388,10 @@ async def _creative_comic(
                     webtoon_paths = _export_webtoon_with_manifest(panel_imgs, pages_dir, output_dir)
                 webtoon = webtoon_paths[0] if webtoon_paths else None
                 pages = webtoon_paths
+            elif output_format == "cbz":
+                with perf.measure("export"):
+                    cbz = _export_cbz_with_manifest(pages_dir, output_dir)
+                pages = [str(p) for p in page_files]
             else:
                 with perf.measure("export"):
                     pdf = _export_pdf_with_manifest(pages_dir, output_dir)
@@ -2381,6 +2426,9 @@ async def _creative_comic(
             _report("export", 0.95)
             if output_format == "webtoon":
                 webtoon = pages[0] if pages else None
+            elif output_format == "cbz" and pages:
+                with perf.measure("export"):
+                    cbz = _export_cbz_with_manifest(pages_dir, output_dir)
             elif pages:
                 with perf.measure("export"):
                     pdf = _export_pdf_with_manifest(pages_dir, output_dir)
@@ -2390,4 +2438,6 @@ async def _creative_comic(
         raise GatePaused(gate.project.paused_key)
     _report("done", 1.0)
     perf.log_summary()
-    return ComicProject(project_id=project_id, state=state, pages=pages, pdf=pdf, webtoon=webtoon)
+    return ComicProject(
+        project_id=project_id, state=state, pages=pages, pdf=pdf, webtoon=webtoon, cbz=cbz
+    )

@@ -1,6 +1,7 @@
 """tests.test_export — PDF export fallback when manga2pdf is absent."""
 
 import shutil
+import zipfile
 from pathlib import Path
 
 from core.comic.export import ExportEngine
@@ -102,3 +103,18 @@ def test_export_pdf_batched_pil_for_many_pages(tmp_path, monkeypatch):
     assert out.read_bytes().startswith(b"%PDF")
     assert open_counts
     assert max(open_counts) <= 3
+
+
+def test_export_cbz_stores_pages_in_name_order_and_skips_the_webtoon(tmp_path):
+    from PIL import Image
+
+    page_dir = tmp_path / "pages"
+    page_dir.mkdir()
+    Image.new("RGB", (4, 4), (1, 0, 0)).save(page_dir / "page_02.png")
+    Image.new("RGB", (4, 4), (0, 1, 0)).save(page_dir / "page_01.png")
+    Image.new("RGB", (4, 4), (0, 0, 1)).save(page_dir / "webtoon.png")
+    out = tmp_path / "comic.cbz"
+    ExportEngine().export_cbz(page_dir, out=str(out))
+    with zipfile.ZipFile(out) as archive:
+        assert archive.namelist() == ["page_01.png", "page_02.png"]
+        assert archive.read("page_01.png") == (page_dir / "page_01.png").read_bytes()

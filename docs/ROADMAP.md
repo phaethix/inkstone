@@ -289,8 +289,9 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
 ### P2 — Delivery experience and proof
 
 - [ ] Add CBZ export and improve PDF typography, including CJK caption support.
-  - **Local:** Pillow PDF export is memory-bounded (batched + `pypdf` merge;
-    optional `img2pdf`).
+  - **Local:** `--format cbz` zips the page images in filename order. A second
+    bind copies the stored archive. Pillow PDF stays memory-bounded. CJK
+    caption typography is still that Pillow path.
 - [ ] Publish a public-domain *Journey to the West* chapter showcase with source,
   plan, coverage report and PDF.
   - **Local (scaffold):** `examples/showcase/journey-west-ch1/` +

@@ -48,9 +48,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p_gen.add_argument("--project", default=None, help="Stable project id (for resume)")
     p_gen.add_argument(
         "--format",
-        choices=["page", "webtoon"],
+        choices=["page", "webtoon", "cbz"],
         default="page",
-        help="page=vertical PDF / webtoon=long-strip PNG",
+        help="page=PDF / webtoon=long-strip PNG / cbz=zip of the pages",
     )
     p_gen.add_argument(
         "--budget",
@@ -139,9 +139,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_plan.add_argument(
         "--format",
-        choices=["page", "webtoon"],
+        choices=["page", "webtoon", "cbz"],
         default="page",
-        help="page=vertical PDF / webtoon=long-strip PNG",
+        help="page=PDF / webtoon=long-strip PNG / cbz=zip of the pages",
     )
     p_plan.add_argument(
         "--api",
