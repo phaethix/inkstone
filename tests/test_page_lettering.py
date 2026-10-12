@@ -3,6 +3,7 @@ from PIL import Image, ImageChops
 from core.comic.layout import LayoutEngine
 from core.comic.page_lettering import (
     LETTERING_VERSION,
+    _shift_off_faces,
     fit_lettering_box,
     letter_finished_page,
     resolve_lettering_jobs,
@@ -93,6 +94,45 @@ def test_fit_lettering_box_stays_inside_page_margin():
     assert y >= int(page_h * 0.04) - 1
     assert x + bw <= page_w - int(page_w * 0.04) + 1
     assert y + bh <= page_h - int(page_h * 0.04) + 1
+
+
+def test_a_box_moves_off_a_face_and_stays_when_there_is_no_face():
+    page = (400, 600)
+    box = (100, 120, 80, 40)
+    face = (90, 100, 120, 100)
+    moved = _shift_off_faces(box, [face], page)
+    assert _overlap(moved, face) == 0
+    assert _shift_off_faces(box, [], page) == box
+
+
+def test_lettering_does_not_paint_a_detected_face(monkeypatch):
+    blank = Image.new("RGB", (200, 300), (180, 180, 180))
+    face = (8, 12, 160, 110)
+    monkeypatch.setattr("core.comic.page_lettering.detect_page_faces", lambda image: [face])
+    plan = ComicPagePlan.model_validate(
+        {
+            "page_id": "p1",
+            "panels": [{"panel_id": "1", "dialogue": "你好世界"}],
+            "lettering_boxes": [
+                {"kind": "dialogue", "panel_id": "1", "x": 0.08, "y": 0.08, "w": 0.6, "h": 0.2},
+            ],
+        }
+    )
+    out = letter_finished_page(blank, plan)
+    fx, fy, fw, fh = face
+    white = sum(
+        1 for y in range(fy, fy + fh) for x in range(fx, fx + fw) if out.getpixel((x, y))[0] > 240
+    )
+    assert white == 0
+    assert ImageChops.difference(out, blank).getbbox() is not None
+
+
+def _overlap(box, other) -> int:
+    x, y, bw, bh = box
+    ox, oy, ow, oh = other
+    ix = max(0, min(x + bw, ox + ow) - max(x, ox))
+    iy = max(0, min(y + bh, oy + oh) - max(y, oy))
+    return ix * iy
 
 
 def test_resolve_strips_pinyin_before_overlay():

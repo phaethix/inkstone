@@ -185,7 +185,7 @@ comic_out/<project_id>/
 | `core/comic/visual_bible.py` | Canon, stages (`Name@child`), locks, sanitize |
 | `core/comic/consistency.py` | L1/L2/L3 engine |
 | `core/comic/page_prompt.py` | Finished-page image prompt |
-| `core/comic/page_lettering.py` | Overlay caption/dialogue/sfx |
+| `core/comic/page_lettering.py` | Overlay caption/dialogue/sfx; move a box off a detected face |
 | `core/comic/fonts.py` | CJK-capable font resolution |
 | `core/comic/lettering_lang.py` | Source-language lettering hygiene |
 | `core/comic/layout.py` | Legacy grid / webtoon compose |
@@ -201,12 +201,13 @@ comic_out/<project_id>/
 | `core/comic/runs.py` | Append-only `runs.jsonl` audit of image and chat attempts |
 | `core/density.py` | Density tiers. `plan` estimates cost; `plan --out` uses counts already planned; `generate --density` passes the tier to planning |
 | `core/comic/coverage.py` | Legacy PageScript report |
+| `core/comic/structure_report.py` | Five structural checks (`inkstone structure`). A chapter is validated only when every check passes and a page is stored |
 
 ### Surfaces
 
 | File | Role |
 |---|---|
-| `core/cli.py` | `generate`, `plan`, `gate`, `identity`, `prune`, `gc`, `verify`, `rebuild`; `coverage` is the PageScript prototype |
+| `core/cli.py` | `generate`, `plan`, `gate`, `identity`, `prune`, `gc`, `verify`, `rebuild`, `structure`; `coverage` is the PageScript prototype |
 | `core/cli_generate.py` | tqdm + credential checks; packaged entry (not `examples/`) |
 | `web/server.py` | Local UI backend; jobs in memory; artifacts on disk |
 | `web/index.html` | Tailwind SPA; GitHub Pages demo mode if `/api/health` is absent |

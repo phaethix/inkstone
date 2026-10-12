@@ -130,7 +130,7 @@ uv run inkstone generate examples/scene1.txt --density B   # draw; --budget N pa
 uv run inkstone identity --out comic_out --view            # character ledger
 ```
 
-`inkstone coverage` reads legacy PageScript fields and is not a quality gate. Those fields are written only when `INKSTONE_PAGE_SCRIPT=1`.
+`inkstone coverage` reads legacy PageScript fields and is not a quality gate. Those fields are written only when `INKSTONE_PAGE_SCRIPT=1`. `inkstone structure` checks stored source units, beats, lettering, causal order, and blocked chunks. A check with nothing to read is absent, not a pass.
 
 ## Web UI
 
