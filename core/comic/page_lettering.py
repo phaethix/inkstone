@@ -126,6 +126,73 @@ def fit_lettering_box(
     return (x, y, need_w, need_h)
 
 
+def _overlap_area(box: tuple[int, int, int, int], other: tuple[int, int, int, int]) -> int:
+    x, y, bw, bh = box
+    ox, oy, ow, oh = other
+    ix = max(0, min(x + bw, ox + ow) - max(x, ox))
+    iy = max(0, min(y + bh, oy + oh) - max(y, oy))
+    return ix * iy
+
+
+def _clamp_pixel_box(
+    box: tuple[int, int, int, int], page_size: tuple[int, int]
+) -> tuple[int, int, int, int]:
+    x, y, bw, bh = box
+    page_w, page_h = page_size
+    margin_x = max(4, int(page_w * _MARGIN_FRAC))
+    margin_y = max(4, int(page_h * _MARGIN_FRAC))
+    bw = min(bw, max(1, page_w - 2 * margin_x))
+    bh = min(bh, max(1, page_h - 2 * margin_y))
+    x = min(max(x, margin_x), page_w - margin_x - bw)
+    y = min(max(y, margin_y), page_h - margin_y - bh)
+    return (x, y, bw, bh)
+
+
+def _shift_off_faces(
+    box: tuple[int, int, int, int],
+    faces: list[tuple[int, int, int, int]],
+    page_size: tuple[int, int],
+) -> tuple[int, int, int, int]:
+    """Move a lettering box off face rectangles. No faces leaves the box put."""
+    if not faces:
+        return box
+    x, y, bw, bh = box
+    page_h = page_size[1]
+    margin_y = max(4, int(page_h * _MARGIN_FRAC))
+    candidates = [box]
+    for fx, fy, fw, fh in faces:
+        candidates.append((x, fy - bh - 4, bw, bh))
+        candidates.append((x, fy + fh + 4, bw, bh))
+        candidates.append((fx - bw - 4, y, bw, bh))
+        candidates.append((fx + fw + 4, y, bw, bh))
+    candidates.append((x, margin_y, bw, bh))
+    candidates.append((x, page_h - margin_y - bh, bw, bh))
+    clamped = [_clamp_pixel_box(item, page_size) for item in candidates]
+    clear = [item for item in clamped if all(_overlap_area(item, face) == 0 for face in faces)]
+    if clear:
+        return min(clear, key=lambda item: abs(item[0] - x) + abs(item[1] - y))
+    return min(clamped, key=lambda item: sum(_overlap_area(item, face) for face in faces))
+
+
+def detect_page_faces(image: Image.Image) -> list[tuple[int, int, int, int]]:
+    """Face rectangles on a blank page. Missing cv2 or no face yields none."""
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        return []
+    from core.comic.consistency import _detect_faces, _load_cascade
+
+    cascade = _load_cascade(cv2, "haarcascade_frontalface_default.xml")
+    if cascade is None:
+        return []
+    try:
+        rgb = np.array(image.convert("RGB"))
+        return _detect_faces(cascade, rgb, cv2)
+    except Exception:  # noqa: BLE001 — a detector failure must not block lettering
+        return []
+
+
 def letter_finished_page(
     blank: Image.Image,
     plan: ComicPagePlan,
@@ -137,11 +204,14 @@ def letter_finished_page(
     draw = ImageDraw.Draw(img)
     engine = LayoutEngine(font_path=font_path)
     w, h = img.size
+    faces = detect_page_faces(img)
     occupied: list[tuple[int, int, int, int]] = []
     for _pid, kind, text, (nx, ny, nw, nh) in resolve_lettering_jobs(plan, source_text=source_text):
         anchor = (int(nx * w), int(ny * h), max(8, int(nw * w)), max(8, int(nh * h)))
         box = fit_lettering_box(engine, kind, text, anchor, (w, h))
+        box = _shift_off_faces(box, faces, (w, h))
         box = _avoid_overlap(box, occupied, (w, h))
+        box = _shift_off_faces(box, faces, (w, h))
         occupied.append(box)
         if kind == "caption":
             engine._draw_caption(draw, box, text)

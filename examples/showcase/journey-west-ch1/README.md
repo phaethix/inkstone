@@ -22,7 +22,9 @@ inkstone plan --book examples/showcase/journey-west-ch1/source.txt --density B -
 
 `plan` is marked `[experimental]`. Its panel rate is an experience value until
 you pass `--out` pointing at a project that already has plans. `generate
---density` uses the same tier and replans when the tier changes.
+--density` uses the same tier and replans when the tier changes. This excerpt
+is one source unit. It is not a validated chapter until beats, lettering, and
+a stored page are present.
 
 ## Generate (needs AGNES_API_KEY)
 

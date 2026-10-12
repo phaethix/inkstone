@@ -2,7 +2,8 @@
 
 ``generate`` 跑整条管线。``plan`` 离线估计体量，不调用模型。``gate``、
 ``identity``、``prune``、``gc``、``verify`` 和 ``rebuild`` 是已发布的项目命令。
-``coverage`` 只核对旧 PageScript 字段，不是成片质量门。
+``coverage`` 只核对旧 PageScript 字段，不是成片质量门。``structure`` 核对
+已存储的源文、节拍、对白、因果和拦截记录，缺记录记为 absent，也不是成片质量门。
 
 ``plan`` 复用 ``core.density.estimate``（内部用 ``segment_text``），给出格数、
 页数、成本、时长和 webtoon 体积预警。计费后端、并发和单价由 ``--api``、
@@ -19,6 +20,7 @@ from core.comic.coverage import compute_coverage_report, write_coverage_report
 from core.comic.identity import clear_tombstones
 from core.comic.ledger import ConsistencyLedger
 from core.comic.prune import apply_prune, parse_older_than, plan_prune
+from core.comic.structure_report import chapter_validated, structural_report, write_structure_report
 from core.density import DensityEstimate, estimate
 from core.schemas import ProjectState
 
@@ -218,6 +220,32 @@ def _build_parser() -> argparse.ArgumentParser:
         "--out",
         default="comic_out",
         help="Project directory that contains index/ and cas/ (default comic_out)",
+    )
+
+    p_struct = sub.add_parser(
+        "structure",
+        help="Check stored source, beats, lettering, order, and blocks. Not a quality gate.",
+    )
+    p_struct.add_argument(
+        "--out",
+        default="comic_out",
+        help="Project directory (contains state.json; default comic_out)",
+    )
+    p_struct.add_argument(
+        "--source",
+        default=None,
+        help="Original text path; defaults to <out>/source.txt",
+    )
+    p_struct.add_argument(
+        "--format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format: text or json (default text)",
+    )
+    p_struct.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit code 1 if any check fails. An absent check does not fail",
     )
 
     p_cov = sub.add_parser(
@@ -444,6 +472,44 @@ def _run_coverage(args: argparse.Namespace) -> None:
         _print_coverage(report)
 
     if args.strict and not report.overall_passed:
+        sys.exit(1)
+
+
+def _print_structure(report, *, validated: bool) -> None:
+    """Print the five structural checks. Absent is shown, not treated as a pass."""
+    print("Structural record check. These checks are not a readability or quality gate.")
+    for check in report.checks:
+        print(f"{check.name} : {check.status} — {check.detail}")
+    if all(check.status == "pass" for check in report.checks):
+        print("全部通过。")
+    elif report.ok:
+        print("没有失败项。缺记录的检查记为 absent，不是通过。")
+    else:
+        print("警告: 存在失败项（--strict 下退出码 1）。")
+    print("chapter : validated" if validated else "chapter : not validated")
+
+
+def _run_structure(args: argparse.Namespace) -> None:
+    """Read state.json and report five structural checks. No model call."""
+    import json
+
+    out = Path(args.out)
+    state_path = out / "state.json"
+    if not state_path.exists():
+        sys.exit(f"state.json 未找到：{args.out}（请先运行 generate 或指定 --out）")
+    state = ProjectState.load(state_path)
+    source_path = Path(args.source) if getattr(args, "source", None) else out / "source.txt"
+    source = source_path.read_text(encoding="utf-8") if source_path.is_file() else ""
+    report = structural_report(state, source)
+    validated = chapter_validated(report, state)
+    write_structure_report(report, out, state=state)
+    if args.format == "json":
+        payload = report.to_json()
+        payload["chapter_validated"] = validated
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        _print_structure(report, validated=validated)
+    if args.strict and not report.ok:
         sys.exit(1)
 
 
@@ -704,6 +770,7 @@ def main() -> None:
         "plan",
         "identity",
         "coverage",
+        "structure",
         "rebuild",
         "prune",
         "gc",
@@ -726,6 +793,8 @@ def main() -> None:
         sys.exit(_run_identity(args))
     elif args.command == "coverage":
         _run_coverage(args)
+    elif args.command == "structure":
+        _run_structure(args)
     elif args.command == "rebuild":
         sys.exit(_run_rebuild(args))
     elif args.command == "prune":

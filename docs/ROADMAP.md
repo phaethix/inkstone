@@ -272,12 +272,19 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
   required beat is written onto a panel. Optional beats stay unnamed unless a
   panel already named them. A chunk with no beats keeps empty `beat_ids`, and
   the storyboard call does not gain another model call.
-- [ ] Add a reader-visible lettering layer: separate caption, dialogue and SFX.
+- [x] Add a reader-visible lettering layer: separate caption, dialogue and SFX.
   - **Local:** MVP lettering fields + layout drawers shipped (caption bar /
-    dialogue bubble / sfx outline). Face-aware placement still open.
-- [ ] Add structural coverage gates for source traceability, beat coverage,
-  visible text, causal order and blocked content.
+    dialogue bubble / sfx outline). A detected face rectangle moves the box
+    off that face. No detected face leaves the box where it was.
+- [x] Add structural coverage gates for source traceability, beat coverage,
+  visible text, causal order and blocked content. `inkstone structure` reads
+  the stored project. A check with nothing to read is absent, not a pass.
+  Skipped chunks and tombstones fail the blocked check. The report does not
+  call a model and is not a readability or quality gate.
 - [ ] Validate one public-domain chapter end-to-end before attempting a whole book.
+  A chapter counts only when every structural check passes and a page is stored.
+  The Journey to the West excerpt is one source unit; beats, lettering, and a
+  stored page are absent, so it is not validated.
 
 ### P2 — Delivery experience and proof
 
