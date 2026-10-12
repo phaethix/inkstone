@@ -299,6 +299,10 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
     `scripts/run_showcase.sh` (source + plan recipe; generated artifacts not
     committed — option C).
 - [ ] Add chapter navigation / browser reader and an identity-ledger CLI or view.
+  - **Local:** `inkstone read --out` lists stored pages by the chunk id in the
+    filename and writes `reader.html`. Arrow keys flip a page. A chunk button
+    jumps to that chunk's first page. `inkstone identity --view` already prints
+    the ledger. The reader does not call a model.
 - [ ] Rewrite README and contributor experience around the validated long-form workflow.
 
 ## M1 — Image Provider abstraction foundation ✅ done
