@@ -452,8 +452,10 @@ def _page_asset_path(pages_dir: Path, chunk_index: int, page_index: int) -> Path
 # pipeline function is not part of any of them.
 _DRAW_SOURCES = (
     LayoutEngine._bubble_height,
+    LayoutEngine._caption_block_height,
     LayoutEngine._draw_bubble,
     LayoutEngine._draw_caption,
+    LayoutEngine._fitted_caption,
     LayoutEngine._draw_sfx,
     LayoutEngine._wrap_chars,
     LayoutEngine._wrap_text,

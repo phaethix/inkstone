@@ -185,7 +185,7 @@ comic_out/<project_id>/
 | `core/comic/visual_bible.py` | Canon, stages (`Name@child`), locks, sanitize |
 | `core/comic/consistency.py` | L1/L2/L3 engine |
 | `core/comic/page_prompt.py` | Finished-page image prompt |
-| `core/comic/page_lettering.py` | Overlay caption/dialogue/sfx; move a box off a detected face |
+| `core/comic/page_lettering.py` | Overlay caption/dialogue/sfx; a caption that does not fit its bar is drawn smaller; move a box off a detected face |
 | `core/comic/fonts.py` | CJK-capable font resolution |
 | `core/comic/lettering_lang.py` | Source-language lettering hygiene |
 | `core/comic/layout.py` | Legacy grid / webtoon compose |

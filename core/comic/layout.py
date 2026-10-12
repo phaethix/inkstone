@@ -15,12 +15,15 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
-from core.comic.fonts import resolve_font, text_requires_cjk
+from core.comic.fonts import DEFAULT_CJK_FONT_SIZE, resolve_font, text_requires_cjk
 from core.config import DEFAULT_WEBTOON_MAX_PIXELS, webtoon_max_pixels
 
 # Re-export for callers/tests that historically imported from this module.
 # Override with INKSTONE_WEBTOON_MAX_PIXELS; set it to 0 to disable the guard.
 __all__ = ["DEFAULT_WEBTOON_MAX_PIXELS", "LayoutEngine", "PanelImage"]
+
+# Smallest CJK size a caption bar will step down to. Below this the bar clips.
+_MIN_CAPTION_SIZE = 9
 
 
 def _webtoon_max_pixels() -> int:
@@ -264,6 +267,28 @@ class LayoutEngine:
             draw.text((x + pad, ty), line, fill="black", font=font)
             ty += line_h
 
+    def _caption_block_height(self, font: ImageFont.ImageFont, lines: list[str]) -> int:
+        return len(lines) * _line_height(font) + 20
+
+    def _fitted_caption(
+        self, text: str, max_width: int, max_height: int
+    ) -> tuple[ImageFont.ImageFont, list[str]]:
+        """Lines that stay inside a caption bar.
+
+        A bar already tall enough keeps the resolved size. A CJK caption that
+        wraps past the bar steps the font down. A bitmap font cannot change size.
+        """
+        font, source = resolve_font(text, font_path=self.font_path)
+        lines = self._wrap_text(text, font, max_width)
+        if source in {"default", "default-no-cjk"}:
+            return font, lines
+        size = DEFAULT_CJK_FONT_SIZE
+        while size > _MIN_CAPTION_SIZE and self._caption_block_height(font, lines) > max_height:
+            size -= 1
+            font, _source = resolve_font(text, size=size, font_path=self.font_path)
+            lines = self._wrap_text(text, font, max_width)
+        return font, lines
+
     def _draw_caption(
         self, draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int], text: str
     ) -> None:
@@ -271,11 +296,14 @@ class LayoutEngine:
         x, y, w, h = box
         pad = 10
         draw.rectangle([x, y, x + w, y + h], fill=(245, 245, 240), outline="black", width=2)
-        font, _source = resolve_font(text, font_path=self.font_path)
         max_w = w - 2 * pad
+        font, lines = self._fitted_caption(text, max_w, h)
         ty = y + pad
         line_h = _line_height(font)
-        for line in self._wrap_text(text, font, max_w):
+        limit = y + h - pad
+        for line in lines:
+            if ty + line_h > limit:
+                break
             draw.text((x + pad, ty), line, fill="black", font=font)
             ty += line_h
 
