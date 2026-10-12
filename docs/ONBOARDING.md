@@ -210,7 +210,7 @@ comic_out/<project_id>/
 |---|---|
 | `core/cli.py` | `generate`, `plan`, `gate`, `identity`, `prune`, `gc`, `verify`, `rebuild`, `structure`, `read`; `coverage` is the PageScript prototype |
 | `core/cli_generate.py` | tqdm + credential checks; packaged entry (not `examples/`) |
-| `web/server.py` | Local UI backend; jobs in memory; artifacts on disk |
+| `web/server.py` | Local UI backend; jobs in memory; artifacts on disk. `/files/<id>/reader.html` writes the reader when pages are stored |
 | `web/index.html` | Tailwind SPA; GitHub Pages demo mode if `/api/health` is absent |
 | `examples/generate_comic.py` | Thin wrapper around `cli_generate` |
 | `scripts/start.sh` / `start.ps1` | One-click demo |

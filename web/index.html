@@ -636,6 +636,9 @@
           <div id="pdfWrap" class="hidden" style="text-align:center;margin-top:24px;">
             <a id="pdf" class="btn btn-secondary" href="#" target="_blank" rel="noreferrer">Download PDF</a>
           </div>
+          <div id="readerWrap" class="hidden" style="text-align:center;margin-top:12px;">
+            <a id="reader" class="btn btn-secondary" href="#" target="_blank" rel="noreferrer">Read pages</a>
+          </div>
         </div>
       </div>
     </div>
@@ -1131,6 +1134,12 @@
         $("pdfWrap").classList.remove("hidden");
       } else {
         $("pdfWrap").classList.add("hidden");
+      }
+      if (job.reader) {
+        $("reader").href = job.reader;
+        $("readerWrap").classList.remove("hidden");
+      } else {
+        $("readerWrap").classList.add("hidden");
       }
       renderReview(job);
       renderSkipped(job);
