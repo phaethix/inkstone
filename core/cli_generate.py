@@ -113,6 +113,8 @@ async def _run(
         print(f"  PDF     -> {proj.pdf}")
     if proj.webtoon:
         print(f"  WEBTOON -> {proj.webtoon}")
+    if proj.cbz:
+        print(f"  CBZ     -> {proj.cbz}")
     print(
         f"  panels  -> {len(proj.state.panels_done)} generated, "
         f"{len(proj.state.skipped)} skipped (content filter)"
@@ -230,9 +232,9 @@ def _parse_args(argv=None) -> argparse.Namespace:
     )
     p.add_argument(
         "--format",
-        choices=["page", "webtoon"],
+        choices=["page", "webtoon", "cbz"],
         default="page",
-        help="output format: flip-page PDF (default) or vertical webtoon PNG",
+        help="page=PDF (default), cbz=zip of the pages, or vertical webtoon PNG",
     )
     p.add_argument(
         "--budget",

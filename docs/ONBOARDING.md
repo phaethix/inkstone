@@ -192,7 +192,7 @@ comic_out/<project_id>/
 | `core/comic/layout_diversity.py` | Layout catalog + anti-repetition |
 | `core/comic/voice.py` | Speaker / timeline sanitize |
 | `core/comic/key_beats.py` | Must-draw beat coverage |
-| `core/comic/export.py` | PDF (optional `manga2pdf`) + webtoon PNG |
+| `core/comic/export.py` | PDF, CBZ (`--format cbz`), and the webtoon strip is composed in layout |
 | `core/comic/budget.py` | Per-run call budget and stage reservations (`--budget`) |
 | `core/comic/gate.py` | Sample gate and per-page decisions (`--yes`, `inkstone gate`) |
 | `core/comic/stage_contract.py` | Declared stage inputs: hard, soft, and the bounded layout window |

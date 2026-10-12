@@ -18,6 +18,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import zipfile
 from pathlib import Path
 
 try:
@@ -177,5 +178,21 @@ class ExportEngine:
             ]
             result = subprocess.run(cmd, capture_output=True, text=True)
             return result.returncode == 0
-
         return False
+
+    def export_cbz(self, page_dir, out: str = "comic.cbz") -> str:
+        """Zip page images in filename order. The archive time is fixed."""
+        page_dir = Path(page_dir)
+        pages = sorted(page_dir.glob("page_*.png"))
+        if not pages:
+            pages = sorted(p for p in page_dir.glob("*.png") if p.name.lower() != "webtoon.png")
+        if not pages:
+            raise RuntimeError(f"no page images found in {page_dir}")
+        out_path = Path(out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(out_path, "w") as archive:
+            for page in pages:
+                info = zipfile.ZipInfo(filename=page.name, date_time=(1980, 1, 1, 0, 0, 0))
+                info.compress_type = zipfile.ZIP_STORED
+                archive.writestr(info, page.read_bytes())
+        return str(out_path)

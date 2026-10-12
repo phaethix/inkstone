@@ -127,6 +127,7 @@ On Windows use `.\scripts\start.ps1`. Sample inputs ship in `examples/` (`scene1
 ```bash
 uv run inkstone plan --book examples/scene1.txt            # offline size estimate; does not draw
 uv run inkstone generate examples/scene1.txt --density B   # draw; --budget N pauses at a call limit
+uv run inkstone generate examples/scene1.txt --format cbz  # zip the page images as comic.cbz
 uv run inkstone identity --out comic_out --view            # character ledger
 ```
 

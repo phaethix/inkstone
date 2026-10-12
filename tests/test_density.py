@@ -70,6 +70,7 @@ def test_pages_follow_panels_per_page(tmp_path):
     assert est.pages == expected_pages
     assert est.output_format == "page"
     assert est.output_name == "comic.pdf"
+    assert estimate(book, density="B", output_format="cbz").output_name == "comic.cbz"
 
 
 # --------------------------------------------------------------------------- #

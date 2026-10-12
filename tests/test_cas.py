@@ -30,6 +30,7 @@ from core.comic.cas import (
 from core.comic.env_snapshot import h_env
 from core.comic.layout import PanelImage
 from core.pipelines.creative_comic import (
+    _export_cbz_with_manifest,
     _export_pdf_with_manifest,
     _export_webtoon_with_manifest,
     _layout_pages_with_manifest,
@@ -265,6 +266,28 @@ def test_a_fallback_size_reletters_the_stored_blank(tmp_path, monkeypatch):
     )
     assert calls["n"] == 2
     assert blank.read_bytes() == blank_bytes
+    assert verify(tmp_path) == []
+
+
+def test_a_second_cbz_bind_copies_the_stored_archive(tmp_path, monkeypatch):
+    pages = tmp_path / "pages"
+    pages.mkdir()
+    Image.new("RGB", (8, 8), (1, 2, 3)).save(pages / "page_c0000_p0000.png")
+    calls = {"n": 0}
+    real = __import__("core.comic.export", fromlist=["ExportEngine"]).ExportEngine.export_cbz
+
+    def counting(self, page_dir, out="comic.cbz"):
+        calls["n"] += 1
+        return real(self, page_dir, out)
+
+    monkeypatch.setattr("core.pipelines.creative_comic.ExportEngine.export_cbz", counting)
+    first = _export_cbz_with_manifest(pages, tmp_path)
+    assert calls["n"] == 1
+    stored = Path(first).read_bytes()
+    Path(first).unlink()
+    second = _export_cbz_with_manifest(pages, tmp_path)
+    assert Path(second).read_bytes() == stored
+    assert calls["n"] == 1
     assert verify(tmp_path) == []
 
 

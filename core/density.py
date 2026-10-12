@@ -148,7 +148,11 @@ def _webtoon_warning(output_format: str, pages: int) -> tuple[bool, str | None]:
 
 def _output_name(output_format: str) -> str:
     """Filename produced for the chosen format (matches the pipeline's output)."""
-    return "webtoon.png" if output_format == "webtoon" else "comic.pdf"
+    if output_format == "webtoon":
+        return "webtoon.png"
+    if output_format == "cbz":
+        return "comic.cbz"
+    return "comic.pdf"
 
 
 def _scale_observed(chunks: int, observed: list[int]) -> int:
@@ -187,7 +191,7 @@ def estimate(
     Args:
         book_path: path to the source ``.txt`` novel.
         density: density tier ``"A"`` / ``"B"`` / ``"C"`` (default ``"B"``).
-        output_format: ``"page"`` (PDF) or ``"webtoon"`` (vertical PNG).
+        output_format: ``"page"`` (PDF), ``"cbz"``, or ``"webtoon"`` (vertical PNG).
         api: billing backend ``"agnes"`` (free quota) or ``"openai-compat"``.
         concurrency: parallel panel workers assumed for the duration estimate.
         price_per_panel: ¥ per panel for ``openai-compat``; ``None`` → "按单价".
