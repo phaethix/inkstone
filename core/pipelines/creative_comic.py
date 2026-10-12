@@ -71,7 +71,13 @@ from core.comic.consistency import (
     _panel_reference_names,
 )
 from core.comic.env_snapshot import h_env
-from core.comic.export import ExportEngine, _pdf_batch_size
+from core.comic.export import (
+    ExportEngine,
+    _comic_info_xml,
+    _img2pdf_layout,
+    _pdf_batch_size,
+    _pdf_dpi,
+)
 from core.comic.fonts import resolve_font, text_requires_cjk
 from core.comic.gate import SAMPLE_GATE_SIZE, GatePaused, GateSession
 from core.comic.identity import (
@@ -457,7 +463,9 @@ _DRAW_SOURCES = (
     LayoutEngine._draw_caption,
     LayoutEngine._fitted_caption,
     LayoutEngine._draw_sfx,
+    LayoutEngine._rebreak_for_punctuation,
     LayoutEngine._wrap_chars,
+    LayoutEngine._wrap_mixed,
     LayoutEngine._wrap_text,
     LayoutEngine._wrap_words,
     _line_height,
@@ -509,12 +517,14 @@ _EXPORT_SOURCES = (
     ExportEngine._save_pil_batch,
     ExportEngine._try_img2pdf,
     ExportEngine.export_pdf,
+    _img2pdf_layout,
+    _pdf_dpi,
 )
 _LETTER_STAGE_SRC = stage_source_hash(*_LETTER_SOURCES)
 _EXPORT_STAGE_SRC = stage_source_hash(*_EXPORT_SOURCES)
 # Kept off the PDF hash. A CBZ is a different binder, and adding it must not
 # change the key of a PDF that was already stored.
-_CBZ_STAGE_SRC = stage_source_hash(ExportEngine.export_cbz)
+_CBZ_STAGE_SRC = stage_source_hash(ExportEngine.export_cbz, _comic_info_xml)
 _WEBTOON_STAGE_SRC = stage_source_hash(*_WEBTOON_SOURCES)
 _LAYOUT_STAGE_SRC = stage_source_hash(*_LAYOUT_SOURCES)
 

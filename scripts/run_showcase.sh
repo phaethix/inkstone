@@ -25,4 +25,10 @@ Next (needs AGNES_API_KEY):
 Or Colab:
   ./scripts/colab_run.sh run examples/showcase/journey-west-ch1/source.txt \
     --project journey-west-ch1 --format page
+
+`--format cbz` zips the stored pages and writes a page count.
+After pages exist, these read the project and do not call a model:
+  inkstone structure --out comic_out/journey-west-ch1
+  inkstone read --out comic_out/journey-west-ch1
+The excerpt is one source unit. It is not a validated chapter.
 EOF

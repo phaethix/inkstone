@@ -30,6 +30,31 @@ logger = logging.getLogger(__name__)
 
 # Peak resident RGB pages for the Pillow path (override with INKSTONE_PDF_BATCH).
 _DEFAULT_PDF_BATCH = 8
+# Pixels per inch for the Pillow PDF. 72 would make one pixel one point, so a
+# 1024×1536 page would be about 14 by 21 inches.
+_PDF_DPI = 150
+
+
+def _pdf_dpi() -> int:
+    return _PDF_DPI
+
+
+def _comic_info_xml(page_count: int) -> str:
+    """Page count for a CBZ reader. The archive lists pages in reading order."""
+    return (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        "<ComicInfo>\n"
+        f"  <PageCount>{page_count}</PageCount>\n"
+        "</ComicInfo>\n"
+    )
+
+
+def _img2pdf_layout(imgwidthpx: float, imgheightpx: float, _ndpi: tuple) -> tuple:
+    """Page size in points at ``_pdf_dpi``, ignoring the image's own dpi tag."""
+    dpi = float(_pdf_dpi())
+    width = 72.0 * imgwidthpx / dpi
+    height = 72.0 * imgheightpx / dpi
+    return (width, height, width, height)
 
 
 def _pdf_batch_size() -> int:
@@ -106,7 +131,7 @@ class ExportEngine:
         except ImportError:
             return False
         with open(out, "wb") as fh:
-            fh.write(img2pdf.convert([str(p) for p in pages]))
+            fh.write(img2pdf.convert([str(p) for p in pages], layout_fun=_img2pdf_layout))
         return True
 
     def _export_pdf_pil_batched(self, pages: list[Path], out: str) -> None:
@@ -137,7 +162,13 @@ class ExportEngine:
             for path in pages:
                 with Image.open(path) as src:
                     images.append(src.convert("RGB"))
-            images[0].save(out, "PDF", save_all=True, append_images=images[1:])
+            images[0].save(
+                out,
+                "PDF",
+                save_all=True,
+                append_images=images[1:],
+                resolution=_pdf_dpi(),
+            )
         finally:
             for im in images:
                 im.close()
@@ -191,6 +222,9 @@ class ExportEngine:
         out_path = Path(out)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(out_path, "w") as archive:
+            info = zipfile.ZipInfo(filename="ComicInfo.xml", date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_STORED
+            archive.writestr(info, _comic_info_xml(len(pages)).encode())
             for page in pages:
                 info = zipfile.ZipInfo(filename=page.name, date_time=(1980, 1, 1, 0, 0, 0))
                 info.compress_type = zipfile.ZIP_STORED

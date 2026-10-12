@@ -1,6 +1,7 @@
 """tests.test_export — PDF export fallback when manga2pdf is absent."""
 
 import shutil
+import sys
 import zipfile
 from pathlib import Path
 
@@ -105,6 +106,56 @@ def test_export_pdf_batched_pil_for_many_pages(tmp_path, monkeypatch):
     assert max(open_counts) <= 3
 
 
+def test_pil_pdf_scales_a_page_to_a_readable_size(tmp_path, monkeypatch):
+    _force_pil_path(monkeypatch)
+    from PIL import Image
+    from pypdf import PdfReader
+
+    page_dir = tmp_path / "pages"
+    page_dir.mkdir()
+    Image.new("RGB", (1024, 1536), (20, 30, 40)).save(page_dir / "page_01.png")
+    out = tmp_path / "comic.pdf"
+    ExportEngine().export_pdf(page_dir, out=str(out))
+    box = PdfReader(out).pages[0].mediabox
+    assert float(box.width) == 1024 * 72 / 150
+    assert float(box.height) == 1536 * 72 / 150
+
+
+def test_img2pdf_uses_the_same_page_dpi(tmp_path, monkeypatch):
+    from core.comic.export import _pdf_dpi
+
+    real_which = shutil.which
+
+    def _which(cmd):
+        if cmd == "manga2pdf":
+            return None
+        return real_which(cmd)
+
+    monkeypatch.setattr(shutil, "which", _which)
+    seen: dict = {}
+
+    class _Img2Pdf:
+        @staticmethod
+        def convert(pages, **kwargs):
+            seen["pages"] = list(pages)
+            seen["layout"] = kwargs.get("layout_fun")
+            return b"%PDF-img2pdf"
+
+    monkeypatch.setitem(sys.modules, "img2pdf", _Img2Pdf)
+    page_dir = tmp_path / "pages"
+    page_dir.mkdir()
+    (page_dir / "page_01.png").write_bytes(b"\x89PNG")
+    out = tmp_path / "comic.pdf"
+    ExportEngine().export_pdf(page_dir, out=str(out))
+    assert out.read_bytes() == b"%PDF-img2pdf"
+    assert seen["pages"] == [str(page_dir / "page_01.png")]
+    # img2pdf's default for a PNG without a dpi tag is 96. The layout must
+    # ignore that and use the same 150 dpi as the Pillow binder.
+    width, height, img_w, img_h = seen["layout"](1024, 1536, (96, 96))
+    assert width == img_w == 1024 * 72 / _pdf_dpi()
+    assert height == img_h == 1536 * 72 / _pdf_dpi()
+
+
 def test_export_cbz_stores_pages_in_name_order_and_skips_the_webtoon(tmp_path):
     from PIL import Image
 
@@ -116,5 +167,12 @@ def test_export_cbz_stores_pages_in_name_order_and_skips_the_webtoon(tmp_path):
     out = tmp_path / "comic.cbz"
     ExportEngine().export_cbz(page_dir, out=str(out))
     with zipfile.ZipFile(out) as archive:
-        assert archive.namelist() == ["page_01.png", "page_02.png"]
+        assert archive.namelist() == ["ComicInfo.xml", "page_01.png", "page_02.png"]
         assert archive.read("page_01.png") == (page_dir / "page_01.png").read_bytes()
+        assert archive.getinfo("ComicInfo.xml").date_time == (1980, 1, 1, 0, 0, 0)
+        assert archive.read("ComicInfo.xml") == (
+            b'<?xml version="1.0" encoding="utf-8"?>\n'
+            b"<ComicInfo>\n"
+            b"  <PageCount>2</PageCount>\n"
+            b"</ComicInfo>\n"
+        )

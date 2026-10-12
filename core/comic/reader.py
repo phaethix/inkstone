@@ -70,11 +70,13 @@ def _document(groups: list[tuple[str, list[str]]]) -> str:
 body {{ margin: 0; background: #111; color: #eee; font-family: sans-serif; }}
 nav {{ display: flex; gap: 8px; flex-wrap: wrap; padding: 8px; }}
 button {{ background: #222; color: #eee; border: 1px solid #444; padding: 6px 10px; }}
+#count {{ text-align: center; margin: 8px; }}
 img {{ max-height: 88vh; max-width: 100%; display: block; margin: 0 auto; }}
 </style>
 </head>
 <body>
 <nav id="chapters"></nav>
+<p id="count"></p>
 <img id="page" alt="">
 <script>
 const book = {payload};
@@ -84,6 +86,7 @@ const nav = document.getElementById("chapters");
 function show() {{
   img.src = book.pages[index];
   img.alt = book.pages[index];
+  document.getElementById("count").textContent = (index + 1) + " / " + book.pages.length;
 }}
 for (const chapter of book.chapters) {{
   const button = document.createElement("button");

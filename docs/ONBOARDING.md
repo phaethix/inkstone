@@ -185,14 +185,14 @@ comic_out/<project_id>/
 | `core/comic/visual_bible.py` | Canon, stages (`Name@child`), locks, sanitize |
 | `core/comic/consistency.py` | L1/L2/L3 engine |
 | `core/comic/page_prompt.py` | Finished-page image prompt |
-| `core/comic/page_lettering.py` | Overlay caption/dialogue/sfx; a caption that does not fit its bar is drawn smaller; move a box off a detected face |
+| `core/comic/page_lettering.py` | Overlay caption/dialogue/sfx; text that does not fit is drawn smaller and stays inside the box, including the sfx stroke; move a box off a detected face |
 | `core/comic/fonts.py` | CJK-capable font resolution |
 | `core/comic/lettering_lang.py` | Source-language lettering hygiene |
 | `core/comic/layout.py` | Legacy grid / webtoon compose |
 | `core/comic/layout_diversity.py` | Layout catalog + anti-repetition |
 | `core/comic/voice.py` | Speaker / timeline sanitize |
 | `core/comic/key_beats.py` | Must-draw beat coverage |
-| `core/comic/export.py` | PDF, CBZ (`--format cbz`), and the webtoon strip is composed in layout |
+| `core/comic/export.py` | PDF; CBZ (`--format cbz`) with `ComicInfo.xml` page count; webtoon strip is composed in layout |
 | `core/comic/budget.py` | Per-run call budget and stage reservations (`--budget`) |
 | `core/comic/gate.py` | Sample gate and per-page decisions (`--yes`, `inkstone gate`) |
 | `core/comic/stage_contract.py` | Declared stage inputs: hard, soft, and the bounded layout window |
@@ -202,7 +202,7 @@ comic_out/<project_id>/
 | `core/density.py` | Density tiers. `plan` estimates cost; `plan --out` uses counts already planned; `generate --density` passes the tier to planning |
 | `core/comic/coverage.py` | Legacy PageScript report |
 | `core/comic/structure_report.py` | Five structural checks (`inkstone structure`). A chapter is validated only when every check passes and a page is stored |
-| `core/comic/reader.py` | `inkstone read` writes `reader.html` over stored page images. It does not call a model |
+| `core/comic/reader.py` | `inkstone read` writes `reader.html` over stored page images and shows the page index. It does not call a model |
 
 ### Surfaces
 
@@ -265,11 +265,15 @@ non-overwritable `face_lock` are on the consistency/fidelity line of work.
 **Next approved product work** (see roadmap):
 
 - **P0** — Calibrate the page-count estimate with a public-domain sample. Density
-  is already a planning budget, and PageScript stays a prototype report.
-- **P1** — Chapter-complete adaptation: `SourceUnit` → `NarrativeBeat` →
-  beat-constrained storyboard/lettering → structural coverage. Validate on one
-  public-domain chapter before a whole book.
-- **P2** — CBZ, chapter reader, identity CLI, Journey-to-the-West showcase.
+  is already a planning budget. Phase 3 stays closed.
+- **P1** — Source units, adaptation plans, beat ids, lettering, and structural
+  checks are in tree. Validate one public-domain chapter before a whole book.
+  The Journey excerpt is not validated.
+- **P2** — CBZ, the page reader, and the identity ledger view are in tree. A CJK
+  caption, dialogue line, or sfx that does not fit its box is drawn smaller
+  and stops at the box edge, outline and stroke included. Closing and opening
+  marks stay with the neighboring glyph when the pair fits the line; the PDF is still that
+  raster. The showcase has a source and a plan recipe, not a stored page.
 
 Long-form target architecture drafts under `docs/architecture/` may still be
 local-only; until they are published, **roadmap + this file + released code**
