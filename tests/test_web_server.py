@@ -613,3 +613,36 @@ def test_get_projects_endpoint(tmp_path, monkeypatch):
             "has_timing": False,
         }
     ]
+
+
+def test_opening_the_reader_writes_it_from_stored_pages(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    pages = tmp_path / "demo" / "pages"
+    pages.mkdir(parents=True)
+    (pages / "page_c0000_p0001.png").write_bytes(b"\x89PNG")
+    (pages / "page_c0000_p0000.png").write_bytes(b"\x89PNG")
+    (pages / "webtoon.png").write_bytes(b"\x89PNG")
+    assert server._reader_url("demo") == "/files/demo/reader.html"
+    assert not (tmp_path / "demo" / "reader.html").exists()
+    with _running_server() as httpd:
+        req = urllib.request.Request(f"http://127.0.0.1:{httpd.server_port}/files/demo/reader.html")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            body = resp.read().decode("utf-8")
+            status = resp.status
+    assert status == 200
+    assert body.index("pages/page_c0000_p0000.png") < body.index("pages/page_c0000_p0001.png")
+    assert "webtoon.png" not in body
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    assert server._reader_url("empty") is None
+    with _running_server() as httpd:
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{httpd.server_port}/files/empty/reader.html"
+        )
+        try:
+            urllib.request.urlopen(req, timeout=5)
+        except urllib.error.HTTPError as exc:
+            assert exc.code == 404
+        else:
+            raise AssertionError("missing pages should not serve a reader")
+    assert not (empty / "reader.html").exists()

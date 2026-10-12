@@ -52,6 +52,7 @@ from core.comic.identity import (  # noqa: E402
     remember_merged_alias,
 )
 from core.comic.ledger import ConsistencyLedger  # noqa: E402
+from core.comic.reader import chapter_pages, write_reader  # noqa: E402
 from core.config import data_dir  # noqa: E402
 from core.pipelines.creative_comic import estimate_progress  # noqa: E402
 from core.pipelines.run_until_complete import PausedRun, run_until_complete  # noqa: E402
@@ -163,6 +164,19 @@ class _JobLogHandler(logging.Handler):
         _append_job_log(self._job, record.getMessage())
 
 
+def _reader_url(project_id: str | None) -> str | None:
+    """URL of the browser reader when the project already has page images."""
+    if not project_id:
+        return None
+    try:
+        project = _project_dir(project_id)
+    except ValueError:
+        return None
+    if not chapter_pages(project / "pages"):
+        return None
+    return f"/files/{project.name}/reader.html"
+
+
 def _file_url(local_path: str) -> str:
     """Turn an on-disk path under OUTPUT_DIR into a /files/<rel> URL."""
     target = Path(local_path).resolve()
@@ -234,6 +248,7 @@ def _fill_job_from_project(job: dict, proj) -> None:
     ]
     job["webtoon"] = _file_url(proj.webtoon) if proj.webtoon else None
     job["pdf"] = _file_url(proj.pdf) if proj.pdf else None
+    job["reader"] = _reader_url(proj.project_id)
     job.update(_state_snapshot(proj.state))
     job["project_id"] = proj.project_id
 
@@ -255,6 +270,7 @@ def _fill_job_from_paused(job: dict, paused: PausedRun) -> None:
             for panel_key, generated in ordered_panels
             if _is_output_file(generated.local)
         ]
+        job["reader"] = _reader_url(paused.project_id)
 
 
 def _load_checkpoint_state(project_id: str) -> ProjectState | None:
@@ -447,6 +463,7 @@ def _start_job(
             "panels": [],
             "webtoon": None,
             "pdf": None,
+            "reader": None,
             "skipped": [],
             "skipped_chunks": [],
             "needs_review": [],
@@ -643,6 +660,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/files/"):
             rel = self.path[len("/files/") :]
             target = (OUTPUT_DIR / rel).resolve()
+            if (
+                target.name == "reader.html"
+                and _is_within(target.parent, OUTPUT_DIR)
+                and chapter_pages(target.parent / "pages")
+            ):
+                write_reader(target.parent)
             if target.is_file() and _is_within(target, OUTPUT_DIR):
                 self._send_file(target)
             else:
@@ -672,6 +695,7 @@ class Handler(BaseHTTPRequestHandler):
                     "panels": job["panels"],
                     "webtoon": job["webtoon"],
                     "pdf": job["pdf"],
+                    "reader": job.get("reader"),
                     "skipped": job.get("skipped", []),
                     "skipped_chunks": job.get("skipped_chunks", []),
                     "needs_review": job.get("needs_review", []),
