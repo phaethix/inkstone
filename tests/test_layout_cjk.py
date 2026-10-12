@@ -141,3 +141,28 @@ def test_engine_compose_with_cjk_dialogue(tmp_path, monkeypatch):
     assert len(paths) == 1
     # Bubble expands the cell and renders without raising.
     assert Image.open(paths[0]).height >= 100
+
+
+def test_a_long_cjk_caption_stays_inside_its_bar():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    text = "石猴跳进瀑布发现水帘洞里面有铁板桥和石屋群猴才知道那里是洞天福地"
+    short = "次日"
+    wide, tall = 220, 80
+    fitted, _lines = engine._fitted_caption(short, wide - 20, tall)
+    assert getattr(fitted, "size", None) == fonts.DEFAULT_CJK_FONT_SIZE
+    box = (16, 16, 120, 40)
+    canvas = Image.new("RGB", (200, 160), (180, 180, 180))
+    engine._draw_caption(ImageDraw.Draw(canvas), box, text)
+    x, y, w, h = box
+    for py in range(y + h + 3, canvas.height):
+        for px in range(canvas.width):
+            assert canvas.getpixel((px, py)) == (180, 180, 180)
+    ink = [
+        canvas.getpixel((px, py))
+        for py in range(y + 4, y + h - 4)
+        for px in range(x + 4, x + w - 4)
+    ]
+    assert any(pixel != (245, 245, 240) for pixel in ink)

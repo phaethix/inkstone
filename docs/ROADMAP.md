@@ -290,8 +290,9 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
 
 - [ ] Add CBZ export and improve PDF typography, including CJK caption support.
   - **Local:** `--format cbz` zips the page images in filename order. A second
-    bind copies the stored archive. Pillow PDF stays memory-bounded. CJK
-    caption typography is still that Pillow path.
+    bind copies the stored archive. Pillow PDF stays memory-bounded. A CJK
+    caption that wraps past its bar is drawn smaller so the glyphs stay inside
+    the bar. The PDF is still that raster.
 - [ ] Publish a public-domain *Journey to the West* chapter showcase with source,
   plan, coverage report and PDF.
   - **Local (scaffold):** `examples/showcase/journey-west-ch1/` +
