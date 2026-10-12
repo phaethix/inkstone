@@ -129,6 +129,7 @@ uv run inkstone plan --book examples/scene1.txt            # offline size estima
 uv run inkstone generate examples/scene1.txt --density B   # draw; --budget N pauses at a call limit
 uv run inkstone generate examples/scene1.txt --format cbz  # zip the page images as comic.cbz
 uv run inkstone identity --out comic_out --view            # character ledger
+uv run inkstone read --out comic_out                    # flip stored pages in a browser
 ```
 
 `inkstone coverage` reads legacy PageScript fields and is not a quality gate. Those fields are written only when `INKSTONE_PAGE_SCRIPT=1`. `inkstone structure` checks stored source units, beats, lettering, causal order, and blocked chunks. A check with nothing to read is absent, not a pass.

@@ -4,6 +4,7 @@
 ``identity``、``prune``、``gc``、``verify`` 和 ``rebuild`` 是已发布的项目命令。
 ``coverage`` 只核对旧 PageScript 字段，不是成片质量门。``structure`` 核对
 已存储的源文、节拍、对白、因果和拦截记录，缺记录记为 absent，也不是成片质量门。
+``read`` 按已存页写出浏览器翻页文件，不调用模型。
 
 ``plan`` 复用 ``core.density.estimate``（内部用 ``segment_text``），给出格数、
 页数、成本、时长和 webtoon 体积预警。计费后端、并发和单价由 ``--api``、
@@ -20,6 +21,7 @@ from core.comic.coverage import compute_coverage_report, write_coverage_report
 from core.comic.identity import clear_tombstones
 from core.comic.ledger import ConsistencyLedger
 from core.comic.prune import apply_prune, parse_older_than, plan_prune
+from core.comic.reader import chapter_pages, write_reader
 from core.comic.structure_report import chapter_validated, structural_report, write_structure_report
 from core.density import DensityEstimate, estimate
 from core.schemas import ProjectState
@@ -246,6 +248,16 @@ def _build_parser() -> argparse.ArgumentParser:
         "--strict",
         action="store_true",
         help="Exit code 1 if any check fails. An absent check does not fail",
+    )
+
+    p_read = sub.add_parser(
+        "read",
+        help="Write a browser reader for stored page images. Does not call a model.",
+    )
+    p_read.add_argument(
+        "--out",
+        default="comic_out",
+        help="Project directory (contains pages/; default comic_out)",
     )
 
     p_cov = sub.add_parser(
@@ -513,6 +525,22 @@ def _run_structure(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def _run_read(args: argparse.Namespace) -> int:
+    """List stored pages by chunk id and write ``reader.html``."""
+    project = Path(args.out)
+    try:
+        written = write_reader(project)
+    except RuntimeError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    for label, paths in chapter_pages(project / "pages"):
+        print(label)
+        for path in paths:
+            print(f"  {path.relative_to(project).as_posix()}")
+    print(f"reader -> {written}")
+    return 0
+
+
 def _run_identity(args: argparse.Namespace) -> int:
     """identity 子命令：打印一致性账本（§12）。"""
     out = Path(args.out)
@@ -771,6 +799,7 @@ def main() -> None:
         "identity",
         "coverage",
         "structure",
+        "read",
         "rebuild",
         "prune",
         "gc",
@@ -795,6 +824,8 @@ def main() -> None:
         _run_coverage(args)
     elif args.command == "structure":
         _run_structure(args)
+    elif args.command == "read":
+        sys.exit(_run_read(args))
     elif args.command == "rebuild":
         sys.exit(_run_rebuild(args))
     elif args.command == "prune":

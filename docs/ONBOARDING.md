@@ -202,12 +202,13 @@ comic_out/<project_id>/
 | `core/density.py` | Density tiers. `plan` estimates cost; `plan --out` uses counts already planned; `generate --density` passes the tier to planning |
 | `core/comic/coverage.py` | Legacy PageScript report |
 | `core/comic/structure_report.py` | Five structural checks (`inkstone structure`). A chapter is validated only when every check passes and a page is stored |
+| `core/comic/reader.py` | `inkstone read` writes `reader.html` over stored page images. It does not call a model |
 
 ### Surfaces
 
 | File | Role |
 |---|---|
-| `core/cli.py` | `generate`, `plan`, `gate`, `identity`, `prune`, `gc`, `verify`, `rebuild`, `structure`; `coverage` is the PageScript prototype |
+| `core/cli.py` | `generate`, `plan`, `gate`, `identity`, `prune`, `gc`, `verify`, `rebuild`, `structure`, `read`; `coverage` is the PageScript prototype |
 | `core/cli_generate.py` | tqdm + credential checks; packaged entry (not `examples/`) |
 | `web/server.py` | Local UI backend; jobs in memory; artifacts on disk |
 | `web/index.html` | Tailwind SPA; GitHub Pages demo mode if `/api/health` is absent |
