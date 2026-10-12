@@ -138,6 +138,19 @@ def test_wrap_text_latin_breaks_on_word_boundaries():
         assert any(word in line for line in lines)
 
 
+def test_wrap_text_keeps_a_latin_word_intact_beside_cjk():
+    eng = LayoutEngine()
+    font = ImageFont.load_default()
+    text = "石猴 hello"
+    lines = eng._wrap_text(text, font, max_width=font.getlength("hello"))
+    assert "".join(lines).replace(" ", "") == text.replace(" ", "")
+    assert any("hello" in line for line in lines)
+    for line in lines:
+        for piece in ("hel", "ell", "llo"):
+            if piece in line:
+                assert "hello" in line
+
+
 def test_wrap_text_cjk_still_breaks_per_character():
     eng = LayoutEngine()
     font = ImageFont.load_default()

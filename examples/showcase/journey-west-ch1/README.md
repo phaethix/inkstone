@@ -44,6 +44,12 @@ Or via Colab CLI:
 ./scripts/colab_run.sh download --project journey-west-ch1
 ```
 
+`--format cbz` zips the stored pages and writes a page count. After pages
+exist, `inkstone structure --out comic_out/journey-west-ch1` and
+`inkstone read --out comic_out/journey-west-ch1` read that project and do
+not call a model. The reader shows the page index. None of that validates
+the excerpt.
+
 ## Honesty note
 
 Lettering (caption / dialogue / sfx) is drawn by layout when the storyboard

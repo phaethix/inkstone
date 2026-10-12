@@ -256,14 +256,21 @@ class LayoutEngine:
     ) -> None:
         x, y, w, h = box
         pad = 10
+        # Pillow treats the right and bottom as inclusive, so the outline
+        # ends on the last pixel inside the box.
         draw.rounded_rectangle(
-            [x, y, x + w, y + h], radius=12, fill="white", outline="black", width=2
+            [x, y, x + w - 1, y + h - 1], radius=12, fill="white", outline="black", width=2
         )
-        font, _source = resolve_font(text, font_path=self.font_path)
         max_w = w - 2 * pad
+        font, lines = self._fitted_caption(text, max(1, max_w), h)
         ty = y + pad
         line_h = _line_height(font)
-        for line in self._wrap_text(text, font, max_w):
+        limit = y + h - pad
+        for line in lines:
+            if ty + line_h > limit:
+                break
+            if max_w < 1 or font.getlength(line) > max_w:
+                continue
             draw.text((x + pad, ty), line, fill="black", font=font)
             ty += line_h
 
@@ -275,18 +282,23 @@ class LayoutEngine:
     ) -> tuple[ImageFont.ImageFont, list[str]]:
         """Lines that stay inside a caption bar.
 
-        A bar already tall enough keeps the resolved size. A CJK caption that
-        wraps past the bar steps the font down. A bitmap font cannot change size.
+        A bar already tall enough and wide enough keeps the resolved size. A CJK
+        caption that wraps past the bar, or a line wider than the bar, steps the
+        font down. A bitmap font cannot change size.
         """
         font, source = resolve_font(text, font_path=self.font_path)
         lines = self._wrap_text(text, font, max_width)
         if source in {"default", "default-no-cjk"}:
             return font, lines
         size = DEFAULT_CJK_FONT_SIZE
-        while size > _MIN_CAPTION_SIZE and self._caption_block_height(font, lines) > max_height:
+        too_wide = any(font.getlength(line) > max_width for line in lines)
+        while size > _MIN_CAPTION_SIZE and (
+            self._caption_block_height(font, lines) > max_height or too_wide
+        ):
             size -= 1
             font, _source = resolve_font(text, size=size, font_path=self.font_path)
             lines = self._wrap_text(text, font, max_width)
+            too_wide = any(font.getlength(line) > max_width for line in lines)
         return font, lines
 
     def _draw_caption(
@@ -295,15 +307,17 @@ class LayoutEngine:
         """Rectangular narration bar (not a speech bubble)."""
         x, y, w, h = box
         pad = 10
-        draw.rectangle([x, y, x + w, y + h], fill=(245, 245, 240), outline="black", width=2)
+        draw.rectangle([x, y, x + w - 1, y + h - 1], fill=(245, 245, 240), outline="black", width=2)
         max_w = w - 2 * pad
-        font, lines = self._fitted_caption(text, max_w, h)
+        font, lines = self._fitted_caption(text, max(1, max_w), h)
         ty = y + pad
         line_h = _line_height(font)
         limit = y + h - pad
         for line in lines:
             if ty + line_h > limit:
                 break
+            if max_w < 1 or font.getlength(line) > max_w:
+                continue
             draw.text((x + pad, ty), line, fill="black", font=font)
             ty += line_h
 
@@ -312,16 +326,25 @@ class LayoutEngine:
     ) -> None:
         """Outlined onomatopoeia — no bubble chrome."""
         x, y, w, h = box
-        font, _source = resolve_font(text, font_path=self.font_path)
-        max_w = max(20, w - 8)
-        lines = self._wrap_text(text, font, max_w)
+        # Stroke is ±2 and the glyph antialias is about one more pixel.
+        inset = 4
+        max_w = w - 2 * inset
+        if max_w < 1:
+            return
+        font, lines = self._fitted_caption(text, max_w, h)
         line_h = _line_height(font)
-        ty = y
+        tx = x + inset
+        ty = y + inset
+        limit = y + h - inset
         for line in lines:
+            if ty + line_h > limit:
+                break
+            if font.getlength(line) > max_w:
+                continue
             # Stroke then fill for a crude comic SFX look.
             for dx, dy in ((-2, 0), (2, 0), (0, -2), (0, 2), (-1, -1), (1, 1)):
-                draw.text((x + dx, ty + dy), line, fill="white", font=font)
-            draw.text((x, ty), line, fill="black", font=font)
+                draw.text((tx + dx, ty + dy), line, fill="white", font=font)
+            draw.text((tx, ty), line, fill="black", font=font)
             ty += line_h
 
     @staticmethod
@@ -332,10 +355,81 @@ class LayoutEngine:
                 lines.append("")
                 continue
             if text_requires_cjk(paragraph):
-                lines.extend(LayoutEngine._wrap_chars(paragraph, font, max_width))
+                has_word = any(ch not in " \n" and not text_requires_cjk(ch) for ch in paragraph)
+                if has_word:
+                    lines.extend(LayoutEngine._wrap_mixed(paragraph, font, max_width))
+                else:
+                    lines.extend(LayoutEngine._wrap_chars(paragraph, font, max_width))
             else:
                 lines.extend(LayoutEngine._wrap_words(paragraph, font, max_width))
         return lines or [""]
+
+    @staticmethod
+    def _wrap_mixed(text: str, font: ImageFont.ImageFont, max_width: int) -> list[str]:
+        """Char-wrap CJK and keep each Latin word on one line."""
+        tokens: list[str] = []
+        word = ""
+        for char in text:
+            if char == " ":
+                if word:
+                    tokens.append(word)
+                    word = ""
+                tokens.append(" ")
+            elif text_requires_cjk(char):
+                if word:
+                    tokens.append(word)
+                    word = ""
+                tokens.append(char)
+            else:
+                word += char
+        if word:
+            tokens.append(word)
+
+        lines: list[str] = []
+        cur = ""
+        for token in tokens:
+            if token == " ":
+                if cur and font.getlength(cur + " ") <= max_width:
+                    cur += " "
+                continue
+            if font.getlength(cur + token) <= max_width:
+                cur += token
+                continue
+            moved = LayoutEngine._rebreak_for_punctuation(cur, token, font, max_width)
+            if moved is not None:
+                head, cur = moved
+                if head:
+                    lines.append(head)
+                continue
+            if cur.strip():
+                lines.append(cur.rstrip())
+            if font.getlength(token) <= max_width:
+                cur = token
+            else:
+                broken = LayoutEngine._wrap_chars(token, font, max_width)
+                lines.extend(broken[:-1])
+                cur = broken[-1] if broken else ""
+        if cur.strip():
+            lines.append(cur.rstrip())
+        return lines
+
+    @staticmethod
+    def _rebreak_for_punctuation(
+        cur: str, token: str, font: ImageFont.ImageFont, max_width: int
+    ) -> tuple[str, str] | None:
+        """Keep a closing mark with the previous glyph, and an opening mark with the next."""
+        no_start = "，。！？、；：」』】）》〉〕］｝”’…"
+        no_end = "「『【（《〈〔［｛“‘"
+        body = cur.rstrip()
+        if len(token) != 1 or len(body) < 2:
+            return None
+        if token not in no_start and body[-1] not in no_end:
+            return None
+        head, tail = body[:-1], body[-1]
+        moved = tail + token
+        if font.getlength(moved) > max_width:
+            return None
+        return head, moved
 
     @staticmethod
     def _wrap_chars(text: str, font: ImageFont.ImageFont, max_width: int) -> list[str]:
@@ -344,10 +438,16 @@ class LayoutEngine:
         for char in text:
             if font.getlength(cur + char) <= max_width:
                 cur += char
-            else:
-                if cur:
-                    lines.append(cur)
-                cur = char
+                continue
+            moved = LayoutEngine._rebreak_for_punctuation(cur, char, font, max_width)
+            if moved is not None:
+                head, cur = moved
+                if head:
+                    lines.append(head)
+                continue
+            if cur:
+                lines.append(cur)
+            cur = char
         if cur:
             lines.append(cur)
         return lines

@@ -12,7 +12,7 @@
 
 > *"Grind your novel into comics."*
 
-**Inkstone** reads a local `txt` novel and, through the free **Agnes** multimodal API, produces comic pages with cross-panel character consistency — exported as **PDF / PNG**. No GPU, no paid plan: just one free API key.
+**Inkstone** reads a local `txt` novel and, through the free **Agnes** multimodal API, produces comic pages with cross-panel character consistency — exported as **PDF / CBZ / PNG**. No GPU, no paid plan: just one free API key.
 
 ---
 
@@ -68,7 +68,7 @@ Inkstone is an **independent implementation, not a fork** — inspired by [`lcy3
   <img src="assets/readme/pipeline.svg" width="100%" alt="Pipeline: Split → Extract → Board → Paint → Export" />
 </p>
 
-A `txt` novel is split into segments → characters & scenes are extracted with `agnes-3.0-flash` → **finished-page mode (default)** plans one comic page per image call (blank lettering chrome on the art) → each page is painted → Inkstone overlays text with real fonts → pages are bound to PDF or stacked into a webtoon PNG. For the legacy path, set `INKSTONE_RENDER_MODE=panel_compose`: storyboard prompts → per-panel generation → `LayoutEngine` grid layout → export.
+A `txt` novel is split into segments → characters & scenes are extracted with `agnes-3.0-flash` → **finished-page mode (default)** plans one comic page per image call (blank lettering chrome on the art) → each page is painted → Inkstone overlays text with real fonts → pages are bound to PDF, zipped as CBZ, or stacked into a webtoon PNG. For the legacy path, set `INKSTONE_RENDER_MODE=panel_compose`: storyboard prompts → per-panel generation → `LayoutEngine` grid layout → export.
 
 The core challenge — **cross-panel character consistency without a GPU** — is handled by a layered strategy:
 
@@ -129,10 +129,10 @@ uv run inkstone plan --book examples/scene1.txt            # offline size estima
 uv run inkstone generate examples/scene1.txt --density B   # draw; --budget N pauses at a call limit
 uv run inkstone generate examples/scene1.txt --format cbz  # zip the page images as comic.cbz
 uv run inkstone identity --out comic_out --view            # character ledger
-uv run inkstone read --out comic_out                    # flip stored pages in a browser
+uv run inkstone read --out comic_out                       # flip stored pages in a browser
 ```
 
-`inkstone coverage` reads legacy PageScript fields and is not a quality gate. Those fields are written only when `INKSTONE_PAGE_SCRIPT=1`. `inkstone structure` checks stored source units, beats, lettering, causal order, and blocked chunks. A check with nothing to read is absent, not a pass.
+`inkstone coverage` reads legacy PageScript fields and is not a quality gate. Those fields are written only when `INKSTONE_PAGE_SCRIPT=1`. `inkstone structure` checks stored source units, beats, lettering, causal order, and blocked chunks. A check with nothing to read is absent, not a pass. A chapter is validated only when every one of those checks passes and a page is stored.
 
 ## Web UI
 
@@ -143,7 +143,7 @@ AGNES_API_KEY=sk-xxx uv run python web/server.py
 # open http://127.0.0.1:8000
 ```
 
-Paste a novel, optionally set a **project id** (resume the same `comic_out/<id>/`), pick webtoon/page, and hit Generate. The backend runs an **unattended supervisor** around `creative_comic`: timeouts and free-tier 503s are retried automatically with backoff until the comic finishes, or until the wall-clock deadline (`INKSTONE_RUN_DEADLINE_HOURS`, default **24h**) pauses the job with progress saved. Artifacts land under `comic_out/<project_id>/`. After generation, the UI surfaces **alias review** (merge / dismiss — never silent), **skipped** panels with retry, and **redraw affected** after a merge.
+Paste a novel, optionally set a **project id** (resume the same `comic_out/<id>/`), pick webtoon/page, and hit Generate. The backend runs an **unattended supervisor** around `creative_comic`: timeouts and free-tier 503s are retried automatically with backoff until the comic finishes, or until the wall-clock deadline (`INKSTONE_RUN_DEADLINE_HOURS`, default **24h**) pauses the job with progress saved. Artifacts land under `comic_out/<project_id>/`. After generation, the UI surfaces **alias review** (merge / dismiss — never silent), **skipped** panels with retry, **redraw affected** after a merge, and **Read pages** when that project already has page images.
 
 **The same `web/index.html` is also deployed to GitHub Pages.** The SPA auto-detects whether a backend is present: locally it generates your comic; on the static site it runs in *demo mode* with the identical interface. See `https://phaethix.github.io/inkstone/`.
 

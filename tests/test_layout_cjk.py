@@ -156,6 +156,7 @@ def test_a_long_cjk_caption_stays_inside_its_bar():
     box = (16, 16, 120, 40)
     canvas = Image.new("RGB", (200, 160), (180, 180, 180))
     engine._draw_caption(ImageDraw.Draw(canvas), box, text)
+    _pixels_outside_stay_background(canvas, box, (180, 180, 180))
     x, y, w, h = box
     for py in range(y + h + 3, canvas.height):
         for px in range(canvas.width):
@@ -166,3 +167,92 @@ def test_a_long_cjk_caption_stays_inside_its_bar():
         for px in range(x + 4, x + w - 4)
     ]
     assert any(pixel != (245, 245, 240) for pixel in ink)
+
+
+def _pixels_outside_stay_background(canvas, box, background):
+    x, y, w, h = box
+    for px in range(x, x + w):
+        assert canvas.getpixel((px, y - 1)) == background
+        assert canvas.getpixel((px, y + h)) == background
+    for py in range(y, y + h):
+        assert canvas.getpixel((x - 1, py)) == background
+        assert canvas.getpixel((x + w, py)) == background
+
+
+def _pixels_below_stay_background(canvas, box, background):
+    _x, y, _w, h = box
+    for py in range(y + h + 8, canvas.height):
+        for px in range(canvas.width):
+            assert canvas.getpixel((px, py)) == background
+
+
+def test_a_long_cjk_bubble_and_sfx_stay_inside_their_boxes():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    text = "石猴跳进瀑布发现水帘洞里面有铁板桥和石屋群猴才知道那里是洞天福地"
+    short_font, _lines = engine._fitted_caption("你好", 200, 80)
+    assert getattr(short_font, "size", None) == fonts.DEFAULT_CJK_FONT_SIZE
+    background = (180, 180, 180)
+    bubble = (16, 16, 120, 40)
+    canvas = Image.new("RGB", (200, 160), background)
+    engine._draw_bubble(ImageDraw.Draw(canvas), bubble, text)
+    _pixels_below_stay_background(canvas, bubble, background)
+    _pixels_outside_stay_background(canvas, bubble, background)
+    assert _has_dark_pixel(canvas, bubble)
+    sfx = (16, 16, 100, 36)
+    canvas = Image.new("RGB", (200, 160), background)
+    engine._draw_sfx(ImageDraw.Draw(canvas), sfx, text)
+    _pixels_below_stay_background(canvas, sfx, background)
+    _pixels_outside_stay_background(canvas, sfx, background)
+    assert _has_dark_pixel(canvas, sfx)
+
+
+def test_lettering_stays_inside_a_box_narrower_than_one_glyph():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    text = "石猴跳进瀑布发现水帘洞"
+    background = (180, 180, 180)
+    boxes = (
+        (engine._draw_caption, (16, 16, 18, 80)),
+        (engine._draw_bubble, (16, 16, 18, 80)),
+        (engine._draw_sfx, (16, 16, 18, 40)),
+    )
+    for drawer, box in boxes:
+        canvas = Image.new("RGB", (80, 140), background)
+        drawer(ImageDraw.Draw(canvas), box, text)
+        _pixels_outside_stay_background(canvas, box, background)
+
+
+def test_cjk_punctuation_stays_with_the_neighboring_glyph():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("石，「", font_path=path)
+    closing = "石猴，跳"
+    width = font.getlength("石猴")
+    assert font.getlength("石猴，") > width
+    assert font.getlength("猴，") <= width
+    lines = engine._wrap_text(closing, font, max_width=width)
+    assert "".join(lines) == closing
+    assert all(not line.startswith("，") for line in lines)
+    assert any(line.endswith("，") for line in lines)
+    opening = "石「猴"
+    width = font.getlength("石「")
+    assert font.getlength("石「猴") > width
+    assert font.getlength("「猴") <= width
+    lines = engine._wrap_text(opening, font, max_width=width)
+    assert "".join(lines) == opening
+    assert all(not line.endswith("「") for line in lines)
+    assert any(line.startswith("「") for line in lines)
+
+
+def _has_dark_pixel(canvas, box) -> bool:
+    x, y, w, h = box
+    return any(
+        canvas.getpixel((px, py))[0] < 40 for py in range(y, y + h) for px in range(x, x + w)
+    )

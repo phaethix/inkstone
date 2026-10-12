@@ -47,10 +47,10 @@ When completing a change:
 | Web UI and unattended supervisor | Released | Local browser UI, cancel, retry, review, deadline pause / resume; job/project JSON exposes `render_mode`, `pages_done`, `skipped_pages` |
 | Colab operations | Released | Background jobs, download progress, alias adopt after 404/401 |
 | Page-PDF recovery and source-language dialogue prompt | Released | Existing panels can be re-exported to PDF; new runs request dialogue in source language |
-| Density estimate (D1) | Prototype on `main` | CLI estimator only; A/B/C labels match product brief; does not constrain generate |
+| Density estimate (D1) | Prototype on `main` | Tiers set the planning budget. `plan` is still an uncalibrated page-count estimate |
 | Old PageScript / coverage (D2) | Prototype on `main` — do not treat as gate | Opt-in via `INKSTONE_PAGE_SCRIPT=1`; coverage never vacuous-passes skips |
-| Chapter-complete adaptation | Planned | SourceUnit → NarrativeBeat → constrained storyboard / lettering → structural coverage |
-| CBZ, chapter reader, identity CLI | Planned | Follow the chapter-complete MVP; not current blockers |
+| Chapter-complete adaptation | Prototype on `main` | Source units, adaptation plans, beat ids, lettering, and `inkstone structure` are in tree. A chapter counts only when every check passes and a page is stored. The Journey excerpt is not validated |
+| CBZ, chapter reader, identity CLI | Prototype on `main` | `--format cbz`, `inkstone read`, the web Read pages link, and `identity --view` are in tree. They are not a validated-chapter gate |
 
 ### Prototype guardrail (D1/D2 on `main`)
 
@@ -289,22 +289,35 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
 ### P2 — Delivery experience and proof
 
 - [ ] Add CBZ export and improve PDF typography, including CJK caption support.
-  - **Local:** `--format cbz` zips the page images in filename order. A second
-    bind copies the stored archive. Pillow PDF stays memory-bounded. A CJK
+  - **Local:** `--format cbz` zips the page images in filename order and writes
+    `ComicInfo.xml` with that page count. A second
+    bind copies the stored archive. Pillow writes pages at 150 dpi. img2pdf
+    uses that same dpi in its page layout, so a PNG without a dpi tag is not
+    left at the converter default of 96. A CJK
     caption that wraps past its bar is drawn smaller so the glyphs stay inside
-    the bar. The PDF is still that raster.
+    the bar. Dialogue and sfx that do not fit their box do the same and stop at
+    the box edge. The caption bar, the dialogue outline, and the sfx stroke
+    all stop on the last pixel inside that edge. A box narrower than one glyph
+    does not paint past that edge. A closing mark stays with the previous glyph,
+    and an opening mark stays with the next, when that pair fits the line. A
+    caption that mixes CJK and Latin keeps each Latin word intact.
+    The PDF is still that raster.
 - [ ] Publish a public-domain *Journey to the West* chapter showcase with source,
   plan, coverage report and PDF.
   - **Local (scaffold):** `examples/showcase/journey-west-ch1/` +
     `scripts/run_showcase.sh` (source + plan recipe; generated artifacts not
     committed — option C).
-- [ ] Add chapter navigation / browser reader and an identity-ledger CLI or view.
+- [x] Add chapter navigation / browser reader and an identity-ledger CLI or view.
   - **Local:** `inkstone read --out` lists stored pages by the chunk id in the
-    filename and writes `reader.html`. Arrow keys flip a page. A chunk button
+    filename and writes `reader.html`. The page shows its index and the stored
+    page count. Arrow keys flip a page. A chunk button
     jumps to that chunk's first page. `inkstone identity --view` already prints
     the ledger. A finished web job links to the same file when pages are stored;
     opening that link writes it. The reader does not call a model.
 - [ ] Rewrite README and contributor experience around the validated long-form workflow.
+  - **Local:** The README names PDF, CBZ, and PNG, and the shipped commands. It
+    says a chapter is validated only when every structural check passes and a
+    page is stored. The Journey excerpt is not that chapter.
 
 ## M1 — Image Provider abstraction foundation ✅ done
 

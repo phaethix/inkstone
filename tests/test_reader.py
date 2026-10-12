@@ -41,6 +41,8 @@ def test_reader_html_lists_pages_in_filename_order(tmp_path):
     assert "webtoon.png" not in html
     assert "ArrowRight" in html
     assert "c0000" in html
+    assert 'id="count"' in html
+    assert "book.pages.length" in html
 
 
 def test_read_without_pages_writes_nothing(tmp_path, capsys):
