@@ -471,24 +471,53 @@ class LayoutEngine:
 
     @staticmethod
     def _wrap_clock(token: str, font: ImageFont.ImageFont, max_width: int) -> list[str] | None:
-        """Keep the minutes with the colon and the last hour digit that fits."""
-        if token.count(":") != 1:
+        """Keep each clock field intact, and hang its colon on the previous field."""
+        parts = token.split(":")
+        if not 2 <= len(parts) <= 3:
             return None
-        hour, minutes = token.split(":", 1)
-        if (
-            not hour.isdigit()
-            or not 1 <= len(hour) <= 2
-            or len(minutes) != 2
-            or not minutes.isdigit()
-        ):
+        hour, *rest = parts
+        if not hour.isdigit() or not 1 <= len(hour) <= 2:
             return None
-        mark = f":{minutes}"
-        for start in range(len(hour)):
-            hung = hour[start:] + mark
-            if font.getlength(hung) <= max_width:
-                head = hour[:start]
-                return [head, hung] if head else [hung]
-        return None
+        if any(len(part) != 2 or not part.isdigit() for part in rest):
+            return None
+        if len(rest) == 1:
+            mark = f":{rest[0]}"
+            for start in range(len(hour)):
+                hung = hour[start:] + mark
+                if font.getlength(hung) <= max_width:
+                    head = hour[:start]
+                    return [head, hung] if head else [hung]
+            return None
+        lines: list[str] = []
+        cur = ""
+        for field in (hour, *rest):
+            while True:
+                piece = field if not cur else f":{field}"
+                if font.getlength(cur + piece) <= max_width:
+                    cur += piece
+                    break
+                if ":" in cur:
+                    head, tail = cur.rsplit(":", 1)
+                    if (
+                        tail
+                        and font.getlength(head + ":") <= max_width
+                        and font.getlength(tail) <= max_width
+                    ):
+                        lines.append(head + ":")
+                        cur = tail
+                        continue
+                if (
+                    cur
+                    and font.getlength(cur + ":") <= max_width
+                    and font.getlength(field) <= max_width
+                ):
+                    lines.append(cur + ":")
+                    cur = field
+                    break
+                return None
+        if cur:
+            lines.append(cur)
+        return lines
 
     @staticmethod
     def _wrap_grouped_number(

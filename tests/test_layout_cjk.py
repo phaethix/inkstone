@@ -703,6 +703,28 @@ def test_a_clock_keeps_its_minutes():
         assert all(torn not in line or minutes in line for line in lines)
 
 
+def test_a_clock_keeps_its_seconds():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("12:30:45后的", font_path=path)
+    text = "12:30:45后"
+    cases = (
+        ("30:45", "30:45"),
+        ("0:45", "30"),
+    )
+    for sample, kept in cases:
+        width = font.getlength(sample)
+        assert font.getlength("12:30:45") > width
+        assert font.getlength(kept) <= width
+        lines = engine._wrap_text(text, font, max_width=width)
+        assert "".join(lines) == text
+        assert any(kept in line for line in lines)
+        assert all("12:3" not in line for line in lines)
+        assert all("45" in line or "5" not in line for line in lines)
+
+
 def _has_dark_pixel(canvas, box) -> bool:
     x, y, w, h = box
     return any(

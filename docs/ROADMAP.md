@@ -323,7 +323,8 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
     hangs on the last digit the same way. A letter unit after that decimal
     stays with the fraction when the pair fits the line. A classifier such as
     个, 只, 名, 位, or 岁 hangs on the previous digit the same way. A clock keeps
-    its minutes with the colon when that group fits the line. A
+    its minutes with the colon when that group fits the line. Seconds stay in
+    their own pair, and that colon hangs on the previous pair when it fits. A
     caption that mixes CJK and Latin keeps each Latin word intact.
     The PDF is still that raster.
 - [ ] Publish a public-domain *Journey to the West* chapter showcase with source,
