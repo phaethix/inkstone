@@ -305,7 +305,9 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
     line. A halfwidth comma hangs on the previous CJK glyph and leaves a Latin
     word intact. A halfwidth opening mark stays with the next glyph when that
     pair fits the line. A dash, a tilde, and a middle dot hang on the previous
-    glyph when that group fits the line. A
+    glyph when that group fits the line. On a page grid, sfx starts below the
+    caption bar. A percent sign and a degree mark hang on the previous digit
+    when that pair fits the line. A
     caption that mixes CJK and Latin keeps each Latin word intact.
     The PDF is still that raster.
 - [ ] Publish a public-domain *Journey to the West* chapter showcase with source,

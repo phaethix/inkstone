@@ -35,6 +35,21 @@ def test_place_panel_preserves_aspect_with_letterbox():
     assert canvas2.getpixel((233, 500)) == (0, 0, 200)
 
 
+def test_sfx_starts_below_the_caption_bar():
+    eng = LayoutEngine(bg=(255, 255, 255))
+    art = _img()
+    box = (0, 0, 400, 800)
+    caption_only = Image.new("RGB", (400, 800), (255, 255, 255))
+    both = Image.new("RGB", (400, 800), (255, 255, 255))
+    eng._place_panel(caption_only, PanelImage(art, caption="Later"), box)
+    eng._place_panel(both, PanelImage(art, caption="Later", sfx="BOOM"), box)
+    bar = (245, 245, 240)
+    for y in range(caption_only.height):
+        for x in range(caption_only.width):
+            if caption_only.getpixel((x, y)) == bar:
+                assert both.getpixel((x, y)) == bar
+
+
 def test_compose_four_panels_fill_one_page_2x2(tmp_path):
     eng = LayoutEngine()
     panels = [PanelImage(_img()) for _ in range(4)]
