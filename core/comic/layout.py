@@ -407,7 +407,9 @@ class LayoutEngine:
             if font.getlength(token) <= max_width:
                 cur = token
             else:
-                broken = LayoutEngine._wrap_chars(token, font, max_width)
+                broken = LayoutEngine._wrap_number_unit(token, font, max_width)
+                if broken is None:
+                    broken = LayoutEngine._wrap_chars(token, font, max_width)
                 lines.extend(broken[:-1])
                 cur = broken[-1] if broken else ""
         if cur.strip():
@@ -439,6 +441,27 @@ class LayoutEngine:
         if font.getlength(moved) > max_width:
             return None
         return head, moved
+
+    @staticmethod
+    def _wrap_number_unit(
+        token: str, font: ImageFont.ImageFont, max_width: int
+    ) -> list[str] | None:
+        """Keep a letter unit with the last digit when that group fits the line."""
+        split = 0
+        while split < len(token) and token[split].isdigit():
+            split += 1
+        unit = token[split:]
+        if split == 0 or not unit.isascii() or not unit.isalpha():
+            return None
+        number = token[:split]
+        for index in range(len(number)):
+            hung = number[index:] + unit
+            if font.getlength(hung) <= max_width:
+                head = number[:index]
+                lines = LayoutEngine._wrap_chars(head, font, max_width) if head else []
+                lines.append(hung)
+                return lines
+        return None
 
     @staticmethod
     def _wrap_chars(text: str, font: ImageFont.ImageFont, max_width: int) -> list[str]:
@@ -475,7 +498,10 @@ class LayoutEngine:
             if font.getlength(word) <= max_width:
                 cur = word
             else:
-                lines.extend(LayoutEngine._wrap_chars(word, font, max_width))
+                broken = LayoutEngine._wrap_number_unit(word, font, max_width)
+                if broken is None:
+                    broken = LayoutEngine._wrap_chars(word, font, max_width)
+                lines.extend(broken)
                 cur = ""
         if cur:
             lines.append(cur)

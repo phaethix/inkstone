@@ -464,6 +464,7 @@ _DRAW_SOURCES = (
     LayoutEngine._fitted_caption,
     LayoutEngine._draw_sfx,
     LayoutEngine._rebreak_for_punctuation,
+    LayoutEngine._wrap_number_unit,
     LayoutEngine._wrap_chars,
     LayoutEngine._wrap_mixed,
     LayoutEngine._wrap_text,
