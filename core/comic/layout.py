@@ -397,6 +397,8 @@ class LayoutEngine:
                 cur += token
                 continue
             moved = LayoutEngine._rebreak_for_punctuation(cur, token, font, max_width)
+            if moved is None:
+                moved = LayoutEngine._hang_spaced_unit(cur, token, font, max_width)
             if moved is not None:
                 head, cur = moved
                 if head:
@@ -421,7 +423,7 @@ class LayoutEngine:
         cur: str, token: str, font: ImageFont.ImageFont, max_width: int
     ) -> tuple[str, str] | None:
         """Keep a closing mark with the previous glyph, and an opening mark with the next."""
-        no_start = "，。！？、；：」』】）》〉〕］｝”’…—～·%％℃°,.;:!?)]"
+        no_start = "，。！？、；：」』】）》〉〕］｝”’…—～·%％℃°‰′″℉Ωμ㎡㎏㎝㎜㎞¥$€£￥元,.;:!?)]"
         no_end = "「『【（《〈〔［｛“‘([{"
         body = cur.rstrip()
         if len(body) < 2 or not token:
@@ -443,18 +445,49 @@ class LayoutEngine:
         return head, moved
 
     @staticmethod
+    def _hang_spaced_unit(
+        cur: str, token: str, font: ImageFont.ImageFont, max_width: int
+    ) -> tuple[str, str] | None:
+        """Keep a spaced letter unit with the previous digit when that group fits."""
+        body = cur.rstrip()
+        if not body or not body[-1].isdigit() or not token.isascii() or not token.isalpha():
+            return None
+        gap = " " if cur.endswith(" ") else ""
+        hung = body[-1] + gap + token
+        if font.getlength(hung) > max_width:
+            return None
+        return body[:-1].rstrip(), hung
+
+    @staticmethod
     def _wrap_number_unit(
         token: str, font: ImageFont.ImageFont, max_width: int
     ) -> list[str] | None:
         """Keep a letter unit with the last digit when that group fits the line."""
         split = 0
-        while split < len(token) and token[split].isdigit():
-            split += 1
+        seen_dot = False
+        while split < len(token):
+            char = token[split]
+            if char.isdigit():
+                split += 1
+                continue
+            if (
+                char == "."
+                and not seen_dot
+                and split > 0
+                and split + 1 < len(token)
+                and token[split + 1].isdigit()
+            ):
+                seen_dot = True
+                split += 1
+                continue
+            break
         unit = token[split:]
         if split == 0 or not unit.isascii() or not unit.isalpha():
             return None
         number = token[:split]
         for index in range(len(number)):
+            if number[index] == ".":
+                continue
             hung = number[index:] + unit
             if font.getlength(hung) <= max_width:
                 head = number[:index]

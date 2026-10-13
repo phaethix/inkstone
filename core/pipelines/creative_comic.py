@@ -464,6 +464,7 @@ _DRAW_SOURCES = (
     LayoutEngine._fitted_caption,
     LayoutEngine._draw_sfx,
     LayoutEngine._rebreak_for_punctuation,
+    LayoutEngine._hang_spaced_unit,
     LayoutEngine._wrap_number_unit,
     LayoutEngine._wrap_chars,
     LayoutEngine._wrap_mixed,
@@ -1700,6 +1701,9 @@ async def _creative_comic(
         # Merge characters; generate a portrait only for first-seen names.
         state.characters, new_names = merge_characters(state.characters, elements.characters)
         apply_recorded_merges(state, ledger)
+        # A name folded by a recorded merge is not a new character, so it does
+        # not pay for another portrait or another bible reconcile.
+        new_names = [name for name in new_names if name in state.characters]
         planned_elements = elements_with_recorded_merges(elements, state)
         for name in new_names:
             if name not in state.characters:

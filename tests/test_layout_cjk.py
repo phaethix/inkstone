@@ -406,6 +406,141 @@ def test_a_letter_unit_hangs_on_the_previous_digit():
         assert all(not line.startswith(mark) for line in lines)
 
 
+def test_a_decimal_unit_hangs_on_the_previous_digit():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("3.14cm", font_path=path)
+    cases = (
+        ("约3.14cm后", "3.14cm", "4cm", "cm"),
+        ("重2.5kg的", "2.5kg", "5kg", "kg"),
+    )
+    for text, whole, hung, mark in cases:
+        width = font.getlength(hung)
+        assert font.getlength(whole) > width
+        assert font.getlength(hung) <= width
+        lines = engine._wrap_text(text, font, max_width=width)
+        assert "".join(lines) == text
+        assert any(mark in line for line in lines)
+        assert all(mark in line or not any(char in line for char in mark) for line in lines)
+        assert all(not line.startswith(mark) for line in lines)
+
+
+def test_a_permille_hangs_on_the_previous_digit():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("90‰′″的", font_path=path)
+    cases = (
+        ("90‰的", "90‰", "0‰", "‰"),
+        ("90′的", "90′", "0′", "′"),
+        ("90″的", "90″", "0″", "″"),
+    )
+    for text, whole, hung, mark in cases:
+        width = font.getlength(hung)
+        assert font.getlength("90") <= width
+        assert font.getlength(hung) <= width
+        assert font.getlength(whole) > width
+        lines = engine._wrap_text(text, font, max_width=width)
+        assert "".join(lines) == text
+        assert any(line.endswith(mark) for line in lines)
+        assert all(not line.startswith(mark) for line in lines)
+
+
+def test_a_spaced_letter_unit_hangs_on_the_previous_digit():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("约50 cm后", font_path=path)
+    cases = (
+        ("约50 cm后", "50 cm", "0 cm", "cm"),
+        ("重30 kg的", "30 kg", "0 kg", "kg"),
+    )
+    for text, whole, hung, mark in cases:
+        width = font.getlength(hung)
+        assert font.getlength(whole) > width
+        assert font.getlength(hung) <= width
+        lines = engine._wrap_text(text, font, max_width=width)
+        assert "".join(lines) == text
+        assert any(mark in line for line in lines)
+        assert all(mark in line or not any(char in line for char in mark) for line in lines)
+        assert all(not line.startswith(mark) for line in lines)
+
+
+def test_a_symbol_unit_hangs_on_the_previous_digit():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("30℉Ωμ的", font_path=path)
+    cases = (
+        ("30℉后", "30", "30℉", "0℉", "℉"),
+        ("50Ω的", "50", "50Ω", "0Ω", "Ω"),
+        ("50μ后", "50", "50μ", "0μ", "μ"),
+    )
+    for text, digits, whole, hung, mark in cases:
+        width = font.getlength(hung)
+        assert font.getlength(digits) <= width
+        assert font.getlength(hung) <= width
+        assert font.getlength(whole) > width
+        lines = engine._wrap_text(text, font, max_width=width)
+        assert "".join(lines) == text
+        assert any(line.endswith(mark) for line in lines)
+        assert all(not line.startswith(mark) for line in lines)
+
+
+def test_a_compat_unit_hangs_on_the_previous_digit():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("50㎡㎏㎝的", font_path=path)
+    cases = (
+        ("50㎡的", "50", "50㎡", "0㎡", "㎡"),
+        ("50㎏的", "50", "50㎏", "0㎏", "㎏"),
+        ("50㎝的", "50", "50㎝", "0㎝", "㎝"),
+        ("50㎜的", "50", "50㎜", "0㎜", "㎜"),
+        ("50㎞的", "50", "50㎞", "0㎞", "㎞"),
+    )
+    for text, digits, whole, hung, mark in cases:
+        width = font.getlength(hung)
+        assert font.getlength(digits) <= width
+        assert font.getlength(hung) <= width
+        assert font.getlength(whole) > width
+        lines = engine._wrap_text(text, font, max_width=width)
+        assert "".join(lines) == text
+        assert any(line.endswith(mark) for line in lines)
+        assert all(not line.startswith(mark) for line in lines)
+
+
+def test_a_currency_mark_hangs_on_the_previous_digit():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("50¥元的", font_path=path)
+    cases = (
+        ("50¥的", "50", "50¥", "0¥", "¥"),
+        ("50$的", "50", "50$", "0$", "$"),
+        ("50€的", "50", "50€", "0€", "€"),
+        ("50£的", "50", "50£", "0£", "£"),
+        ("50￥的", "50", "50￥", "0￥", "￥"),
+        ("50元的", "50", "50元", "0元", "元"),
+    )
+    for text, digits, whole, hung, mark in cases:
+        width = font.getlength(hung)
+        assert font.getlength(digits) <= width
+        assert font.getlength(hung) <= width
+        assert font.getlength(whole) > width
+        lines = engine._wrap_text(text, font, max_width=width)
+        assert "".join(lines) == text
+        assert any(line.endswith(mark) for line in lines)
+        assert all(not line.startswith(mark) for line in lines)
+
+
 def _has_dark_pixel(canvas, box) -> bool:
     x, y, w, h = box
     return any(

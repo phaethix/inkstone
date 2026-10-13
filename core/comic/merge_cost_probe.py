@@ -35,7 +35,7 @@ from unittest.mock import patch
 from PIL import Image
 
 from core.api import ChatProvider, ImageProvider
-from core.comic.identity import merge_character_alias
+from core.comic.identity import merge_character_alias, remember_merged_alias
 from core.pipelines.creative_comic import creative_comic
 from core.schemas import ProjectState
 
@@ -330,6 +330,7 @@ async def measure_merge_cost(
         # keys (written to ``state.stale_pages``). The page keys are what the
         # render stage re-issues, so they are the measurement's denominator.
         merge_character_alias(state, ALIAS_NAME, BASE_NAME)
+        remember_merged_alias(state, ALIAS_NAME, BASE_NAME)
         merged_pages = sorted(state.stale_pages)
         state.save(state_path)
 
