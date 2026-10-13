@@ -682,6 +682,27 @@ def test_a_classifier_hangs_on_the_previous_digit():
     assert any(line.startswith("的") for line in lines)
 
 
+def test_a_clock_keeps_its_minutes():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("12:30到的", font_path=path)
+    cases = (
+        ("12:30到", "12:30", "2:30", ":30"),
+        ("09:05到", "09:05", "9:05", ":05"),
+    )
+    for text, whole, hung, minutes in cases:
+        width = font.getlength(hung)
+        assert font.getlength(whole) > width
+        assert font.getlength(hung) <= width
+        lines = engine._wrap_text(text, font, max_width=width)
+        assert "".join(lines) == text
+        assert any(hung in line for line in lines)
+        torn = minutes[:2]
+        assert all(torn not in line or minutes in line for line in lines)
+
+
 def _has_dark_pixel(canvas, box) -> bool:
     x, y, w, h = box
     return any(

@@ -409,7 +409,9 @@ class LayoutEngine:
             if font.getlength(token) <= max_width:
                 cur = token
             else:
-                broken = LayoutEngine._wrap_grouped_number(token, font, max_width)
+                broken = LayoutEngine._wrap_clock(token, font, max_width)
+                if broken is None:
+                    broken = LayoutEngine._wrap_grouped_number(token, font, max_width)
                 if broken is None:
                     broken = LayoutEngine._wrap_number_unit(token, font, max_width)
                 if broken is None:
@@ -466,6 +468,27 @@ class LayoutEngine:
         if font.getlength(hung) > max_width:
             return None
         return body[:-1].rstrip(), hung
+
+    @staticmethod
+    def _wrap_clock(token: str, font: ImageFont.ImageFont, max_width: int) -> list[str] | None:
+        """Keep the minutes with the colon and the last hour digit that fits."""
+        if token.count(":") != 1:
+            return None
+        hour, minutes = token.split(":", 1)
+        if (
+            not hour.isdigit()
+            or not 1 <= len(hour) <= 2
+            or len(minutes) != 2
+            or not minutes.isdigit()
+        ):
+            return None
+        mark = f":{minutes}"
+        for start in range(len(hour)):
+            hung = hour[start:] + mark
+            if font.getlength(hung) <= max_width:
+                head = hour[:start]
+                return [head, hung] if head else [hung]
+        return None
 
     @staticmethod
     def _wrap_grouped_number(
@@ -615,7 +638,9 @@ class LayoutEngine:
             if font.getlength(word) <= max_width:
                 cur = word
             else:
-                broken = LayoutEngine._wrap_grouped_number(word, font, max_width)
+                broken = LayoutEngine._wrap_clock(word, font, max_width)
+                if broken is None:
+                    broken = LayoutEngine._wrap_grouped_number(word, font, max_width)
                 if broken is None:
                     broken = LayoutEngine._wrap_number_unit(word, font, max_width)
                 if broken is None:
