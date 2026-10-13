@@ -440,6 +440,10 @@ class LayoutEngine:
         if closing_run and tail.isascii() and tail.isalpha():
             return None
         moved = tail + token
+        if closing_run and cur.endswith(" "):
+            spaced = tail + " " + token
+            if font.getlength(spaced) <= max_width:
+                moved = spaced
         if font.getlength(moved) > max_width:
             return None
         return head, moved

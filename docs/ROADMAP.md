@@ -316,7 +316,8 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
     sign, an ohm sign, and a micro sign hang on the previous digit the same
     way. A single-character unit such as ㎡ or ㎏ hangs on the previous digit
     when that pair fits the line. A currency mark hangs on the previous digit
-    when that pair fits the line. A
+    when that pair fits the line. A space before that mark stays when the
+    spaced group fits the line. A
     caption that mixes CJK and Latin keeps each Latin word intact.
     The PDF is still that raster.
 - [ ] Publish a public-domain *Journey to the West* chapter showcase with source,
