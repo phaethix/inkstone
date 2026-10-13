@@ -96,7 +96,7 @@ Keep these prototypes only as migration material until they conform to the targe
   chunk without evidence. `inkstone plan --out` uses panel and page counts a
   project has already planned. The Journey to the West excerpt has no committed
   drawings, so its estimate stays the experience rate.
-- [ ] Phase 3 stays closed. The 5x gate still fails: 16 image calls is not five
+- [ ] Phase 3 stays closed. The 5x gate still fails: 15 image calls is not five
   times a target of ≤17, and the 600-page count is already flat. Hard and soft
   inputs, positional page identity, and letter/export/layout tombstones have
   landed. The two-phase scheduler and render/extract action keys have not.
@@ -144,9 +144,9 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
   call. The gate enters no fingerprint. Shared state is `gate.json` under the
   data directory when the CLI or web pass it, otherwise the project directory.
 - [x] **0h growth** Doubling the alias-merge sample from 300 pages to 600, with the
-  alias still on the same 15 pages, leaves the re-run at 15 stale keys, 16 image
-  calls, and 1 chat call. The current architecture already does not grow with book
-  length. The 5x gate still fails (16 is not five times a target of ≤17). Phase 3
+  alias still on the same 15 pages, leaves the re-run at 15 stale keys, 15 image
+  calls, and 0 chat calls. The current architecture already does not grow with book
+  length. The 5x gate still fails (15 is not five times a target of ≤17). Phase 3
   stays off the generate path. Phase 2's object store is the part that has started.
 - [x] **1 (contracts)** Stage input declarations. `page_plan` may read earlier
   layouts only through a window of 8; the declared input is that window plus the
@@ -309,7 +309,14 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
     caption bar. A percent sign and a degree mark hang on the previous digit
     when that pair fits the line. A fullwidth percent hangs on the previous
     digit the same way. A letter unit such as cm hangs on the previous digit
-    when that group fits the line. A
+    when that group fits the line. A decimal keeps its letter unit with the
+    last digit the same way. A permille and a prime hang on the previous digit
+    when that pair fits the line. A spaced letter unit keeps that space and
+    hangs on the previous digit when that group fits the line. A fahrenheit
+    sign, an ohm sign, and a micro sign hang on the previous digit the same
+    way. A single-character unit such as ㎡ or ㎏ hangs on the previous digit
+    when that pair fits the line. A currency mark hangs on the previous digit
+    when that pair fits the line. A
     caption that mixes CJK and Latin keeps each Latin word intact.
     The PDF is still that raster.
 - [ ] Publish a public-domain *Journey to the West* chapter showcase with source,
