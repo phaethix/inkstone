@@ -419,7 +419,7 @@ class LayoutEngine:
         cur: str, token: str, font: ImageFont.ImageFont, max_width: int
     ) -> tuple[str, str] | None:
         """Keep a closing mark with the previous glyph, and an opening mark with the next."""
-        no_start = "，。！？、；：」』】）》〉〕］｝”’…—～·%℃°,.;:!?)]"
+        no_start = "，。！？、；：」』】）》〉〕］｝”’…—～·%％℃°,.;:!?)]"
         no_end = "「『【（《〈〔［｛“‘([{"
         body = cur.rstrip()
         if len(body) < 2 or not token:
