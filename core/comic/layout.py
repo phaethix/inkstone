@@ -415,6 +415,8 @@ class LayoutEngine:
                 if broken is None:
                     broken = LayoutEngine._wrap_number_unit(token, font, max_width)
                 if broken is None:
+                    broken = LayoutEngine._wrap_date(token, font, max_width)
+                if broken is None:
                     broken = LayoutEngine._wrap_range(token, font, max_width)
                 if broken is None:
                     broken = LayoutEngine._wrap_chars(token, font, max_width)
@@ -623,6 +625,56 @@ class LayoutEngine:
         return lines
 
     @staticmethod
+    def _wrap_date(token: str, font: ImageFont.ImageFont, max_width: int) -> list[str] | None:
+        """Keep a date's year, month, and day intact, and hang each separator."""
+        if token.count("-") == 2 and "/" not in token:
+            sep = "-"
+        elif token.count("/") == 2 and "-" not in token:
+            sep = "/"
+        else:
+            return None
+        year, month, day = token.split(sep)
+        if not (
+            len(year) == 4
+            and year.isdigit()
+            and len(month) == 2
+            and month.isdigit()
+            and len(day) == 2
+            and day.isdigit()
+        ):
+            return None
+        lines: list[str] = []
+        cur = ""
+        for field in (year, month, day):
+            while True:
+                piece = field if not cur else sep + field
+                if font.getlength(cur + piece) <= max_width:
+                    cur += piece
+                    break
+                if sep in cur:
+                    head, tail = cur.rsplit(sep, 1)
+                    if (
+                        tail
+                        and font.getlength(head + sep) <= max_width
+                        and font.getlength(tail) <= max_width
+                    ):
+                        lines.append(head + sep)
+                        cur = tail
+                        continue
+                if (
+                    cur
+                    and font.getlength(cur + sep) <= max_width
+                    and font.getlength(field) <= max_width
+                ):
+                    lines.append(cur + sep)
+                    cur = field
+                    break
+                return None
+        if cur:
+            lines.append(cur)
+        return lines
+
+    @staticmethod
     def _wrap_range(token: str, font: ImageFont.ImageFont, max_width: int) -> list[str] | None:
         """Keep both sides of a number range intact, and hang the dash on the first."""
         dashes = [mark for mark in ("-", "–") if mark in token]
@@ -720,6 +772,8 @@ class LayoutEngine:
                     broken = LayoutEngine._wrap_grouped_number(word, font, max_width)
                 if broken is None:
                     broken = LayoutEngine._wrap_number_unit(word, font, max_width)
+                if broken is None:
+                    broken = LayoutEngine._wrap_date(word, font, max_width)
                 if broken is None:
                     broken = LayoutEngine._wrap_range(word, font, max_width)
                 if broken is None:

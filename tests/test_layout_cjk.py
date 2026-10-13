@@ -773,6 +773,28 @@ def test_a_number_range_keeps_both_sides():
         assert all(f"{hung}2" not in line for line in lines)
 
 
+def test_a_date_keeps_its_fields():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("2026-10-13日的", font_path=path)
+    cases = (
+        ("2026-10-13日", "6-10-13", "2026-", "10-13", "2026-1"),
+        ("2026/10/13日", "6/10/13", "2026/", "10/13", "2026/1"),
+    )
+    for text, sample, hung, kept, torn in cases:
+        width = font.getlength(sample)
+        assert font.getlength(hung + kept[:2]) > width
+        assert font.getlength(hung) <= width
+        assert font.getlength(kept) <= width
+        lines = engine._wrap_text(text, font, max_width=width)
+        assert "".join(lines) == text
+        assert any(kept in line for line in lines)
+        assert any(line.endswith(hung) for line in lines)
+        assert all(torn not in line for line in lines)
+
+
 def _has_dark_pixel(canvas, box) -> bool:
     x, y, w, h = box
     return any(
