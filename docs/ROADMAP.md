@@ -307,7 +307,8 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
     pair fits the line. A dash, a tilde, and a middle dot hang on the previous
     glyph when that group fits the line. On a page grid, sfx starts below the
     caption bar. A percent sign and a degree mark hang on the previous digit
-    when that pair fits the line. A
+    when that pair fits the line. A fullwidth percent hangs on the previous
+    digit the same way. A
     caption that mixes CJK and Latin keeps each Latin word intact.
     The PDF is still that raster.
 - [ ] Publish a public-domain *Journey to the West* chapter showcase with source,
