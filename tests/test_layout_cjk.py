@@ -385,6 +385,27 @@ def test_a_fullwidth_percent_hangs_on_the_previous_digit():
         assert all(not line.startswith("％") for line in lines)
 
 
+def test_a_letter_unit_hangs_on_the_previous_digit():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("50cm", font_path=path)
+    cases = (
+        ("约50cm后", "50cm", "0cm", "cm"),
+        ("重30kg的", "30kg", "0kg", "kg"),
+    )
+    for text, whole, hung, mark in cases:
+        width = font.getlength(hung)
+        assert font.getlength(whole) > width
+        assert font.getlength(hung) <= width
+        lines = engine._wrap_text(text, font, max_width=width)
+        assert "".join(lines) == text
+        assert any(mark in line for line in lines)
+        assert all(mark in line or not any(char in line for char in mark) for line in lines)
+        assert all(not line.startswith(mark) for line in lines)
+
+
 def _has_dark_pixel(canvas, box) -> bool:
     x, y, w, h = box
     return any(
