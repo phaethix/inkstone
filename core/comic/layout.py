@@ -415,6 +415,8 @@ class LayoutEngine:
                 if broken is None:
                     broken = LayoutEngine._wrap_number_unit(token, font, max_width)
                 if broken is None:
+                    broken = LayoutEngine._wrap_range(token, font, max_width)
+                if broken is None:
                     broken = LayoutEngine._wrap_chars(token, font, max_width)
                 lines.extend(broken[:-1])
                 cur = broken[-1] if broken else ""
@@ -621,6 +623,26 @@ class LayoutEngine:
         return lines
 
     @staticmethod
+    def _wrap_range(token: str, font: ImageFont.ImageFont, max_width: int) -> list[str] | None:
+        """Keep both sides of a number range intact, and hang the dash on the first."""
+        dashes = [mark for mark in ("-", "–") if mark in token]
+        if len(dashes) != 1 or token.count(dashes[0]) != 1:
+            return None
+        dash = dashes[0]
+        left, right = token.split(dash, 1)
+        if not left.isdigit() or not right.isdigit():
+            return None
+        if font.getlength(token) <= max_width:
+            return [token]
+        hung = left + dash
+        if font.getlength(hung) <= max_width and font.getlength(right) <= max_width:
+            return [hung, right]
+        opened = dash + right
+        if font.getlength(left) <= max_width and font.getlength(opened) <= max_width:
+            return [left, opened]
+        return None
+
+    @staticmethod
     def _wrap_number_unit(
         token: str, font: ImageFont.ImageFont, max_width: int
     ) -> list[str] | None:
@@ -698,6 +720,8 @@ class LayoutEngine:
                     broken = LayoutEngine._wrap_grouped_number(word, font, max_width)
                 if broken is None:
                     broken = LayoutEngine._wrap_number_unit(word, font, max_width)
+                if broken is None:
+                    broken = LayoutEngine._wrap_range(word, font, max_width)
                 if broken is None:
                     broken = LayoutEngine._wrap_chars(word, font, max_width)
                 lines.extend(broken)
