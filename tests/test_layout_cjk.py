@@ -561,6 +561,127 @@ def test_a_spaced_currency_mark_keeps_its_space():
         assert all(not line.startswith(mark) for line in lines)
 
 
+def test_a_currency_word_hangs_on_the_previous_digit():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("50块角分的", font_path=path)
+    cases = (
+        ("50块的", "50", "50块", "0块", "块"),
+        ("50角的", "50", "50角", "0角", "角"),
+        ("50分的", "50", "50分", "0分", "分"),
+    )
+    for text, digits, whole, hung, mark in cases:
+        width = font.getlength(hung)
+        assert font.getlength(digits) <= width
+        assert font.getlength(hung) <= width
+        assert font.getlength(whole) > width
+        lines = engine._wrap_text(text, font, max_width=width)
+        assert "".join(lines) == text
+        assert any(line.endswith(mark) for line in lines)
+        assert all(not line.startswith(mark) for line in lines)
+    text = "约50 块后"
+    width = font.getlength("0 块")
+    assert font.getlength("50 块") > width
+    lines = engine._wrap_text(text, font, max_width=width)
+    assert "".join(lines) == text
+    assert any(line.endswith(" 块") for line in lines)
+
+
+def test_a_thousands_group_stays_together():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("1,000人", font_path=path)
+    cases = (
+        ("1,000人", "1,000", "000", "1,"),
+        ("12,345人", "12,345", "345", "12,"),
+    )
+    for text, whole, group, hung in cases:
+        width = font.getlength(group)
+        assert font.getlength(whole) > width
+        assert font.getlength(group) <= width
+        assert font.getlength(hung) <= width
+        lines = engine._wrap_text(text, font, max_width=width)
+        assert "".join(lines) == text
+        assert any(group in line for line in lines)
+        assert all(",0" not in line and ",00" not in line for line in lines)
+
+
+def test_a_grouped_decimal_keeps_its_groups():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("1,000.50元", font_path=path)
+    text = "1,000.50元"
+    width = font.getlength("000.")
+    assert font.getlength("1,000.50") > width
+    assert font.getlength("000.") <= width
+    assert font.getlength("50") <= width
+    lines = engine._wrap_text(text, font, max_width=width)
+    assert "".join(lines) == text
+    assert any("000." in line for line in lines)
+    assert all(",00" not in line for line in lines)
+    assert all("0.5" not in line for line in lines)
+
+
+def test_a_grouped_number_keeps_its_letter_unit():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("1,000.50cm的", font_path=path)
+    text = "1,000.50cm后"
+    width = font.getlength("50cm")
+    assert font.getlength("1,000.50") > width
+    assert font.getlength("000.") <= width
+    assert font.getlength("50cm") <= width
+    lines = engine._wrap_text(text, font, max_width=width)
+    assert "".join(lines) == text
+    assert any("000." in line for line in lines)
+    assert any("cm" in line and any(char.isdigit() for char in line) for line in lines)
+    assert all("cm" in line or ("c" not in line and "m" not in line) for line in lines)
+    assert all(",00" not in line for line in lines)
+
+
+def test_a_classifier_hangs_on_the_previous_digit():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("50个只名位岁的", font_path=path)
+    cases = (
+        ("50个的", "50", "50个", "0个", "个"),
+        ("50只的", "50", "50只", "0只", "只"),
+        ("50名的", "50", "50名", "0名", "名"),
+        ("50位的", "50", "50位", "0位", "位"),
+        ("50岁的", "50", "50岁", "0岁", "岁"),
+    )
+    for text, digits, whole, hung, mark in cases:
+        width = font.getlength(hung)
+        assert font.getlength(digits) <= width
+        assert font.getlength(hung) <= width
+        assert font.getlength(whole) > width
+        lines = engine._wrap_text(text, font, max_width=width)
+        assert "".join(lines) == text
+        assert any(line.endswith(mark) for line in lines)
+        assert all(not line.startswith(mark) for line in lines)
+    text = "约50 个后"
+    width = font.getlength("0 个")
+    assert font.getlength("50 个") > width
+    lines = engine._wrap_text(text, font, max_width=width)
+    assert "".join(lines) == text
+    assert any(line.endswith(" 个") for line in lines)
+    particle = "50的人"
+    width = font.getlength("0的")
+    lines = engine._wrap_text(particle, font, max_width=width)
+    assert "".join(lines) == particle
+    assert any(line.startswith("的") for line in lines)
+
+
 def _has_dark_pixel(canvas, box) -> bool:
     x, y, w, h = box
     return any(

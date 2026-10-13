@@ -409,7 +409,9 @@ class LayoutEngine:
             if font.getlength(token) <= max_width:
                 cur = token
             else:
-                broken = LayoutEngine._wrap_number_unit(token, font, max_width)
+                broken = LayoutEngine._wrap_grouped_number(token, font, max_width)
+                if broken is None:
+                    broken = LayoutEngine._wrap_number_unit(token, font, max_width)
                 if broken is None:
                     broken = LayoutEngine._wrap_chars(token, font, max_width)
                 lines.extend(broken[:-1])
@@ -423,7 +425,10 @@ class LayoutEngine:
         cur: str, token: str, font: ImageFont.ImageFont, max_width: int
     ) -> tuple[str, str] | None:
         """Keep a closing mark with the previous glyph, and an opening mark with the next."""
-        no_start = "，。！？、；：」』】）》〉〕］｝”’…—～·%％℃°‰′″℉Ωμ㎡㎏㎝㎜㎞¥$€£￥元,.;:!?)]"
+        no_start = (
+            "，。！？、；：」』】）》〉〕］｝”’…—～·%％℃°‰′″℉Ωμ"
+            "㎡㎏㎝㎜㎞¥$€£￥元块角分个只名位岁,.;:!?)]"
+        )
         no_end = "「『【（《〈〔［｛“‘([{"
         body = cur.rstrip()
         if len(body) < 2 or not token:
@@ -461,6 +466,81 @@ class LayoutEngine:
         if font.getlength(hung) > max_width:
             return None
         return body[:-1].rstrip(), hung
+
+    @staticmethod
+    def _wrap_grouped_number(
+        token: str, font: ImageFont.ImageFont, max_width: int
+    ) -> list[str] | None:
+        """Keep each thousands group intact, and hang its comma on the previous digit."""
+        unit = ""
+        body = token
+        split = len(token)
+        while split > 0 and token[split - 1].isascii() and token[split - 1].isalpha():
+            split -= 1
+        if 0 < split < len(token):
+            unit = token[split:]
+            body = token[:split]
+        fraction = ""
+        if body.count(".") == 1:
+            body, fraction = body.split(".", 1)
+            if not fraction.isdigit():
+                return None
+        elif "." in body:
+            return None
+        parts = body.split(",")
+        if len(parts) < 2 or not parts[0].isdigit() or not 1 <= len(parts[0]) <= 3:
+            return None
+        if any(len(part) != 3 or not part.isdigit() for part in parts[1:]):
+            return None
+        lines: list[str] = []
+        cur = ""
+        for part in parts:
+            piece = part if not cur else f",{part}"
+            if font.getlength(cur + piece) <= max_width:
+                cur += piece
+                continue
+            if cur and font.getlength(cur + ",") <= max_width and font.getlength(part) <= max_width:
+                lines.append(cur + ",")
+                cur = part
+                continue
+            return None
+        if fraction:
+            attached = False
+            while not attached:
+                if font.getlength(cur + "." + fraction) <= max_width:
+                    cur = cur + "." + fraction
+                    attached = True
+                    break
+                if font.getlength(cur + ".") <= max_width and font.getlength(fraction) <= max_width:
+                    lines.append(cur + ".")
+                    cur = fraction
+                    attached = True
+                    break
+                if "," not in cur:
+                    break
+                head, tail = cur.rsplit(",", 1)
+                if (
+                    not tail
+                    or font.getlength(head + ",") > max_width
+                    or font.getlength(tail) > max_width
+                ):
+                    break
+                lines.append(head + ",")
+                cur = tail
+            if not attached:
+                return None
+        if unit:
+            if font.getlength(cur + unit) <= max_width:
+                cur += unit
+            elif font.getlength(unit) <= max_width:
+                if cur:
+                    lines.append(cur)
+                cur = unit
+            else:
+                return None
+        if cur:
+            lines.append(cur)
+        return lines
 
     @staticmethod
     def _wrap_number_unit(
@@ -535,7 +615,9 @@ class LayoutEngine:
             if font.getlength(word) <= max_width:
                 cur = word
             else:
-                broken = LayoutEngine._wrap_number_unit(word, font, max_width)
+                broken = LayoutEngine._wrap_grouped_number(word, font, max_width)
+                if broken is None:
+                    broken = LayoutEngine._wrap_number_unit(word, font, max_width)
                 if broken is None:
                     broken = LayoutEngine._wrap_chars(word, font, max_width)
                 lines.extend(broken)

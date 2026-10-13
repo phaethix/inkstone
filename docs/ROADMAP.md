@@ -317,7 +317,12 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
     way. A single-character unit such as ㎡ or ㎏ hangs on the previous digit
     when that pair fits the line. A currency mark hangs on the previous digit
     when that pair fits the line. A space before that mark stays when the
-    spaced group fits the line. A
+    spaced group fits the line. 块, 角, and 分 hang on the previous digit the
+    same way. A thousands group stays together, and its comma hangs on the
+    previous digit when that group fits the line. A decimal after that group
+    hangs on the last digit the same way. A letter unit after that decimal
+    stays with the fraction when the pair fits the line. A classifier such as
+    个, 只, 名, 位, or 岁 hangs on the previous digit the same way. A
     caption that mixes CJK and Latin keeps each Latin word intact.
     The PDF is still that raster.
 - [ ] Publish a public-domain *Journey to the West* chapter showcase with source,

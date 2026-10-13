@@ -465,6 +465,7 @@ _DRAW_SOURCES = (
     LayoutEngine._draw_sfx,
     LayoutEngine._rebreak_for_punctuation,
     LayoutEngine._hang_spaced_unit,
+    LayoutEngine._wrap_grouped_number,
     LayoutEngine._wrap_number_unit,
     LayoutEngine._wrap_chars,
     LayoutEngine._wrap_mixed,
