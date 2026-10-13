@@ -725,6 +725,32 @@ def test_a_clock_keeps_its_seconds():
         assert all("45" in line or "5" not in line for line in lines)
 
 
+def test_a_clock_keeps_its_minutes_beside_letters():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("AM12:30pm后的", font_path=path)
+    text = "AM12:30后"
+    width = font.getlength("2:30")
+    assert font.getlength("AM12:30") > width
+    assert font.getlength("2:30") <= width
+    lines = engine._wrap_text(text, font, max_width=width)
+    assert "".join(lines) == text
+    assert any("2:30" in line for line in lines)
+    assert all("12:3" not in line for line in lines)
+    text = "12:30pm后"
+    width = font.getlength("0pm")
+    assert font.getlength("12:30pm") > width
+    assert font.getlength("2:30") <= width
+    assert font.getlength("30pm") > width
+    lines = engine._wrap_text(text, font, max_width=width)
+    assert "".join(lines) == text
+    assert any("2:30" in line for line in lines)
+    assert any("pm" in line for line in lines)
+    assert all("12:3" not in line and "0pm" not in line for line in lines)
+
+
 def _has_dark_pixel(canvas, box) -> bool:
     x, y, w, h = box
     return any(

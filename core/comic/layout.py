@@ -472,6 +472,32 @@ class LayoutEngine:
     @staticmethod
     def _wrap_clock(token: str, font: ImageFont.ImageFont, max_width: int) -> list[str] | None:
         """Keep each clock field intact, and hang its colon on the previous field."""
+        start = 0
+        while start < len(token) and token[start].isascii() and token[start].isalpha():
+            start += 1
+        end = len(token)
+        while end > start and token[end - 1].isascii() and token[end - 1].isalpha():
+            end -= 1
+        prefix, body, suffix = token[:start], token[start:end], token[end:]
+        if prefix or suffix:
+            lines = LayoutEngine._wrap_clock(body, font, max_width)
+            if lines is None:
+                return None
+            if prefix:
+                if font.getlength(prefix + lines[0]) <= max_width:
+                    lines[0] = prefix + lines[0]
+                elif font.getlength(prefix) <= max_width:
+                    lines.insert(0, prefix)
+                else:
+                    return None
+            if suffix:
+                if font.getlength(lines[-1] + suffix) <= max_width:
+                    lines[-1] += suffix
+                elif font.getlength(suffix) <= max_width:
+                    lines.append(suffix)
+                else:
+                    return None
+            return lines
         parts = token.split(":")
         if not 2 <= len(parts) <= 3:
             return None
