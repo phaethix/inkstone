@@ -418,14 +418,22 @@ class LayoutEngine:
         cur: str, token: str, font: ImageFont.ImageFont, max_width: int
     ) -> tuple[str, str] | None:
         """Keep a closing mark with the previous glyph, and an opening mark with the next."""
-        no_start = "，。！？、；：」』】）》〉〕］｝”’…"
-        no_end = "「『【（《〈〔［｛“‘"
+        no_start = "，。！？、；：」』】）》〉〕］｝”’…—～·,.;:!?)]"
+        no_end = "「『【（《〈〔［｛“‘([{"
         body = cur.rstrip()
-        if len(token) != 1 or len(body) < 2:
+        if len(body) < 2 or not token:
             return None
-        if token not in no_start and body[-1] not in no_end:
+        closing_run = all(char in no_start for char in token)
+        opening_tail = len(token) == 1 and body[-1] in no_end
+        if not closing_run and not opening_tail:
             return None
         head, tail = body[:-1], body[-1]
+        # Pulling the last glyph must not leave an opening mark alone on the line above,
+        # and must not split a Latin word to hang a halfwidth mark.
+        if head and head[-1] in no_end:
+            return None
+        if closing_run and not text_requires_cjk(tail) and tail not in no_start:
+            return None
         moved = tail + token
         if font.getlength(moved) > max_width:
             return None

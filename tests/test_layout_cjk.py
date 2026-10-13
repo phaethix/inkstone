@@ -251,6 +251,98 @@ def test_cjk_punctuation_stays_with_the_neighboring_glyph():
     assert any(line.startswith("「") for line in lines)
 
 
+def test_a_closing_mark_does_not_strand_an_opening_mark():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("他说：“跳”", font_path=path)
+    text = "他说：“跳”"
+    width = font.getlength("他说")
+    lines = engine._wrap_text(text, font, max_width=width)
+    assert "".join(lines) == text
+    assert any(line.startswith("“") and "跳" in line for line in lines)
+    assert all(not line.endswith(("“", "「")) for line in lines)
+
+
+def test_an_ellipsis_hangs_on_the_previous_glyph():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("石猴跳……", font_path=path)
+    text = "石猴跳……"
+    width = font.getlength("石猴跳")
+    assert font.getlength("跳……") <= width
+    assert font.getlength(text) > width
+    lines = engine._wrap_text(text, font, max_width=width)
+    assert "".join(lines) == text
+    assert any(line.endswith("……") for line in lines)
+    assert all(not line.startswith("…") for line in lines)
+
+
+def test_a_halfwidth_comma_hangs_on_the_previous_cjk_glyph():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("石猴,跳", font_path=path)
+    text = "石猴,跳"
+    width = font.getlength("石猴")
+    assert font.getlength("石猴,") > width
+    assert font.getlength("猴,") <= width
+    lines = engine._wrap_text(text, font, max_width=width)
+    assert "".join(lines) == text
+    assert any(line.endswith(",") for line in lines)
+    assert all(not line.startswith(",") for line in lines)
+    latin = "石猴 hello,"
+    latin_width = font.getlength("hello")
+    latin_lines = engine._wrap_text(latin, font, max_width=latin_width)
+    assert "".join(latin_lines).replace(" ", "") == latin.replace(" ", "")
+    assert any("hello" in line for line in latin_lines)
+
+
+def test_a_halfwidth_opening_mark_stays_with_the_next_glyph():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("石(猴", font_path=path)
+    text = "石(猴"
+    width = font.getlength("石(")
+    assert font.getlength("石(猴") > width
+    assert font.getlength("(猴") <= width
+    lines = engine._wrap_text(text, font, max_width=width)
+    assert "".join(lines) == text
+    assert any(line.startswith("(") for line in lines)
+    assert all(not line.endswith(("(", "[", "{")) for line in lines)
+
+
+def test_a_dash_hangs_on_the_previous_cjk_glyph():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("石猴—～·", font_path=path)
+    width = font.getlength("石猴")
+    for mark in ("—", "～", "·"):
+        text = f"石猴{mark}跳"
+        assert font.getlength(f"猴{mark}") <= width
+        assert font.getlength(f"石猴{mark}") > width
+        lines = engine._wrap_text(text, font, max_width=width)
+        assert "".join(lines) == text
+        assert any(line.endswith(mark) for line in lines)
+        assert all(not line.startswith(mark) for line in lines)
+    pair = "石猴——跳"
+    pair_width = font.getlength("石猴跳")
+    assert font.getlength("猴——") <= pair_width
+    assert font.getlength("石猴——") > pair_width
+    lines = engine._wrap_text(pair, font, max_width=pair_width)
+    assert "".join(lines) == pair
+    assert any(line.endswith("——") for line in lines)
+    assert all(not line.startswith("—") for line in lines)
+
+
 def _has_dark_pixel(canvas, box) -> bool:
     x, y, w, h = box
     return any(
