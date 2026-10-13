@@ -343,6 +343,27 @@ def test_a_dash_hangs_on_the_previous_cjk_glyph():
     assert all(not line.startswith("—") for line in lines)
 
 
+def test_a_unit_mark_hangs_on_the_previous_digit():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("50%℃", font_path=path)
+    cases = (
+        ("50%的", "50", "50%", "0%", "%"),
+        ("30℃后", "30", "30℃", "0℃", "℃"),
+    )
+    for text, head, whole, hung, mark in cases:
+        width = font.getlength(head if mark == "℃" else hung)
+        assert font.getlength(head) <= width
+        assert font.getlength(hung) <= width
+        assert font.getlength(whole) > width
+        lines = engine._wrap_text(text, font, max_width=width)
+        assert "".join(lines) == text
+        assert any(line.endswith(mark) for line in lines)
+        assert all(not line.startswith(mark) for line in lines)
+
+
 def _has_dark_pixel(canvas, box) -> bool:
     x, y, w, h = box
     return any(

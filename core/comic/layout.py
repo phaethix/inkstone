@@ -153,12 +153,14 @@ class LayoutEngine:
         py = y0 + (ch - fitted.height) // 2
         canvas.paste(fitted, (px, py))
         draw = ImageDraw.Draw(canvas)
+        sfx_top = y0 + 12
         if panel.caption:
             bw = int(cw * 0.9)
             bh = self._bubble_height(panel.caption, bw)
             bx = x0 + (cw - bw) // 2
             by = y0 + 12
             self._draw_caption(draw, (bx, by, bw, bh), panel.caption)
+            sfx_top = by + bh + 8
         if panel.dialogue:
             bw = int(cw * 0.8)
             bh = self._bubble_height(panel.dialogue, bw)
@@ -169,8 +171,7 @@ class LayoutEngine:
             bw = int(cw * 0.45)
             bh = self._bubble_height(panel.sfx, bw)
             bx = x1 - bw - 12
-            by = y0 + (40 if panel.caption else 12)
-            self._draw_sfx(draw, (bx, by, bw, bh), panel.sfx)
+            self._draw_sfx(draw, (bx, sfx_top, bw, bh), panel.sfx)
 
     # ------------------------------------------------------------------ #
     # Webtoon mode
@@ -418,7 +419,7 @@ class LayoutEngine:
         cur: str, token: str, font: ImageFont.ImageFont, max_width: int
     ) -> tuple[str, str] | None:
         """Keep a closing mark with the previous glyph, and an opening mark with the next."""
-        no_start = "，。！？、；：」』】）》〉〕］｝”’…—～·,.;:!?)]"
+        no_start = "，。！？、；：」』】）》〉〕］｝”’…—～·%℃°,.;:!?)]"
         no_end = "「『【（《〈〔［｛“‘([{"
         body = cur.rstrip()
         if len(body) < 2 or not token:
@@ -429,10 +430,10 @@ class LayoutEngine:
             return None
         head, tail = body[:-1], body[-1]
         # Pulling the last glyph must not leave an opening mark alone on the line above,
-        # and must not split a Latin word to hang a halfwidth mark.
+        # and must not split a Latin word to hang a mark. A digit may take the mark.
         if head and head[-1] in no_end:
             return None
-        if closing_run and not text_requires_cjk(tail) and tail not in no_start:
+        if closing_run and tail.isascii() and tail.isalpha():
             return None
         moved = tail + token
         if font.getlength(moved) > max_width:
