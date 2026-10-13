@@ -325,7 +325,8 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
     个, 只, 名, 位, or 岁 hangs on the previous digit the same way. A clock keeps
     its minutes with the colon when that group fits the line. Seconds stay in
     their own pair, and that colon hangs on the previous pair when it fits. Letters
-    beside a clock stay outside those pairs. A
+    beside a clock stay outside those pairs. A number range keeps both sides
+    intact, and the dash hangs on the first number when that group fits. A
     caption that mixes CJK and Latin keeps each Latin word intact.
     The PDF is still that raster.
 - [ ] Publish a public-domain *Journey to the West* chapter showcase with source,

@@ -751,6 +751,28 @@ def test_a_clock_keeps_its_minutes_beside_letters():
     assert all("12:3" not in line and "0pm" not in line for line in lines)
 
 
+def test_a_number_range_keeps_both_sides():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("约10-20人的", font_path=path)
+    cases = (
+        ("约10-20人", "0-20", "10-", "20"),
+        ("约10–20人", "0–20", "10–", "20"),
+    )
+    for text, sample, hung, right in cases:
+        width = font.getlength(sample)
+        assert font.getlength(hung + right) > width
+        assert font.getlength(hung) <= width
+        assert font.getlength(right) <= width
+        lines = engine._wrap_text(text, font, max_width=width)
+        assert "".join(lines) == text
+        assert any(line.endswith(hung) for line in lines)
+        assert any(line == right or line.startswith(right) for line in lines)
+        assert all(f"{hung}2" not in line for line in lines)
+
+
 def _has_dark_pixel(canvas, box) -> bool:
     x, y, w, h = box
     return any(
