@@ -812,6 +812,30 @@ def test_a_spaced_clock_keeps_its_minutes():
     assert all("12:3" not in line for line in lines)
 
 
+def test_a_numeric_expression_keeps_both_operands():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("共12×34人的", font_path=path)
+    cases = (
+        ("共12×34人", "2×34", "12×", "34"),
+        ("共12x34人", "2x34", "12x", "34"),
+        ("共12*34人", "2*34", "12*", "34"),
+        ("剩12/34杯", "2/34", "12/", "34"),
+    )
+    for text, sample, hung, right in cases:
+        width = font.getlength(sample)
+        assert font.getlength(hung + right) > width
+        assert font.getlength(hung) <= width
+        assert font.getlength(right) <= width
+        lines = engine._wrap_text(text, font, max_width=width)
+        assert "".join(lines) == text
+        assert any(line.endswith(hung) for line in lines)
+        assert any(line == right or line.startswith(right) for line in lines)
+        assert all(f"{hung}3" not in line for line in lines)
+
+
 def _has_dark_pixel(canvas, box) -> bool:
     x, y, w, h = box
     return any(

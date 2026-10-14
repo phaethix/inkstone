@@ -469,6 +469,7 @@ _DRAW_SOURCES = (
     LayoutEngine._wrap_grouped_number,
     LayoutEngine._wrap_number_unit,
     LayoutEngine._wrap_date,
+    LayoutEngine._wrap_numeric_expression,
     LayoutEngine._wrap_range,
     LayoutEngine._wrap_chars,
     LayoutEngine._wrap_mixed,
