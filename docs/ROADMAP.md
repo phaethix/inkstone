@@ -329,7 +329,9 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
     intact, and the dash hangs on the first number when that group fits. A date
     keeps its year, month, and day intact, and each separator hangs on the
     previous field when that group fits. A spaced letter after a clock hangs on
-    the whole minute pair when that group fits. A
+    the whole minute pair when that group fits. A numeric expression keeps both
+    operands intact, and its operator hangs on the first operand when that group
+    fits. A
     caption that mixes CJK and Latin keeps each Latin word intact.
     The PDF is still that raster.
 - [ ] Publish a public-domain *Journey to the West* chapter showcase with source,
