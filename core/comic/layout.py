@@ -468,10 +468,13 @@ class LayoutEngine:
         if not body or not body[-1].isdigit() or not token.isascii() or not token.isalpha():
             return None
         gap = " " if cur.endswith(" ") else ""
-        hung = body[-1] + gap + token
+        field = body[-1]
+        if len(body) >= 3 and body[-3] == ":" and body[-2].isdigit():
+            field = body[-2:]
+        hung = field + gap + token
         if font.getlength(hung) > max_width:
             return None
-        return body[:-1].rstrip(), hung
+        return body[: -len(field)].rstrip(), hung
 
     @staticmethod
     def _wrap_clock(token: str, font: ImageFont.ImageFont, max_width: int) -> list[str] | None:
