@@ -27,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     panel generation. `InsightFace` embedding / L4 iterative refinement remain deferred (GPU-only).
 
 ### Changed
+- Phase 3 opens only after a named invalidation defect is reproduced on the current
+  fingerprints: a change that must repaint leaves the stored image, or a change that
+  must not repaint draws a page outside the affected set. The exit ceiling on the
+  alias-merge sample is the measured floor, 15 image calls and 0 chat calls at 300
+  pages, and the same 15 and 0 at 600 pages. Render and extract stay on the existing
+  fingerprints until that defect is reproduced.
 - Measured the cost of one typical alias merge at zero quota (§9 phase 0h, resolved item 26):
   on the fixed 300-page sample (20 chunks x 15 pages, alias on 5 pages of chunks 4/9/14) the
   re-run spends **15 image calls** (the 15 stale pages) and **0 chat calls**. The merge

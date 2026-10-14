@@ -683,16 +683,24 @@ class LayoutEngine:
     def _wrap_numeric_expression(
         token: str, font: ImageFont.ImageFont, max_width: int
     ) -> list[str] | None:
-        """Keep both operands intact, and hang a binary operator on the first."""
-        operators = [mark for mark in ("×", "x", "*", "/") if mark in token]
-        if len(operators) != 1 or token.count(operators[0]) != 1:
+        """Keep both operands intact, and keep a trailing unit on the second."""
+        split = len(token)
+        while split > 0 and token[split - 1].isascii() and token[split - 1].isalpha():
+            split -= 1
+        if split > 0 and token[split - 1] in "㎡㎏㎝㎜㎞℃°‰′″℉Ωμ％%":
+            split -= 1
+        unit = token[split:]
+        body = token[:split]
+        operators = [mark for mark in ("×", "x", "*", "/") if mark in body]
+        if len(operators) != 1 or body.count(operators[0]) != 1:
             return None
         operator = operators[0]
-        left, right = token.split(operator, 1)
+        left, right = body.split(operator, 1)
         if not left.isdigit() or not right.isdigit():
             return None
-        if font.getlength(token) <= max_width:
-            return [token]
+        right += unit
+        if font.getlength(body + unit) <= max_width:
+            return [body + unit]
         hung = left + operator
         if font.getlength(hung) <= max_width and font.getlength(right) <= max_width:
             return [hung, right]
