@@ -96,10 +96,14 @@ Keep these prototypes only as migration material until they conform to the targe
   chunk without evidence. `inkstone plan --out` uses panel and page counts a
   project has already planned. The Journey to the West excerpt has no committed
   drawings, so its estimate stays the experience rate.
-- [ ] Phase 3 stays closed. The 5x gate still fails: 15 image calls is not five
-  times a target of ≤17, and the 600-page count is already flat. Hard and soft
-  inputs, positional page identity, and letter/export/layout tombstones have
-  landed. The two-phase scheduler and render/extract action keys have not.
+- [ ] Phase 3 stays closed until a named invalidation defect is reproduced on
+  the current fingerprints. The defect is a change that must repaint but leaves
+  the stored image, or a change that must not repaint but draws a page outside
+  the affected set. The measured floor on the alias-merge sample is 15 image
+  calls and 0 chat calls at 300 pages, and the same 15 and 0 at 600 pages. If
+  phase 3 opens, that re-run stays within those numbers. Hard and soft inputs,
+  positional page identity, and letter/export/layout tombstones have landed.
+  The two-phase scheduler and render/extract action keys have not.
 
 ### P0 — Content-addressed pipeline migration (0a-0h)
 
@@ -146,8 +150,9 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
 - [x] **0h growth** Doubling the alias-merge sample from 300 pages to 600, with the
   alias still on the same 15 pages, leaves the re-run at 15 stale keys, 15 image
   calls, and 0 chat calls. The current architecture already does not grow with book
-  length. The 5x gate still fails (15 is not five times a target of ≤17). Phase 3
-  stays off the generate path. Phase 2's object store is the part that has started.
+  length. Phase 3 stays off the generate path until a named invalidation defect
+  is reproduced. If it opens, the re-run stays within this measured floor:
+  15 image calls and 0 chat calls. Phase 2's object store is the part that has started.
 - [x] **1 (contracts)** Stage input declarations. `page_plan` may read earlier
   layouts only through a window of 8; the declared input is that window plus the
   summarizer source hashes, not the intent strings and not `page_cache`. Chat
@@ -331,7 +336,8 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
     previous field when that group fits. A spaced letter after a clock hangs on
     the whole minute pair when that group fits. A numeric expression keeps both
     operands intact, and its operator hangs on the first operand when that group
-    fits. A
+    fits. A letter unit after that expression stays with the right operand. A
+    symbol unit such as ㎡, ℃, or ㎝ stays with that operand the same way. A
     caption that mixes CJK and Latin keeps each Latin word intact.
     The PDF is still that raster.
 - [ ] Publish a public-domain *Journey to the West* chapter showcase with source,

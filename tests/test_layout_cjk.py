@@ -836,6 +836,56 @@ def test_a_numeric_expression_keeps_both_operands():
         assert all(f"{hung}3" not in line for line in lines)
 
 
+def test_a_numeric_expression_keeps_the_unit_with_the_right_operand():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("尺寸12×34cm后的", font_path=path)
+    cases = (
+        ("尺寸12×34cm后", "2×34cm", "12×", "34cm"),
+        ("尺寸12x34cm后", "2x34cm", "12x", "34cm"),
+        ("尺寸12*34cm后", "2*34cm", "12*", "34cm"),
+        ("比例12/34kg后", "2/34kg", "12/", "34kg"),
+        ("分辨率1920×1080px后", "920×1080px", "1920×", "1080px"),
+    )
+    for text, sample, hung, right in cases:
+        width = font.getlength(sample)
+        assert font.getlength(hung + right) > width
+        assert font.getlength(hung) <= width
+        assert font.getlength(right) <= width
+        lines = engine._wrap_text(text, font, max_width=width)
+        assert "".join(lines) == text
+        assert any(line.endswith(hung) for line in lines)
+        assert any(line == right or line.startswith(right) for line in lines)
+        assert all(
+            right[-2:] in line or all(char not in line for char in right[-2:]) for line in lines
+        )
+
+
+def test_a_numeric_expression_keeps_a_symbol_unit_on_the_right_operand():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("面积12×34㎡后的", font_path=path)
+    cases = (
+        ("面积12×34㎡后", "2×34㎡", "12×", "34㎡"),
+        ("温差12×34℃后", "2×34℃", "12×", "34℃"),
+        ("长度12×34㎝后", "2×34㎝", "12×", "34㎝"),
+    )
+    for text, sample, hung, right in cases:
+        width = font.getlength(sample)
+        assert font.getlength(hung + right) > width
+        assert font.getlength(hung) <= width
+        assert font.getlength(right) <= width
+        lines = engine._wrap_text(text, font, max_width=width)
+        assert "".join(lines) == text
+        assert any(line.endswith(hung) for line in lines)
+        assert any(right in line for line in lines)
+        assert all(f"{hung}3" not in line for line in lines)
+
+
 def _has_dark_pixel(canvas, box) -> bool:
     x, y, w, h = box
     return any(
