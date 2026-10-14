@@ -13,19 +13,19 @@ authors = [{ name = "Inkstone contributors" }]
 keywords = ["comic", "manga", "ai", "agnes", "image-generation", "novel"]
 dependencies = [
     "requests>=2.34.2,<3.0.0",
-    "tenacity>=9.1.4,<10.0.0",
+    "tenacity>=9.2.1,<10.0.0",
     "Pillow>=12.3.0,<13.0.0",
     "numpy>=2.2.6,<3.0.0",
-    "pydantic>=2.13.4,<3.0.0",
-    "json-repair>=0.30.0,<1.0.0",
+    "pydantic>=2.14.0,<3.0.0",
+    "json-repair>=0.64.0,<1.0.0",
     "tqdm>=4.66.0,<5.0.0",
-    "pypdf>=5.0.0,<7.0.0",
+    "pypdf>=6.20.0,<7.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=9.1.1",
-    "ruff>=0.15.22",
+    "ruff>=0.17.0",
 ]
 
 [project.scripts]
