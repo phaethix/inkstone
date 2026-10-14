@@ -795,6 +795,23 @@ def test_a_date_keeps_its_fields():
         assert all(torn not in line for line in lines)
 
 
+def test_a_spaced_clock_keeps_its_minutes():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("12:30 pm后的", font_path=path)
+    text = "12:30 pm后"
+    width = font.getlength("30 pm")
+    assert font.getlength("12:30") <= width
+    assert font.getlength("12:30 pm") > width
+    assert font.getlength("30 pm") <= width
+    lines = engine._wrap_text(text, font, max_width=width)
+    assert "".join(lines) == text
+    assert any(line.endswith("30 pm") for line in lines)
+    assert all("12:3" not in line for line in lines)
+
+
 def _has_dark_pixel(canvas, box) -> bool:
     x, y, w, h = box
     return any(
