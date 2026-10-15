@@ -99,7 +99,7 @@ def test_timeline_prompt_lines_and_page_injection():
     assert "Timeline=past" in text or "memory" in text.lower()
 
 
-def test_fingerprint_includes_voice_timeline():
+def test_fingerprint_does_not_carry_a_manual_voice_token():
     snapshot = ModelSnapshot(chat="chat", t2i="image", i2i="image")
     fp = _render_fingerprint(
         "style",
@@ -116,14 +116,9 @@ def test_fingerprint_includes_voice_timeline():
         "l3_enabled": False,
         "render_mode": "finished_page",
         "page_size": "1024x1536",
-        "identity": "metaphor_v2",
-        "stage_lock": "v1",
-        "layout": "anti_template_v1",
-        "voice_timeline": "v1",
-        "beats": "v1",
-        "lettering": "deferred_v3",
     }
     expected = hashlib.sha256(
         json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
     assert fp == expected
+    assert "voice_timeline" not in payload

@@ -66,7 +66,7 @@ def test_page_prompt_includes_anti_standee_line():
     )
 
 
-def test_render_fingerprint_includes_anti_template_token():
+def test_render_fingerprint_omits_the_manual_layout_token():
     snapshot = ModelSnapshot(chat="chat", t2i="image", i2i="image")
     fp = _render_fingerprint(
         "style",
@@ -83,14 +83,9 @@ def test_render_fingerprint_includes_anti_template_token():
         "l3_enabled": False,
         "render_mode": "finished_page",
         "page_size": "1024x1536",
-        "identity": "metaphor_v2",
-        "stage_lock": "v1",
-        "layout": "anti_template_v1",
-        "voice_timeline": "v1",
-        "beats": "v1",
-        "lettering": "deferred_v3",
     }
     expected = hashlib.sha256(
         json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
     assert fp == expected
+    assert "anti_template" not in json.dumps(payload)

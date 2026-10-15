@@ -110,8 +110,12 @@ Keep these prototypes only as migration material until they conform to the targe
   chunk and the names in that chunk. A stale page still repaints. The
   alias-merge ceiling stays 15 image calls and 0 chat calls at 300 pages, and
   the same 15 and 0 at 600 pages.
-- [ ] Phase 3 remainder. The two-phase scheduler, deletion of the manual
-  fingerprint tokens, and the one-time invalidation announcement have not landed.
+- [x] Phase 3 fingerprint tokens. The render fingerprint no longer carries the
+  manual identity, stage-lock, layout, voice-timeline, beats, or lettering
+  tokens. The next resume of an existing project repaints once, because the
+  stored fingerprint no longer matches. Lettering keeps its own action key.
+- [ ] Phase 3 remainder. The two-phase scheduler has not landed. `_PIPELINE_STATE_VERSION`
+  is still in the structure fingerprint.
 
 ### P0 — Content-addressed pipeline migration (0a-0h)
 
