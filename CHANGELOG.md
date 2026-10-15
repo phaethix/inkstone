@@ -27,13 +27,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     panel generation. `InsightFace` embedding / L4 iterative refinement remain deferred (GPU-only).
 
 ### Changed
+- The render fingerprint no longer carries the manual identity, stage-lock,
+  layout, voice-timeline, beats, or lettering tokens. The next resume of an
+  existing project repaints its pages once, because the stored fingerprint no
+  longer matches. A later lettering change still uses the letter action key and
+  does not by itself repaint the blank. `_PIPELINE_STATE_VERSION` remains in the
+  structure fingerprint.
 - Phase 3 extract, beats, page plan, bible, portrait, storyboard panel, and
   finished-page render use action keys. A matching key does not call the provider
   again. A page plan key omits the recent layout strings. A bible key omits the
   bible prose, so a recorded merge does not reconcile every chunk. A stale page
   still repaints. The alias-merge ceiling stays 15 image calls and 0 chat calls at
-  300 pages, and the same 15 and 0 at 600 pages. The two-phase scheduler and the
-  manual fingerprint tokens remain.
+  300 pages, and the same 15 and 0 at 600 pages. The two-phase scheduler remains.
 - Measured the cost of one typical alias merge at zero quota (§9 phase 0h, resolved item 26):
   on the fixed 300-page sample (20 chunks x 15 pages, alias on 5 pages of chunks 4/9/14) the
   re-run spends **15 image calls** (the 15 stale pages) and **0 chat calls**. The merge

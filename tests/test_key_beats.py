@@ -145,7 +145,7 @@ def test_page_prompt_includes_covers_beats_staging_line():
     assert "physical" in text.lower() or "environment" in text.lower()
 
 
-def test_fingerprint_includes_beats_token():
+def test_fingerprint_omits_the_manual_beats_token():
     snapshot = ModelSnapshot(chat="chat", t2i="image", i2i="image")
     fp = _render_fingerprint(
         "style",
@@ -162,14 +162,9 @@ def test_fingerprint_includes_beats_token():
         "l3_enabled": False,
         "render_mode": "finished_page",
         "page_size": "1024x1536",
-        "identity": "metaphor_v2",
-        "stage_lock": "v1",
-        "layout": "anti_template_v1",
-        "voice_timeline": "v1",
-        "beats": "v1",
-        "lettering": "deferred_v3",
     }
     expected = hashlib.sha256(
         json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
     assert fp == expected
+    assert "beats" not in payload

@@ -330,14 +330,7 @@ def _render_fingerprint(
         "l3_enabled": l3_enabled,
         "render_mode": render_mode,
         "page_size": page_size,
-        "identity": "metaphor_v2",
-        "stage_lock": "v1",
-        "layout": "anti_template_v1",
-        "voice_timeline": "v1",
-        "beats": "v1",
     }
-    if render_mode == "finished_page":
-        fp_payload["lettering"] = "deferred_v3"
     if bible_version is not None:
         fp_payload["visual_bible"] = bible_version
     if bible_hash is not None:

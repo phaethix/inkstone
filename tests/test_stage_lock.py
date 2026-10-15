@@ -167,7 +167,7 @@ def test_page_prompt_includes_hair_age_and_stability_line():
     assert "hair color" in lower or "hair length" in lower
 
 
-def test_render_fingerprint_includes_stage_lock_token():
+def test_render_fingerprint_omits_the_manual_stage_lock_token():
     snapshot = ModelSnapshot(chat="chat", t2i="image", i2i="image")
     fp = _render_fingerprint(
         "style",
@@ -190,12 +190,6 @@ def test_render_fingerprint_includes_stage_lock_token():
         "l3_enabled": False,
         "render_mode": "finished_page",
         "page_size": "1024x1536",
-        "identity": "metaphor_v2",
-        "stage_lock": "v1",
-        "layout": "anti_template_v1",
-        "voice_timeline": "v1",
-        "beats": "v1",
-        "lettering": "deferred_v3",
         "visual_bible": "bible_v3",
         "bible_hash": "abc",
     }
@@ -203,3 +197,4 @@ def test_render_fingerprint_includes_stage_lock_token():
         json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
     assert fp == expected
+    assert "stage_lock" not in payload
