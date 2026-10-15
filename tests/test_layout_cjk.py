@@ -910,6 +910,27 @@ def test_a_numeric_expression_keeps_a_decimal_operand():
         assert all(torn not in line or right in line for line in lines)
 
 
+def test_a_spaced_unit_stays_with_the_operand_before_it():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("尺寸12×34 cm后的", font_path=path)
+    cases = (
+        ("尺寸12×34 cm后", "34 cm", "12×", "34 cm"),
+        ("约10-20 cm后", "20 cm", "10-", "20 cm"),
+    )
+    for text, sample, hung, right in cases:
+        width = font.getlength(sample)
+        assert font.getlength(hung + right.replace(" ", "")) > width
+        assert font.getlength(hung) <= width
+        assert font.getlength(right) <= width
+        lines = engine._wrap_text(text, font, max_width=width)
+        assert "".join(lines) == text
+        assert any(line.endswith(hung) for line in lines)
+        assert any(line.endswith(right) for line in lines)
+
+
 def _has_dark_pixel(canvas, box) -> bool:
     x, y, w, h = box
     return any(

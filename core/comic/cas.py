@@ -178,6 +178,143 @@ def layout_action_key(
     )
 
 
+def extract_action_key(*, chunk: str, env: str, stage_src: str) -> str:
+    """Key an extract from the chunk text.
+
+    ``env`` is the chat model identity. Page size, continuity, and L3 stay out,
+    so those knobs cannot make a stored extract miss.
+    """
+    return action_key(
+        stage="extract",
+        stage_src=stage_src,
+        inputs=["sha256:" + _hex_digest(chunk.encode("utf-8"))],
+        params={},
+        env=env,
+    )
+
+
+def render_page_inputs(plan_json: str, prompt: str) -> list[str]:
+    """Ordered inputs for a finished page: the plan, then the prompt that was sent."""
+    return [
+        "sha256:" + _hex_digest(plan_json.encode("utf-8")),
+        "sha256:" + _hex_digest(prompt.encode("utf-8")),
+    ]
+
+
+def render_page_action_key(
+    *,
+    plan_json: str,
+    prompt: str,
+    resolved_size: str,
+    page_key: str,
+    env: str,
+    stage_src: str,
+) -> str:
+    """Key a finished page from its plan, prompt, and positional identity.
+
+    The L2 reference image is a soft reference and is not an input. Two chunks
+    that happen to plan the same words still render two pages. A second run of
+    the same page reuses the stored blank.
+    """
+    return action_key(
+        stage="render.page",
+        stage_src=stage_src,
+        inputs=render_page_inputs(plan_json, prompt),
+        params={"page_key": page_key, "resolved_size": resolved_size},
+        env=env,
+    )
+
+
+def beats_action_key(*, chunk: str, env: str, stage_src: str) -> str:
+    """Key a beat extract from the chunk text. Render-only knobs stay out of ``env``."""
+    return action_key(
+        stage="beats",
+        stage_src=stage_src,
+        inputs=["sha256:" + _hex_digest(chunk.encode("utf-8"))],
+        params={},
+        env=env,
+    )
+
+
+def page_plan_action_key(
+    *,
+    chunk: str,
+    beats_json: str,
+    history: dict,
+    env: str,
+    stage_src: str,
+) -> str:
+    """Key a page plan from the chunk, its beats, and the bounded history.
+
+    ``history`` is the window size plus summarizer source hashes. The recent
+    layout strings themselves stay out, so one earlier page cannot re-plan the
+    rest of the book.
+    """
+    return action_key(
+        stage="page_plan",
+        stage_src=stage_src,
+        inputs=[
+            "sha256:" + _hex_digest(chunk.encode("utf-8")),
+            "sha256:" + _hex_digest(beats_json.encode("utf-8")),
+        ],
+        params={"history": history},
+        env=env,
+    )
+
+
+def portrait_action_key(*, name: str, material: str, env: str, stage_src: str) -> str:
+    """Key one portrait from that character's own prompt.
+
+    The earlier portrait file is a soft reference and is not an input.
+    """
+    return action_key(
+        stage="portrait",
+        stage_src=stage_src,
+        inputs=["sha256:" + _hex_digest(material.encode("utf-8"))],
+        params={"name": name},
+        env=env,
+    )
+
+
+def render_panel_action_key(
+    *,
+    panel_json: str,
+    style: str,
+    page_key: str,
+    env: str,
+    stage_src: str,
+) -> str:
+    """Key one storyboard panel from its own plan and style.
+
+    The previous panel and the portrait file are soft references and are not
+    inputs. The same panel on a later run reuses the stored image.
+    """
+    return action_key(
+        stage="render.panel",
+        stage_src=stage_src,
+        inputs=["sha256:" + _hex_digest(panel_json.encode("utf-8"))],
+        params={"page_key": page_key, "style": style},
+        env=env,
+    )
+
+
+def bible_action_key(*, chunk: str, history: dict, env: str, stage_src: str) -> str:
+    """Key a bible reconcile from the chunk and the bounded summary.
+
+    ``history`` is the window size plus summarizer source hashes. The bible
+    prose and the character table stay out: a recorded merge must not make
+    every chunk pay for another reconcile. A new character still reconciles
+    through the existing new-name check.
+    """
+    return action_key(
+        stage="bible",
+        stage_src=stage_src,
+        inputs=["sha256:" + _hex_digest(chunk.encode("utf-8"))],
+        params={"history": history},
+        env=env,
+    )
+
+
 def letter_action_key(*, blank: bytes, plan_json: str, env: str, stage_src: str) -> str:
     """Key a lettering step from the blank bytes, the plan, and ``h_env``.
 

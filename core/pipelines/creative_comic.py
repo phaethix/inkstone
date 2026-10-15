@@ -51,16 +51,24 @@ from core.comic.adaptation import (
 )
 from core.comic.budget import BudgetPaused, BudgetSession, BudgetSpec
 from core.comic.cas import (
+    beats_action_key,
+    bible_action_key,
     export_action_key,
     export_inputs,
+    extract_action_key,
     is_hit,
     layout_action_key,
     letter_action_key,
     letter_inputs,
     load_manifest,
+    page_plan_action_key,
+    portrait_action_key,
     put_bytes,
     record_files,
     record_ok,
+    render_page_action_key,
+    render_page_inputs,
+    render_panel_action_key,
     stored_files,
     stored_output,
     webtoon_action_key,
@@ -121,7 +129,11 @@ from core.comic.segmentation import (
     segment_text,
     source_units,
 )
-from core.comic.stage_contract import RECENT_LAYOUT_LIMIT, stage_source_hash
+from core.comic.stage_contract import (
+    RECENT_LAYOUT_LIMIT,
+    historical_identity,
+    stage_source_hash,
+)
 from core.comic.visual_bible import (
     apply_reconcile,
     backfill_panel_characters,
@@ -536,9 +548,79 @@ _WEBTOON_STAGE_SRC = stage_source_hash(*_WEBTOON_SOURCES)
 _LAYOUT_STAGE_SRC = stage_source_hash(*_LAYOUT_SOURCES)
 
 
+def _portrait_key_material(name: str, asset, style: str) -> str:
+    """Stable portrait identity. A per-chunk source warning is not part of it."""
+    return "\n".join([name, asset.portrait_prompt or "", asset.l1_prompt or "", style or ""])
+
+
+def _panel_key_material(panel) -> str:
+    """Panel identity. The previous panel and portrait files are not part of it."""
+    names = ",".join(panel.characters_present or [])
+    return "\n".join([panel.action or "", panel.setting_ref or "", names, panel.size or ""])
+
+
+def _panel_render_key(panel, style: str, state_key: str, image_model: str) -> str:
+    return render_panel_action_key(
+        panel_json=_panel_key_material(panel),
+        style=style,
+        page_key=state_key,
+        env=image_model,
+        stage_src=_RENDER_PANEL_STAGE_SRC,
+    )
+
+
+def _sync_stored_panel_key(
+    state: ProjectState, state_key: str, panel, style: str, image_model: str
+) -> None:
+    """Stamp a legacy panel, or drop it from the done set when its key misses.
+
+    A missing file still has to be painted. A stale panel is left for the
+    existing stale check.
+    """
+    existing = state.generated.panels.get(state_key)
+    if existing is None or not Path(existing.local).is_file():
+        return
+    if state_key in state.stale_panels:
+        return
+    key = _panel_render_key(panel, style, state_key, image_model)
+    if not existing.render_action_key:
+        existing.render_action_key = key
+        return
+    if existing.render_action_key != key and state_key in state.panels_done:
+        state.panels_done.remove(state_key)
+
+
+_EXTRACT_STAGE_SRC = stage_source_hash(extract_story_elements)
+_BEATS_STAGE_SRC = stage_source_hash(extract_key_beats)
+_BIBLE_STAGE_SRC = stage_source_hash(reconcile_visual_bible)
+_PAGE_PLAN_STAGE_SRC = stage_source_hash(plan_comic_pages)
+_PORTRAIT_STAGE_SRC = stage_source_hash(_portrait_key_material)
+_RENDER_PANEL_STAGE_SRC = stage_source_hash(_panel_key_material)
+_RENDER_PAGE_STAGE_SRC = stage_source_hash(render_finished_page_prompt)
+
+
 def _plan_json(plan: ComicPagePlan) -> str:
     payload = plan.model_dump(mode="json")
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _beats_payload(beats) -> str:
+    """Canonical beats for a page-plan key. The stored action key is not an input."""
+    if beats is None:
+        return ""
+    payload = beats.model_dump(mode="json")
+    payload.pop("action_key", None)
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _page_plan_key(chunk: str, beats, chat_model: str) -> str:
+    return page_plan_action_key(
+        chunk=chunk,
+        beats_json=_beats_payload(beats),
+        history=historical_identity("page_plan"),
+        env=chat_model,
+        stage_src=_PAGE_PLAN_STAGE_SRC,
+    )
 
 
 def _letter_key(
@@ -1641,6 +1723,14 @@ async def _creative_comic(
         cached = state.chunk_cache.get(key)
         board = cached.storyboard if cached else None
         elements = cached.elements if cached else None
+        extract_key = extract_action_key(
+            chunk=chunk, env=snapshot.chat, stage_src=_EXTRACT_STAGE_SRC
+        )
+        if elements is not None and cached is not None:
+            if cached.extract_action_key and cached.extract_action_key != extract_key:
+                elements = None
+            elif not cached.extract_action_key:
+                cached.extract_action_key = extract_key
         pageset = state.page_cache.get(key)
         known_beats = key_beats_for_chunk(state, key, chunks)
         if board is not None and known_beats is not None:
@@ -1700,6 +1790,7 @@ async def _creative_comic(
                 raise
             # Cache so a later resume does not re-pay for extraction.
             state.chunk_cache.setdefault(key, ChunkCache()).elements = elements
+            state.chunk_cache[key].extract_action_key = extract_key
             state.save(state_path)
             _report("extract", _pct())
 
@@ -1720,7 +1811,20 @@ async def _creative_comic(
         hints = list(detect_character_aliases(state.characters, new_names))
         for name, cand, reason in hints:
             offer_alias_suggestion(state, suggestion_from_alias(name, cand, reason))
-        if state.visual_bible is None or fresh_extract or new_names:
+        bible_key = bible_action_key(
+            chunk=chunk,
+            history=historical_identity("bible"),
+            env=snapshot.chat,
+            stage_src=_BIBLE_STAGE_SRC,
+        )
+        stored_bible_key = state.bible_action_keys.get(key, "")
+        needs_bible = state.visual_bible is None or fresh_extract or bool(new_names)
+        if not needs_bible:
+            if not stored_bible_key:
+                state.bible_action_keys[key] = bible_key
+            elif stored_bible_key != bible_key:
+                needs_bible = True
+        if needs_bible:
             _charge("bible", f"c{ci:04d}")
             try:
                 recon = await reconcile_visual_bible(
@@ -1753,6 +1857,7 @@ async def _creative_comic(
                     new_render = _render_for_bible(state.visual_bible)
                     if state.render_fingerprint != new_render:
                         state.render_fingerprint = new_render
+                state.bible_action_keys[key] = bible_key
             except Exception as exc:  # noqa: BLE001 — reconcile is best-effort
                 logger.warning("visual bible reconcile failed (%s); continuing", exc)
         if state.visual_bible and state.visual_bible.style_guide:
@@ -1810,15 +1915,36 @@ async def _creative_comic(
                     raise
             path = _asset_path(output_dir, "assets/portraits", name)
             await asyncio.to_thread(out.save, str(path))
+            asset.portrait_action_key = portrait_action_key(
+                name=name,
+                material=_portrait_key_material(name, asset, style),
+                env=snapshot.t2i,
+                stage_src=_PORTRAIT_STAGE_SRC,
+            )
             return name, str(path)
 
-        portrait_names = [
-            name
-            for name, asset in state.characters.items()
-            if not asset.portrait_local
-            or not _is_within(asset.portrait_local, output_dir)
-            or not Path(asset.portrait_local).is_file()
-        ]
+        def _portrait_file_ok(asset) -> bool:
+            return bool(
+                asset.portrait_local
+                and _is_within(asset.portrait_local, output_dir)
+                and Path(asset.portrait_local).is_file()
+            )
+
+        portrait_names = []
+        for name, asset in state.characters.items():
+            material = _portrait_key_material(name, asset, portrait_style)
+            key_for_portrait = portrait_action_key(
+                name=name,
+                material=material,
+                env=snapshot.t2i,
+                stage_src=_PORTRAIT_STAGE_SRC,
+            )
+            if _portrait_file_ok(asset) and asset.portrait_action_key == key_for_portrait:
+                continue
+            if _portrait_file_ok(asset) and not asset.portrait_action_key:
+                asset.portrait_action_key = key_for_portrait
+                continue
+            portrait_names.append(name)
         base_names = [name for name in portrait_names if "@" not in name]
         stage_names = [name for name in portrait_names if "@" in name]
         portrait_results: list = []
@@ -1882,6 +2008,20 @@ async def _creative_comic(
         if mode == "finished_page":
             if pageset is not None and state.visual_bible is not None:
                 pageset = rewrite_pageset_from_bible(pageset, state.visual_bible)
+            beats_key = beats_action_key(chunk=chunk, env=snapshot.chat, stage_src=_BEATS_STAGE_SRC)
+            cached_beats = state.beat_cache.get(key)
+            if cached_beats is not None:
+                if cached_beats.action_key and cached_beats.action_key != beats_key:
+                    state.beat_cache.pop(key, None)
+                    pageset = None
+                elif not cached_beats.action_key:
+                    cached_beats.action_key = beats_key
+            plan_key = _page_plan_key(chunk, state.beat_cache.get(key), snapshot.chat)
+            if pageset is not None:
+                if pageset.action_key and pageset.action_key != plan_key:
+                    pageset = None
+                elif not pageset.action_key:
+                    pageset.action_key = plan_key
             if pageset is None:
                 state.stage = "page_plan"
                 try:
@@ -1891,6 +2031,7 @@ async def _creative_comic(
                             _charge("beats", f"c{ci:04d}")
                             try:
                                 beats = await extract_key_beats(chunk, elements, chat=chat)
+                                beats.action_key = beats_key
                                 state.beat_cache[key] = beats
                                 sync_adaptation_plans(state, chunks)
                             except Exception as beat_exc:  # noqa: BLE001
@@ -1943,6 +2084,7 @@ async def _creative_comic(
                     raise
                 if state.visual_bible is not None:
                     pageset = rewrite_pageset_from_bible(pageset, state.visual_bible)
+                pageset.action_key = _page_plan_key(chunk, state.beat_cache.get(key), snapshot.chat)
                 state.page_cache[key] = pageset
                 state.save(state_path)
                 _report("page_plan", _pct())
@@ -2048,6 +2190,50 @@ async def _creative_comic(
                         if name in state.characters and state.characters[name].portrait_local
                     ]
                 refs = [ref for ref in refs if _is_within(ref, output_dir) and Path(ref).is_file()]
+                render_env = h_env(text=prompt, resolved_size=page_size)
+                render_key = render_page_action_key(
+                    plan_json=_plan_json(plan),
+                    prompt=prompt,
+                    resolved_size=page_size,
+                    page_key=state_key,
+                    env=render_env,
+                    stage_src=_RENDER_PAGE_STAGE_SRC,
+                )
+                if state_key not in state.stale_pages:
+                    cached_blank = stored_output(output_dir, render_key)
+                    if cached_blank is not None:
+                        pages_dir.mkdir(parents=True, exist_ok=True)
+                        blank_dir = pages_dir / "blank"
+                        blank_dir.mkdir(parents=True, exist_ok=True)
+                        blank_path = _page_asset_path(blank_dir, ci, page_index)
+                        blank_path.write_bytes(cached_blank)
+                        local = _page_asset_path(pages_dir, ci, page_index)
+                        await asyncio.to_thread(
+                            partial(
+                                _letter_page_from_blank,
+                                blank_path,
+                                local,
+                                plan,
+                                source_text=chunk,
+                                output_dir=output_dir,
+                                resolved_size=page_size,
+                            )
+                        )
+                        state.generated.pages[state_key] = GeneratedPage(
+                            local=str(local),
+                            blank_local=str(blank_path),
+                            lettering_version=LETTERING_VERSION,
+                            resolved_size=page_size,
+                            render_action_key=render_key,
+                            page_id=page_id,
+                            unit_index=ci,
+                            page_index=page_index,
+                            mode="finished_lettered",
+                        )
+                        _mark_page_done(state, state_key)
+                        state.save(state_path)
+                        _report("pages", _pct())
+                        continue
                 # Hold past the sample without raising, so a later chunk can
                 # still take the reserved seat. The pause is raised once,
                 # after the sample has been exported.
@@ -2131,6 +2317,24 @@ async def _creative_comic(
                 blank_dir.mkdir(parents=True, exist_ok=True)
                 blank_path = _page_asset_path(blank_dir, ci, page_index)
                 await asyncio.to_thread(out.save, str(blank_path))
+                stored_render_key = render_page_action_key(
+                    plan_json=_plan_json(plan),
+                    prompt=prompt,
+                    resolved_size=active_size,
+                    page_key=state_key,
+                    env=h_env(text=prompt, resolved_size=active_size),
+                    stage_src=_RENDER_PAGE_STAGE_SRC,
+                )
+                record_ok(
+                    output_dir,
+                    key=stored_render_key,
+                    stage="render.page",
+                    stage_src=_RENDER_PAGE_STAGE_SRC,
+                    env=h_env(text=prompt, resolved_size=active_size),
+                    inputs=render_page_inputs(_plan_json(plan), prompt),
+                    name="blank.png",
+                    data=blank_path.read_bytes(),
+                )
                 local = _page_asset_path(pages_dir, ci, page_index)
                 await asyncio.to_thread(
                     partial(
@@ -2148,6 +2352,7 @@ async def _creative_comic(
                     blank_local=str(blank_path),
                     lettering_version=LETTERING_VERSION,
                     resolved_size=active_size,
+                    render_action_key=stored_render_key,
                     page_id=page_id,
                     unit_index=ci,
                     page_index=page_index,
@@ -2246,6 +2451,7 @@ async def _creative_comic(
             state_key = _stored_panel_key(state, ci, panel_index)
             if panel_key_filter is not None and state_key not in panel_key_filter:
                 continue
+            _sync_stored_panel_key(state, state_key, panel, effective_style, snapshot.t2i)
             if _panel_needs_generation(state, state_key):
                 pending.append((state_key, panel_index, panel))
 
@@ -2320,6 +2526,9 @@ async def _creative_comic(
                 dialogue=panel.dialogue,
                 caption=panel.caption,
                 sfx=panel.sfx,
+                render_action_key=_panel_render_key(
+                    panel, style_for_panel, state_key, snapshot.t2i
+                ),
             )
 
         state.stage = "panels"
