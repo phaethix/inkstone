@@ -99,14 +99,18 @@ Keep these prototypes only as migration material until they conform to the targe
   for that text was 8 panels and 2 pages. The constants stay 3/8/14. The
   drawings stay in `comic_out/` and are not committed, so a plan without
   `--out` stays the experience rate.
-- [ ] Phase 3 stays closed until a named invalidation defect is reproduced on
-  the current fingerprints. The defect is a change that must repaint but leaves
-  the stored image, or a change that must not repaint but draws a page outside
-  the affected set. The measured floor on the alias-merge sample is 15 image
-  calls and 0 chat calls at 300 pages, and the same 15 and 0 at 600 pages. If
-  phase 3 opens, that re-run stays within those numbers. Hard and soft inputs,
-  positional page identity, and letter/export/layout tombstones have landed.
-  The two-phase scheduler and render/extract action keys have not.
+- [x] Phase 3 keys. Extract, beats, page plan, and finished-page render use
+  action keys. A matching key does not call the provider again. A page plan key
+  carries the history window and the summarizer source hashes, not the recent
+  layout strings. A portrait key is that character's own prompt. The earlier
+  portrait file stays out, so a matching key does not paint it again. A storyboard
+  panel key is that panel's own plan. The previous panel stays out. A bible key
+  is the chunk plus the summary-function hashes, not the bible prose, so a
+  recorded merge does not reconcile every chunk again. A stale page still
+  repaints. The alias-merge ceiling stays 15 image calls and 0 chat calls at
+  300 pages, and the same 15 and 0 at 600 pages.
+- [ ] Phase 3 remainder. The two-phase scheduler, deletion of the manual
+  fingerprint tokens, and the one-time invalidation announcement have not landed.
 
 ### P0 — Content-addressed pipeline migration (0a-0h)
 
@@ -153,9 +157,9 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
 - [x] **0h growth** Doubling the alias-merge sample from 300 pages to 600, with the
   alias still on the same 15 pages, leaves the re-run at 15 stale keys, 15 image
   calls, and 0 chat calls. The current architecture already does not grow with book
-  length. Phase 3 stays off the generate path until a named invalidation defect
-  is reproduced. If it opens, the re-run stays within this measured floor:
-  15 image calls and 0 chat calls. Phase 2's object store is the part that has started.
+  length. Extract and finished-page render use action keys, and this re-run stays
+  at 15 image calls and 0 chat calls. The two-phase scheduler has not landed.
+  Phase 2's object store is the part that has started.
 - [x] **1 (contracts)** Stage input declarations. `page_plan` may read earlier
   layouts only through a window of 8; the declared input is that window plus the
   summarizer source hashes, not the intent strings and not `page_cache`. Chat
@@ -343,7 +347,8 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
     operands intact, and its operator hangs on the first operand when that group
     fits. A letter unit after that expression stays with the right operand. A
     symbol unit such as ㎡, ℃, or ㎝ stays with that operand the same way. A
-    decimal in either operand stays with its digits. A
+    decimal in either operand stays with its digits. A spaced letter unit stays
+    with the whole operand before it when that group fits. A
     caption that mixes CJK and Latin keeps each Latin word intact.
     The PDF is still that raster.
 - [ ] Publish a public-domain *Journey to the West* chapter showcase with source,

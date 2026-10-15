@@ -520,6 +520,9 @@ class CharacterAsset(BaseModel):
     # Runtime-only: local path of the generated portrait. Filled by the pipeline,
     # never requested from the model, so it is hidden from the tool schema.
     portrait_local: SkipJsonSchema[str | None] = None
+    # Empty until this portrait is rendered under an action key. Hidden from
+    # the extract tool schema, same as ``portrait_local``.
+    portrait_action_key: SkipJsonSchema[str] = ""
 
     @field_validator("name", "role", "l1_prompt", "portrait_prompt", mode="before")
     @classmethod
@@ -993,6 +996,7 @@ class KeyBeatSet(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     beats: list[KeyBeat] = Field(default_factory=list)
+    action_key: str = ""
 
     @field_validator("beats", mode="before")
     @classmethod
@@ -1007,6 +1011,7 @@ class ComicPagePlanSet(BaseModel):
 
     unit_id: str = ""
     pages: list[ComicPagePlan] = Field(default_factory=list)
+    action_key: str = ""
 
     @field_validator("unit_id", mode="before")
     @classmethod
@@ -1105,6 +1110,9 @@ class ChunkCache(BaseModel):
     storyboard: Storyboard | None = None
     # D2 遗留 PageScript 审计元数据；resume 跳过已生成块（不重复计费）。
     page_script: PageScript | None = None
+    # Empty on projects written before extract had an action key. A later run
+    # stamps the current key and does not call the provider again.
+    extract_action_key: str = ""
 
 
 class CharacterAliasSuggestion(BaseModel):
@@ -1148,6 +1156,9 @@ class GeneratedPage(BaseModel):
     # The size the provider accepted for this page. A square fallback must be
     # recorded here; a later key has to hash this, not the configured string.
     resolved_size: str = ""
+    # Empty until this page is rendered under an action key. A matching key
+    # reuses the stored blank.
+    render_action_key: str = ""
     page_id: str = ""
     unit_index: int = 0
     page_index: int = 0
@@ -1182,6 +1193,7 @@ class GeneratedPanel(BaseModel):
     dialogue: str | None = None
     caption: str | None = None
     sfx: str | None = None
+    render_action_key: str = ""
     url: str | None = None
     expires_at: str | None = None
 
@@ -1566,6 +1578,10 @@ class ProjectState(BaseModel):
     tombstones: dict[str, Tombstone] = Field(default_factory=dict)
     generated: GeneratedAssets = Field(default_factory=GeneratedAssets)
     visual_bible: VisualBible | None = None
+    # Per-chunk bible keys. Empty until that chunk is reconciled under an
+    # action key. A later run with the same chunk stamps the key and does not
+    # call the provider again.
+    bible_action_keys: dict[str, str] = Field(default_factory=dict)
     errors: str = "logs/errors.jsonl"
     active_elapsed_seconds: float = 0.0
 

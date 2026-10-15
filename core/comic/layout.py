@@ -388,17 +388,25 @@ class LayoutEngine:
 
         lines: list[str] = []
         cur = ""
+        pending_space = False
         for token in tokens:
             if token == " ":
                 if cur and font.getlength(cur + " ") <= max_width:
                     cur += " "
+                    pending_space = False
+                else:
+                    pending_space = True
                 continue
             if font.getlength(cur + token) <= max_width:
                 cur += token
+                pending_space = False
                 continue
             moved = LayoutEngine._rebreak_for_punctuation(cur, token, font, max_width)
             if moved is None:
-                moved = LayoutEngine._hang_spaced_unit(cur, token, font, max_width)
+                moved = LayoutEngine._hang_spaced_unit(
+                    cur, token, font, max_width, want_space=pending_space
+                )
+            pending_space = False
             if moved is not None:
                 head, cur = moved
                 if head:
@@ -463,20 +471,41 @@ class LayoutEngine:
 
     @staticmethod
     def _hang_spaced_unit(
-        cur: str, token: str, font: ImageFont.ImageFont, max_width: int
+        cur: str,
+        token: str,
+        font: ImageFont.ImageFont,
+        max_width: int,
+        *,
+        want_space: bool = False,
     ) -> tuple[str, str] | None:
-        """Keep a spaced letter unit with the previous digit when that group fits."""
+        """Keep a spaced letter unit with the previous number when that group fits."""
         body = cur.rstrip()
         if not body or not body[-1].isdigit() or not token.isascii() or not token.isalpha():
             return None
-        gap = " " if cur.endswith(" ") else ""
-        field = body[-1]
+        gap = " " if cur.endswith(" ") or want_space else ""
         if len(body) >= 3 and body[-3] == ":" and body[-2].isdigit():
             field = body[-2:]
-        hung = field + gap + token
-        if font.getlength(hung) > max_width:
+            hung = field + gap + token
+            if font.getlength(hung) <= max_width:
+                return body[: -len(field)].rstrip(), hung
             return None
-        return body[: -len(field)].rstrip(), hung
+        end = len(body)
+        start = end
+        while start > 0 and body[start - 1].isdigit():
+            start -= 1
+        if start > 1 and body[start - 1] == "." and body[start - 2].isdigit():
+            start -= 1
+            while start > 0 and body[start - 1].isdigit():
+                start -= 1
+        operand = body[start:end]
+        fields = [operand]
+        if "." not in operand and len(operand) > 1:
+            fields.append(operand[-1])
+        for field in fields:
+            hung = field + gap + token
+            if font.getlength(hung) <= max_width:
+                return body[: -len(field)].rstrip(), hung
+        return None
 
     @staticmethod
     def _wrap_clock(token: str, font: ImageFont.ImageFont, max_width: int) -> list[str] | None:
