@@ -886,6 +886,30 @@ def test_a_numeric_expression_keeps_a_symbol_unit_on_the_right_operand():
         assert all(f"{hung}3" not in line for line in lines)
 
 
+def test_a_numeric_expression_keeps_a_decimal_operand():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("共12×3.5人的", font_path=path)
+    cases = (
+        ("共12×3.5人", "2×3.5", "12×", "3.5"),
+        ("比例1/2.5杯", "/2.5", "1/", "2.5"),
+        ("面积3.5×4.5㎡后", "5×4.5㎡", "3.5×", "4.5㎡"),
+    )
+    for text, sample, hung, right in cases:
+        width = font.getlength(sample)
+        assert font.getlength(hung + right) > width
+        assert font.getlength(hung) <= width
+        assert font.getlength(right) <= width
+        lines = engine._wrap_text(text, font, max_width=width)
+        assert "".join(lines) == text
+        assert any(line.endswith(hung) for line in lines)
+        assert any(right in line for line in lines)
+        torn = right.split(".", 1)[0] + "."
+        assert all(torn not in line or right in line for line in lines)
+
+
 def _has_dark_pixel(canvas, box) -> bool:
     x, y, w, h = box
     return any(
