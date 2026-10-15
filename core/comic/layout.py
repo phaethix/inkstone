@@ -696,7 +696,13 @@ class LayoutEngine:
             return None
         operator = operators[0]
         left, right = body.split(operator, 1)
-        if not left.isdigit() or not right.isdigit():
+
+        def _operand(part: str) -> bool:
+            if not part or part.count(".") > 1 or part.startswith(".") or part.endswith("."):
+                return False
+            return part.replace(".", "", 1).isdigit()
+
+        if not _operand(left) or not _operand(right):
             return None
         right += unit
         if font.getlength(body + unit) <= max_width:

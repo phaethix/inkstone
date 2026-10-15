@@ -94,8 +94,11 @@ Keep these prototypes only as migration material until they conform to the targe
   banner before any ratio. It stays off unless `INKSTONE_PAGE_SCRIPT=1`.
 - [ ] Calibrate estimates with a public sample; do not promise fixed panels per
   chunk without evidence. `inkstone plan --out` uses panel and page counts a
-  project has already planned. The Journey to the West excerpt has no committed
-  drawings, so its estimate stays the experience rate.
+  project has already planned. A local generate of the Journey to the West
+  excerpt planned 14 panels and 8 pages for its one chunk; the experience rate
+  for that text was 8 panels and 2 pages. The constants stay 3/8/14. The
+  drawings stay in `comic_out/` and are not committed, so a plan without
+  `--out` stays the experience rate.
 - [ ] Phase 3 stays closed until a named invalidation defect is reproduced on
   the current fingerprints. The defect is a change that must repaint but leaves
   the stored image, or a change that must not repaint but draws a page outside
@@ -288,8 +291,10 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
   call a model and is not a readability or quality gate.
 - [ ] Validate one public-domain chapter end-to-end before attempting a whole book.
   A chapter counts only when every structural check passes and a page is stored.
-  The Journey to the West excerpt is one source unit; beats, lettering, and a
-  stored page are absent, so it is not validated.
+  A local generate of the Journey to the West excerpt stored 8 pages. Source,
+  beats, causal order, and blocked checks passed. Visible text failed: the
+  drawn captions are not contiguous text from the source. The chapter is not
+  validated.
 
 ### P2 — Delivery experience and proof
 
@@ -338,6 +343,7 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
     operands intact, and its operator hangs on the first operand when that group
     fits. A letter unit after that expression stays with the right operand. A
     symbol unit such as ㎡, ℃, or ㎝ stays with that operand the same way. A
+    decimal in either operand stays with its digits. A
     caption that mixes CJK and Latin keeps each Latin word intact.
     The PDF is still that raster.
 - [ ] Publish a public-domain *Journey to the West* chapter showcase with source,
