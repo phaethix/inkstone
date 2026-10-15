@@ -315,6 +315,24 @@ def bible_action_key(*, chunk: str, history: dict, env: str, stage_src: str) -> 
     )
 
 
+def storyboard_action_key(*, chunk: str, cast: str, env: str, stage_src: str) -> str:
+    """Key a storyboard from the chunk and the names in that chunk.
+
+    Earlier panels and the portrait files stay out. A repeat of the same chunk
+    does not call the planner again.
+    """
+    return action_key(
+        stage="storyboard",
+        stage_src=stage_src,
+        inputs=[
+            "sha256:" + _hex_digest(chunk.encode("utf-8")),
+            "sha256:" + _hex_digest(cast.encode("utf-8")),
+        ],
+        params={},
+        env=env,
+    )
+
+
 def letter_action_key(*, blank: bytes, plan_json: str, env: str, stage_src: str) -> str:
     """Key a lettering step from the blank bytes, the plan, and ``h_env``.
 

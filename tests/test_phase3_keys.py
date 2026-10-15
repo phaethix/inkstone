@@ -8,6 +8,7 @@ from core.comic.cas import (
     portrait_action_key,
     render_page_action_key,
     render_panel_action_key,
+    storyboard_action_key,
 )
 
 
@@ -54,6 +55,21 @@ def test_a_page_plan_key_keeps_recent_layout_strings_out():
     )
     assert changed_beats != base
     assert "layout_intent" not in page_plan_action_key.__code__.co_varnames
+
+
+def test_a_storyboard_key_tracks_the_chunk_and_its_cast():
+    base = storyboard_action_key(chunk="第一回", cast="方鸿渐", env="chat-a", stage_src="src")
+    assert (
+        storyboard_action_key(chunk="第一回", cast="方鸿渐", env="chat-a", stage_src="src") == base
+    )
+    assert (
+        storyboard_action_key(chunk="第二回", cast="方鸿渐", env="chat-a", stage_src="src") != base
+    )
+    assert (
+        storyboard_action_key(chunk="第一回", cast="方鸿渐\n鸿渐", env="chat-a", stage_src="src")
+        != base
+    )
+    assert "portrait" not in storyboard_action_key.__code__.co_varnames
 
 
 def test_a_portrait_key_ignores_the_reference_file():
