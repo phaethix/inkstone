@@ -106,9 +106,10 @@ Keep these prototypes only as migration material until they conform to the targe
   portrait file stays out, so a matching key does not paint it again. A storyboard
   panel key is that panel's own plan. The previous panel stays out. A bible key
   is the chunk plus the summary-function hashes, not the bible prose, so a
-  recorded merge does not reconcile every chunk again. A stale page still
-  repaints. The alias-merge ceiling stays 15 image calls and 0 chat calls at
-  300 pages, and the same 15 and 0 at 600 pages.
+  recorded merge does not reconcile every chunk again. A storyboard key is the
+  chunk and the names in that chunk. A stale page still repaints. The
+  alias-merge ceiling stays 15 image calls and 0 chat calls at 300 pages, and
+  the same 15 and 0 at 600 pages.
 - [ ] Phase 3 remainder. The two-phase scheduler, deletion of the manual
   fingerprint tokens, and the one-time invalidation announcement have not landed.
 

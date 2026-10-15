@@ -1113,6 +1113,7 @@ class ChunkCache(BaseModel):
     # Empty on projects written before extract had an action key. A later run
     # stamps the current key and does not call the provider again.
     extract_action_key: str = ""
+    storyboard_action_key: str = ""
 
 
 class CharacterAliasSuggestion(BaseModel):

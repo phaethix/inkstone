@@ -71,6 +71,7 @@ from core.comic.cas import (
     render_panel_action_key,
     stored_files,
     stored_output,
+    storyboard_action_key,
     webtoon_action_key,
 )
 from core.comic.consistency import (
@@ -594,6 +595,7 @@ _EXTRACT_STAGE_SRC = stage_source_hash(extract_story_elements)
 _BEATS_STAGE_SRC = stage_source_hash(extract_key_beats)
 _BIBLE_STAGE_SRC = stage_source_hash(reconcile_visual_bible)
 _PAGE_PLAN_STAGE_SRC = stage_source_hash(plan_comic_pages)
+_STORYBOARD_STAGE_SRC = stage_source_hash(plan_storyboard)
 _PORTRAIT_STAGE_SRC = stage_source_hash(_portrait_key_material)
 _RENDER_PANEL_STAGE_SRC = stage_source_hash(_panel_key_material)
 _RENDER_PAGE_STAGE_SRC = stage_source_hash(render_finished_page_prompt)
@@ -2372,6 +2374,24 @@ async def _creative_comic(
             continue
 
         # ---- storyboard (only when not cached) ----
+        storyboard_cast = "\n".join(
+            sorted(character.name for character in planned_elements.characters)
+        )
+        storyboard_key = storyboard_action_key(
+            chunk=chunk,
+            cast=storyboard_cast,
+            env=snapshot.chat,
+            stage_src=_STORYBOARD_STAGE_SRC,
+        )
+        cached_chunk = state.chunk_cache.get(key)
+        if board is not None and cached_chunk is not None:
+            if (
+                cached_chunk.storyboard_action_key
+                and cached_chunk.storyboard_action_key != storyboard_key
+            ):
+                board = None
+            elif not cached_chunk.storyboard_action_key:
+                cached_chunk.storyboard_action_key = storyboard_key
         if board is None:
             state.stage = "storyboard"
             _charge("storyboard", f"c{ci:04d}")
@@ -2396,7 +2416,9 @@ async def _creative_comic(
                     _report("skip", _pct())
                     continue
                 raise
-            state.chunk_cache.setdefault(key, ChunkCache()).storyboard = board
+            cached_board = state.chunk_cache.setdefault(key, ChunkCache())
+            cached_board.storyboard = board
+            cached_board.storyboard_action_key = storyboard_key
             state.save(state_path)
             _report("storyboard", _pct())
 
