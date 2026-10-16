@@ -21,10 +21,20 @@ def test_an_extract_key_tracks_the_chunk_text_and_not_a_page_size():
     assert "l3_enabled" not in extract_action_key.__code__.co_varnames
 
 
-def test_a_beats_key_tracks_the_chunk_text():
-    base = beats_action_key(chunk="第一回", env="chat-a", stage_src="src")
-    assert beats_action_key(chunk="第一回", env="chat-a", stage_src="src") == base
-    assert beats_action_key(chunk="第二回", env="chat-a", stage_src="src") != base
+def test_a_beats_key_tracks_the_chunk_and_its_extract():
+    base = beats_action_key(chunk="第一回", extract_key="extract-a", env="chat-a", stage_src="src")
+    assert (
+        beats_action_key(chunk="第一回", extract_key="extract-a", env="chat-a", stage_src="src")
+        == base
+    )
+    assert (
+        beats_action_key(chunk="第二回", extract_key="extract-a", env="chat-a", stage_src="src")
+        != base
+    )
+    assert (
+        beats_action_key(chunk="第一回", extract_key="extract-b", env="chat-a", stage_src="src")
+        != base
+    )
     assert "page_size" not in beats_action_key.__code__.co_varnames
 
 

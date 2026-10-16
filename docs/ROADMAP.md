@@ -108,9 +108,11 @@ Keep these prototypes only as migration material until they conform to the targe
   is the chunk plus the summary-function hashes, not the bible prose, so a
   recorded merge does not reconcile every chunk again. A storyboard key is the
   chunk and the names in that chunk. A page script key is that chunk's text,
-  storyboard, and extracted elements. A stale page still repaints. The
-  alias-merge ceiling stays 15 image calls and 0 chat calls at 300 pages, and
-  the same 15 and 0 at 600 pages.
+  storyboard, and extracted elements. A beats key includes that chunk's extract
+  key, so a changed extract replans the beats. A project that already stored a
+  beats key replans those beats and its page plan once. A stale page still
+  repaints. The alias-merge ceiling stays 15 image calls and 0 chat calls at
+  300 pages, and the same 15 and 0 at 600 pages.
 - [x] Phase 3 fingerprint tokens. The render fingerprint no longer carries the
   manual identity, stage-lock, layout, voice-timeline, beats, or lettering
   tokens. The next resume of an existing project repaints once, because the

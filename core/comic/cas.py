@@ -225,12 +225,18 @@ def render_page_action_key(
     )
 
 
-def beats_action_key(*, chunk: str, env: str, stage_src: str) -> str:
-    """Key a beat extract from the chunk text. Render-only knobs stay out of ``env``."""
+def beats_action_key(*, chunk: str, extract_key: str, env: str, stage_src: str) -> str:
+    """Key a beat extract from the chunk and the extract that read it.
+
+    A changed extract key replans the beats. Render-only knobs stay out of ``env``.
+    """
     return action_key(
         stage="beats",
         stage_src=stage_src,
-        inputs=["sha256:" + _hex_digest(chunk.encode("utf-8"))],
+        inputs=[
+            "sha256:" + _hex_digest(chunk.encode("utf-8")),
+            extract_key,
+        ],
         params={},
         env=env,
     )
