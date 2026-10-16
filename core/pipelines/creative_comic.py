@@ -62,6 +62,7 @@ from core.comic.cas import (
     letter_inputs,
     load_manifest,
     page_plan_action_key,
+    page_script_action_key,
     portrait_action_key,
     put_bytes,
     record_files,
@@ -587,6 +588,7 @@ _BEATS_STAGE_SRC = stage_source_hash(extract_key_beats)
 _BIBLE_STAGE_SRC = stage_source_hash(reconcile_visual_bible)
 _PAGE_PLAN_STAGE_SRC = stage_source_hash(plan_comic_pages)
 _STORYBOARD_STAGE_SRC = stage_source_hash(plan_storyboard)
+_PAGE_SCRIPT_STAGE_SRC = stage_source_hash(plan_page_script)
 _PORTRAIT_STAGE_SRC = stage_source_hash(_portrait_key_material)
 _RENDER_PANEL_STAGE_SRC = stage_source_hash(_panel_key_material)
 _RENDER_PAGE_STAGE_SRC = stage_source_hash(render_finished_page_prompt)
@@ -604,6 +606,67 @@ def _beats_payload(beats) -> str:
     payload = beats.model_dump(mode="json")
     payload.pop("action_key", None)
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _model_payload(model) -> str:
+    """Canonical JSON for a key input. ``None`` is an empty payload."""
+    if model is None:
+        return ""
+    payload = model.model_dump(mode="json")
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _page_script_elements(elements) -> str:
+    """Plan-facing extract. Portrait files and rewritten prompts stay out."""
+    if elements is None:
+        return ""
+    payload = {
+        "characters": [
+            {
+                "name": character.name,
+                "portrait_prompt": character.portrait_prompt,
+                "role": character.role,
+            }
+            for character in elements.characters
+        ],
+        "settings": [
+            {"name": setting.name, "scene_prompt": setting.scene_prompt}
+            for setting in elements.settings
+        ],
+        "style_guide": elements.style_guide,
+    }
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _page_script_plan(cache: ChunkCache | None, chunk: str, chat_model: str) -> tuple[bool, str]:
+    """Return whether a page script is missing, and the key for the one to store.
+
+    An empty key is stamped. A mismatched key drops the stored script.
+    """
+    if not _page_script_enabled():
+        return False, ""
+    elements = cache.elements if cache is not None else None
+    board = cache.storyboard if cache is not None else None
+    script_key = page_script_action_key(
+        chunk=chunk,
+        storyboard_json=_model_payload(board),
+        elements_json=_page_script_elements(elements),
+        env=chat_model,
+        stage_src=_PAGE_SCRIPT_STAGE_SRC,
+    )
+    if cache is not None and cache.page_script is not None:
+        stored = cache.page_script_action_key
+        if stored and stored != script_key:
+            cache.page_script = None
+        elif not stored:
+            cache.page_script_action_key = script_key
+    missing = cache is None or cache.page_script is None
+    return missing, script_key
+
+
+def _store_page_script(cache: ChunkCache, script: PageScript, action_key: str) -> None:
+    cache.page_script = script
+    cache.page_script_action_key = action_key
 
 
 def _page_plan_key(chunk: str, beats, chat_model: str) -> str:
@@ -1759,12 +1822,14 @@ async def _creative_comic(
                 and panel_key_filter is None
                 and state.visual_bible is not None
             ):
-                if image_config.panel_continuity and board.panels:
-                    last_index = len(board.panels) - 1
-                    state_key = _stored_panel_key(state, ci, last_index)
-                    prev_panel_local = state.generated.panels[state_key].local
-                _report("resume", _pct())
-                continue
+                script_missing, _script_key = _page_script_plan(cached, chunk, snapshot.chat)
+                if not script_missing:
+                    if image_config.panel_continuity and board.panels:
+                        last_index = len(board.panels) - 1
+                        state_key = _stored_panel_key(state, ci, last_index)
+                        prev_panel_local = state.generated.panels[state_key].local
+                    _report("resume", _pct())
+                    continue
 
             # ---- extraction (only when not cached) ----
             fresh_extract = elements is None
@@ -2442,7 +2507,9 @@ async def _creative_comic(
             if board is not None and known_beats is not None:
                 assign_panel_beat_ids(board.panels, known_beats.beats)
 
-            script_missing = state.chunk_cache.get(key, ChunkCache()).page_script is None
+            script_missing, script_key = _page_script_plan(
+                state.chunk_cache.get(key), chunk, snapshot.chat
+            )
             # ---- page-script ----
             # Optional legacy PageScript metadata (NOT a quality gate). Off by default.
             if _page_script_enabled() and script_missing:
@@ -2463,7 +2530,7 @@ async def _creative_comic(
                         )
                     else:
                         raise
-                state.chunk_cache[key].page_script = ps
+                _store_page_script(state.chunk_cache[key], ps, script_key)
                 state.save(state_path)
                 _report("page_script", _pct())
 

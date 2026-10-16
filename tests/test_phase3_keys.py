@@ -5,6 +5,7 @@ from core.comic.cas import (
     bible_action_key,
     extract_action_key,
     page_plan_action_key,
+    page_script_action_key,
     portrait_action_key,
     render_page_action_key,
     render_panel_action_key,
@@ -70,6 +71,48 @@ def test_a_storyboard_key_tracks_the_chunk_and_its_cast():
         != base
     )
     assert "portrait" not in storyboard_action_key.__code__.co_varnames
+
+
+def test_a_page_script_key_tracks_the_chunk_and_its_storyboard():
+    base = page_script_action_key(
+        chunk="第一回",
+        storyboard_json='{"panels":[]}',
+        elements_json="{}",
+        env="chat-a",
+        stage_src="src",
+    )
+    assert (
+        page_script_action_key(
+            chunk="第一回",
+            storyboard_json='{"panels":[]}',
+            elements_json="{}",
+            env="chat-a",
+            stage_src="src",
+        )
+        == base
+    )
+    assert (
+        page_script_action_key(
+            chunk="第二回",
+            storyboard_json='{"panels":[]}',
+            elements_json="{}",
+            env="chat-a",
+            stage_src="src",
+        )
+        != base
+    )
+    assert (
+        page_script_action_key(
+            chunk="第一回",
+            storyboard_json='{"panels":["look"]}',
+            elements_json="{}",
+            env="chat-a",
+            stage_src="src",
+        )
+        != base
+    )
+    assert "portrait" not in page_script_action_key.__code__.co_varnames
+    assert "page_size" not in page_script_action_key.__code__.co_varnames
 
 
 def test_a_portrait_key_ignores_the_reference_file():

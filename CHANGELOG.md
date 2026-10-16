@@ -40,7 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bible prose, so a recorded merge does not reconcile every chunk. A stale page
   still repaints. The alias-merge ceiling stays 15 image calls and 0 chat calls at
   300 pages, and the same 15 and 0 at 600 pages. A run plans every chunk before
-  it draws a page or a panel.
+  it draws a page or a panel. A page script key is that chunk's text, storyboard,
+  and extracted elements. An empty stored key is stamped and does not call again.
 - Measured the cost of one typical alias merge at zero quota (§9 phase 0h, resolved item 26):
   on the fixed 300-page sample (20 chunks x 15 pages, alias on 5 pages of chunks 4/9/14) the
   re-run spends **15 image calls** (the 15 stale pages) and **0 chat calls**. The merge
