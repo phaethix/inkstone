@@ -206,10 +206,8 @@ class ComicProject:
     cbz: str | None = None
 
 
-# Bumped only when the *structure* fingerprint (extract/storyboard cache) must
-# invalidate. Adding render_mode/finished_page_size only affects the render
-# fingerprint (below), which already has its own independent invalidation path
-# (``_soft_invalidate_render``), so no bump was needed for this change.
+# Historical combined fingerprint only. The live structure fingerprint is the
+# source text, so this constant no longer invalidates extract caches.
 _PIPELINE_STATE_VERSION = "2026-07-22.3"
 
 
@@ -245,7 +243,7 @@ def _structure_fingerprint(
     panels_per_chunk: int = PANELS_PER_CHUNK_B,
 ) -> str:
     canonical = source_txt.replace("\r\n", "\n").replace("\r", "\n")
-    body: dict[str, object] = {"pipeline": _PIPELINE_STATE_VERSION, "source": canonical}
+    body: dict[str, object] = {"source": canonical}
     # Tier B at the historical panel count stays out of the hash, so a project
     # planned before density was stored still resumes.
     if density != "B" or panels_per_chunk != PANELS_PER_CHUNK_B:
@@ -1708,368 +1706,78 @@ async def _creative_comic(
     _report("resume" if (state.panels_done or state.chunk_cache) else "segment", _pct())
     prev_panel_local: str | None = None
 
-    for ci, chunk in enumerate(chunks):
-        check_cancel(cancel_check)
-        key = str(ci)
-        if key in state.skipped_chunks:
-            logger.info("chunk %s skipped: previously rejected by content filter", key)
-            _report("skip", _pct())
-            continue
-        cached = state.chunk_cache.get(key)
-        board = cached.storyboard if cached else None
-        elements = cached.elements if cached else None
-        extract_key = extract_action_key(
-            chunk=chunk, env=snapshot.chat, stage_src=_EXTRACT_STAGE_SRC
-        )
-        if elements is not None and cached is not None:
-            if cached.extract_action_key and cached.extract_action_key != extract_key:
-                elements = None
-            elif not cached.extract_action_key:
-                cached.extract_action_key = extract_key
-        pageset = state.page_cache.get(key)
-        known_beats = key_beats_for_chunk(state, key, chunks)
-        if board is not None and known_beats is not None:
-            if stamp_storyboard_beats(board, known_beats):
-                state.save(state_path)
-        if mode == "finished_page" and pageset is not None:
-            cached_beats = state.beat_cache.get(key)
-            if cached_beats is not None and cached_beats.beats:
-                if stamp_page_panel_beats(pageset, cached_beats):
-                    state.save(state_path)
-
-        # Fully planned chunk: cached, marked done, every panel/page present on
-        # disk. Re-running reuses the cache so the billable chat API is never
-        # re-called.
-        if mode == "finished_page":
-            chunk_complete = (
-                pageset is not None
-                and key in set(state.chunks_done)
-                and _page_chunk_complete(state, pageset, output_dir, ci, chunk)
-                and panel_key_filter is None
+    # Plan every chunk before drawing. The page count is known only after
+    # that pass, so pages and panels are expanded in the render pass.
+    for phase in ("plan", "render"):
+        prev_panel_local = None
+        for ci, chunk in enumerate(chunks):
+            check_cancel(cancel_check)
+            key = str(ci)
+            if key in state.skipped_chunks:
+                logger.info("chunk %s skipped: previously rejected by content filter", key)
+                _report("skip", _pct())
+                continue
+            cached = state.chunk_cache.get(key)
+            board = cached.storyboard if cached else None
+            elements = cached.elements if cached else None
+            extract_key = extract_action_key(
+                chunk=chunk, env=snapshot.chat, stage_src=_EXTRACT_STAGE_SRC
             )
-            if chunk_complete and state.visual_bible is not None:
+            if elements is not None and cached is not None:
+                if cached.extract_action_key and cached.extract_action_key != extract_key:
+                    elements = None
+                elif not cached.extract_action_key:
+                    cached.extract_action_key = extract_key
+            pageset = state.page_cache.get(key)
+            known_beats = key_beats_for_chunk(state, key, chunks)
+            if board is not None and known_beats is not None:
+                if stamp_storyboard_beats(board, known_beats):
+                    state.save(state_path)
+            if mode == "finished_page" and pageset is not None:
+                cached_beats = state.beat_cache.get(key)
+                if cached_beats is not None and cached_beats.beats:
+                    if stamp_page_panel_beats(pageset, cached_beats):
+                        state.save(state_path)
+
+            # Fully planned chunk: cached, marked done, every panel/page present on
+            # disk. Re-running reuses the cache so the billable chat API is never
+            # re-called.
+            if mode == "finished_page":
+                chunk_complete = (
+                    pageset is not None
+                    and key in set(state.chunks_done)
+                    and _page_chunk_complete(state, pageset, output_dir, ci, chunk)
+                    and panel_key_filter is None
+                )
+                if chunk_complete and state.visual_bible is not None:
+                    _report("resume", _pct())
+                    continue
+            elif (
+                board is not None
+                and key in set(state.chunks_done)
+                and _chunk_complete(state, board, output_dir, ci)
+                and panel_key_filter is None
+                and state.visual_bible is not None
+            ):
+                if image_config.panel_continuity and board.panels:
+                    last_index = len(board.panels) - 1
+                    state_key = _stored_panel_key(state, ci, last_index)
+                    prev_panel_local = state.generated.panels[state_key].local
                 _report("resume", _pct())
                 continue
-        elif (
-            board is not None
-            and key in set(state.chunks_done)
-            and _chunk_complete(state, board, output_dir, ci)
-            and panel_key_filter is None
-            and state.visual_bible is not None
-        ):
-            if image_config.panel_continuity and board.panels:
-                last_index = len(board.panels) - 1
-                state_key = _stored_panel_key(state, ci, last_index)
-                prev_panel_local = state.generated.panels[state_key].local
-            _report("resume", _pct())
-            continue
 
-        # ---- extraction (only when not cached) ----
-        fresh_extract = elements is None
-        if elements is None:
-            state.stage = "extract"
-            _charge("extract", f"c{ci:04d}")
-            try:
-                with perf.measure("extract"):
-                    elements = await extract_story_elements(chunk, chat=chat)
-            except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
-                if is_content_policy_rejection(exc):
-                    logger.warning(
-                        "chunk %s skipped: content filter rejected extraction (%s)", ci, exc
-                    )
-                    if key not in state.skipped_chunks:
-                        state.skipped_chunks.append(key)
-                    state.save(state_path)
-                    _report("skip", _pct())
-                    continue
-                raise
-            # Cache so a later resume does not re-pay for extraction.
-            state.chunk_cache.setdefault(key, ChunkCache()).elements = elements
-            state.chunk_cache[key].extract_action_key = extract_key
-            state.save(state_path)
-            _report("extract", _pct())
-
-        # Merge characters; generate a portrait only for first-seen names.
-        state.characters, new_names = merge_characters(state.characters, elements.characters)
-        apply_recorded_merges(state, ledger)
-        # A name folded by a recorded merge is not a new character, so it does
-        # not pay for another portrait or another bible reconcile.
-        new_names = [name for name in new_names if name in state.characters]
-        planned_elements = elements_with_recorded_merges(elements, state)
-        for name in new_names:
-            if name not in state.characters:
-                continue
-            ensure_character_l1(state.characters[name], source_text=chunk)
-        state.settings = merge_settings(state.settings, elements.settings)
-
-        # Surface likely alias variants for human review (never auto-merged).
-        hints = list(detect_character_aliases(state.characters, new_names))
-        for name, cand, reason in hints:
-            offer_alias_suggestion(state, suggestion_from_alias(name, cand, reason))
-        bible_key = bible_action_key(
-            chunk=chunk,
-            history=historical_identity("bible"),
-            env=snapshot.chat,
-            stage_src=_BIBLE_STAGE_SRC,
-        )
-        stored_bible_key = state.bible_action_keys.get(key, "")
-        needs_bible = state.visual_bible is None or fresh_extract or bool(new_names)
-        if not needs_bible:
-            if not stored_bible_key:
-                state.bible_action_keys[key] = bible_key
-            elif stored_bible_key != bible_key:
-                needs_bible = True
-        if needs_bible:
-            _charge("bible", f"c{ci:04d}")
-            try:
-                recon = await reconcile_visual_bible(
-                    chunk,
-                    state.characters,
-                    state.visual_bible,
-                    alias_hints=hints,
-                    preferred_style=style_guide or elements.style_guide,
-                    chat=chat,
-                )
-                prev_hash = state.visual_bible.content_hash if state.visual_bible else None
-                had_render_assets = bool(
-                    state.generated.pages
-                    or state.generated.portraits
-                    or state.pages_done
-                    or state.panels_done
-                )
-                state = apply_reconcile(state, recon)
-                sync_characters_from_bible(state)
-                sanitized = sanitize_visual_bible_state(state)
-                if sanitized:
-                    _soft_invalidate_render(state)
-                elif state.visual_bible:
-                    state.visual_bible = refresh_bible_hash(state.visual_bible)
-                    if prev_hash and state.visual_bible.content_hash != prev_hash:
-                        _soft_invalidate_render(state)
-                    elif prev_hash is None and had_render_assets:
-                        _soft_invalidate_render(state)
-                if state.visual_bible:
-                    new_render = _render_for_bible(state.visual_bible)
-                    if state.render_fingerprint != new_render:
-                        state.render_fingerprint = new_render
-                state.bible_action_keys[key] = bible_key
-            except Exception as exc:  # noqa: BLE001 — reconcile is best-effort
-                logger.warning("visual bible reconcile failed (%s); continuing", exc)
-        if state.visual_bible and state.visual_bible.style_guide:
-            effective_style = state.visual_bible.style_guide
-        else:
-            effective_style = style_guide or elements.style_guide
-        portrait_style = effective_style
-
-        async def _render_portrait(
-            name: str,
-            *,
-            style: str = portrait_style,
-            _state: ProjectState = state,
-            _chunk: str = chunk,
-        ) -> tuple[str, str]:
-            asset = resolve_character_asset(name, _state.characters, _state.visual_bible)
-            if asset is None:
-                asset = _state.characters[name]
-            ensure_character_l1(asset, source_text=_chunk)
-            prompt = asset.portrait_prompt or asset.l1_prompt
-            if _state.visual_bible is not None:
-                base, stage = parse_stage_ref(name)
-                canon = _state.visual_bible.characters.get(base)
-                if canon is None:
-                    base = resolve_canonical_name(base, _state.visual_bible)
-                    canon = _state.visual_bible.characters.get(base)
-                if canon is not None:
-                    canon_prompt = l1_from_canon(canon, stage)
-                    if canon_prompt:
-                        prompt = canon_prompt
-                    prompt = f"{prompt}, {portrait_gender_era_suffix(_state.visual_bible, canon)}"
-            prompt = harden_human_identity_prompt(name, prompt)
-            if _state.visual_bible is not None:
-                color_block = format_color_bible_block(_state.visual_bible)
-                if color_block:
-                    prompt = f"{prompt}, {color_block}"
-            comic_style = f"{style}, {DEFAULT_PORTRAIT_STYLE}" if style else DEFAULT_PORTRAIT_STYLE
-            refs: list[str] = []
-            base_ref = canonical_portrait_ref(name, _state.characters, _state.visual_bible)
-            if base_ref and _is_within(base_ref, output_dir) and Path(base_ref).is_file():
-                refs = [base_ref]
-            async with image_semaphore:
-                _charge("portrait", name)
-                sent = f"{prompt}, {comic_style}"
-                image_intent(output_dir, stage="portrait", key=name, prompt=sent, size="1024x1024")
+            # ---- extraction (only when not cached) ----
+            fresh_extract = elements is None
+            if elements is None:
+                state.stage = "extract"
+                _charge("extract", f"c{ci:04d}")
                 try:
-                    with perf.measure("portrait"):
-                        out = await image.generate_single_image(
-                            sent,
-                            reference_image_paths=refs,
-                            size="1024x1024",
-                        )
-                except Exception as exc:  # noqa: BLE001 — log the class, then keep the portrait error
-                    image_failure(output_dir, stage="portrait", key=name, error=exc)
-                    raise
-            path = _asset_path(output_dir, "assets/portraits", name)
-            await asyncio.to_thread(out.save, str(path))
-            asset.portrait_action_key = portrait_action_key(
-                name=name,
-                material=_portrait_key_material(name, asset, style),
-                env=snapshot.t2i,
-                stage_src=_PORTRAIT_STAGE_SRC,
-            )
-            return name, str(path)
-
-        def _portrait_file_ok(asset) -> bool:
-            return bool(
-                asset.portrait_local
-                and _is_within(asset.portrait_local, output_dir)
-                and Path(asset.portrait_local).is_file()
-            )
-
-        portrait_names = []
-        for name, asset in state.characters.items():
-            material = _portrait_key_material(name, asset, portrait_style)
-            key_for_portrait = portrait_action_key(
-                name=name,
-                material=material,
-                env=snapshot.t2i,
-                stage_src=_PORTRAIT_STAGE_SRC,
-            )
-            if _portrait_file_ok(asset) and asset.portrait_action_key == key_for_portrait:
-                continue
-            if _portrait_file_ok(asset) and not asset.portrait_action_key:
-                asset.portrait_action_key = key_for_portrait
-                continue
-            portrait_names.append(name)
-        base_names = [name for name in portrait_names if "@" not in name]
-        stage_names = [name for name in portrait_names if "@" in name]
-        portrait_results: list = []
-        assigned_names: list[str] = []
-        for group in (base_names, stage_names):
-            group_results = await asyncio.gather(
-                *(_render_portrait(name) for name in group),
-                return_exceptions=True,
-            )
-            for name, result in zip(group, group_results, strict=True):
-                assigned_names.append(name)
-                portrait_results.append(result)
-                if isinstance(result, BudgetPaused):
-                    state.save(state_path)
-                    raise result
-                if isinstance(result, Exception):
-                    continue
-                _, path = result
-                state.characters[name].portrait_local = path
-                state.generated.portraits[name] = path
-                # Phase 0d (§12 consequence 1): record the authoritative
-                # reference. A first-ever portrait establishes the version
-                # without flagging pages we cannot yet enumerate; a
-                # regeneration bumps the version so rebuild marks the
-                # character's pages pending for review.
-                ledger_name = name.split("@", 1)[0]
-                if not ledger.pages_for(ledger_name):
-                    _record_portrait_reference(ledger, output_dir, ledger_name, path)
-                    ledger.characters[ledger_name].reviewed_version = ledger.characters[
-                        ledger_name
-                    ].reference.version
-                else:
-                    _record_portrait_reference(ledger, output_dir, ledger_name, path)
-                _report("portrait", _pct())
-
-        policy_rejection: Exception | None = None
-        operational_error: Exception | None = None
-        for _name, result in zip(assigned_names, portrait_results, strict=True):
-            if isinstance(result, Exception):
-                if is_content_policy_rejection(result):
-                    policy_rejection = result
-                elif operational_error is None:
-                    operational_error = result
-                continue
-
-        if operational_error is not None:
-            state.save(state_path)
-            raise operational_error
-        if policy_rejection is not None:
-            logger.warning(
-                "chunk %s skipped: content filter rejected portrait (%s)", ci, policy_rejection
-            )
-            if key not in state.skipped_chunks:
-                state.skipped_chunks.append(key)
-            state.save(state_path)
-            _report("skip", _pct())
-            continue
-        state.save(state_path)
-        _report("portrait", _pct())
-
-        if mode == "finished_page":
-            if pageset is not None and state.visual_bible is not None:
-                pageset = rewrite_pageset_from_bible(pageset, state.visual_bible)
-            beats_key = beats_action_key(chunk=chunk, env=snapshot.chat, stage_src=_BEATS_STAGE_SRC)
-            cached_beats = state.beat_cache.get(key)
-            if cached_beats is not None:
-                if cached_beats.action_key and cached_beats.action_key != beats_key:
-                    state.beat_cache.pop(key, None)
-                    pageset = None
-                elif not cached_beats.action_key:
-                    cached_beats.action_key = beats_key
-            plan_key = _page_plan_key(chunk, state.beat_cache.get(key), snapshot.chat)
-            if pageset is not None:
-                if pageset.action_key and pageset.action_key != plan_key:
-                    pageset = None
-                elif not pageset.action_key:
-                    pageset.action_key = plan_key
-            if pageset is None:
-                state.stage = "page_plan"
-                try:
-                    with perf.measure("page_plan"):
-                        beats = state.beat_cache.get(key)
-                        if beats is None:
-                            _charge("beats", f"c{ci:04d}")
-                            try:
-                                beats = await extract_key_beats(chunk, elements, chat=chat)
-                                beats.action_key = beats_key
-                                state.beat_cache[key] = beats
-                                sync_adaptation_plans(state, chunks)
-                            except Exception as beat_exc:  # noqa: BLE001
-                                logger.warning(
-                                    "chunk %s key-beat extract failed (%s); continuing",
-                                    ci,
-                                    beat_exc,
-                                )
-                                beats = None
-                        _charge("page_plan", f"c{ci:04d}")
-                        pageset = await plan_comic_pages(
-                            chunk,
-                            planned_elements,
-                            chat=chat,
-                            recent_layouts=_recent_layout_intents(state),
-                            visual_bible=state.visual_bible,
-                            key_beats=beats,
-                            panel_budget=density_plan.panels_per_chunk,
-                            enforce_budget=density_plan.tier != "B",
-                        )
-                        if beats is not None:
-                            missing = uncovered_must_draw_beats(beats, pageset)
-                            if missing:
-                                logger.warning(
-                                    "chunk %s uncovered must_draw beats; retrying page plan once",
-                                    ci,
-                                )
-                                _charge("page_plan", f"c{ci:04d}")
-                                pageset = await plan_comic_pages(
-                                    chunk,
-                                    planned_elements,
-                                    chat=chat,
-                                    recent_layouts=_recent_layout_intents(state),
-                                    visual_bible=state.visual_bible,
-                                    key_beats=beats,
-                                    extra_user_note=beat_coverage_retry_note(missing),
-                                    panel_budget=density_plan.panels_per_chunk,
-                                    enforce_budget=density_plan.tier != "B",
-                                )
+                    with perf.measure("extract"):
+                        elements = await extract_story_elements(chunk, chat=chat)
                 except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
                     if is_content_policy_rejection(exc):
                         logger.warning(
-                            "chunk %s skipped: content filter rejected page plan (%s)", ci, exc
+                            "chunk %s skipped: content filter rejected extraction (%s)", ci, exc
                         )
                         if key not in state.skipped_chunks:
                             state.skipped_chunks.append(key)
@@ -2077,543 +1785,867 @@ async def _creative_comic(
                         _report("skip", _pct())
                         continue
                     raise
-                if state.visual_bible is not None:
-                    pageset = rewrite_pageset_from_bible(pageset, state.visual_bible)
-                pageset.action_key = _page_plan_key(chunk, state.beat_cache.get(key), snapshot.chat)
-                state.page_cache[key] = pageset
+                # Cache so a later resume does not re-pay for extraction.
+                state.chunk_cache.setdefault(key, ChunkCache()).elements = elements
+                state.chunk_cache[key].extract_action_key = extract_key
                 state.save(state_path)
-                _report("page_plan", _pct())
+                _report("extract", _pct())
 
-            cached_beats = state.beat_cache.get(key)
-            if pageset is not None and cached_beats is not None and cached_beats.beats:
-                stamp_page_panel_beats(pageset, cached_beats)
+            # Merge characters; generate a portrait only for first-seen names.
+            state.characters, new_names = merge_characters(state.characters, elements.characters)
+            apply_recorded_merges(state, ledger)
+            # A name folded by a recorded merge is not a new character, so it does
+            # not pay for another portrait or another bible reconcile.
+            new_names = [name for name in new_names if name in state.characters]
+            planned_elements = elements_with_recorded_merges(elements, state)
+            for name in new_names:
+                if name not in state.characters:
+                    continue
+                ensure_character_l1(state.characters[name], source_text=chunk)
+            state.settings = merge_settings(state.settings, elements.settings)
 
-            # Model-structured output sometimes reuses page_id across chunks.
-            # State keys are the raw page_id, so remint duplicates rather than
-            # silently overwriting an earlier page's generated record.
-            seen_page_ids: set[str] = set()
-            for plan in pageset.pages:
-                if plan.page_id in seen_page_ids:
-                    original = plan.page_id
-                    n = 2
-                    while f"{original}__{n}" in seen_page_ids:
-                        n += 1
-                    plan.page_id = f"{original}__{n}"
-                    logger.warning(
-                        "duplicate page_id %r in page plan chunk %s; remapped to %r",
-                        original,
-                        ci,
-                        plan.page_id,
-                    )
-                seen_page_ids.add(plan.page_id)
-
-            state.stage = "pages"
-            check_cancel(cancel_check)
-            for page_index, plan in enumerate(pageset.pages):
-                plan = _plan_ready_to_letter(state, plan)
-                page_id = plan.page_id
-                state_key = page_state_key(ci, page_index)
-                existing = state.generated.pages.get(state_key)
-                blank_ok = bool(
-                    existing
-                    and existing.blank_local
-                    and _is_within(existing.blank_local, output_dir)
-                    and Path(existing.blank_local).is_file()
-                )
-                # A stale page was invalidated for a *content* reason (e.g. an
-                # alias merge changed the character's identity), so its cached
-                # blank art is wrong and must be repainted. A font or lettering
-                # change reuses that blank: the letter key misses, and only the
-                # overlay is drawn again.
-                page_is_stale = state_key in state.stale_pages
-                if blank_ok and existing is not None and not page_is_stale:
-                    local = _page_asset_path(pages_dir, ci, page_index)
-                    status = _letter_resume_status(
-                        Path(existing.blank_local),
-                        local,
-                        plan,
+            # Surface likely alias variants for human review (never auto-merged).
+            hints = list(detect_character_aliases(state.characters, new_names))
+            for name, cand, reason in hints:
+                offer_alias_suggestion(state, suggestion_from_alias(name, cand, reason))
+            bible_key = bible_action_key(
+                chunk=chunk,
+                history=historical_identity("bible"),
+                env=snapshot.chat,
+                stage_src=_BIBLE_STAGE_SRC,
+            )
+            stored_bible_key = state.bible_action_keys.get(key, "")
+            needs_bible = state.visual_bible is None or fresh_extract or bool(new_names)
+            if not needs_bible:
+                if not stored_bible_key:
+                    state.bible_action_keys[key] = bible_key
+                elif stored_bible_key != bible_key:
+                    needs_bible = True
+            if needs_bible:
+                _charge("bible", f"c{ci:04d}")
+                try:
+                    recon = await reconcile_visual_bible(
                         chunk,
-                        output_dir,
-                        resolved_size=existing.resolved_size or None,
-                    )
-                    if status == "tombstone":
-                        continue
-                    if status != "current" or existing.lettering_version != LETTERING_VERSION:
-                        pages_dir.mkdir(parents=True, exist_ok=True)
-                        await asyncio.to_thread(
-                            partial(
-                                _letter_page_from_blank,
-                                Path(existing.blank_local),
-                                local,
-                                plan,
-                                source_text=chunk,
-                                output_dir=output_dir,
-                                resolved_size=existing.resolved_size or None,
-                            )
-                        )
-                        existing.local = str(local)
-                        existing.mode = "finished_lettered"
-                        existing.lettering_version = LETTERING_VERSION
-                        _mark_page_done(state, state_key)
-                        state.save(state_path)
-                        _report("pages", _pct())
-                    continue
-                if not _page_needs_generation(state, state_key):
-                    continue
-                check_cancel(cancel_check)
-                prev_blank_path = previous_page_blank(
-                    state, pageset, chunk_index=ci, page_index=page_index
-                )
-                prompt = render_finished_page_prompt(
-                    plan,
-                    characters_by_name=state.characters,
-                    settings_by_name=state.settings,
-                    style_guide=effective_style,
-                    visual_bible=state.visual_bible,
-                )
-                if state.visual_bible is not None:
-                    refs = collect_finished_page_refs(
-                        plan,
                         state.characters,
                         state.visual_bible,
-                        prev_blank=prev_blank_path,
+                        alias_hints=hints,
+                        preferred_style=style_guide or elements.style_guide,
+                        chat=chat,
                     )
-                else:
-                    refs = [
-                        state.characters[name].portrait_local
-                        for name in _page_reference_names(plan)
-                        if name in state.characters and state.characters[name].portrait_local
-                    ]
-                refs = [ref for ref in refs if _is_within(ref, output_dir) and Path(ref).is_file()]
-                render_env = h_env(text=prompt, resolved_size=page_size)
-                render_key = render_page_action_key(
-                    plan_json=_plan_json(plan),
-                    prompt=prompt,
-                    resolved_size=page_size,
-                    page_key=state_key,
-                    env=render_env,
-                    stage_src=_RENDER_PAGE_STAGE_SRC,
+                    prev_hash = state.visual_bible.content_hash if state.visual_bible else None
+                    had_render_assets = bool(
+                        state.generated.pages
+                        or state.generated.portraits
+                        or state.pages_done
+                        or state.panels_done
+                    )
+                    state = apply_reconcile(state, recon)
+                    sync_characters_from_bible(state)
+                    sanitized = sanitize_visual_bible_state(state)
+                    if sanitized:
+                        _soft_invalidate_render(state)
+                    elif state.visual_bible:
+                        state.visual_bible = refresh_bible_hash(state.visual_bible)
+                        if prev_hash and state.visual_bible.content_hash != prev_hash:
+                            _soft_invalidate_render(state)
+                        elif prev_hash is None and had_render_assets:
+                            _soft_invalidate_render(state)
+                    if state.visual_bible:
+                        new_render = _render_for_bible(state.visual_bible)
+                        if state.render_fingerprint != new_render:
+                            state.render_fingerprint = new_render
+                    state.bible_action_keys[key] = bible_key
+                except Exception as exc:  # noqa: BLE001 — reconcile is best-effort
+                    logger.warning("visual bible reconcile failed (%s); continuing", exc)
+            if state.visual_bible and state.visual_bible.style_guide:
+                effective_style = state.visual_bible.style_guide
+            else:
+                effective_style = style_guide or elements.style_guide
+            portrait_style = effective_style
+
+            async def _render_portrait(
+                name: str,
+                *,
+                style: str = portrait_style,
+                _state: ProjectState = state,
+                _chunk: str = chunk,
+            ) -> tuple[str, str]:
+                asset = resolve_character_asset(name, _state.characters, _state.visual_bible)
+                if asset is None:
+                    asset = _state.characters[name]
+                ensure_character_l1(asset, source_text=_chunk)
+                prompt = asset.portrait_prompt or asset.l1_prompt
+                if _state.visual_bible is not None:
+                    base, stage = parse_stage_ref(name)
+                    canon = _state.visual_bible.characters.get(base)
+                    if canon is None:
+                        base = resolve_canonical_name(base, _state.visual_bible)
+                        canon = _state.visual_bible.characters.get(base)
+                    if canon is not None:
+                        canon_prompt = l1_from_canon(canon, stage)
+                        if canon_prompt:
+                            prompt = canon_prompt
+                        suffix = portrait_gender_era_suffix(_state.visual_bible, canon)
+                        prompt = f"{prompt}, {suffix}"
+                prompt = harden_human_identity_prompt(name, prompt)
+                if _state.visual_bible is not None:
+                    color_block = format_color_bible_block(_state.visual_bible)
+                    if color_block:
+                        prompt = f"{prompt}, {color_block}"
+                comic_style = (
+                    f"{style}, {DEFAULT_PORTRAIT_STYLE}" if style else DEFAULT_PORTRAIT_STYLE
                 )
-                if state_key not in state.stale_pages:
-                    cached_blank = stored_output(output_dir, render_key)
-                    if cached_blank is not None:
-                        pages_dir.mkdir(parents=True, exist_ok=True)
-                        blank_dir = pages_dir / "blank"
-                        blank_dir.mkdir(parents=True, exist_ok=True)
-                        blank_path = _page_asset_path(blank_dir, ci, page_index)
-                        blank_path.write_bytes(cached_blank)
-                        local = _page_asset_path(pages_dir, ci, page_index)
-                        await asyncio.to_thread(
-                            partial(
-                                _letter_page_from_blank,
-                                blank_path,
-                                local,
-                                plan,
-                                source_text=chunk,
-                                output_dir=output_dir,
-                                resolved_size=page_size,
-                            )
-                        )
-                        state.generated.pages[state_key] = GeneratedPage(
-                            local=str(local),
-                            blank_local=str(blank_path),
-                            lettering_version=LETTERING_VERSION,
-                            resolved_size=page_size,
-                            render_action_key=render_key,
-                            page_id=page_id,
-                            unit_index=ci,
-                            page_index=page_index,
-                            mode="finished_lettered",
-                        )
-                        _mark_page_done(state, state_key)
-                        state.save(state_path)
-                        _report("pages", _pct())
-                        continue
-                # Hold past the sample without raising, so a later chunk can
-                # still take the reserved seat. The pause is raised once,
-                # after the sample has been exported.
-                if not gate.allow(state_key, ci, total_chunks=total_chunks):
-                    continue
-                stricter_attempted = False
-                size_fallback_attempted = False
-                active_size = page_size
-                while True:
-                    _charge("render", state_key)
+                refs: list[str] = []
+                base_ref = canonical_portrait_ref(name, _state.characters, _state.visual_bible)
+                if base_ref and _is_within(base_ref, output_dir) and Path(base_ref).is_file():
+                    refs = [base_ref]
+                async with image_semaphore:
+                    _charge("portrait", name)
+                    sent = f"{prompt}, {comic_style}"
                     image_intent(
                         output_dir,
-                        stage="render",
-                        key=state_key,
-                        prompt=prompt,
-                        size=active_size,
+                        stage="portrait",
+                        key=name,
+                        prompt=sent,
+                        size="1024x1024",
                     )
                     try:
-                        async with image_semaphore:
-                            with perf.measure("page"):
-                                out = await image.generate_single_image(
-                                    prompt, reference_image_paths=refs, size=active_size
-                                )
-                        break
-                    except Exception as exc:  # noqa: BLE001 — preserve policy skip behavior
-                        image_failure(output_dir, stage="render", key=state_key, error=exc)
+                        with perf.measure("portrait"):
+                            out = await image.generate_single_image(
+                                sent,
+                                reference_image_paths=refs,
+                                size="1024x1024",
+                            )
+                    except Exception as exc:  # noqa: BLE001 — log the class, then keep the portrait error
+                        image_failure(output_dir, stage="portrait", key=name, error=exc)
+                        raise
+                path = _asset_path(output_dir, "assets/portraits", name)
+                await asyncio.to_thread(out.save, str(path))
+                asset.portrait_action_key = portrait_action_key(
+                    name=name,
+                    material=_portrait_key_material(name, asset, style),
+                    env=snapshot.t2i,
+                    stage_src=_PORTRAIT_STAGE_SRC,
+                )
+                return name, str(path)
+
+            def _portrait_file_ok(asset) -> bool:
+                return bool(
+                    asset.portrait_local
+                    and _is_within(asset.portrait_local, output_dir)
+                    and Path(asset.portrait_local).is_file()
+                )
+
+            portrait_names = []
+            for name, asset in state.characters.items():
+                material = _portrait_key_material(name, asset, portrait_style)
+                key_for_portrait = portrait_action_key(
+                    name=name,
+                    material=material,
+                    env=snapshot.t2i,
+                    stage_src=_PORTRAIT_STAGE_SRC,
+                )
+                if _portrait_file_ok(asset) and asset.portrait_action_key == key_for_portrait:
+                    continue
+                if _portrait_file_ok(asset) and not asset.portrait_action_key:
+                    asset.portrait_action_key = key_for_portrait
+                    continue
+                portrait_names.append(name)
+            base_names = [name for name in portrait_names if "@" not in name]
+            stage_names = [name for name in portrait_names if "@" in name]
+            portrait_results: list = []
+            assigned_names: list[str] = []
+            for group in (base_names, stage_names):
+                group_results = await asyncio.gather(
+                    *(_render_portrait(name) for name in group),
+                    return_exceptions=True,
+                )
+                for name, result in zip(group, group_results, strict=True):
+                    assigned_names.append(name)
+                    portrait_results.append(result)
+                    if isinstance(result, BudgetPaused):
+                        state.save(state_path)
+                        raise result
+                    if isinstance(result, Exception):
+                        continue
+                    _, path = result
+                    state.characters[name].portrait_local = path
+                    state.generated.portraits[name] = path
+                    # Phase 0d (§12 consequence 1): record the authoritative
+                    # reference. A first-ever portrait establishes the version
+                    # without flagging pages we cannot yet enumerate; a
+                    # regeneration bumps the version so rebuild marks the
+                    # character's pages pending for review.
+                    ledger_name = name.split("@", 1)[0]
+                    if not ledger.pages_for(ledger_name):
+                        _record_portrait_reference(ledger, output_dir, ledger_name, path)
+                        ledger.characters[ledger_name].reviewed_version = ledger.characters[
+                            ledger_name
+                        ].reference.version
+                    else:
+                        _record_portrait_reference(ledger, output_dir, ledger_name, path)
+                    _report("portrait", _pct())
+
+            policy_rejection: Exception | None = None
+            operational_error: Exception | None = None
+            for _name, result in zip(assigned_names, portrait_results, strict=True):
+                if isinstance(result, Exception):
+                    if is_content_policy_rejection(result):
+                        policy_rejection = result
+                    elif operational_error is None:
+                        operational_error = result
+                    continue
+
+            if operational_error is not None:
+                state.save(state_path)
+                raise operational_error
+            if policy_rejection is not None:
+                logger.warning(
+                    "chunk %s skipped: content filter rejected portrait (%s)", ci, policy_rejection
+                )
+                if key not in state.skipped_chunks:
+                    state.skipped_chunks.append(key)
+                state.save(state_path)
+                _report("skip", _pct())
+                continue
+            state.save(state_path)
+            _report("portrait", _pct())
+
+            if mode == "finished_page":
+                if pageset is not None and state.visual_bible is not None:
+                    pageset = rewrite_pageset_from_bible(pageset, state.visual_bible)
+                beats_key = beats_action_key(
+                    chunk=chunk, env=snapshot.chat, stage_src=_BEATS_STAGE_SRC
+                )
+                cached_beats = state.beat_cache.get(key)
+                if cached_beats is not None:
+                    if cached_beats.action_key and cached_beats.action_key != beats_key:
+                        state.beat_cache.pop(key, None)
+                        pageset = None
+                    elif not cached_beats.action_key:
+                        cached_beats.action_key = beats_key
+                plan_key = _page_plan_key(chunk, state.beat_cache.get(key), snapshot.chat)
+                if pageset is not None:
+                    if pageset.action_key and pageset.action_key != plan_key:
+                        pageset = None
+                    elif not pageset.action_key:
+                        pageset.action_key = plan_key
+                if pageset is None:
+                    state.stage = "page_plan"
+                    try:
+                        with perf.measure("page_plan"):
+                            beats = state.beat_cache.get(key)
+                            if beats is None:
+                                _charge("beats", f"c{ci:04d}")
+                                try:
+                                    beats = await extract_key_beats(chunk, elements, chat=chat)
+                                    beats.action_key = beats_key
+                                    state.beat_cache[key] = beats
+                                    sync_adaptation_plans(state, chunks)
+                                except Exception as beat_exc:  # noqa: BLE001
+                                    logger.warning(
+                                        "chunk %s key-beat extract failed (%s); continuing",
+                                        ci,
+                                        beat_exc,
+                                    )
+                                    beats = None
+                            _charge("page_plan", f"c{ci:04d}")
+                            pageset = await plan_comic_pages(
+                                chunk,
+                                planned_elements,
+                                chat=chat,
+                                recent_layouts=_recent_layout_intents(state),
+                                visual_bible=state.visual_bible,
+                                key_beats=beats,
+                                panel_budget=density_plan.panels_per_chunk,
+                                enforce_budget=density_plan.tier != "B",
+                            )
+                            if beats is not None:
+                                missing = uncovered_must_draw_beats(beats, pageset)
+                                if missing:
+                                    logger.warning(
+                                        "chunk %s uncovered must_draw beats; "
+                                        "retrying page plan once",
+                                        ci,
+                                    )
+                                    _charge("page_plan", f"c{ci:04d}")
+                                    pageset = await plan_comic_pages(
+                                        chunk,
+                                        planned_elements,
+                                        chat=chat,
+                                        recent_layouts=_recent_layout_intents(state),
+                                        visual_bible=state.visual_bible,
+                                        key_beats=beats,
+                                        extra_user_note=beat_coverage_retry_note(missing),
+                                        panel_budget=density_plan.panels_per_chunk,
+                                        enforce_budget=density_plan.tier != "B",
+                                    )
+                    except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
                         if is_content_policy_rejection(exc):
                             logger.warning(
-                                "page %s skipped: content filter rejected it (%s)", page_id, exc
+                                "chunk %s skipped: content filter rejected page plan (%s)", ci, exc
                             )
-                            if state_key not in state.skipped_pages:
-                                state.skipped_pages.append(state_key)
-                            # §6: record outcome/reason so the rejection is a hit on
-                            # resume rather than an eternal retry that burns quota.
-                            state.tombstones[state_key] = Tombstone(
-                                outcome="rejected",
-                                reason="content_policy",
-                                stage="render.page",
-                            )
-                            if state_key in state.stale_pages:
-                                state.stale_pages = [k for k in state.stale_pages if k != state_key]
+                            if key not in state.skipped_chunks:
+                                state.skipped_chunks.append(key)
                             state.save(state_path)
-                            out = None
-                            break
-                        if (
-                            not size_fallback_attempted
-                            and active_size != _FALLBACK_PAGE_SIZE
-                            and is_unsupported_image_size_error(exc)
-                        ):
-                            size_fallback_attempted = True
-                            logger.warning(
-                                "page %s size %s rejected (%s); falling back to %s",
-                                page_id,
-                                active_size,
-                                exc,
-                                _FALLBACK_PAGE_SIZE,
-                            )
-                            active_size = _FALLBACK_PAGE_SIZE
-                            continue
-                        if not stricter_attempted:
-                            stricter_attempted = True
-                            prompt = render_finished_page_prompt(
-                                plan,
-                                characters_by_name=state.characters,
-                                settings_by_name=state.settings,
-                                style_guide=effective_style,
-                                strict=True,
-                                visual_bible=state.visual_bible,
-                            )
-                            logger.warning(
-                                "page %s image failed (%s); retrying once with stricter prompt",
-                                page_id,
-                                exc,
-                            )
+                            _report("skip", _pct())
                             continue
                         raise
-                if out is None:
-                    continue
-                pages_dir.mkdir(parents=True, exist_ok=True)
-                blank_dir = pages_dir / "blank"
-                blank_dir.mkdir(parents=True, exist_ok=True)
-                blank_path = _page_asset_path(blank_dir, ci, page_index)
-                await asyncio.to_thread(out.save, str(blank_path))
-                stored_render_key = render_page_action_key(
-                    plan_json=_plan_json(plan),
-                    prompt=prompt,
-                    resolved_size=active_size,
-                    page_key=state_key,
-                    env=h_env(text=prompt, resolved_size=active_size),
-                    stage_src=_RENDER_PAGE_STAGE_SRC,
-                )
-                record_ok(
-                    output_dir,
-                    key=stored_render_key,
-                    stage="render.page",
-                    stage_src=_RENDER_PAGE_STAGE_SRC,
-                    env=h_env(text=prompt, resolved_size=active_size),
-                    inputs=render_page_inputs(_plan_json(plan), prompt),
-                    name="blank.png",
-                    data=blank_path.read_bytes(),
-                )
-                local = _page_asset_path(pages_dir, ci, page_index)
-                await asyncio.to_thread(
-                    partial(
-                        _letter_page_from_blank,
-                        blank_path,
-                        local,
-                        plan,
-                        source_text=chunk,
-                        output_dir=output_dir,
-                        resolved_size=active_size,
+                    if state.visual_bible is not None:
+                        pageset = rewrite_pageset_from_bible(pageset, state.visual_bible)
+                    pageset.action_key = _page_plan_key(
+                        chunk, state.beat_cache.get(key), snapshot.chat
                     )
-                )
-                state.generated.pages[state_key] = GeneratedPage(
-                    local=str(local),
-                    blank_local=str(blank_path),
-                    lettering_version=LETTERING_VERSION,
-                    resolved_size=active_size,
-                    render_action_key=stored_render_key,
-                    page_id=page_id,
-                    unit_index=ci,
-                    page_index=page_index,
-                    mode="finished_lettered",
-                )
-                _mark_page_done(state, state_key)
-                if ledger.rebuild_from_state(state):
-                    ledger.save(ledger_path)
+                    state.page_cache[key] = pageset
+                    state.save(state_path)
+                    _report("page_plan", _pct())
+
+                cached_beats = state.beat_cache.get(key)
+                if pageset is not None and cached_beats is not None and cached_beats.beats:
+                    stamp_page_panel_beats(pageset, cached_beats)
+
+                # Model-structured output sometimes reuses page_id across chunks.
+                # State keys are the raw page_id, so remint duplicates rather than
+                # silently overwriting an earlier page's generated record.
+                seen_page_ids: set[str] = set()
+                for plan in pageset.pages:
+                    if plan.page_id in seen_page_ids:
+                        original = plan.page_id
+                        n = 2
+                        while f"{original}__{n}" in seen_page_ids:
+                            n += 1
+                        plan.page_id = f"{original}__{n}"
+                        logger.warning(
+                            "duplicate page_id %r in page plan chunk %s; remapped to %r",
+                            original,
+                            ci,
+                            plan.page_id,
+                        )
+                    seen_page_ids.add(plan.page_id)
+
+                if phase == "plan":
+                    continue
+
+                state.stage = "pages"
+                check_cancel(cancel_check)
+                for page_index, plan in enumerate(pageset.pages):
+                    plan = _plan_ready_to_letter(state, plan)
+                    page_id = plan.page_id
+                    state_key = page_state_key(ci, page_index)
+                    existing = state.generated.pages.get(state_key)
+                    blank_ok = bool(
+                        existing
+                        and existing.blank_local
+                        and _is_within(existing.blank_local, output_dir)
+                        and Path(existing.blank_local).is_file()
+                    )
+                    # A stale page was invalidated for a *content* reason (e.g. an
+                    # alias merge changed the character's identity), so its cached
+                    # blank art is wrong and must be repainted. A font or lettering
+                    # change reuses that blank: the letter key misses, and only the
+                    # overlay is drawn again.
+                    page_is_stale = state_key in state.stale_pages
+                    if blank_ok and existing is not None and not page_is_stale:
+                        local = _page_asset_path(pages_dir, ci, page_index)
+                        status = _letter_resume_status(
+                            Path(existing.blank_local),
+                            local,
+                            plan,
+                            chunk,
+                            output_dir,
+                            resolved_size=existing.resolved_size or None,
+                        )
+                        if status == "tombstone":
+                            continue
+                        if status != "current" or existing.lettering_version != LETTERING_VERSION:
+                            pages_dir.mkdir(parents=True, exist_ok=True)
+                            await asyncio.to_thread(
+                                partial(
+                                    _letter_page_from_blank,
+                                    Path(existing.blank_local),
+                                    local,
+                                    plan,
+                                    source_text=chunk,
+                                    output_dir=output_dir,
+                                    resolved_size=existing.resolved_size or None,
+                                )
+                            )
+                            existing.local = str(local)
+                            existing.mode = "finished_lettered"
+                            existing.lettering_version = LETTERING_VERSION
+                            _mark_page_done(state, state_key)
+                            state.save(state_path)
+                            _report("pages", _pct())
+                        continue
+                    if not _page_needs_generation(state, state_key):
+                        continue
+                    check_cancel(cancel_check)
+                    prev_blank_path = previous_page_blank(
+                        state, pageset, chunk_index=ci, page_index=page_index
+                    )
+                    prompt = render_finished_page_prompt(
+                        plan,
+                        characters_by_name=state.characters,
+                        settings_by_name=state.settings,
+                        style_guide=effective_style,
+                        visual_bible=state.visual_bible,
+                    )
+                    if state.visual_bible is not None:
+                        refs = collect_finished_page_refs(
+                            plan,
+                            state.characters,
+                            state.visual_bible,
+                            prev_blank=prev_blank_path,
+                        )
+                    else:
+                        refs = [
+                            state.characters[name].portrait_local
+                            for name in _page_reference_names(plan)
+                            if name in state.characters and state.characters[name].portrait_local
+                        ]
+                    refs = [
+                        ref for ref in refs if _is_within(ref, output_dir) and Path(ref).is_file()
+                    ]
+                    render_env = h_env(text=prompt, resolved_size=page_size)
+                    render_key = render_page_action_key(
+                        plan_json=_plan_json(plan),
+                        prompt=prompt,
+                        resolved_size=page_size,
+                        page_key=state_key,
+                        env=render_env,
+                        stage_src=_RENDER_PAGE_STAGE_SRC,
+                    )
+                    if state_key not in state.stale_pages:
+                        cached_blank = stored_output(output_dir, render_key)
+                        if cached_blank is not None:
+                            pages_dir.mkdir(parents=True, exist_ok=True)
+                            blank_dir = pages_dir / "blank"
+                            blank_dir.mkdir(parents=True, exist_ok=True)
+                            blank_path = _page_asset_path(blank_dir, ci, page_index)
+                            blank_path.write_bytes(cached_blank)
+                            local = _page_asset_path(pages_dir, ci, page_index)
+                            await asyncio.to_thread(
+                                partial(
+                                    _letter_page_from_blank,
+                                    blank_path,
+                                    local,
+                                    plan,
+                                    source_text=chunk,
+                                    output_dir=output_dir,
+                                    resolved_size=page_size,
+                                )
+                            )
+                            state.generated.pages[state_key] = GeneratedPage(
+                                local=str(local),
+                                blank_local=str(blank_path),
+                                lettering_version=LETTERING_VERSION,
+                                resolved_size=page_size,
+                                render_action_key=render_key,
+                                page_id=page_id,
+                                unit_index=ci,
+                                page_index=page_index,
+                                mode="finished_lettered",
+                            )
+                            _mark_page_done(state, state_key)
+                            state.save(state_path)
+                            _report("pages", _pct())
+                            continue
+                    # Hold past the sample without raising, so a later chunk can
+                    # still take the reserved seat. The pause is raised once,
+                    # after the sample has been exported.
+                    if not gate.allow(state_key, ci, total_chunks=total_chunks):
+                        continue
+                    stricter_attempted = False
+                    size_fallback_attempted = False
+                    active_size = page_size
+                    while True:
+                        _charge("render", state_key)
+                        image_intent(
+                            output_dir,
+                            stage="render",
+                            key=state_key,
+                            prompt=prompt,
+                            size=active_size,
+                        )
+                        try:
+                            async with image_semaphore:
+                                with perf.measure("page"):
+                                    out = await image.generate_single_image(
+                                        prompt, reference_image_paths=refs, size=active_size
+                                    )
+                            break
+                        except Exception as exc:  # noqa: BLE001 — preserve policy skip behavior
+                            image_failure(output_dir, stage="render", key=state_key, error=exc)
+                            if is_content_policy_rejection(exc):
+                                logger.warning(
+                                    "page %s skipped: content filter rejected it (%s)", page_id, exc
+                                )
+                                if state_key not in state.skipped_pages:
+                                    state.skipped_pages.append(state_key)
+                                # §6: record outcome/reason so the rejection is a hit on
+                                # resume rather than an eternal retry that burns quota.
+                                state.tombstones[state_key] = Tombstone(
+                                    outcome="rejected",
+                                    reason="content_policy",
+                                    stage="render.page",
+                                )
+                                if state_key in state.stale_pages:
+                                    state.stale_pages = [
+                                        k for k in state.stale_pages if k != state_key
+                                    ]
+                                state.save(state_path)
+                                out = None
+                                break
+                            if (
+                                not size_fallback_attempted
+                                and active_size != _FALLBACK_PAGE_SIZE
+                                and is_unsupported_image_size_error(exc)
+                            ):
+                                size_fallback_attempted = True
+                                logger.warning(
+                                    "page %s size %s rejected (%s); falling back to %s",
+                                    page_id,
+                                    active_size,
+                                    exc,
+                                    _FALLBACK_PAGE_SIZE,
+                                )
+                                active_size = _FALLBACK_PAGE_SIZE
+                                continue
+                            if not stricter_attempted:
+                                stricter_attempted = True
+                                prompt = render_finished_page_prompt(
+                                    plan,
+                                    characters_by_name=state.characters,
+                                    settings_by_name=state.settings,
+                                    style_guide=effective_style,
+                                    strict=True,
+                                    visual_bible=state.visual_bible,
+                                )
+                                logger.warning(
+                                    "page %s image failed (%s); retrying once with stricter prompt",
+                                    page_id,
+                                    exc,
+                                )
+                                continue
+                            raise
+                    if out is None:
+                        continue
+                    pages_dir.mkdir(parents=True, exist_ok=True)
+                    blank_dir = pages_dir / "blank"
+                    blank_dir.mkdir(parents=True, exist_ok=True)
+                    blank_path = _page_asset_path(blank_dir, ci, page_index)
+                    await asyncio.to_thread(out.save, str(blank_path))
+                    stored_render_key = render_page_action_key(
+                        plan_json=_plan_json(plan),
+                        prompt=prompt,
+                        resolved_size=active_size,
+                        page_key=state_key,
+                        env=h_env(text=prompt, resolved_size=active_size),
+                        stage_src=_RENDER_PAGE_STAGE_SRC,
+                    )
+                    record_ok(
+                        output_dir,
+                        key=stored_render_key,
+                        stage="render.page",
+                        stage_src=_RENDER_PAGE_STAGE_SRC,
+                        env=h_env(text=prompt, resolved_size=active_size),
+                        inputs=render_page_inputs(_plan_json(plan), prompt),
+                        name="blank.png",
+                        data=blank_path.read_bytes(),
+                    )
+                    local = _page_asset_path(pages_dir, ci, page_index)
+                    await asyncio.to_thread(
+                        partial(
+                            _letter_page_from_blank,
+                            blank_path,
+                            local,
+                            plan,
+                            source_text=chunk,
+                            output_dir=output_dir,
+                            resolved_size=active_size,
+                        )
+                    )
+                    state.generated.pages[state_key] = GeneratedPage(
+                        local=str(local),
+                        blank_local=str(blank_path),
+                        lettering_version=LETTERING_VERSION,
+                        resolved_size=active_size,
+                        render_action_key=stored_render_key,
+                        page_id=page_id,
+                        unit_index=ci,
+                        page_index=page_index,
+                        mode="finished_lettered",
+                    )
+                    _mark_page_done(state, state_key)
+                    if ledger.rebuild_from_state(state):
+                        ledger.save(ledger_path)
+                    state.save(state_path)
+                    _report("pages", _pct())
+
+                _mark_page_chunk_done_if_complete(state, key, pageset, ci)
+                ledger.rebuild_from_state(state)
+                ledger.save(ledger_path)
                 state.save(state_path)
                 _report("pages", _pct())
-
-            _mark_page_chunk_done_if_complete(state, key, pageset, ci)
-            ledger.rebuild_from_state(state)
-            ledger.save(ledger_path)
-            state.save(state_path)
-            _report("pages", _pct())
-            continue
-
-        # ---- storyboard (only when not cached) ----
-        storyboard_cast = "\n".join(
-            sorted(character.name for character in planned_elements.characters)
-        )
-        storyboard_key = storyboard_action_key(
-            chunk=chunk,
-            cast=storyboard_cast,
-            env=snapshot.chat,
-            stage_src=_STORYBOARD_STAGE_SRC,
-        )
-        cached_chunk = state.chunk_cache.get(key)
-        if board is not None and cached_chunk is not None:
-            if (
-                cached_chunk.storyboard_action_key
-                and cached_chunk.storyboard_action_key != storyboard_key
-            ):
-                board = None
-            elif not cached_chunk.storyboard_action_key:
-                cached_chunk.storyboard_action_key = storyboard_key
-        if board is None:
-            state.stage = "storyboard"
-            _charge("storyboard", f"c{ci:04d}")
-            try:
-                with perf.measure("storyboard"):
-                    board = await plan_storyboard(
-                        chunk,
-                        planned_elements,
-                        chat=chat,
-                        panel_budget=density_plan.panels_per_chunk,
-                        enforce_budget=density_plan.tier != "B",
-                        key_beats=key_beats_for_chunk(state, key, chunks),
-                    )
-            except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
-                if is_content_policy_rejection(exc):
-                    logger.warning(
-                        "chunk %s skipped: content filter rejected storyboard (%s)", ci, exc
-                    )
-                    if key not in state.skipped_chunks:
-                        state.skipped_chunks.append(key)
-                    state.save(state_path)
-                    _report("skip", _pct())
-                    continue
-                raise
-            cached_board = state.chunk_cache.setdefault(key, ChunkCache())
-            cached_board.storyboard = board
-            cached_board.storyboard_action_key = storyboard_key
-            state.save(state_path)
-            _report("storyboard", _pct())
-
-        known_beats = key_beats_for_chunk(state, key, chunks)
-        if board is not None and known_beats is not None:
-            assign_panel_beat_ids(board.panels, known_beats.beats)
-
-        # ---- page-script ----
-        # Optional legacy PageScript metadata (NOT a quality gate). Off by default.
-        if _page_script_enabled() and state.chunk_cache.get(key, ChunkCache()).page_script is None:
-            _charge("page_script", f"c{ci:04d}")
-            try:
-                with perf.measure("page_script"):
-                    ps = await plan_page_script(board, planned_elements, chunk, chat=chat)
-            except Exception as exc:  # noqa: BLE001
-                if is_content_policy_rejection(exc):
-                    logger.warning(
-                        "chunk %s legacy page_script rejected by policy; recording empty script",
-                        ci,
-                    )
-                    ps = PageScript(
-                        chapter_id=board.chapter_id,
-                        pages=[],
-                        skipped_pages=list(range((len(board.panels) + 3) // 4)),
-                    )
-                else:
-                    raise
-            state.chunk_cache[key].page_script = ps
-            state.save(state_path)
-            _report("page_script", _pct())
-
-        # ---- panels ----
-        _report("panels", _pct())
-        seen_ids: set[str] = set()
-        pending: list[tuple[str, int, object]] = []
-        for panel_index, panel in enumerate(board.panels):
-            # Model-structured output sometimes reuses panel_id. State keys are
-            # index-based, so remint a unique source id instead of aborting the run.
-            if panel.panel_id in seen_ids:
-                original = panel.panel_id
-                n = 2
-                while f"{original}__{n}" in seen_ids:
-                    n += 1
-                panel.panel_id = f"{original}__{n}"
-                logger.warning(
-                    "duplicate panel_id %r in storyboard chunk %s; remapped to %r",
-                    original,
-                    ci,
-                    panel.panel_id,
-                )
-            seen_ids.add(panel.panel_id)
-            state_key = _stored_panel_key(state, ci, panel_index)
-            if panel_key_filter is not None and state_key not in panel_key_filter:
                 continue
-            _sync_stored_panel_key(state, state_key, panel, effective_style, snapshot.t2i)
-            if _panel_needs_generation(state, state_key):
-                pending.append((state_key, panel_index, panel))
 
-        panel_elements = elements
-        panel_style = effective_style
-        panel_chunk_index = ci
-
-        async def _render_panel(
-            state_key: str,
-            panel_index: int,
-            panel,
-            previous: str | None,
-            *,
-            elements_for_panel: StoryElements = panel_elements,
-            style_for_panel: str = panel_style,
-            chunk_index: int = panel_chunk_index,
-            _state: ProjectState = state,
-        ) -> GeneratedPanel:
-            # Same name set for L1 prompt subjects and L2/L3 refs so a model that
-            # fills only one of characters_present / reference_characters cannot
-            # silently desync text conditioning from portrait conditioning.
-            panel_names = _panel_reference_names(panel)
-            chars = [_state.characters[n] for n in panel_names if n in _state.characters]
-            prompt = engine.build_panel_prompt(
-                characters=chars,
-                setting=_resolve_setting(_state, elements_for_panel, panel.setting_ref),
-                action=panel.action,
-                style_guide=style_for_panel,
+            # ---- storyboard (only when not cached) ----
+            storyboard_cast = "\n".join(
+                sorted(character.name for character in planned_elements.characters)
             )
-            refs = engine.collect_reference_images(
-                panel=panel,
-                characters_by_name=_state.characters,
-                prev_panel_local=previous,
+            storyboard_key = storyboard_action_key(
+                chunk=chunk,
+                cast=storyboard_cast,
+                env=snapshot.chat,
+                stage_src=_STORYBOARD_STAGE_SRC,
             )
-            refs = [ref for ref in refs if _is_within(ref, output_dir) and Path(ref).is_file()]
-            async with image_semaphore:
-                _charge("render", state_key)
-                image_intent(
-                    output_dir, stage="render", key=state_key, prompt=prompt, size=panel.size
-                )
+            cached_chunk = state.chunk_cache.get(key)
+            if board is not None and cached_chunk is not None:
+                if (
+                    cached_chunk.storyboard_action_key
+                    and cached_chunk.storyboard_action_key != storyboard_key
+                ):
+                    board = None
+                elif not cached_chunk.storyboard_action_key:
+                    cached_chunk.storyboard_action_key = storyboard_key
+            if board is None:
+                state.stage = "storyboard"
+                _charge("storyboard", f"c{ci:04d}")
                 try:
-                    with perf.measure("panel"):
-                        out = await image.generate_single_image(
-                            prompt, reference_image_paths=refs, size=panel.size
+                    with perf.measure("storyboard"):
+                        board = await plan_storyboard(
+                            chunk,
+                            planned_elements,
+                            chat=chat,
+                            panel_budget=density_plan.panels_per_chunk,
+                            enforce_budget=density_plan.tier != "B",
+                            key_beats=key_beats_for_chunk(state, key, chunks),
                         )
-                except Exception as exc:  # noqa: BLE001 — log the class, then keep the panel error
-                    image_failure(output_dir, stage="render", key=state_key, error=exc)
+                except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
+                    if is_content_policy_rejection(exc):
+                        logger.warning(
+                            "chunk %s skipped: content filter rejected storyboard (%s)", ci, exc
+                        )
+                        if key not in state.skipped_chunks:
+                            state.skipped_chunks.append(key)
+                        state.save(state_path)
+                        _report("skip", _pct())
+                        continue
                     raise
-            local = _asset_path(output_dir, "panels", state_key)
-            await asyncio.to_thread(out.save, str(local))
+                cached_board = state.chunk_cache.setdefault(key, ChunkCache())
+                cached_board.storyboard = board
+                cached_board.storyboard_action_key = storyboard_key
+                state.save(state_path)
+                _report("storyboard", _pct())
 
-            portrait_ref = next(
-                (
-                    _state.characters[n].portrait_local
-                    for n in _panel_reference_names(panel)
-                    if n in _state.characters and _state.characters[n].portrait_local
-                ),
-                None,
-            )
-            if (
-                portrait_ref
-                and _is_within(portrait_ref, output_dir)
-                and Path(portrait_ref).is_file()
-            ):
-                composited = await asyncio.to_thread(engine.apply_l3, str(local), portrait_ref)
-                await asyncio.to_thread(composited.save, str(local))
-            return GeneratedPanel(
-                local=str(local),
-                chunk_index=chunk_index,
-                panel_index=panel_index,
-                source_panel_id=panel.panel_id,
-                dialogue=panel.dialogue,
-                caption=panel.caption,
-                sfx=panel.sfx,
-                render_action_key=_panel_render_key(
-                    panel, style_for_panel, state_key, snapshot.t2i
-                ),
-            )
+            known_beats = key_beats_for_chunk(state, key, chunks)
+            if board is not None and known_beats is not None:
+                assign_panel_beat_ids(board.panels, known_beats.beats)
 
-        state.stage = "panels"
-        check_cancel(cancel_check)
-        if image_config.panel_continuity:
+            script_missing = state.chunk_cache.get(key, ChunkCache()).page_script is None
+            # ---- page-script ----
+            # Optional legacy PageScript metadata (NOT a quality gate). Off by default.
+            if _page_script_enabled() and script_missing:
+                _charge("page_script", f"c{ci:04d}")
+                try:
+                    with perf.measure("page_script"):
+                        ps = await plan_page_script(board, planned_elements, chunk, chat=chat)
+                except Exception as exc:  # noqa: BLE001
+                    if is_content_policy_rejection(exc):
+                        logger.warning(
+                            "chunk %s page_script rejected by policy; recording empty script",
+                            ci,
+                        )
+                        ps = PageScript(
+                            chapter_id=board.chapter_id,
+                            pages=[],
+                            skipped_pages=list(range((len(board.panels) + 3) // 4)),
+                        )
+                    else:
+                        raise
+                state.chunk_cache[key].page_script = ps
+                state.save(state_path)
+                _report("page_script", _pct())
+
+            # ---- panels ----
+            if phase == "plan":
+                continue
+            _report("panels", _pct())
+            seen_ids: set[str] = set()
+            pending: list[tuple[str, int, object]] = []
             for panel_index, panel in enumerate(board.panels):
+                # Model-structured output sometimes reuses panel_id. State keys are
+                # index-based, so remint a unique source id instead of aborting the run.
+                if panel.panel_id in seen_ids:
+                    original = panel.panel_id
+                    n = 2
+                    while f"{original}__{n}" in seen_ids:
+                        n += 1
+                    panel.panel_id = f"{original}__{n}"
+                    logger.warning(
+                        "duplicate panel_id %r in storyboard chunk %s; remapped to %r",
+                        original,
+                        ci,
+                        panel.panel_id,
+                    )
+                seen_ids.add(panel.panel_id)
                 state_key = _stored_panel_key(state, ci, panel_index)
                 if panel_key_filter is not None and state_key not in panel_key_filter:
-                    if state_key in state.panels_done and state_key in state.generated.panels:
-                        prev_panel_local = state.generated.panels[state_key].local
                     continue
-                if not _panel_needs_generation(state, state_key):
-                    if state_key in state.panels_done and state_key in state.generated.panels:
-                        prev_panel_local = state.generated.panels[state_key].local
-                    continue
-                if not gate.allow(state_key, ci, total_chunks=total_chunks):
-                    continue
-                check_cancel(cancel_check)
-                try:
-                    generated = await _render_panel(state_key, panel_index, panel, prev_panel_local)
-                except Exception as exc:  # noqa: BLE001 — preserve policy skip behavior
-                    if not is_content_policy_rejection(exc):
-                        raise
-                    logger.warning(
-                        "panel %s skipped: content filter rejected it (%s)", panel.panel_id, exc
-                    )
-                    if state_key not in state.skipped:
-                        state.skipped.append(state_key)
-                    if state_key in state.stale_panels:
-                        state.stale_panels = [k for k in state.stale_panels if k != state_key]
-                    state.save(state_path)
-                    continue
-                state.generated.panels[state_key] = generated
-                _mark_panel_done(state, state_key)
-                prev_panel_local = generated.local
-                state.save(state_path)
-                _report("panel", _pct())
-        else:
-            renderable = [
-                item for item in pending if gate.allow(item[0], ci, total_chunks=total_chunks)
-            ]
-            tasks = (
-                _render_panel(state_key, panel_index, panel, None)
-                for state_key, panel_index, panel in renderable
-            )
-            rendered = await asyncio.gather(*tasks, return_exceptions=True)
-            operational_error = None
-            for (state_key, _panel_index, panel), result in zip(renderable, rendered, strict=True):
-                if isinstance(result, Exception):
-                    if not is_content_policy_rejection(result):
-                        operational_error = operational_error or result
-                        continue
-                    logger.warning(
-                        "panel %s skipped: content filter rejected it (%s)", panel.panel_id, result
-                    )
-                    if state_key not in state.skipped:
-                        state.skipped.append(state_key)
-                    if state_key in state.stale_panels:
-                        state.stale_panels = [k for k in state.stale_panels if k != state_key]
-                    continue
-                state.generated.panels[state_key] = result
-                _mark_panel_done(state, state_key)
-                _report("panel", _pct())
-            state.save(state_path)
-            if operational_error is not None:
-                raise operational_error
+                _sync_stored_panel_key(state, state_key, panel, effective_style, snapshot.t2i)
+                if _panel_needs_generation(state, state_key):
+                    pending.append((state_key, panel_index, panel))
 
-        _mark_chunk_done_if_complete(state, key, board, ci)
-        state.save(state_path)
-        _report("panels", _pct())
+            panel_elements = elements
+            panel_style = effective_style
+            panel_chunk_index = ci
+
+            async def _render_panel(
+                state_key: str,
+                panel_index: int,
+                panel,
+                previous: str | None,
+                *,
+                elements_for_panel: StoryElements = panel_elements,
+                style_for_panel: str = panel_style,
+                chunk_index: int = panel_chunk_index,
+                _state: ProjectState = state,
+            ) -> GeneratedPanel:
+                # Same name set for L1 prompt subjects and L2/L3 refs so a model that
+                # fills only one of characters_present / reference_characters cannot
+                # silently desync text conditioning from portrait conditioning.
+                panel_names = _panel_reference_names(panel)
+                chars = [_state.characters[n] for n in panel_names if n in _state.characters]
+                prompt = engine.build_panel_prompt(
+                    characters=chars,
+                    setting=_resolve_setting(_state, elements_for_panel, panel.setting_ref),
+                    action=panel.action,
+                    style_guide=style_for_panel,
+                )
+                refs = engine.collect_reference_images(
+                    panel=panel,
+                    characters_by_name=_state.characters,
+                    prev_panel_local=previous,
+                )
+                refs = [ref for ref in refs if _is_within(ref, output_dir) and Path(ref).is_file()]
+                async with image_semaphore:
+                    _charge("render", state_key)
+                    image_intent(
+                        output_dir, stage="render", key=state_key, prompt=prompt, size=panel.size
+                    )
+                    try:
+                        with perf.measure("panel"):
+                            out = await image.generate_single_image(
+                                prompt, reference_image_paths=refs, size=panel.size
+                            )
+                    except Exception as exc:  # noqa: BLE001 — log the class, then keep the panel error
+                        image_failure(output_dir, stage="render", key=state_key, error=exc)
+                        raise
+                local = _asset_path(output_dir, "panels", state_key)
+                await asyncio.to_thread(out.save, str(local))
+
+                portrait_ref = next(
+                    (
+                        _state.characters[n].portrait_local
+                        for n in _panel_reference_names(panel)
+                        if n in _state.characters and _state.characters[n].portrait_local
+                    ),
+                    None,
+                )
+                if (
+                    portrait_ref
+                    and _is_within(portrait_ref, output_dir)
+                    and Path(portrait_ref).is_file()
+                ):
+                    composited = await asyncio.to_thread(engine.apply_l3, str(local), portrait_ref)
+                    await asyncio.to_thread(composited.save, str(local))
+                return GeneratedPanel(
+                    local=str(local),
+                    chunk_index=chunk_index,
+                    panel_index=panel_index,
+                    source_panel_id=panel.panel_id,
+                    dialogue=panel.dialogue,
+                    caption=panel.caption,
+                    sfx=panel.sfx,
+                    render_action_key=_panel_render_key(
+                        panel, style_for_panel, state_key, snapshot.t2i
+                    ),
+                )
+
+            state.stage = "panels"
+            check_cancel(cancel_check)
+            if image_config.panel_continuity:
+                for panel_index, panel in enumerate(board.panels):
+                    state_key = _stored_panel_key(state, ci, panel_index)
+                    if panel_key_filter is not None and state_key not in panel_key_filter:
+                        if state_key in state.panels_done and state_key in state.generated.panels:
+                            prev_panel_local = state.generated.panels[state_key].local
+                        continue
+                    if not _panel_needs_generation(state, state_key):
+                        if state_key in state.panels_done and state_key in state.generated.panels:
+                            prev_panel_local = state.generated.panels[state_key].local
+                        continue
+                    if not gate.allow(state_key, ci, total_chunks=total_chunks):
+                        continue
+                    check_cancel(cancel_check)
+                    try:
+                        generated = await _render_panel(
+                            state_key, panel_index, panel, prev_panel_local
+                        )
+                    except Exception as exc:  # noqa: BLE001 — preserve policy skip behavior
+                        if not is_content_policy_rejection(exc):
+                            raise
+                        logger.warning(
+                            "panel %s skipped: content filter rejected it (%s)", panel.panel_id, exc
+                        )
+                        if state_key not in state.skipped:
+                            state.skipped.append(state_key)
+                        if state_key in state.stale_panels:
+                            state.stale_panels = [k for k in state.stale_panels if k != state_key]
+                        state.save(state_path)
+                        continue
+                    state.generated.panels[state_key] = generated
+                    _mark_panel_done(state, state_key)
+                    prev_panel_local = generated.local
+                    state.save(state_path)
+                    _report("panel", _pct())
+            else:
+                renderable = [
+                    item for item in pending if gate.allow(item[0], ci, total_chunks=total_chunks)
+                ]
+                tasks = (
+                    _render_panel(state_key, panel_index, panel, None)
+                    for state_key, panel_index, panel in renderable
+                )
+                rendered = await asyncio.gather(*tasks, return_exceptions=True)
+                operational_error = None
+                for (state_key, _panel_index, panel), result in zip(
+                    renderable, rendered, strict=True
+                ):
+                    if isinstance(result, Exception):
+                        if not is_content_policy_rejection(result):
+                            operational_error = operational_error or result
+                            continue
+                        logger.warning(
+                            "panel %s skipped: content filter rejected it (%s)",
+                            panel.panel_id,
+                            result,
+                        )
+                        if state_key not in state.skipped:
+                            state.skipped.append(state_key)
+                        if state_key in state.stale_panels:
+                            state.stale_panels = [k for k in state.stale_panels if k != state_key]
+                        continue
+                    state.generated.panels[state_key] = result
+                    _mark_panel_done(state, state_key)
+                    _report("panel", _pct())
+                state.save(state_path)
+                if operational_error is not None:
+                    raise operational_error
+
+            _mark_chunk_done_if_complete(state, key, board, ci)
+            state.save(state_path)
+            _report("panels", _pct())
 
     pdf: str | None = None
     webtoon: str | None = None

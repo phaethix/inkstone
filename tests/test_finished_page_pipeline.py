@@ -799,3 +799,37 @@ def test_finished_pages_pass_portrait_and_cross_chunk_blank_refs(tmp_path, monke
     first_refs = set(image.page_refs[0])
     second_refs = set(image.page_refs[1])
     assert second_refs - first_refs, "second chunk first page should add previous blank"
+
+
+class _OrderChat(FakeChat):
+    def __init__(self, log: list[str]):
+        super().__init__()
+        self.log = log
+
+    async def chat_function_call(self, messages, tools, tool_choice, **kw):
+        self.log.append(tool_choice["function"]["name"])
+        return await super().chat_function_call(messages, tools, tool_choice, **kw)
+
+
+class _OrderImage(FakeImage):
+    def __init__(self, log: list[str]):
+        super().__init__()
+        self.log = log
+
+    async def generate_single_image(self, prompt, reference_image_paths=None, size=None, **kw):
+        kind = "page" if "Finished readable manga/comic page" in prompt else "portrait"
+        self.log.append(kind)
+        return await super().generate_single_image(prompt, reference_image_paths, size, **kw)
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_every_chunk_is_planned_before_any_page_is_drawn(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+    src = "第一章\n福贵在村口。\n第二章\n福贵在读书。"
+    log: list[str] = []
+    asyncio.run(
+        creative_comic(src, output_dir=str(tmp_path), chat=_OrderChat(log), image=_OrderImage(log))
+    )
+    plans = [index for index, item in enumerate(log) if item == "plan_comic_pages"]
+    assert len(plans) == 2
+    assert plans[-1] < log.index("page")

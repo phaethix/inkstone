@@ -1,4 +1,6 @@
 import asyncio
+import hashlib
+import json
 from unittest.mock import patch
 
 from core.comic.identity import dismiss_character_alias, remember_merged_alias
@@ -32,6 +34,18 @@ def test_structure_fingerprint_stable_for_same_source():
 
 def test_structure_fingerprint_normalizes_line_endings():
     assert _structure_fingerprint("a\r\nb") == _structure_fingerprint("a\nb")
+
+
+def test_structure_fingerprint_is_the_normalized_source():
+    source = "第一章\r\n甲"
+    payload = json.dumps(
+        {"source": "第一章\n甲"},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    assert _structure_fingerprint(source) == digest
 
 
 def test_structure_fingerprint_changes_when_source_changes():

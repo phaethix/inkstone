@@ -114,8 +114,13 @@ Keep these prototypes only as migration material until they conform to the targe
   manual identity, stage-lock, layout, voice-timeline, beats, or lettering
   tokens. The next resume of an existing project repaints once, because the
   stored fingerprint no longer matches. Lettering keeps its own action key.
-- [ ] Phase 3 remainder. The two-phase scheduler has not landed. `_PIPELINE_STATE_VERSION`
-  is still in the structure fingerprint.
+  The structure fingerprint is the normalized source, plus density when the
+  tier is not B at 8 panels. The next resume of a project stored under the old
+  pipeline version rebuilds its extract caches once and keeps the human alias
+  decisions. `_PIPELINE_STATE_VERSION` remains only in the legacy combined
+  fingerprint.
+- [x] Phase 3 scheduler. A run plans every chunk before it draws a page or a
+  panel. The page count comes from that plan pass.
 
 ### P0 — Content-addressed pipeline migration (0a-0h)
 
@@ -163,7 +168,7 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
   alias still on the same 15 pages, leaves the re-run at 15 stale keys, 15 image
   calls, and 0 chat calls. The current architecture already does not grow with book
   length. Extract and finished-page render use action keys, and this re-run stays
-  at 15 image calls and 0 chat calls. The two-phase scheduler has not landed.
+  at 15 image calls and 0 chat calls. A run plans every chunk before it draws.
   Phase 2's object store is the part that has started.
 - [x] **1 (contracts)** Stage input declarations. `page_plan` may read earlier
   layouts only through a window of 8; the declared input is that window plus the
