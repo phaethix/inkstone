@@ -9,8 +9,11 @@ from unittest.mock import patch
 from PIL import Image
 
 from core.api import ChatProvider, ImageProvider
+from core.comic.cas import beats_action_key
+from core.comic.segmentation import segment_text
 from core.pipelines import creative_comic as pipeline
 from core.pipelines.creative_comic import (
+    _BEATS_STAGE_SRC,
     _render_fingerprint,
     creative_comic,
     is_unsupported_image_size_error,
@@ -799,6 +802,24 @@ def test_finished_pages_pass_portrait_and_cross_chunk_blank_refs(tmp_path, monke
     first_refs = set(image.page_refs[0])
     second_refs = set(image.page_refs[1])
     assert second_refs - first_refs, "second chunk first page should add previous blank"
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_a_stored_beats_key_includes_the_extract_key(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+    src = "第一章\n福贵在村口。"
+    proj = asyncio.run(
+        creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage())
+    )
+    chunk = segment_text(src)[0]
+    extract_key = proj.state.chunk_cache["0"].extract_action_key
+    expected = beats_action_key(
+        chunk=chunk,
+        extract_key=extract_key,
+        env=proj.state.model_snapshot.chat,
+        stage_src=_BEATS_STAGE_SRC,
+    )
+    assert proj.state.beat_cache["0"].action_key == expected
 
 
 class _OrderChat(FakeChat):

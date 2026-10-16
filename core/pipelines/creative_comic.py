@@ -2080,7 +2080,10 @@ async def _creative_comic(
                 if pageset is not None and state.visual_bible is not None:
                     pageset = rewrite_pageset_from_bible(pageset, state.visual_bible)
                 beats_key = beats_action_key(
-                    chunk=chunk, env=snapshot.chat, stage_src=_BEATS_STAGE_SRC
+                    chunk=chunk,
+                    extract_key=extract_key,
+                    env=snapshot.chat,
+                    stage_src=_BEATS_STAGE_SRC,
                 )
                 cached_beats = state.beat_cache.get(key)
                 if cached_beats is not None:
