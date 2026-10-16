@@ -100,10 +100,10 @@ def test_creative_comic_generates_and_resumes(tmp_path):
         "bible",
         "portrait",
         "storyboard",
-        "render",
         "extract",
         "bible",
         "storyboard",
+        "render",
         "render",
     ]
     assert "You are a comic scriptwriter" not in logged

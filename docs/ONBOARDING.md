@@ -100,10 +100,11 @@ center-standee pages are discouraged.
 `dialogue` + `speaker`; page-level `timeline` (`present` / `past` / `liminal`).
 
 **Fingerprints** — `structure_fingerprint` invalidates extract/storyboard cache
-when the source, the pipeline version, or the density tier changes. Tier B at
-8 panels per chunk stays out of that hash. `render_fingerprint` soft-invalidates
-pages/portraits when style, model, L3, render mode, page size, or bible hash
-changes. Resume must not re-pay the chat API for unchanged chunks.
+when the source or the density tier changes. Tier B at 8 panels per chunk stays
+out of that hash. `render_fingerprint` soft-invalidates pages and portraits when
+style, model, L3, render mode, page size, or bible hash changes. Resume must not
+re-pay the chat API for unchanged chunks. A run plans every chunk before it draws
+a page or a panel.
 
 **D1 density / D2 PageScript** — `generate --density` stores the tier and passes
 its panel budget to planning. `inkstone plan` is still an uncalibrated estimate,
