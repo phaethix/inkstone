@@ -333,6 +333,32 @@ def storyboard_action_key(*, chunk: str, cast: str, env: str, stage_src: str) ->
     )
 
 
+def page_script_action_key(
+    *,
+    chunk: str,
+    storyboard_json: str,
+    elements_json: str,
+    env: str,
+    stage_src: str,
+) -> str:
+    """Key a page script from this chunk's text, storyboard, and elements.
+
+    ``env`` is the chat model identity. A portrait file and the page size stay
+    out. The same script on a later run does not call the planner again.
+    """
+    return action_key(
+        stage="page_script",
+        stage_src=stage_src,
+        inputs=[
+            "sha256:" + _hex_digest(chunk.encode("utf-8")),
+            "sha256:" + _hex_digest(storyboard_json.encode("utf-8")),
+            "sha256:" + _hex_digest(elements_json.encode("utf-8")),
+        ],
+        params={},
+        env=env,
+    )
+
+
 def letter_action_key(*, blank: bytes, plan_json: str, env: str, stage_src: str) -> str:
     """Key a lettering step from the blank bytes, the plan, and ``h_env``.
 

@@ -1114,6 +1114,9 @@ class ChunkCache(BaseModel):
     # stamps the current key and does not call the provider again.
     extract_action_key: str = ""
     storyboard_action_key: str = ""
+    # Empty on projects written before page_script had an action key. A later
+    # run stamps the current key and does not call the provider again.
+    page_script_action_key: str = ""
 
 
 class CharacterAliasSuggestion(BaseModel):

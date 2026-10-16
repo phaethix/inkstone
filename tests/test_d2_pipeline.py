@@ -122,6 +122,38 @@ def test_d2_pipeline_writes_and_resumes_page_script(tmp_path, monkeypatch):
 
 
 @patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_an_empty_page_script_key_is_stamped_without_another_call(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKSTONE_PAGE_SCRIPT", "1")
+    src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
+    asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=D2FakeChat(), image=FakeImage()))
+    state = ProjectState.load(tmp_path / "state.json")
+    for key in ("0", "1"):
+        state.chunk_cache[key].page_script_action_key = ""
+    state.save(tmp_path / "state.json")
+
+    chat = D2FakeChat()
+    asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=chat, image=FakeImage()))
+    assert chat.calls == 0
+    stamped = ProjectState.load(tmp_path / "state.json")
+    for key in ("0", "1"):
+        assert stamped.chunk_cache[key].page_script_action_key
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_a_changed_page_script_key_plans_the_script_again(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKSTONE_PAGE_SCRIPT", "1")
+    src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
+    asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=D2FakeChat(), image=FakeImage()))
+    state = ProjectState.load(tmp_path / "state.json")
+    for key in ("0", "1"):
+        state.chunk_cache[key].page_script_action_key = "stale"
+    state.save(tmp_path / "state.json")
+
+    chat = D2FakeChat()
+    asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=chat, image=FakeImage()))
+    assert chat.calls == 2
+
+
 def test_d2_pipeline_skips_page_script_by_default(tmp_path, monkeypatch):
     monkeypatch.delenv("INKSTONE_PAGE_SCRIPT", raising=False)
     src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
