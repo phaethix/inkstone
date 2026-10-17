@@ -910,6 +910,30 @@ def test_a_numeric_expression_keeps_a_decimal_operand():
         assert all(torn not in line or right in line for line in lines)
 
 
+def test_a_chinese_date_hangs_its_mark_on_the_field():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("生于2026年10月13日后的", font_path=path)
+    cases = (
+        ("生于2026年10月13日后", "2026年10", "2026年", "10月"),
+        ("生于2026年10月13日后", "10月13", "10月", "13日"),
+        ("生于2026年1月3日后", "2026年1", "2026年", "1月"),
+        ("生于2026年1月3日后", "1月3", "1月", "3日"),
+    )
+    for text, sample, head, hung in cases:
+        width = font.getlength(sample)
+        assert font.getlength(sample + hung[-1]) > width
+        assert font.getlength(head) <= width
+        assert font.getlength(hung) <= width
+        lines = engine._wrap_text(text, font, max_width=width)
+        assert "".join(lines) == text
+        assert any(line.endswith(head) for line in lines)
+        assert any(hung in line for line in lines)
+        assert all(not line.startswith(hung[-1]) for line in lines)
+
+
 def test_a_spaced_unit_stays_with_the_operand_before_it():
     path = _system_cjk_font()
     if path is None:
