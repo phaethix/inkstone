@@ -30,5 +30,6 @@ Or Colab:
 After pages exist, these read the project and do not call a model:
   inkstone structure --out comic_out/journey-west-ch1
   inkstone read --out comic_out/journey-west-ch1
-The excerpt is one source unit. It is not a validated chapter.
+A local project at that path passes every structural check and has 8 stored pages.
+The PDF stays under comic_out/ and is not committed.
 EOF

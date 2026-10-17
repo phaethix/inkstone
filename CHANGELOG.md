@@ -48,7 +48,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pages once. Lettering that is not a contiguous span of the source is dropped.
   A trailing ellipsis stays only when the text before it is in the source. The
   stored blank is lettered again and the image provider is not called. The local
-  Journey to the West excerpt now passes every structural check.
+  Journey to the West excerpt now passes every structural check. The README and
+  the contributor notes point at that excerpt. The page images and PDF stay in
+  `comic_out/`.
 - Measured the cost of one typical alias merge at zero quota (§9 phase 0h, resolved item 26):
   on the fixed 300-page sample (20 chunks x 15 pages, alias on 5 pages of chunks 4/9/14) the
   re-run spends **15 image calls** (the 15 stale pages) and **0 chat calls**. The merge

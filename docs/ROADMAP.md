@@ -378,11 +378,12 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
     jumps to that chunk's first page. `inkstone identity --view` already prints
     the ledger. A finished web job links to the same file when pages are stored;
     opening that link writes it. The reader does not call a model.
-- [ ] Rewrite README and contributor experience around the validated long-form workflow.
+- [x] Rewrite README and contributor experience around the validated long-form workflow.
   - **Local:** The README names PDF, CBZ, and PNG, and the shipped commands. It
     says a chapter is validated only when every structural check passes and a
-    page is stored. The local Journey excerpt now passes that rule. The README
-    has not been rewritten around that chapter.
+    page is stored, and it points at the Journey excerpt. A local run of that
+    excerpt passes the five checks and has 8 pages. The page images and PDF stay
+    in `comic_out/`.
 
 ## M1 — Image Provider abstraction foundation ✅ done
 
