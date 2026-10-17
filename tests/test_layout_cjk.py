@@ -958,6 +958,30 @@ def test_a_chinese_time_hangs_its_mark_on_the_field():
         assert all(not line.startswith(hung[-1]) for line in lines)
 
 
+def test_a_colloquial_mark_hangs_on_its_field():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("午后3点15分和13号的", font_path=path)
+    cases = (
+        ("午后3点15分起", "3点15", "3点", "15分"),
+        ("午后12点05分起", "12点05", "12点", "05分"),
+        ("生于10月13号后", "10月13", "10月", "13号"),
+        ("生于1月3号后", "1月3", "1月", "3号"),
+    )
+    for text, sample, head, hung in cases:
+        width = font.getlength(sample)
+        assert font.getlength(sample + hung[-1]) > width
+        assert font.getlength(head) <= width
+        assert font.getlength(hung) <= width
+        lines = engine._wrap_text(text, font, max_width=width)
+        assert "".join(lines) == text
+        assert any(line.endswith(head) for line in lines)
+        assert any(hung in line for line in lines)
+        assert all(not line.startswith(hung[-1]) for line in lines)
+
+
 def test_a_spaced_unit_stays_with_the_operand_before_it():
     path = _system_cjk_font()
     if path is None:

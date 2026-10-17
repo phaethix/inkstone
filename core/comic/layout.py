@@ -481,8 +481,10 @@ class LayoutEngine:
             "月": (1, 2),
             "日": (1, 2),
             "时": (1, 2),
+            "点": (1, 2),
             "分": (1, 2),
             "秒": (1, 2),
+            "号": (1, 2),
         }.get(token)
         if bounds is None:
             return None
