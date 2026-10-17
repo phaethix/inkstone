@@ -246,15 +246,17 @@ def page_plan_action_key(
     *,
     chunk: str,
     beats_json: str,
+    beats_key: str,
     history: dict,
     env: str,
     stage_src: str,
 ) -> str:
     """Key a page plan from the chunk, its beats, and the bounded history.
 
-    ``history`` is the window size plus summarizer source hashes. The recent
-    layout strings themselves stay out, so one earlier page cannot re-plan the
-    rest of the book.
+    ``beats_key`` is the upstream beats action key. A changed beats key replans
+    the pages. ``history`` is the window size plus summarizer source hashes.
+    The recent layout strings themselves stay out, so one earlier page cannot
+    re-plan the rest of the book.
     """
     return action_key(
         stage="page_plan",
@@ -262,6 +264,7 @@ def page_plan_action_key(
         inputs=[
             "sha256:" + _hex_digest(chunk.encode("utf-8")),
             "sha256:" + _hex_digest(beats_json.encode("utf-8")),
+            beats_key,
         ],
         params={"history": history},
         env=env,

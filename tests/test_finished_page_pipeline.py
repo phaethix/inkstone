@@ -14,6 +14,7 @@ from core.comic.segmentation import segment_text
 from core.pipelines import creative_comic as pipeline
 from core.pipelines.creative_comic import (
     _BEATS_STAGE_SRC,
+    _page_plan_key,
     _render_fingerprint,
     creative_comic,
     is_unsupported_image_size_error,
@@ -820,6 +821,23 @@ def test_a_stored_beats_key_includes_the_extract_key(tmp_path, monkeypatch):
         stage_src=_BEATS_STAGE_SRC,
     )
     assert proj.state.beat_cache["0"].action_key == expected
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_a_stored_page_plan_key_includes_the_beats_key(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+    src = "第一章\n福贵在村口。"
+    proj = asyncio.run(
+        creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage())
+    )
+    beats = proj.state.beat_cache["0"]
+    expected = _page_plan_key(
+        segment_text(src)[0],
+        beats,
+        proj.state.model_snapshot.chat,
+        beats.action_key,
+    )
+    assert proj.state.page_cache["0"].action_key == expected
 
 
 class _OrderChat(FakeChat):

@@ -669,10 +669,11 @@ def _store_page_script(cache: ChunkCache, script: PageScript, action_key: str) -
     cache.page_script_action_key = action_key
 
 
-def _page_plan_key(chunk: str, beats, chat_model: str) -> str:
+def _page_plan_key(chunk: str, beats, chat_model: str, beats_key: str) -> str:
     return page_plan_action_key(
         chunk=chunk,
         beats_json=_beats_payload(beats),
+        beats_key=beats_key,
         history=historical_identity("page_plan"),
         env=chat_model,
         stage_src=_PAGE_PLAN_STAGE_SRC,
@@ -2092,7 +2093,9 @@ async def _creative_comic(
                         pageset = None
                     elif not cached_beats.action_key:
                         cached_beats.action_key = beats_key
-                plan_key = _page_plan_key(chunk, state.beat_cache.get(key), snapshot.chat)
+                plan_key = _page_plan_key(
+                    chunk, state.beat_cache.get(key), snapshot.chat, beats_key
+                )
                 if pageset is not None:
                     if pageset.action_key and pageset.action_key != plan_key:
                         pageset = None
@@ -2162,7 +2165,7 @@ async def _creative_comic(
                     if state.visual_bible is not None:
                         pageset = rewrite_pageset_from_bible(pageset, state.visual_bible)
                     pageset.action_key = _page_plan_key(
-                        chunk, state.beat_cache.get(key), snapshot.chat
+                        chunk, state.beat_cache.get(key), snapshot.chat, beats_key
                     )
                     state.page_cache[key] = pageset
                     state.save(state_path)
