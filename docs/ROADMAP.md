@@ -368,7 +368,8 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
     with the whole operand before it when that group fits. A Chinese date
     keeps its year, month, and day intact, and 年, 月, and 日 hang on that
     field when the group fits. A Chinese time keeps its hour, minute, and
-    second intact, and 时, 分, and 秒 hang on that field when the group fits. A
+    second intact, and 时, 分, and 秒 hang on that field when the group fits.
+    点 hangs on the hour the same way, and 号 hangs on the day. A
     caption that mixes CJK and Latin keeps each Latin word intact.
     The PDF is still that raster.
 - [ ] Publish a public-domain *Journey to the West* chapter showcase with source,
