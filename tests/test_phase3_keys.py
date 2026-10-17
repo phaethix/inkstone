@@ -43,6 +43,7 @@ def test_a_page_plan_key_keeps_recent_layout_strings_out():
     base = page_plan_action_key(
         chunk="第一回",
         beats_json="[]",
+        beats_key="beats-a",
         history=history,
         env="chat-a",
         stage_src="src",
@@ -51,6 +52,7 @@ def test_a_page_plan_key_keeps_recent_layout_strings_out():
         page_plan_action_key(
             chunk="第一回",
             beats_json="[]",
+            beats_key="beats-a",
             history=history,
             env="chat-a",
             stage_src="src",
@@ -60,11 +62,23 @@ def test_a_page_plan_key_keeps_recent_layout_strings_out():
     changed_beats = page_plan_action_key(
         chunk="第一回",
         beats_json='[{"beat_id":"b1"}]',
+        beats_key="beats-a",
         history=history,
         env="chat-a",
         stage_src="src",
     )
     assert changed_beats != base
+    assert (
+        page_plan_action_key(
+            chunk="第一回",
+            beats_json="[]",
+            beats_key="beats-b",
+            history=history,
+            env="chat-a",
+            stage_src="src",
+        )
+        != base
+    )
     assert "layout_intent" not in page_plan_action_key.__code__.co_varnames
 
 

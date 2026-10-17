@@ -43,7 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it draws a page or a panel. A page script key is that chunk's text, storyboard,
   and extracted elements. An empty stored key is stamped and does not call again.
   A beats key includes that chunk's extract key. A project that already stored a
-  beats key replans those beats and its page plan once.
+  beats key replans those beats and its page plan once. A page plan key includes
+  that beats key. A project that already stored a page plan key replans the
+  pages once.
 - Measured the cost of one typical alias merge at zero quota (§9 phase 0h, resolved item 26):
   on the fixed 300-page sample (20 chunks x 15 pages, alias on 5 pages of chunks 4/9/14) the
   re-run spends **15 image calls** (the 15 stale pages) and **0 chat calls**. The merge
