@@ -49,7 +49,7 @@ When completing a change:
 | Page-PDF recovery and source-language dialogue prompt | Released | Existing panels can be re-exported to PDF; new runs request dialogue in source language |
 | Density estimate (D1) | Prototype on `main` | Tiers set the planning budget. `plan` is still an uncalibrated page-count estimate |
 | Old PageScript / coverage (D2) | Prototype on `main` — do not treat as gate | Opt-in via `INKSTONE_PAGE_SCRIPT=1`; coverage never vacuous-passes skips |
-| Chapter-complete adaptation | Prototype on `main` | Source units, adaptation plans, beat ids, lettering, and `inkstone structure` are in tree. A chapter counts only when every check passes and a page is stored. The Journey excerpt is not validated |
+| Chapter-complete adaptation | Prototype on `main` | Source units, adaptation plans, beat ids, lettering, and `inkstone structure` are in tree. A chapter counts only when every check passes and a page is stored. The local Journey excerpt passes every check and has 8 stored pages |
 | CBZ, chapter reader, identity CLI | Prototype on `main` | `--format cbz`, `inkstone read`, the web Read pages link, and `identity --view` are in tree. They are not a validated-chapter gate |
 
 ### Prototype guardrail (D1/D2 on `main`)
@@ -307,12 +307,13 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
   the stored project. A check with nothing to read is absent, not a pass.
   Skipped chunks and tombstones fail the blocked check. The report does not
   call a model and is not a readability or quality gate.
-- [ ] Validate one public-domain chapter end-to-end before attempting a whole book.
+- [x] Validate one public-domain chapter end-to-end before attempting a whole book.
   A chapter counts only when every structural check passes and a page is stored.
-  A local generate of the Journey to the West excerpt stored 8 pages. Source,
-  beats, causal order, and blocked checks passed. Visible text failed: the
-  drawn captions are not contiguous text from the source. The chapter is not
-  validated.
+  The local Journey to the West excerpt passes every check and has 8 stored
+  pages. Lettering that is not a contiguous span of the source is dropped. A
+  trailing ellipsis stays only when the text before it is in the source. The
+  stored blank is lettered again and the image provider is not called. The
+  drawings stay in `comic_out/` and are not committed.
 
 ### P2 — Delivery experience and proof
 
@@ -380,7 +381,8 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
 - [ ] Rewrite README and contributor experience around the validated long-form workflow.
   - **Local:** The README names PDF, CBZ, and PNG, and the shipped commands. It
     says a chapter is validated only when every structural check passes and a
-    page is stored. The Journey excerpt is not that chapter.
+    page is stored. The local Journey excerpt now passes that rule. The README
+    has not been rewritten around that chapter.
 
 ## M1 — Image Provider abstraction foundation ✅ done
 

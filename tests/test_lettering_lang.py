@@ -1,5 +1,6 @@
 from core.comic.lettering_lang import (
     lettering_field_mismatches,
+    retain_source_lettering,
     sanitize_lettering_text,
     sanitize_plan_lettering,
     source_lettering_script,
@@ -54,6 +55,13 @@ def test_strip_pinyin_glosses_removes_parentheses():
     assert "海甸的小店，三日昏迷" in strip_pinyin_glosses(ascii_paren)
 
 
+def test_retain_source_lettering_keeps_a_source_span_and_drops_an_invention():
+    source = "第一章\n福贵在村口。海外有一国土，名曰傲来国。"
+    assert retain_source_lettering("福贵在村口。", source) == "福贵在村口。"
+    assert retain_source_lettering("福贵在村口。…", source) == "福贵在村口。"
+    assert retain_source_lettering("沙沙（爬行的细沙声）", source) is None
+
+
 def test_sanitize_lettering_strips_pinyin_and_truncates():
     long_pinyin = (
         "自从一到城里来，他就是“祥子”，仿佛根本没有个姓；如今，“骆驼祥子”之上，"
@@ -64,7 +72,7 @@ def test_sanitize_lettering_strips_pinyin_and_truncates():
     assert "Zicong" not in out
     assert "（" not in out and "(" not in out
     assert len(out) <= 48
-    assert out.endswith("…") or len(long_pinyin) <= 48
+    assert "…" not in out
 
 
 def test_sanitize_plan_lettering_cleans_fields():
