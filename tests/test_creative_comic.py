@@ -304,7 +304,7 @@ def test_model_identifiers_cannot_escape_project_directory(tmp_path):
     try:
         project = asyncio.run(
             creative_comic(
-                "第一章\n测试。",
+                "第一章\nfirst dialogue\nsecond dialogue\n测试。",
                 output_dir=str(tmp_path),
                 chat=UnsafeIdentifierChat(),
                 image=FakeImage(),
@@ -350,7 +350,7 @@ def test_layout_uses_storyboard_order_and_dialogue(tmp_path, monkeypatch):
     monkeypatch.setattr("core.pipelines.creative_comic.LayoutEngine.compose", capture_compose)
     asyncio.run(
         creative_comic(
-            "第一章\n测试。",
+            "第一章\nfirst dialogue\nsecond dialogue\n测试。",
             output_dir=str(tmp_path),
             chat=OrderedDialogueChat(),
             image=FakeImage(),
@@ -364,7 +364,7 @@ def test_layout_uses_storyboard_order_and_dialogue(tmp_path, monkeypatch):
 def test_legacy_generated_panel_metadata_is_restored_from_storyboard(tmp_path, monkeypatch):
     asyncio.run(
         creative_comic(
-            "第一章\n测试。",
+            "第一章\nfirst dialogue\nsecond dialogue\n测试。",
             output_dir=str(tmp_path),
             chat=OrderedDialogueChat(),
             image=FakeImage(),
@@ -390,7 +390,7 @@ def test_legacy_generated_panel_metadata_is_restored_from_storyboard(tmp_path, m
     monkeypatch.setattr("core.pipelines.creative_comic.LayoutEngine.compose", capture_compose)
     asyncio.run(
         creative_comic(
-            "第一章\n测试。",
+            "第一章\nfirst dialogue\nsecond dialogue\n测试。",
             output_dir=str(tmp_path),
             chat=OrderedDialogueChat(),
             image=FakeImage(),

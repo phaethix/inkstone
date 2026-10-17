@@ -105,6 +105,7 @@ from core.comic.layout import LayoutEngine, PanelImage, _line_height, _webtoon_m
 from core.comic.ledger import ConsistencyLedger
 from core.comic.lettering_lang import (
     sanitize_lettering_text,
+    scrub_lettering_panel,
     source_lettering_script,
     strip_pinyin_glosses,
     truncate_lettering,
@@ -667,6 +668,22 @@ def _page_script_plan(cache: ChunkCache | None, chunk: str, chat_model: str) -> 
 def _store_page_script(cache: ChunkCache, script: PageScript, action_key: str) -> None:
     cache.page_script = script
     cache.page_script_action_key = action_key
+
+
+def _scrub_chunk_lettering(state: ProjectState, key: str, chunk: str) -> bool:
+    """Drop stored lettering that is not a contiguous span of this chunk."""
+    changed = False
+    pageset = state.page_cache.get(key)
+    if pageset is not None:
+        for page in pageset.pages:
+            for panel in page.panels:
+                changed = scrub_lettering_panel(panel, chunk) or changed
+    cached = state.chunk_cache.get(key)
+    board = cached.storyboard if cached is not None else None
+    if board is not None:
+        for panel in board.panels:
+            changed = scrub_lettering_panel(panel, chunk) or changed
+    return changed
 
 
 def _page_plan_key(chunk: str, beats, chat_model: str, beats_key: str) -> str:
@@ -1793,6 +1810,8 @@ async def _creative_comic(
                 elif not cached.extract_action_key:
                     cached.extract_action_key = extract_key
             pageset = state.page_cache.get(key)
+            if _scrub_chunk_lettering(state, key, chunk):
+                state.save(state_path)
             known_beats = key_beats_for_chunk(state, key, chunks)
             if board is not None and known_beats is not None:
                 if stamp_storyboard_beats(board, known_beats):

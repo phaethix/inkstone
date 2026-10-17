@@ -49,7 +49,11 @@ def strip_pinyin_glosses(text: str) -> str:
 
 
 def truncate_lettering(text: str, *, kind: str) -> str:
-    """Keep lettering short enough for overlay chrome."""
+    """Keep lettering short enough for overlay chrome.
+
+    The cut is a prefix of the text. An added ellipsis would no longer be a
+    contiguous span of the source.
+    """
     limits = {
         "caption": _MAX_CAPTION_CHARS,
         "dialogue": _MAX_DIALOGUE_CHARS,
@@ -59,7 +63,39 @@ def truncate_lettering(text: str, *, kind: str) -> str:
     text = (text or "").strip()
     if len(text) <= limit:
         return text
-    return text[: max(1, limit - 1)].rstrip("，,、;； ") + "…"
+    return text[:limit].rstrip("，,、;； ")
+
+
+def retain_source_lettering(text: str | None, source: str) -> str | None:
+    """Keep a lettering string only when it is a contiguous span of ``source``.
+
+    A trailing ellipsis is removed when the text before it is still in the
+    source. Invented text is dropped.
+    """
+    if not text or not str(text).strip():
+        return None
+    cleaned = str(text).strip()
+    if cleaned in source:
+        return cleaned
+    if cleaned.endswith("…"):
+        stem = cleaned[:-1].rstrip("，,、;； ")
+        if stem and stem in source:
+            return stem
+    return None
+
+
+def scrub_lettering_panel(panel, source: str) -> bool:
+    """Drop lettering that is not a contiguous span of ``source``."""
+    changed = False
+    for field in ("caption", "dialogue", "sfx"):
+        current = getattr(panel, field, None)
+        if not isinstance(current, str) or not current.strip():
+            continue
+        kept = retain_source_lettering(current, source)
+        if kept != current:
+            setattr(panel, field, kept)
+            changed = True
+    return changed
 
 
 def sanitize_lettering_text(text: str | None, *, kind: str, script: Script) -> str | None:
