@@ -367,7 +367,8 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
     decimal in either operand stays with its digits. A spaced letter unit stays
     with the whole operand before it when that group fits. A Chinese date
     keeps its year, month, and day intact, and 年, 月, and 日 hang on that
-    field when the group fits. A
+    field when the group fits. A Chinese time keeps its hour, minute, and
+    second intact, and 时, 分, and 秒 hang on that field when the group fits. A
     caption that mixes CJK and Latin keeps each Latin word intact.
     The PDF is still that raster.
 - [ ] Publish a public-domain *Journey to the West* chapter showcase with source,

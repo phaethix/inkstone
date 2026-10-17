@@ -401,9 +401,9 @@ class LayoutEngine:
                 cur += token
                 pending_space = False
                 continue
-            moved = LayoutEngine._rebreak_for_punctuation(cur, token, font, max_width)
+            moved = LayoutEngine._hang_date_mark(cur, token, font, max_width)
             if moved is None:
-                moved = LayoutEngine._hang_date_mark(cur, token, font, max_width)
+                moved = LayoutEngine._rebreak_for_punctuation(cur, token, font, max_width)
             if moved is None:
                 moved = LayoutEngine._hang_spaced_unit(
                     cur, token, font, max_width, want_space=pending_space
@@ -475,8 +475,15 @@ class LayoutEngine:
     def _hang_date_mark(
         cur: str, token: str, font: ImageFont.ImageFont, max_width: int
     ) -> tuple[str, str] | None:
-        """Keep 年, 月, and 日 with the date field they close when that group fits."""
-        bounds = {"年": (4, 4), "月": (1, 2), "日": (1, 2)}.get(token)
+        """Keep a date or time mark with the field it closes when that group fits."""
+        bounds = {
+            "年": (4, 4),
+            "月": (1, 2),
+            "日": (1, 2),
+            "时": (1, 2),
+            "分": (1, 2),
+            "秒": (1, 2),
+        }.get(token)
         if bounds is None:
             return None
         low, high = bounds
@@ -489,7 +496,7 @@ class LayoutEngine:
             start -= 1
         if not low <= end - start <= high:
             return None
-        if start > 0 and body[start - 1] in "-–/.":
+        if start > 0 and body[start - 1] in "-–/.:":
             return None
         hung = body[start:end] + token
         if font.getlength(hung) > max_width:
