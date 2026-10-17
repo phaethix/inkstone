@@ -220,3 +220,6 @@ def test_plan_uses_counts_already_stored_on_the_project(tmp_path, capsys):
     out = capsys.readouterr().out
     assert f"{est.panels} 格 / {est.pages} 页" in out
     assert "已规划" in out
+    assert "counts from the stored project" in out
+    assert "tier constants stay the experience rate" in out
+    assert "uncalibrated estimate" not in out.lower()

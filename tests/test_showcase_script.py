@@ -11,7 +11,7 @@ SCRIPT = REPO_ROOT / "scripts" / "run_showcase.sh"
 def _fake_inkstone(bin_dir: Path) -> None:
     tool = bin_dir / "inkstone"
     tool.write_text(
-        "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$INKSTONE_FAKE_LOG\"\n",
+        '#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$INKSTONE_FAKE_LOG"\n',
         encoding="utf-8",
     )
     tool.chmod(0o755)

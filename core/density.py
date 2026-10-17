@@ -94,6 +94,7 @@ class DensityEstimate:
     description: str = ""
     output_format: str = "page"
     output_name: str = "comic.pdf"
+    from_stored_plans: bool = False
 
 
 def get_density_plan(tier: DensityTier) -> DensityPlan:
@@ -261,4 +262,5 @@ def estimate(
         description=plan.description,
         output_format=output_format,
         output_name=_output_name(output_format),
+        from_stored_plans=bool(observed_panels or observed_pages),
     )

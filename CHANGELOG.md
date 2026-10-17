@@ -51,7 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Journey to the West excerpt now passes every structural check. The README and
   the contributor notes point at that excerpt. The page images and PDF stay in
   `comic_out/`. When that project is already stored, `scripts/run_showcase.sh`
-  plans from its page counts and prints the structural check.
+  plans from its page counts and prints the structural check. A plan that
+  uses those counts says so, and the tier constants stay the experience rate.
 - Measured the cost of one typical alias merge at zero quota (§9 phase 0h, resolved item 26):
   on the fixed 300-page sample (20 chunks x 15 pages, alias on 5 pages of chunks 4/9/14) the
   re-run spends **15 image calls** (the 15 stale pages) and **0 chat calls**. The merge
