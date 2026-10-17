@@ -23,8 +23,10 @@ inkstone plan --book examples/showcase/journey-west-ch1/source.txt --density B -
 `plan` is marked `[experimental]`. Its panel rate is an experience value until
 you pass `--out` pointing at a project that already has plans. `generate
 --density` uses the same tier and replans when the tier changes. This excerpt
-is one source unit. It is not a validated chapter until beats, lettering, and
-a stored page are present.
+is one source unit. A local generate under `comic_out/journey-west-ch1` passes
+`inkstone structure`: every check is pass and 8 pages are stored. Lettering is
+kept only when it is a contiguous span of `source.txt`. The PDF and page images
+stay in `comic_out/` and are not committed.
 
 ## Generate (needs AGNES_API_KEY)
 
@@ -47,8 +49,9 @@ Or via Colab CLI:
 `--format cbz` zips the stored pages and writes a page count. After pages
 exist, `inkstone structure --out comic_out/journey-west-ch1` and
 `inkstone read --out comic_out/journey-west-ch1` read that project and do
-not call a model. The reader shows the page index. None of that validates
-the excerpt.
+not call a model. The reader shows the page index. A local project at that
+path passes every structural check and has 8 stored pages. The PDF is not
+committed.
 
 ## Honesty note
 

@@ -265,16 +265,15 @@ non-overwritable `face_lock` are on the consistency/fidelity line of work.
 
 **Next approved product work** (see roadmap):
 
-- **P0** — Calibrate the page-count estimate with a public-domain sample. Density
-  is already a planning budget. Phase 3 stays closed.
-- **P1** — Source units, adaptation plans, beat ids, lettering, and structural
-  checks are in tree. Validate one public-domain chapter before a whole book.
-  The Journey excerpt is not validated.
-- **P2** — CBZ, the page reader, and the identity ledger view are in tree. A CJK
-  caption, dialogue line, or sfx that does not fit its box is drawn smaller
-  and stops at the box edge, outline and stroke included. Closing and opening
-  marks stay with the neighboring glyph when the pair fits the line; the PDF is still that
-  raster. The showcase has a source and a plan recipe, not a stored page.
+- **P0** — Calibrate the page-count estimate with a public-domain sample. The
+  constants stay 3/8/14. A local Journey generate planned 14 panels and 8 pages
+  for one chunk; the experience rate for that text was 8 panels and 2 pages.
+- **P1** — The local Journey excerpt passes every structural check and has 8
+  stored pages. Lettering is kept only when it is a contiguous span of the source.
+- **P2** — CBZ, the page reader, and the identity ledger view are in tree. The
+  PDF is still a raster of the caption bar. The Journey page images and PDF stay
+  in `comic_out/` and are not committed. The showcase in the repository is the
+  source and the plan recipe.
 
 Long-form target architecture drafts under `docs/architecture/` may still be
 local-only; until they are published, **roadmap + this file + released code**

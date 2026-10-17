@@ -134,6 +134,8 @@ uv run inkstone read --out comic_out                       # flip stored pages i
 
 `inkstone coverage` reads legacy PageScript fields and is not a quality gate. Those fields are written only when `INKSTONE_PAGE_SCRIPT=1`. `inkstone structure` checks stored source units, beats, lettering, causal order, and blocked chunks. A check with nothing to read is absent, not a pass. A chapter is validated only when every one of those checks passes and a page is stored.
 
+The long-form sample is the public-domain excerpt `examples/showcase/journey-west-ch1/source.txt`. `inkstone plan` on that file is an estimate. After pages are stored under `comic_out/journey-west-ch1`, `inkstone structure --out comic_out/journey-west-ch1` is the check. Lettering is kept only when the whole string is a contiguous span of the source. The page images and PDF stay in `comic_out/` and are not part of the repository. A local run of that excerpt passes the five checks and has 8 pages.
+
 ## Web UI
 
 A zero-dependency local UI (Tailwind SPA + a `http.server` backend — **no new pip package**) wraps the same pipeline:
