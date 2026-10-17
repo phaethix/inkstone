@@ -96,9 +96,11 @@ Keep these prototypes only as migration material until they conform to the targe
   chunk without evidence. `inkstone plan --out` uses panel and page counts a
   project has already planned. A local generate of the Journey to the West
   excerpt planned 14 panels and 8 pages for its one chunk; the experience rate
-  for that text was 8 panels and 2 pages. The constants stay 3/8/14. The
-  drawings stay in `comic_out/` and are not committed, so a plan without
-  `--out` stays the experience rate.
+  for that text was 8 panels and 2 pages. The constants stay 3/8/14. When a
+  project is passed to `plan --out`, the printed panel and page counts come
+  from that project and the note says the tier constants stay the experience
+  rate. The drawings stay in `comic_out/` and are not committed, so a plan
+  without `--out` stays the experience rate.
 - [x] Phase 3 keys. Extract, beats, page plan, and finished-page render use
   action keys. A matching key does not call the provider again. A page plan key
   carries the history window and the summarizer source hashes, not the recent

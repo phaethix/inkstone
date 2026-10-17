@@ -344,7 +344,10 @@ def _human_duration(minutes: int) -> str:
 
 def _print_plan(est: DensityEstimate) -> None:
     """Print a structured density estimate (experimental / uncalibrated)."""
-    print("[experimental] inkstone plan — uncalibrated density estimate")
+    if est.from_stored_plans:
+        print("[experimental] inkstone plan — panel and page counts from the stored project")
+    else:
+        print("[experimental] inkstone plan — uncalibrated density estimate")
     # Agnes free-tier copy prefixes "Agnes 免费档 →"; openai-compat shows a price.
     cost_line = est.cost_label
     if "R6" in cost_line:
@@ -412,10 +415,17 @@ def _run_plan(args: argparse.Namespace) -> None:
     except ValueError as exc:
         sys.exit(f"ERROR: {exc}")
     _print_plan(est)
-    print(
-        "Note: uncalibrated estimate. "
-        "inkstone generate --density uses this tier and replans when it changes."
-    )
+    if est.from_stored_plans:
+        print(
+            "Note: panel and page counts come from the stored project. "
+            "The tier constants stay the experience rate. "
+            "inkstone generate --density uses this tier and replans when it changes."
+        )
+    else:
+        print(
+            "Note: uncalibrated estimate. "
+            "inkstone generate --density uses this tier and replans when it changes."
+        )
     print(
         "PageScript（原型，默认关闭）: 设置 INKSTONE_PAGE_SCRIPT=1 才会写入。"
         "inkstone coverage 只核对那些字段，不是成片质量门。"
