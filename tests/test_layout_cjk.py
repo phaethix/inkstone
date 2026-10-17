@@ -836,6 +836,30 @@ def test_a_numeric_expression_keeps_both_operands():
         assert all(f"{hung}3" not in line for line in lines)
 
 
+def test_a_sum_keeps_both_operands():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("共12+34人的", font_path=path)
+    cases = (
+        ("共12+34人", "2+34", "12+", "34"),
+        ("共12＋34人", "2＋34", "12＋", "34"),
+        ("差12−34人", "2−34", "12−", "34"),
+        ("差12－34人", "2－34", "12－", "34"),
+    )
+    for text, sample, hung, right in cases:
+        width = font.getlength(sample)
+        assert font.getlength(hung + right) > width
+        assert font.getlength(hung) <= width
+        assert font.getlength(right) <= width
+        lines = engine._wrap_text(text, font, max_width=width)
+        assert "".join(lines) == text
+        assert any(line.endswith(hung) for line in lines)
+        assert any(line == right or line.startswith(right) for line in lines)
+        assert all(f"{hung}3" not in line for line in lines)
+
+
 def test_a_numeric_expression_keeps_the_unit_with_the_right_operand():
     path = _system_cjk_font()
     if path is None:

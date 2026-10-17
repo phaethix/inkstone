@@ -369,7 +369,9 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
     keeps its year, month, and day intact, and 年, 月, and 日 hang on that
     field when the group fits. A Chinese time keeps its hour, minute, and
     second intact, and 时, 分, and 秒 hang on that field when the group fits.
-    点 hangs on the hour the same way, and 号 hangs on the day. A
+    点 hangs on the hour the same way, and 号 hangs on the day. A sum or a
+    difference keeps both operands intact, and its plus or minus hangs on the
+    first operand when that group fits. A hyphen range stays a range. A
     caption that mixes CJK and Latin keeps each Latin word intact.
     The PDF is still that raster.
 - [ ] Publish a public-domain *Journey to the West* chapter showcase with source,

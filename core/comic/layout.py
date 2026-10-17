@@ -403,6 +403,8 @@ class LayoutEngine:
                 continue
             moved = LayoutEngine._hang_date_mark(cur, token, font, max_width)
             if moved is None:
+                moved = LayoutEngine._hang_operator(cur, token, font, max_width)
+            if moved is None:
                 moved = LayoutEngine._rebreak_for_punctuation(cur, token, font, max_width)
             if moved is None:
                 moved = LayoutEngine._hang_spaced_unit(
@@ -499,6 +501,31 @@ class LayoutEngine:
         if not low <= end - start <= high:
             return None
         if start > 0 and body[start - 1] in "-–/.:":
+            return None
+        hung = body[start:end] + token
+        if font.getlength(hung) > max_width:
+            return None
+        return body[:start].rstrip(), hung
+
+    @staticmethod
+    def _hang_operator(
+        cur: str, token: str, font: ImageFont.ImageFont, max_width: int
+    ) -> tuple[str, str] | None:
+        """Keep a fullwidth plus or minus with the operand before it."""
+        if token not in "+＋−－":
+            return None
+        body = cur.rstrip()
+        if not body or not body[-1].isdigit():
+            return None
+        end = len(body)
+        start = end
+        while start > 0 and body[start - 1].isdigit():
+            start -= 1
+        if start > 1 and body[start - 1] == "." and body[start - 2].isdigit():
+            start -= 1
+            while start > 0 and body[start - 1].isdigit():
+                start -= 1
+        if start > 0 and body[start - 1] in ",，":
             return None
         hung = body[start:end] + token
         if font.getlength(hung) > max_width:
@@ -756,7 +783,7 @@ class LayoutEngine:
             split -= 1
         unit = token[split:]
         body = token[:split]
-        operators = [mark for mark in ("×", "x", "*", "/") if mark in body]
+        operators = [mark for mark in ("×", "x", "*", "/", "+", "＋", "−", "－") if mark in body]
         if len(operators) != 1 or body.count(operators[0]) != 1:
             return None
         operator = operators[0]
