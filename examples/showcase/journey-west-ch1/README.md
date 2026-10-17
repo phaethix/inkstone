@@ -16,9 +16,11 @@ From the repo root (with the inkstone env active):
 
 ```bash
 ./scripts/run_showcase.sh
-# or:
-inkstone plan --book examples/showcase/journey-west-ch1/source.txt --density B --format page
 ```
+
+When `comic_out/journey-west-ch1/state.json` is present, the script plans from
+those stored counts and prints `inkstone structure`. Without that file it
+prints the experience-rate estimate.
 
 `plan` is marked `[experimental]`. Its panel rate is an experience value until
 you pass `--out` pointing at a project that already has plans. `generate

@@ -370,7 +370,9 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
   plan, coverage report and PDF.
   - **Local (scaffold):** `examples/showcase/journey-west-ch1/` +
     `scripts/run_showcase.sh` (source + plan recipe; generated artifacts not
-    committed — option C).
+    committed — option C). When `comic_out/journey-west-ch1/state.json` is
+    present, the script plans from those stored counts and prints the
+    structural check.
 - [x] Add chapter navigation / browser reader and an identity-ledger CLI or view.
   - **Local:** `inkstone read --out` lists stored pages by the chunk id in the
     filename and writes `reader.html`. The page shows its index and the stored

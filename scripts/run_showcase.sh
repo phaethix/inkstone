@@ -3,16 +3,28 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BOOK="$ROOT/examples/showcase/journey-west-ch1/source.txt"
+PROJECT="${INKSTONE_SHOWCASE_OUT:-$ROOT/comic_out/journey-west-ch1}"
 
 if [[ ! -f "$BOOK" ]]; then
   echo "ERROR: missing $BOOK" >&2
   exit 1
 fi
 
+plan_args=(plan --book "$BOOK" --density B --format page)
+if [[ -f "$PROJECT/state.json" ]]; then
+  plan_args+=(--out "$PROJECT")
+fi
+
 if command -v inkstone >/dev/null 2>&1; then
-  inkstone plan --book "$BOOK" --density B --format page
+  inkstone "${plan_args[@]}"
+  if [[ -f "$PROJECT/state.json" ]]; then
+    inkstone structure --out "$PROJECT"
+  fi
 else
-  python -m core.cli plan --book "$BOOK" --density B --format page
+  python -m core.cli "${plan_args[@]}"
+  if [[ -f "$PROJECT/state.json" ]]; then
+    python -m core.cli structure --out "$PROJECT"
+  fi
 fi
 
 cat <<'EOF'
