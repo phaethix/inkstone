@@ -49,6 +49,7 @@ from core.comic.adaptation import (
     stamp_storyboard_beats,
     sync_adaptation_plans,
 )
+from core.comic.artifact_projection import drop_page_artifact, record_page_artifact
 from core.comic.budget import BudgetPaused, BudgetSession, BudgetSpec
 from core.comic.cas import (
     beats_action_key,
@@ -56,17 +57,16 @@ from core.comic.cas import (
     export_action_key,
     export_inputs,
     extract_action_key,
-    is_hit,
     layout_action_key,
     letter_action_key,
     letter_inputs,
-    load_manifest,
     page_plan_action_key,
     page_script_action_key,
     portrait_action_key,
     put_bytes,
     record_files,
     record_ok,
+    read_manifest_entry,
     render_page_action_key,
     render_page_inputs,
     render_panel_action_key,
@@ -735,10 +735,10 @@ def _letter_resume_status(
     key, _env, _plan_json = _letter_key(
         blank_path.read_bytes(), plan, source_text, resolved_size=resolved_size
     )
-    recorded = load_manifest(output_dir, key)
-    if recorded is not None and is_hit(recorded) and recorded.outcome != "ok":
+    recorded = read_manifest_entry(output_dir, key, stage="letter")
+    if recorded is not None and recorded.outcome != "ok":
         return "tombstone"
-    cached = stored_output(output_dir, key)
+    cached = stored_output(output_dir, key, stage="letter")
     if cached is None or not local_path.is_file() or local_path.read_bytes() != cached:
         return "miss"
     return "current"
@@ -768,10 +768,10 @@ def _letter_page_from_blank(
         key, env, plan_json = _letter_key(
             blank_path.read_bytes(), plan, source_text, resolved_size=resolved_size
         )
-        recorded = load_manifest(root, key)
-        if recorded is not None and is_hit(recorded) and recorded.outcome != "ok":
+        recorded = read_manifest_entry(root, key, stage="letter")
+        if recorded is not None and recorded.outcome != "ok":
             return
-        cached = stored_output(root, key)
+        cached = stored_output(root, key, stage="letter")
         if cached is not None:
             local_path.parent.mkdir(parents=True, exist_ok=True)
             local_path.write_bytes(cached)
@@ -827,10 +827,10 @@ def _export_pdf_with_manifest(pages_dir: Path, output_dir: Path) -> str:
         env=env,
         stage_src=_EXPORT_STAGE_SRC,
     )
-    recorded = load_manifest(output_dir, key)
-    if recorded is not None and is_hit(recorded) and recorded.outcome != "ok":
+    recorded = read_manifest_entry(output_dir, key, stage="export")
+    if recorded is not None and recorded.outcome != "ok":
         return str(out)
-    cached = stored_output(output_dir, key)
+    cached = stored_output(output_dir, key, stage="export")
     if cached is not None:
         out.write_bytes(cached)
         return str(out)
@@ -863,10 +863,10 @@ def _export_cbz_with_manifest(pages_dir: Path, output_dir: Path) -> str:
         env=env,
         stage_src=_CBZ_STAGE_SRC,
     )
-    recorded = load_manifest(output_dir, key)
-    if recorded is not None and is_hit(recorded) and recorded.outcome != "ok":
+    recorded = read_manifest_entry(output_dir, key, stage="export")
+    if recorded is not None and recorded.outcome != "ok":
         return str(out)
-    cached = stored_output(output_dir, key)
+    cached = stored_output(output_dir, key, stage="export")
     if cached is not None:
         out.write_bytes(cached)
         return str(out)
@@ -920,10 +920,10 @@ def _export_webtoon_with_manifest(
         env=env,
         stage_src=_WEBTOON_STAGE_SRC,
     )
-    recorded = load_manifest(output_dir, key)
-    if recorded is not None and is_hit(recorded) and recorded.outcome != "ok":
+    recorded = read_manifest_entry(output_dir, key, stage="export")
+    if recorded is not None and recorded.outcome != "ok":
         return [str(out)]
-    cached = stored_output(output_dir, key)
+    cached = stored_output(output_dir, key, stage="export")
     if cached is not None:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(cached)
@@ -984,10 +984,10 @@ def _layout_pages_with_manifest(
         env=env,
         stage_src=_LAYOUT_STAGE_SRC,
     )
-    recorded = load_manifest(output_dir, key)
-    if recorded is not None and is_hit(recorded) and recorded.outcome != "ok":
+    recorded = read_manifest_entry(output_dir, key, stage="layout")
+    if recorded is not None and recorded.outcome != "ok":
         return None
-    cached = stored_files(output_dir, key)
+    cached = stored_files(output_dir, key, stage="layout")
     if cached is not None:
         pages_dir.mkdir(parents=True, exist_ok=True)
         restored: list[str] = []
@@ -1174,11 +1174,27 @@ def _page_needs_generation(state: ProjectState, state_key: str) -> bool:
     return True
 
 
-def _mark_page_done(state: ProjectState, state_key: str) -> None:
-    if state_key in state.stale_pages:
-        state.stale_pages = [k for k in state.stale_pages if k != state_key]
-    if state_key not in state.pages_done:
-        state.pages_done.append(state_key)
+def _drop_pages_outside_plan(
+    state: ProjectState, *, chunk_index: int, page_count: int
+) -> None:
+    """Remove obsolete positional page projections from one replanned chunk.
+
+    Only the current chunk's ``cNNNN-pNNNN`` keys past its new page range are
+    derived artifacts. Stale markers, tombstones, and other chunks' state stay
+    untouched so a shorter plan cannot discard a human-visible decision.
+    """
+    prefix = f"c{chunk_index:04d}-p"
+    known = set(state.generated.pages) | set(state.pages_done)
+    for page_key in sorted(known):
+        suffix = page_key.removeprefix(prefix)
+        if (
+            not page_key.startswith(prefix)
+            or len(suffix) != 4
+            or not suffix.isdecimal()
+            or int(suffix) < page_count
+        ):
+            continue
+        drop_page_artifact(state, page_key)
 
 
 def _plan_ready_to_letter(state: ProjectState, plan: ComicPagePlan) -> ComicPagePlan:
@@ -2190,6 +2206,9 @@ async def _creative_comic(
                         chunk, state.beat_cache.get(key), snapshot.chat, beats_key
                     )
                     state.page_cache[key] = pageset
+                    _drop_pages_outside_plan(
+                        state, chunk_index=ci, page_count=len(pageset.pages)
+                    )
                     state.save(state_path)
                     _report("page_plan", _pct())
 
@@ -2266,7 +2285,7 @@ async def _creative_comic(
                             existing.local = str(local)
                             existing.mode = "finished_lettered"
                             existing.lettering_version = LETTERING_VERSION
-                            _mark_page_done(state, state_key)
+                            record_page_artifact(state, state_key, existing)
                             state.save(state_path)
                             _report("pages", _pct())
                         continue
@@ -2308,8 +2327,15 @@ async def _creative_comic(
                         env=render_env,
                         stage_src=_RENDER_PAGE_STAGE_SRC,
                     )
+                    recorded_render = read_manifest_entry(
+                        output_dir, render_key, stage="render.page"
+                    )
+                    if recorded_render is not None and recorded_render.outcome != "ok":
+                        continue
                     if state_key not in state.stale_pages:
-                        cached_blank = stored_output(output_dir, render_key)
+                        cached_blank = stored_output(
+                            output_dir, render_key, stage="render.page"
+                        )
                         if cached_blank is not None:
                             pages_dir.mkdir(parents=True, exist_ok=True)
                             blank_dir = pages_dir / "blank"
@@ -2317,6 +2343,18 @@ async def _creative_comic(
                             blank_path = _page_asset_path(blank_dir, ci, page_index)
                             blank_path.write_bytes(cached_blank)
                             local = _page_asset_path(pages_dir, ci, page_index)
+                            if (
+                                _letter_resume_status(
+                                    blank_path,
+                                    local,
+                                    plan,
+                                    chunk,
+                                    output_dir,
+                                    resolved_size=page_size,
+                                )
+                                == "tombstone"
+                            ):
+                                continue
                             await asyncio.to_thread(
                                 partial(
                                     _letter_page_from_blank,
@@ -2328,18 +2366,21 @@ async def _creative_comic(
                                     resolved_size=page_size,
                                 )
                             )
-                            state.generated.pages[state_key] = GeneratedPage(
-                                local=str(local),
-                                blank_local=str(blank_path),
-                                lettering_version=LETTERING_VERSION,
-                                resolved_size=page_size,
-                                render_action_key=render_key,
-                                page_id=page_id,
-                                unit_index=ci,
-                                page_index=page_index,
-                                mode="finished_lettered",
+                            record_page_artifact(
+                                state,
+                                state_key,
+                                GeneratedPage(
+                                    local=str(local),
+                                    blank_local=str(blank_path),
+                                    lettering_version=LETTERING_VERSION,
+                                    resolved_size=page_size,
+                                    render_action_key=render_key,
+                                    page_id=page_id,
+                                    unit_index=ci,
+                                    page_index=page_index,
+                                    mode="finished_lettered",
+                                ),
                             )
-                            _mark_page_done(state, state_key)
                             state.save(state_path)
                             _report("pages", _pct())
                             continue
@@ -2447,6 +2488,18 @@ async def _creative_comic(
                         data=blank_path.read_bytes(),
                     )
                     local = _page_asset_path(pages_dir, ci, page_index)
+                    if (
+                        _letter_resume_status(
+                            blank_path,
+                            local,
+                            plan,
+                            chunk,
+                            output_dir,
+                            resolved_size=active_size,
+                        )
+                        == "tombstone"
+                    ):
+                        continue
                     await asyncio.to_thread(
                         partial(
                             _letter_page_from_blank,
@@ -2458,18 +2511,21 @@ async def _creative_comic(
                             resolved_size=active_size,
                         )
                     )
-                    state.generated.pages[state_key] = GeneratedPage(
-                        local=str(local),
-                        blank_local=str(blank_path),
-                        lettering_version=LETTERING_VERSION,
-                        resolved_size=active_size,
-                        render_action_key=stored_render_key,
-                        page_id=page_id,
-                        unit_index=ci,
-                        page_index=page_index,
-                        mode="finished_lettered",
+                    record_page_artifact(
+                        state,
+                        state_key,
+                        GeneratedPage(
+                            local=str(local),
+                            blank_local=str(blank_path),
+                            lettering_version=LETTERING_VERSION,
+                            resolved_size=active_size,
+                            render_action_key=stored_render_key,
+                            page_id=page_id,
+                            unit_index=ci,
+                            page_index=page_index,
+                            mode="finished_lettered",
+                        ),
                     )
-                    _mark_page_done(state, state_key)
                     if ledger.rebuild_from_state(state):
                         ledger.save(ledger_path)
                     state.save(state_path)
