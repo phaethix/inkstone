@@ -42,7 +42,7 @@ The scheduler does not call providers or read/write project state. The pipeline 
 
 ## Failure handling
 
-Graph validation fails before any provider call or project-state mutation if a node id is duplicated, a predecessor is missing, a cycle exists, or a later-phase node is made eligible before its phase barrier. A stage failure retains current behavior: execution stops or records the existing rejection/pause outcome; the scheduler does not mark that node complete and does not advance dependent work. A rerun reconstructs the graph from source and current planning outputs.
+Graph validation fails before any provider call or stage-executor mutation if a node id is duplicated, a predecessor is missing, a cycle exists, or a later-phase node is made eligible before its phase barrier. Existing preflight state loading and reconciliation remain unchanged. A stage failure retains current behavior: execution stops or records the existing rejection/pause outcome; the scheduler does not mark that node complete and does not advance dependent work. A rerun reconstructs the graph from source and current planning outputs.
 
 Cancellation, budget pauses, content-policy tombstones, and human-gate pauses remain enforced at the same pipeline boundaries as today. The scheduler neither consumes nor rewrites their state.
 
