@@ -1073,6 +1073,26 @@ def test_a_liquid_measure_keeps_its_unit():
         assert all(not line.startswith("升") for line in lines)
 
 
+def test_a_traditional_centimeter_keeps_its_unit():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("长3公分和12公分后的", font_path=path)
+    cases = (
+        ("长3公分后", "3公分", "3公分"),
+        ("长12公分后", "12公分", "12公分"),
+    )
+    for text, sample, kept in cases:
+        width = font.getlength(sample)
+        assert font.getlength(text) > width
+        assert font.getlength(kept) <= width
+        lines = engine._wrap_text(text, font, max_width=width)
+        assert "".join(lines) == text
+        assert any(kept in line for line in lines)
+        assert all(not line.startswith("分") for line in lines)
+
+
 def test_a_spaced_unit_stays_with_the_operand_before_it():
     path = _system_cjk_font()
     if path is None:
