@@ -132,7 +132,7 @@ Keep these prototypes only as migration material until they conform to the targe
 
 Per the [content-addressed pipeline design](architecture/2026-09-28-content-addressed-pipeline-design.md) §9.
 
-- **Local (2026-10-18, `codex/manifest-state-projection`):** Finished-page
+- **Local (2026-10-18, `main`):** Finished-page
   artifact projection now restores page and blank bytes from verified
   `render.page` / `letter` manifests; PDF, CBZ, Webtoon, and layout export
   artifacts restore from verified manifests. The general DAG scheduler,
@@ -381,8 +381,8 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
     first operand when that group fits. A hyphen range stays a range. A
     duration keeps 小时, 分钟, and 秒钟 intact, and with the number when that
     group fits. 公斤, 公里, 厘米, 毫米, 千米, and 千克 stay intact the same
-    way. 毫升 and 公升 stay intact the same way. A
-    caption that mixes CJK and Latin keeps each Latin word intact.
+    way. 毫升 and 公升 stay intact the same way. 公分 stays intact the
+    same way. A caption that mixes CJK and Latin keeps each Latin word intact.
     The PDF is still that raster.
 - [ ] Publish a public-domain *Journey to the West* chapter showcase with source,
   plan, coverage report and PDF.
