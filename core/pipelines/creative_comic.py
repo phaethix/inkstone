@@ -471,6 +471,7 @@ _DRAW_SOURCES = (
     LayoutEngine._draw_sfx,
     LayoutEngine._rebreak_for_punctuation,
     LayoutEngine._hang_date_mark,
+    LayoutEngine._hang_duration,
     LayoutEngine._hang_operator,
     LayoutEngine._hang_spaced_unit,
     LayoutEngine._wrap_clock,
