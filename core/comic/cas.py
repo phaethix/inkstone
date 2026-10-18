@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -383,29 +384,75 @@ def letter_action_key(*, blank: bytes, plan_json: str, env: str, stage_src: str)
     )
 
 
-def stored_output(root: Path, key: str) -> bytes | None:
+def stored_output(root: Path, key: str, *, stage: str | None = None) -> bytes | None:
     """Return the first ``ok`` output, or ``None`` when the key is not a usable hit."""
-    manifest = load_manifest(root, key)
-    if manifest is None or manifest.outcome != "ok" or not manifest.outputs:
+    resolved = verified_manifest_files(root, key, stage=stage)
+    if resolved is None:
         return None
-    path = object_path(root, manifest.outputs[0].content)
-    if not path.is_file():
-        return None
-    return path.read_bytes()
+    _, files = resolved
+    return files[0][1]
 
 
-def stored_files(root: Path, key: str) -> list[tuple[str, bytes]] | None:
+def stored_files(root: Path, key: str, *, stage: str | None = None) -> list[tuple[str, bytes]] | None:
     """Return every ``ok`` output, or ``None`` when one blob is missing."""
-    manifest = load_manifest(root, key)
+    resolved = verified_manifest_files(root, key, stage=stage)
+    if resolved is None:
+        return None
+    return resolved[1]
+
+
+def read_manifest_entry(root: Path, key: str, *, stage: str | None = None) -> Manifest | None:
+    """Read a well-formed entry whose payload and index filename identify ``key``."""
+    path = manifest_path(root, key)
+    if path.stem != _bare(key) or not path.is_file():
+        return None
+    try:
+        manifest = Manifest.model_validate_json(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not _manifest_identity_valid(manifest, key, path.stem, stage):
+        return None
+    return manifest
+
+
+def _manifest_identity_valid(
+    manifest: Manifest, key: str, index_stem: str, stage: str | None = None
+) -> bool:
+    return (
+        manifest.key == key
+        and index_stem == _bare(key)
+        and (stage is None or manifest.stage == stage)
+    )
+
+
+def _read_verified_object(root: Path, content_id: str) -> bytes | None:
+    """Read a CAS object only when its canonical id matches the bytes."""
+    if re.fullmatch(r"sha256:[0-9a-f]{64}", content_id) is None:
+        return None
+    path = object_path(root, content_id)
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return None
+    if "sha256:" + _hex_digest(data) != content_id:
+        return None
+    return data
+
+
+def verified_manifest_files(
+    root: Path, key: str, *, stage: str | None = None
+) -> tuple[Manifest, list[tuple[str, bytes]]] | None:
+    """Resolve an ``ok`` manifest only when every referenced CAS object verifies."""
+    manifest = read_manifest_entry(root, key, stage=stage)
     if manifest is None or manifest.outcome != "ok" or not manifest.outputs:
         return None
     files: list[tuple[str, bytes]] = []
     for item in manifest.outputs:
-        path = object_path(root, item.content)
-        if not path.is_file():
+        data = _read_verified_object(root, item.content)
+        if data is None:
             return None
-        files.append((item.name, path.read_bytes()))
-    return files
+        files.append((item.name, data))
+    return manifest, files
 
 
 def record_files(
@@ -574,22 +621,30 @@ def verify(root: Path) -> list[str]:
         return []
     problems: list[str] = []
     for path in sorted(index.glob("*.json")):
-        manifest = Manifest.model_validate_json(path.read_text(encoding="utf-8"))
+        try:
+            manifest = Manifest.model_validate_json(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            problems.append(f"{path.name}: malformed manifest")
+            continue
         expected = f"sha256:{path.stem}"
-        if manifest.key != expected:
+        if not _manifest_identity_valid(manifest, expected, path.stem):
             problems.append(f"{path.name}: key is {manifest.key}")
         if manifest.outcome != "ok" and not (manifest.reason or "").strip():
             problems.append(f"{path.name}: outcome {manifest.outcome} has no reason")
         if manifest.outcome != "ok" and manifest.outputs:
             problems.append(f"{path.name}: outcome {manifest.outcome} still has outputs")
         for item in manifest.outputs:
-            blob = object_path(root, item.content)
-            if not blob.is_file():
-                problems.append(f"{path.name}: missing {item.content}")
+            if re.fullmatch(r"sha256:[0-9a-f]{64}", item.content) is None:
+                problems.append(f"{path.name}: invalid content id {item.content}")
                 continue
-            actual = "sha256:" + _hex_digest(blob.read_bytes())
-            if actual != item.content:
-                problems.append(f"{path.name}: {item.content} does not match its bytes")
+            data = _read_verified_object(root, item.content)
+            if data is None:
+                blob = object_path(root, item.content)
+                if not blob.is_file():
+                    problems.append(f"{path.name}: missing {item.content}")
+                else:
+                    problems.append(f"{path.name}: {item.content} does not match its bytes")
+                continue
     return problems
 
 
