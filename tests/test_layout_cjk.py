@@ -1006,6 +1006,29 @@ def test_a_colloquial_mark_hangs_on_its_field():
         assert all(not line.startswith(hung[-1]) for line in lines)
 
 
+def test_a_duration_keeps_its_unit():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("过了3小时15分钟30秒钟后的", font_path=path)
+    cases = (
+        ("过了3小时后", "3小时后", "3小时"),
+        ("过了15分钟后", "15分钟", "15分钟"),
+        ("过了30秒钟后", "30秒钟", "30秒钟"),
+        ("过了15分钟后", "15分", "分钟"),
+        ("过了30秒钟后", "30秒", "秒钟"),
+    )
+    for text, sample, kept in cases:
+        width = font.getlength(sample)
+        assert font.getlength(text) > width
+        assert font.getlength(kept) <= width
+        lines = engine._wrap_text(text, font, max_width=width)
+        assert "".join(lines) == text
+        assert any(kept in line for line in lines)
+        assert all(not line.startswith(("时", "钟")) for line in lines)
+
+
 def test_a_spaced_unit_stays_with_the_operand_before_it():
     path = _system_cjk_font()
     if path is None:

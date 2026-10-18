@@ -403,6 +403,8 @@ class LayoutEngine:
                 continue
             moved = LayoutEngine._hang_date_mark(cur, token, font, max_width)
             if moved is None:
+                moved = LayoutEngine._hang_duration(cur, token, font, max_width)
+            if moved is None:
                 moved = LayoutEngine._hang_operator(cur, token, font, max_width)
             if moved is None:
                 moved = LayoutEngine._rebreak_for_punctuation(cur, token, font, max_width)
@@ -506,6 +508,35 @@ class LayoutEngine:
         if font.getlength(hung) > max_width:
             return None
         return body[:start].rstrip(), hung
+
+    @staticmethod
+    def _hang_duration(
+        cur: str, token: str, font: ImageFont.ImageFont, max_width: int
+    ) -> tuple[str, str] | None:
+        """Keep 小时, 分钟, and 秒钟 intact, and with the number when that fits."""
+        stems = {"时": "小", "钟": "分秒"}.get(token)
+        if stems is None:
+            return None
+        body = cur.rstrip()
+        if len(body) < 2 or body[-1] not in stems:
+            return None
+        end = len(body) - 1
+        start = end
+        while start > 0 and body[start - 1].isdigit():
+            start -= 1
+        if start > 1 and body[start - 1] == "." and body[start - 2].isdigit():
+            start -= 1
+            while start > 0 and body[start - 1].isdigit():
+                start -= 1
+        if start > 0 and body[start - 1] in ",，":
+            start = end
+        unit = body[end:] + token
+        group = body[start:end] + unit
+        if start < end and font.getlength(group) <= max_width:
+            return body[:start].rstrip(), group
+        if font.getlength(unit) <= max_width:
+            return body[:end].rstrip(), unit
+        return None
 
     @staticmethod
     def _hang_operator(
