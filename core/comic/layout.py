@@ -513,8 +513,15 @@ class LayoutEngine:
     def _hang_duration(
         cur: str, token: str, font: ImageFont.ImageFont, max_width: int
     ) -> tuple[str, str] | None:
-        """Keep 小时, 分钟, and 秒钟 intact, and with the number when that fits."""
-        stems = {"时": "小", "钟": "分秒"}.get(token)
+        """Keep a two-character unit intact, and with the number when that fits."""
+        stems = {
+            "时": "小",
+            "钟": "分秒",
+            "斤": "公",
+            "里": "公",
+            "米": "厘毫千",
+            "克": "千",
+        }.get(token)
         if stems is None:
             return None
         body = cur.rstrip()

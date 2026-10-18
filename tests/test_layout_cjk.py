@@ -1029,6 +1029,30 @@ def test_a_duration_keeps_its_unit():
         assert all(not line.startswith(("时", "钟")) for line in lines)
 
 
+def test_a_measure_keeps_its_unit():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("重3公斤走5公里长12厘米的", font_path=path)
+    cases = (
+        ("重3公斤后", "3公斤", "3公斤"),
+        ("走5公里后", "5公里", "5公里"),
+        ("长12厘米后", "12厘米", "12厘米"),
+        ("长8毫米后", "8毫米", "8毫米"),
+        ("走5千米后", "5千米", "5千米"),
+        ("重3千克后", "3千克", "3千克"),
+    )
+    for text, sample, kept in cases:
+        width = font.getlength(sample)
+        assert font.getlength(text) > width
+        assert font.getlength(kept) <= width
+        lines = engine._wrap_text(text, font, max_width=width)
+        assert "".join(lines) == text
+        assert any(kept in line for line in lines)
+        assert all(not line.startswith(("斤", "里", "米", "克")) for line in lines)
+
+
 def test_a_spaced_unit_stays_with_the_operand_before_it():
     path = _system_cjk_font()
     if path is None:
