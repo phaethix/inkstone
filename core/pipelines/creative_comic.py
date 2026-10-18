@@ -169,6 +169,7 @@ from core.config import render_mode as config_render_mode
 from core.density import PANELS_PER_CHUNK_B, DensityTier, get_density_plan
 from core.perf import PerfCollector
 from core.pipelines.cancel import check_cancel
+from core.pipelines.stage_scheduler import PipelinePhase, StageGraph, WorkKind, WorkNode
 from core.schemas import (
     ChunkCache,
     ComicPagePlan,
@@ -211,6 +212,26 @@ class ComicProject:
 # Historical combined fingerprint only. The live structure fingerprint is the
 # source text, so this constant no longer invalidates extract caches.
 _PIPELINE_STATE_VERSION = "2026-07-22.3"
+
+
+def _build_plan_graph(chunk_count: int) -> StageGraph:
+    """Describe the serial planning pass without touching pipeline state."""
+    graph = StageGraph()
+    previous_node_id: str | None = None
+    for chunk_index in range(chunk_count):
+        node_id = f"plan.chunk:{chunk_index:04d}"
+        graph.add(
+            WorkNode(
+                node_id=node_id,
+                phase=PipelinePhase.PLAN,
+                kind=WorkKind.PLAN_CHUNK,
+                unit_index=chunk_index,
+                item_index=None,
+                dependencies=() if previous_node_id is None else (previous_node_id,),
+            )
+        )
+        previous_node_id = node_id
+    return graph
 
 
 def _provider_label(provider, model: str) -> str:
@@ -1806,11 +1827,31 @@ async def _creative_comic(
     _report("resume" if (state.panels_done or state.chunk_cache) else "segment", _pct())
     prev_panel_local: str | None = None
 
+    plan_graph = _build_plan_graph(len(chunks))
+    plan_graph.validate()
+
+    def _plan_work_items():
+        completed: set[str] = set()
+        while ready := plan_graph.ready(completed, PipelinePhase.PLAN):
+            node = ready[0]
+            assert node.unit_index is not None
+            yield node
+            # Reaching this point means the chunk executor returned or took an
+            # intentional skip path. Propagated operational errors bypass it.
+            completed.add(node.node_id)
+
     # Plan every chunk before drawing. The page count is known only after
     # that pass, so pages and panels are expanded in the render pass.
     for phase in ("plan", "render"):
         prev_panel_local = None
-        for ci, chunk in enumerate(chunks):
+        if phase == "plan":
+            work_items = (
+                (node.unit_index, chunks[node.unit_index]) for node in _plan_work_items()
+            )
+        else:
+            work_items = enumerate(chunks)
+        for ci, chunk in work_items:
+            assert ci is not None
             check_cancel(cancel_check)
             key = str(ci)
             if key in state.skipped_chunks:
