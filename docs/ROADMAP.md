@@ -374,7 +374,7 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
     first operand when that group fits. A hyphen range stays a range. A
     duration keeps 小时, 分钟, and 秒钟 intact, and with the number when that
     group fits. 公斤, 公里, 厘米, 毫米, 千米, and 千克 stay intact the same
-    way. A
+    way. 毫升 and 公升 stay intact the same way. A
     caption that mixes CJK and Latin keeps each Latin word intact.
     The PDF is still that raster.
 - [ ] Publish a public-domain *Journey to the West* chapter showcase with source,

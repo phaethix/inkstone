@@ -1053,6 +1053,26 @@ def test_a_measure_keeps_its_unit():
         assert all(not line.startswith(("斤", "里", "米", "克")) for line in lines)
 
 
+def test_a_liquid_measure_keeps_its_unit():
+    path = _system_cjk_font()
+    if path is None:
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    font, _source = fonts.resolve_font("喝200毫升装3公升后的", font_path=path)
+    cases = (
+        ("喝200毫升后", "200毫升", "200毫升"),
+        ("装3公升后", "3公升", "3公升"),
+    )
+    for text, sample, kept in cases:
+        width = font.getlength(sample)
+        assert font.getlength(text) > width
+        assert font.getlength(kept) <= width
+        lines = engine._wrap_text(text, font, max_width=width)
+        assert "".join(lines) == text
+        assert any(kept in line for line in lines)
+        assert all(not line.startswith("升") for line in lines)
+
+
 def test_a_spaced_unit_stays_with_the_operand_before_it():
     path = _system_cjk_font()
     if path is None:

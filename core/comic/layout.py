@@ -521,6 +521,7 @@ class LayoutEngine:
             "里": "公",
             "米": "厘毫千",
             "克": "千",
+            "升": "毫公",
         }.get(token)
         if stems is None:
             return None
