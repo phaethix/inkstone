@@ -132,6 +132,13 @@ Keep these prototypes only as migration material until they conform to the targe
 
 Per the [content-addressed pipeline design](architecture/2026-09-28-content-addressed-pipeline-design.md) §9.
 
+- **Local (2026-10-18, `codex/manifest-state-projection`):** Finished-page
+  artifact projection now restores page and blank bytes from verified
+  `render.page` / `letter` manifests; PDF, CBZ, Webtoon, and layout export
+  artifacts restore from verified manifests. The general DAG scheduler,
+  moving plan caches out of `state.json`, and deleting legacy fingerprints
+  remain separate, unfinished migration work.
+
 - [x] **0b** Positional page identity: a page's identity is `c{ci:04d}-p{idx:04d}`,
   converging on the panel-key convention. Model-generated `page_id` no longer
   participates in identity; a deterministic, zero-quota rewrite on load migrates
