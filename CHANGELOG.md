@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Upgrade notes — prompt-harness identity
+- **A prompt edit now invalidates the chat stage it belongs to.** Every chat
+  stage's action key carries a digest of the request's stable identity: the
+  system prompt, stage instructions, tool schema, model, and the stage's declared
+  inputs. Editing `core/harness/data/common/system.md`, a tool schema, or a
+  prompt builder now misses the old key instead of silently reusing the stored
+  plan. Request digests use schema 3; render/letter/export keys stay on schema 2
+  and do not move.
+- **Accumulated context is pinned out of the digest.** The bible key still
+  excludes the character table and bible prose; the page-plan key still excludes
+  the recent-layout strings and the bible body. Those are accumulated context,
+  and folding them in would cascade one edit through every later chunk. A genre
+  or project-style change therefore does not re-reconcile the whole book.
+- **The first run after upgrading re-plans each chat stage once.** Pages repaint
+  only when the new plan's bytes differ from the stored plan, because the render
+  key does not include the upstream plan key. `inkstone migrate --check` is not
+  implemented yet; use `--budget` on a long book and delete `cache.json` only if
+  you intend to re-plan every stage.
+
+### Added
+- `inkstone prompt --stage <extract|beats|bible|storyboard|page_plan|page_script>`
+  prints the exact request a stage would send, including its digest; `--json`
+  emits the full payload. This is the first way to review an effective prompt
+  without spending a provider call.
+- `inkstone harness validate|list` and the editable harness tree under
+  `core/harness/data/`: the invariant system prompt now lives in
+  `common/system.md`, the six `stages/*.md` user-message templates, and
+  `genres/general.md` / `genres/wuxia.md` form the first domain pack.
+  `render_stage()` substitutes named slots and fails on an unknown or missing
+  slot. `INKSTONE_GENRE=wuxia` adds the domain notes to page planning and
+  storyboarding; the default `general` adds nothing.
+- A local `review/` evidence packet per run: `manifest.json`, `source.txt`,
+  `prompts/<stage>.c<chunk>.json`, `structure_report.json`, and
+  `decisions.jsonl`. It is written for humans and never enters a model prompt;
+  disable it with `INKSTONE_REVIEW_PACKET=0`.
+- A quality-verdict tripwire rejects a system prompt or tool schema carrying
+  `structure_report`, `acceptance rate`, `quality score`, `redraw rate`, or
+  `gate.json`. Source text is deliberately not scanned: a novel may legitimately
+  contain those phrases.
+
+### Fixed
+- D-01: an alias merge can no longer leave `reviewed_version` ahead of
+  `reference.version`, which silently disabled continuity review.
+- D-02: `rebuild_from_state` clears the page set of a character that no longer
+  appears on any planned page, and escalation ignores entries with no pages, so
+  a rename cannot leave an unresolvable permanent pause. The entry's reference
+  and reviewed version are retained.
+- D-03: `load_or_rebuild` no longer swallows `OSError`; only a corrupt ledger
+  (`ValidationError` / `JSONDecodeError`) falls back to a rebuild, and the fallback
+  is logged.
+- D-04: the sample gate's growth branch is clamped to at least one page, so a
+  zero `chapter_pages` cannot make every page "beyond the sample" forever.
+
 ### Upgrade notes
 - **Upgrading recomputes each existing project once.** Stage keys are now
   content-addressed (extract, beats, page plan, bible, portrait, storyboard panel,
