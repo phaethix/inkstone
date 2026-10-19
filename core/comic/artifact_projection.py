@@ -10,9 +10,7 @@ from __future__ import annotations
 from core.schemas import GeneratedPage, ProjectState
 
 
-def record_page_artifact(
-    state: ProjectState, page_key: str, page: GeneratedPage
-) -> None:
+def record_page_artifact(state: ProjectState, page_key: str, page: GeneratedPage) -> None:
     """Record a successfully completed page in the derived output projection."""
     # Dict replacement preserves the key's insertion position when replacing an
     # existing record, while a newly completed page is appended deterministically.
