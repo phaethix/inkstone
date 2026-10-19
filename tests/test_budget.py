@@ -17,7 +17,7 @@ from core.comic.budget import (
     BudgetSpec,
     allocate,
 )
-from core.pipelines.creative_comic import _input_fingerprint, _render_fingerprint
+from core.pipelines.creative_comic import _render_fingerprint, _structure_fingerprint
 
 
 def _spec(**overrides) -> BudgetSpec:
@@ -178,7 +178,7 @@ def test_projects_do_not_share_a_reservation(tmp_path):
 
 
 def test_budget_does_not_enter_fingerprint_inputs():
-    for fn in (_input_fingerprint, _render_fingerprint):
+    for fn in (_structure_fingerprint, _render_fingerprint):
         names = fn.__code__.co_varnames
         assert "budget" not in names
         assert "carry_over" not in names

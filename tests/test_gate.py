@@ -17,7 +17,7 @@ from core.comic.gate import (
     adjust_sample_size,
     select_sample,
 )
-from core.pipelines.creative_comic import _input_fingerprint, _render_fingerprint
+from core.pipelines.creative_comic import _render_fingerprint, _structure_fingerprint
 
 
 def _keys(chunk: int, count: int) -> list[str]:
@@ -166,7 +166,7 @@ def test_unknown_decision_is_rejected(tmp_path):
 
 
 def test_gate_does_not_enter_fingerprint_inputs():
-    for fn in (_input_fingerprint, _render_fingerprint):
+    for fn in (_structure_fingerprint, _render_fingerprint):
         names = fn.__code__.co_varnames
         assert "gate" not in names
         assert "sample_gate_size" not in names
