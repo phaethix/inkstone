@@ -393,7 +393,9 @@ def stored_output(root: Path, key: str, *, stage: str | None = None) -> bytes | 
     return files[0][1]
 
 
-def stored_files(root: Path, key: str, *, stage: str | None = None) -> list[tuple[str, bytes]] | None:
+def stored_files(
+    root: Path, key: str, *, stage: str | None = None
+) -> list[tuple[str, bytes]] | None:
     """Return every ``ok`` output, or ``None`` when one blob is missing."""
     resolved = verified_manifest_files(root, key, stage=stage)
     if resolved is None:

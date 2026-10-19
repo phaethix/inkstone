@@ -58,9 +58,7 @@ class StageGraph:
             for dependency_id in node.dependencies:
                 dependency = self._nodes.get(dependency_id)
                 if dependency is None:
-                    raise ValueError(
-                        f"work node {node_id} has missing dependency {dependency_id}"
-                    )
+                    raise ValueError(f"work node {node_id} has missing dependency {dependency_id}")
                 if _PHASE_ORDER[dependency.phase] > _PHASE_ORDER[node.phase]:
                     raise ValueError(
                         f"phase-inverted dependency: {node_id} ({node.phase.value}) "
@@ -87,12 +85,9 @@ class StageGraph:
             if state.get(node_id, 0) == 0:
                 visit(node_id)
 
-    def ready(
-        self, completed: set[str], phase: PipelinePhase
-    ) -> tuple[WorkNode, ...]:
+    def ready(self, completed: set[str], phase: PipelinePhase) -> tuple[WorkNode, ...]:
         if any(
-            _PHASE_ORDER[node.phase] < _PHASE_ORDER[phase]
-            and node_id not in completed
+            _PHASE_ORDER[node.phase] < _PHASE_ORDER[phase] and node_id not in completed
             for node_id, node in self._nodes.items()
         ):
             return ()
