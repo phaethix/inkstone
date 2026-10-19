@@ -67,6 +67,22 @@ Keep these prototypes only as migration material until they conform to the targe
 
 ### P0 — Make the current state honest and deterministic
 
+- **Local (2026-10-20, `main`):** Prompt-harness phase 0 + first phase-1 slice.
+  Chat action keys carry a request digest (schema 3) over the system prompt,
+  stage instructions, tool schema, model, and declared inputs; accumulated
+  context (character table, bible prose, recent layout strings) stays pinned out
+  so one edit cannot cascade through the book. The invariant system prompt and
+  the first genre packs moved to `core/harness/data/` (`general`, `wuxia`).
+  `inkstone prompt` prints an effective request without a provider call;
+  `inkstone harness validate|list` checks the tree; a local `review/` packet
+  records prompts, source, structure report, and decisions. All six chat stage
+  user-message templates now live under `core/harness/data/stages/` and are
+  rendered through `render_stage()`; the builders only compute slot values.
+  Render/letter/export keys remain schema 2. Remaining phase-1 work is the
+  static render-lock lines, then the planned A/B / lesson-library loop. Scoping doc:
+  [prompt-harness design](architecture/2026-10-19-prompt-harness-design.md).
+  P0 ledger fixes D-01–D-04 landed with `tests/test_p0_state_integrity.py`.
+
 - [x] Deferred lettering for finished pages: model paints empty chrome; Inkstone overlays caption/dialogue/sfx with CJK-capable fonts. Unlettered art under `pages/blank/` enables resume re-lettering without re-calling the image API. Spec: [`docs/superpowers/specs/2026-07-31-deferred-lettering-design.md`](superpowers/specs/2026-07-31-deferred-lettering-design.md) (local on `feat/deferred-lettering` until merged).
 - [x] Make density a real contract: persist it in `ProjectState`, include it in
   the structure fingerprint (`render_fingerprint` covers style/model/L3), pass a

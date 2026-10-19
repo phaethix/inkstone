@@ -166,6 +166,8 @@ Inkstone is configured through environment variables (copy `.env.example` → `.
 | `PROVIDER` | | `agnes` | `openai_compat` routes to configured OpenAI-style base URLs. |
 | `OPENAI_COMPAT_*` | | — | Base URL / key / models when `PROVIDER=openai_compat`. |
 | `INKSTONE_L3` | | `0` | Enable the experimental L3 PIL/OpenCV face overlay (`1` to turn on). |
+| `INKSTONE_GENRE` | | `general` | Domain notes for planning: `general` (none) or `wuxia`. The genre layer only adds craft guidance; it cannot override the invariant rules. |
+| `INKSTONE_REVIEW_PACKET` | | `1` | Write a local `review/` evidence packet (effective prompts, source, structure report, decisions). `0` disables it; it is never sent to a model. |
 | `INKSTONE_PAGE_SCRIPT` | | `0` | Write legacy PageScript metadata. Off. Not a quality gate. |
 | `INKSTONE_DATA_DIR` | | `~/.inkstone` | Shared quota, budget, and sample-gate files. |
 | `INKSTONE_RENDER_MODE` | | `finished_page` | Default: one finished comic page per image call. Set `panel_compose` to use the legacy storyboard → panel → layout path (recovery when finished pages fail). |
