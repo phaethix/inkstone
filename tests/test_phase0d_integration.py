@@ -161,9 +161,60 @@ def test_identity_view_prints_ledger(tmp_path, capsys):
     ConsistencyLedger(characters={"福贵": LedgerEntry(pages=["c0000-p0000"])}).save(
         out / "consistency.json"
     )
-    code = cli._run_identity(type("A", (), {"out": str(out), "view": True})())
+    code = cli._run_identity(type("A", (), {"out": str(out), "view": True, "confirm": None})())
     assert code == 0
     assert "福贵" in capsys.readouterr().out
+
+
+def test_identity_view_marks_an_escalated_character(tmp_path, capsys):
+    from core import cli
+
+    out = tmp_path / "proj"
+    out.mkdir()
+    ProjectState(project_id="p1").save(out / "state.json")
+    entry = LedgerEntry(pages=[f"c0000-p{i:04d}" for i in range(31)])
+    entry.reference = ReferenceVersion(path="p.png", version=2)
+    entry.reviewed_version = 1
+    entry.pending_pages = list(entry.pages)
+    ConsistencyLedger(characters={"福贵": entry}).save(out / "consistency.json")
+
+    code = cli._run_identity(type("A", (), {"out": str(out), "view": True, "confirm": None})())
+    assert code == 0
+    assert "超过升级阈值" in capsys.readouterr().out
+
+
+def test_identity_confirm_clears_pending(tmp_path, capsys):
+    from core import cli
+
+    out = tmp_path / "proj"
+    out.mkdir()
+    ProjectState(project_id="p1").save(out / "state.json")
+    entry = LedgerEntry(pages=["c0000-p0000"])
+    entry.reference = ReferenceVersion(path="p.png", version=2)
+    entry.reviewed_version = 1
+    entry.pending_pages = list(entry.pages)
+    ConsistencyLedger(characters={"福贵": entry}).save(out / "consistency.json")
+
+    code = cli._run_identity(type("A", (), {"out": str(out), "view": False, "confirm": "福贵"})())
+    assert code == 0
+    assert "已确认" in capsys.readouterr().out
+    persisted = ConsistencyLedger.load(out / "consistency.json")
+    assert persisted.characters["福贵"].pending_pages == []
+    assert persisted.characters["福贵"].reviewed_version == 2
+
+
+def test_identity_confirm_unknown_character_exits_nonzero(tmp_path, capsys):
+    from core import cli
+
+    out = tmp_path / "proj"
+    out.mkdir()
+    ProjectState(project_id="p1").save(out / "state.json")
+    ConsistencyLedger(characters={"福贵": LedgerEntry(pages=["c0000-p0000"])}).save(
+        out / "consistency.json"
+    )
+    code = cli._run_identity(type("A", (), {"out": str(out), "view": False, "confirm": "nobody"})())
+    assert code == 1
+    assert "未找到角色" in capsys.readouterr().out
 
 
 def test_ledger_contents_do_not_enter_the_render_fingerprint():

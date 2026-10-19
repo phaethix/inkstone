@@ -97,7 +97,13 @@ async def _run(
     if isinstance(result, PausedRun):
         print(f"PAUSED project {result.project_id}: {result.reason}")
         print(f"  progress saved under {result.output_dir}")
-        if "awaiting_human" in result.reason:
+        if "continuity review" in result.reason:
+            print(
+                "  confirm the review with: inkstone identity --out "
+                f"{result.output_dir} --confirm <character>"
+            )
+            print("  or click Confirm in the Continuity review panel of the web UI")
+        elif "awaiting_human" in result.reason:
             print(
                 "  decide the sample with: inkstone gate --out "
                 f"{result.output_dir} --key <page> --decision accept|redraw|accept-and-flag"
