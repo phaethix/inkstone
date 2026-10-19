@@ -8,7 +8,9 @@ import urllib.error
 import urllib.request
 from contextlib import contextmanager
 from http.server import ThreadingHTTPServer
+from pathlib import Path
 
+from core.comic.ledger import ConsistencyLedger, LedgerEntry, ReferenceVersion
 from core.schemas import (
     CharacterAliasSuggestion,
     CharacterAsset,
@@ -683,3 +685,67 @@ def test_opening_the_reader_writes_it_from_stored_pages(tmp_path, monkeypatch):
         else:
             raise AssertionError("missing pages should not serve a reader")
     assert not (empty / "reader.html").exists()
+
+
+def _seed_review_project(tmp_path, project_id="demo"):
+    out = tmp_path / project_id
+    out.mkdir()
+    ProjectState(project_id=project_id).save(out / "state.json")
+    ledger = ConsistencyLedger(
+        characters={
+            "福贵": LedgerEntry(
+                pages=["c0000-p0000", "c0000-p0001"],
+                reference=ReferenceVersion(path="assets/portraits/福贵.png", version=2),
+                pending_pages=["c0000-p0000", "c0000-p0001"],
+                reviewed_version=1,
+            )
+        }
+    )
+    ledger.save(out / "consistency.json")
+    return out
+
+
+def test_snapshot_carries_the_ledger_escalation_threshold(tmp_path):
+    out = _seed_review_project(tmp_path)
+    state = ProjectState.load(out / "state.json")
+    snapshot = server._state_snapshot(state, out)
+    assert snapshot["ledger_escalation_threshold"] == 30
+    assert snapshot["ledger_pending"] == {"福贵": ["c0000-p0000", "c0000-p0001"]}
+
+
+def test_post_ledger_confirm_clears_pending(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    out = _seed_review_project(tmp_path)
+    with _running_server() as httpd:
+        status, payload = _request(
+            httpd.server_port,
+            "/api/project/demo/ledger/confirm",
+            "POST",
+            data=json.dumps({"character": "福贵"}).encode(),
+        )
+    assert status == 200
+    assert payload["ledger_pending"] == {}
+    persisted = ConsistencyLedger.load(out / "consistency.json")
+    assert persisted.characters["福贵"].reviewed_version == 2
+    assert persisted.characters["福贵"].pending_pages == []
+
+
+def test_post_ledger_confirm_unknown_character_404(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    _seed_review_project(tmp_path)
+    with _running_server() as httpd:
+        status, payload = _request(
+            httpd.server_port,
+            "/api/project/demo/ledger/confirm",
+            "POST",
+            data=json.dumps({"character": "nobody"}).encode(),
+        )
+    assert status == 404
+    assert "unknown character" in payload["error"]
+
+
+def test_index_html_has_the_continuity_panel():
+    html = (Path(server.__file__).resolve().parent / "index.html").read_text(encoding="utf-8")
+    assert 'id="ledgerWrap"' in html
+    assert 'id="ledgerList"' in html
+    assert "/ledger/confirm" in html

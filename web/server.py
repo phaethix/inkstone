@@ -53,7 +53,7 @@ from core.comic.identity import (  # noqa: E402
     merge_character_alias,
     remember_merged_alias,
 )
-from core.comic.ledger import ConsistencyLedger  # noqa: E402
+from core.comic.ledger import LEDGER_ESCALATION_THRESHOLD, ConsistencyLedger  # noqa: E402
 from core.comic.reader import chapter_pages, write_reader  # noqa: E402
 from core.config import data_dir  # noqa: E402
 from core.pipelines.creative_comic import estimate_progress  # noqa: E402
@@ -235,6 +235,7 @@ def _state_snapshot(state: ProjectState, out_dir: Path | None = None) -> dict:
         "pages_done": list(state.pages_done),
         "skipped_pages": list(state.skipped_pages),
         "ledger_pending": ledger.pending_pages(),
+        "ledger_escalation_threshold": LEDGER_ESCALATION_THRESHOLD,
     }
 
 
@@ -554,6 +555,22 @@ def apply_review(project_id: str, action: str, new_name: str, candidate: str) ->
     return _state_snapshot(state, out_dir)
 
 
+def apply_ledger_confirm(project_id: str, character: str) -> dict:
+    """Confirm a continuity review; persist ``consistency.json`` (§4, 5b).
+
+    Accepting keeps the affected pages as they are. Unknown characters raise
+    ``ValueError`` so the handler can answer 404 instead of pretending to
+    confirm something that does not exist.
+    """
+    out_dir, state = _load_project_state(project_id)
+    ledger = ConsistencyLedger.load_or_rebuild(out_dir / "consistency.json", state)
+    if character not in ledger.characters:
+        raise ValueError(f"unknown character: {character}")
+    ledger.confirm_review(character)
+    ledger.save(out_dir / "consistency.json")
+    return _state_snapshot(state, out_dir)
+
+
 def start_regen_job(
     project_id: str,
     *,
@@ -763,6 +780,9 @@ class Handler(BaseHTTPRequestHandler):
             if self.path.startswith("/api/project/") and self.path.endswith("/review"):
                 self._post_review()
                 return
+            if self.path.startswith("/api/project/") and self.path.endswith("/ledger/confirm"):
+                self._post_ledger_confirm()
+                return
             if self.path.startswith("/api/project/") and self.path.endswith("/regen"):
                 self._post_regen()
                 return
@@ -868,6 +888,25 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": "missing new_name/candidate"}, status=400)
             return
         result = apply_review(project_id, action, new_name, candidate)
+        self._send_json({"project_id": project_id, **result})
+
+    def _post_ledger_confirm(self) -> None:
+        # /api/project/<id>/ledger/confirm
+        parts = self.path.strip("/").split("/")
+        if len(parts) != 5:
+            self._send_json({"error": "not found"}, status=404)
+            return
+        project_id = parts[2]
+        payload = self._read_json()
+        character = (payload.get("character") or "").strip()
+        if not character:
+            self._send_json({"error": "missing character"}, status=400)
+            return
+        try:
+            result = apply_ledger_confirm(project_id, character)
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, status=404)
+            return
         self._send_json({"project_id": project_id, **result})
 
     def _post_regen(self) -> None:

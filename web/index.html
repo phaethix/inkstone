@@ -623,6 +623,11 @@
             <div id="reviewList"></div>
             <button id="redrawStale" class="btn btn-secondary hidden" style="margin-top:12px;">Redraw affected panels</button>
           </div>
+          <div id="ledgerWrap" class="hidden" style="margin:16px 0;padding:16px;border:1px solid var(--border);border-radius:12px;background:var(--surface);">
+            <h3 style="margin:0 0 8px;font-size:16px;">Continuity review</h3>
+            <p style="margin:0 0 8px;font-size:12px;color:var(--muted);">Pages that used an older character reference. Confirming keeps them as they are; a large pending set pauses the next run until confirmed.</p>
+            <div id="ledgerList"></div>
+          </div>
           <div id="skippedWrap" class="hidden" style="margin:16px 0;padding:16px;border:1px solid var(--border);border-radius:12px;background:var(--surface);">
             <h3 style="margin:0 0 8px;font-size:16px;">Skipped</h3>
             <div id="skippedList"></div>
@@ -1142,6 +1147,7 @@
         $("readerWrap").classList.add("hidden");
       }
       renderReview(job);
+      renderLedger(job);
       renderSkipped(job);
       $("go").disabled = false;
       $("results").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1191,6 +1197,54 @@
       }
     }
 
+    function renderLedger(job) {
+      const wrap = $("ledgerWrap");
+      const list = $("ledgerList");
+      list.innerHTML = "";
+      const pending = job.ledger_pending || {};
+      const names = Object.keys(pending).sort();
+      if (!names.length) {
+        wrap.classList.add("hidden");
+        return;
+      }
+      wrap.classList.remove("hidden");
+      const threshold = job.ledger_escalation_threshold;
+      names.forEach((name) => {
+        const pages = pending[name] || [];
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start;margin:8px 0;font-size:13px;";
+        const escalated = threshold != null && pages.length > threshold;
+        const shown = pages.slice(0, 12).join(", ") + (pages.length > 12 ? ", …" : "");
+        const label = document.createElement("span");
+        label.style.cssText = "flex:1;min-width:220px;";
+        label.textContent = name + ": " + pages.length + " page(s) pending — " + shown
+          + (escalated ? " (over the escalation threshold: the run pauses until confirmed)" : "");
+        row.appendChild(label);
+        const btn = document.createElement("button");
+        btn.className = escalated ? "btn btn-primary" : "btn btn-secondary";
+        btn.textContent = "Confirm";
+        btn.onclick = () => ledgerConfirm(name);
+        row.appendChild(btn);
+        list.appendChild(row);
+      });
+    }
+
+    async function ledgerConfirm(name) {
+      if (!currentProjectId) return fail("No project id");
+      try {
+        const res = await fetch("/api/project/" + currentProjectId + "/ledger/confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ character: name }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+        renderLedger(data);
+      } catch (e) {
+        fail(friendlyFetchError(e));
+      }
+    }
+
     function renderSkipped(job) {
       const wrap = $("skippedWrap");
       const list = $("skippedList");
@@ -1232,6 +1286,7 @@
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
         renderReview(data);
+        renderLedger(data);
         if ((data.stale_panels || []).length) {
           $("reviewWrap").classList.remove("hidden");
         }
