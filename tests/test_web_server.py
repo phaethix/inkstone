@@ -178,6 +178,43 @@ def test_seed_job_progress_from_checkpoint(tmp_path, monkeypatch):
     assert progress > 0.3
 
 
+def test_seed_job_progress_survives_a_corrupt_cache_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    project_id = "resume-cache-bad"
+    out = tmp_path / project_id
+    out.mkdir()
+    board = Storyboard(
+        chapter_id="0",
+        panels=[Panel(panel_id=str(i), action="a") for i in range(10)],
+    )
+    state = ProjectState(
+        project_id=project_id,
+        render_mode="panel_compose",
+        chunk_cache={"0": ChunkCache(storyboard=board)},
+        panels_done=[f"c0000-p{i:04d}" for i in range(5)],
+    )
+    state.save(out / "state.json")
+    (out / "cache.json").write_text("{not json", encoding="utf-8")
+
+    # The seeding reader falls back to the projection-only load: the estimate
+    # gets rougher but a corrupt cache file must not reset the bar to zero.
+    progress, stage = server._seed_job_progress(project_id)
+    assert stage == "resume"
+    assert progress > 0.3
+
+
+def test_list_projects_survives_a_corrupt_cache_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    project_id = "listing-cache-bad"
+    out = tmp_path / project_id
+    out.mkdir()
+    ProjectState(project_id=project_id).save(out / "state.json")
+    (out / "cache.json").write_text("{not json", encoding="utf-8")
+
+    projects = server.list_projects()
+    assert [p["id"] for p in projects] == [project_id]
+
+
 def test_start_job_seeds_resume_fields_from_checkpoint(tmp_path, monkeypatch):
     monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
     monkeypatch.setattr(

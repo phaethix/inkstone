@@ -44,6 +44,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from pydantic import ValidationError  # noqa: E402
+
 from core.api import get_chat_provider, get_image_provider  # noqa: E402
 from core.comic.identity import (  # noqa: E402
     dismiss_character_alias,
@@ -274,12 +276,23 @@ def _fill_job_from_paused(job: dict, paused: PausedRun) -> None:
 
 
 def _load_checkpoint_state(project_id: str) -> ProjectState | None:
-    """Load project state from disk, or None if missing or unreadable."""
+    """Load project state from disk, or None if missing or unreadable.
+
+    Serves progress seeding, which reads the heavy plan caches to keep the
+    resumed estimate honest. A corrupt ``cache.json`` must not block that, so
+    the full load falls back to the projection-only read; a corrupt
+    ``state.json`` still returns ``None``.
+    """
     state_path = OUTPUT_DIR / project_id / "state.json"
     if not state_path.is_file():
         return None
     try:
         return ProjectState.load(state_path)
+    except ValidationError:
+        try:
+            return ProjectState.load(state_path, caches=False)
+        except Exception:  # noqa: BLE001
+            return None
     except Exception:  # noqa: BLE001
         return None
 
@@ -327,7 +340,9 @@ def _load_timing_elapsed(project_id: str) -> float:
     state_path = OUTPUT_DIR / project_id / "state.json"
     if state_path.is_file():
         try:
-            return float(ProjectState.load(state_path).active_elapsed_seconds or 0.0)
+            # Projection-only: timing is a light field, and a corrupt
+            # cache.json must not zero the elapsed clock.
+            return float(ProjectState.load(state_path, caches=False).active_elapsed_seconds or 0.0)
         except Exception:  # noqa: BLE001
             return 0.0
     return 0.0
@@ -513,6 +528,8 @@ def _load_project_state(project_id: str) -> tuple[Path, ProjectState]:
     state_path = out_dir / "state.json"
     if not state_path.is_file():
         raise FileNotFoundError(f"no state.json for project {project_id}")
+    # Full load: merge/dismiss rewrites the heavy caches and its save must
+    # persist them, so this reader needs cache.json (a corrupt one raises).
     state = ProjectState.load(state_path)
     # Phase 0b: bring a pre-0b checkpoint onto positional page keys before any
     # reader (regen bookkeeping, snapshots) interprets them.
@@ -585,7 +602,9 @@ def list_projects() -> list[dict]:
         if not state_path.is_file():
             continue
         try:
-            state = ProjectState.load(state_path)
+            # Projection-only: the listing needs light fields, and a corrupt
+            # cache.json must not hide a project with an intact checkpoint.
+            state = ProjectState.load(state_path, caches=False)
         except Exception:  # noqa: BLE001
             continue
         projects.append(
