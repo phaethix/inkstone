@@ -347,6 +347,121 @@ def _expand_panel_render_nodes(
     )
 
 
+def _previous_render_node_id(
+    nodes_by_chunk: dict[int, tuple[WorkNode, ...]], chunk_index: int
+) -> str | None:
+    """Return the last render node of the nearest earlier chunk that has one."""
+    previous_id: str | None = None
+    for earlier in sorted(ci for ci in nodes_by_chunk if ci < chunk_index):
+        nodes = nodes_by_chunk[earlier]
+        if nodes:
+            previous_id = nodes[-1].node_id
+    return previous_id
+
+
+def _append_page_render_nodes(
+    graph: StageGraph,
+    state: ProjectState,
+    chunk_index: int,
+    nodes_by_chunk: dict[int, tuple[WorkNode, ...]],
+) -> bool:
+    """Register page nodes missing from the pre-loop expansion.
+
+    The render pass can plan a chunk that had no pageset when render nodes were
+    expanded. Those pages must be added before dispatch; the outstanding-render
+    check only knows nodes that were registered. Returns True when the graph
+    gained nodes.
+    """
+    pageset = state.page_cache.get(str(chunk_index))
+    if pageset is None:
+        return False
+    existing = list(nodes_by_chunk.get(chunk_index, ()))
+    page_count = len(pageset.pages)
+    if len(existing) >= page_count:
+        return False
+    previous_node_id = (
+        existing[-1].node_id if existing else _previous_render_node_id(nodes_by_chunk, chunk_index)
+    )
+    for page_index in range(len(existing), page_count):
+        node_id = f"render.page:{chunk_index:04d}:{page_index:04d}"
+        node = WorkNode(
+            node_id=node_id,
+            phase=PipelinePhase.RENDER,
+            kind=WorkKind.RENDER_PAGE,
+            unit_index=chunk_index,
+            item_index=page_index,
+            dependencies=() if previous_node_id is None else (previous_node_id,),
+        )
+        graph.add(node)
+        existing.append(node)
+        previous_node_id = node_id
+    nodes_by_chunk[chunk_index] = tuple(existing)
+    return True
+
+
+def _append_panel_render_nodes(
+    graph: StageGraph,
+    state: ProjectState,
+    chunk_index: int,
+    nodes_by_chunk: dict[int, tuple[WorkNode, ...]],
+    batch_panel_keys: dict[str, tuple[str, ...]],
+    *,
+    continuity: bool,
+) -> bool:
+    """Register panel nodes missing from the pre-loop expansion.
+
+    Same hole as ``_append_page_render_nodes``: a storyboard stored during the
+    render pass is invisible to the snapshot taken before the chunk loop.
+    Returns True when the graph gained nodes.
+    """
+    cached = state.chunk_cache.get(str(chunk_index))
+    board = cached.storyboard if cached else None
+    if board is None:
+        return False
+    existing = list(nodes_by_chunk.get(chunk_index, ()))
+    if continuity:
+        panel_count = len(board.panels)
+        if len(existing) >= panel_count:
+            return False
+        previous_node_id = (
+            existing[-1].node_id
+            if existing
+            else _previous_render_node_id(nodes_by_chunk, chunk_index)
+        )
+        for panel_index in range(len(existing), panel_count):
+            node_id = f"render.panel:{chunk_index:04d}:{panel_index:04d}"
+            node = WorkNode(
+                node_id=node_id,
+                phase=PipelinePhase.RENDER,
+                kind=WorkKind.RENDER_PANEL,
+                unit_index=chunk_index,
+                item_index=panel_index,
+                dependencies=() if previous_node_id is None else (previous_node_id,),
+            )
+            graph.add(node)
+            existing.append(node)
+            previous_node_id = node_id
+        nodes_by_chunk[chunk_index] = tuple(existing)
+        return True
+    if existing:
+        return False
+    node_id = f"render.panel_batch:{chunk_index:04d}"
+    node = WorkNode(
+        node_id=node_id,
+        phase=PipelinePhase.RENDER,
+        kind=WorkKind.RENDER_PANEL_BATCH,
+        unit_index=chunk_index,
+        item_index=None,
+        dependencies=(),
+    )
+    graph.add(node)
+    nodes_by_chunk[chunk_index] = (node,)
+    batch_panel_keys[node_id] = tuple(
+        _panel_state_key(chunk_index, panel_index) for panel_index in range(len(board.panels))
+    )
+    return True
+
+
 def _provider_label(provider, model: str) -> str:
     """Return a non-secret provider/model identity suitable for cache invalidation."""
     provider_type = f"{type(provider).__module__}.{type(provider).__qualname__}"
@@ -2017,7 +2132,6 @@ async def _creative_comic(
                 and key in set(state.chunks_done)
                 and _chunk_complete(state, board, output_dir, ci)
                 and panel_key_filter is None
-                and state.visual_bible is not None
             ):
                 script_missing, _script_key = _page_script_plan(cached, chunk, snapshot.chat)
                 if not script_missing:
@@ -2740,6 +2854,8 @@ async def _creative_comic(
                     _state.save(state_path, caches=False)
                     _report("pages", _pct())
 
+                if _append_page_render_nodes(render_graph, state, ci, render_nodes_by_chunk):
+                    render_graph.validate()
                 for page_node in render_nodes_by_chunk.get(ci, ()):
                     _require_render_node(page_node)
                     assert page_node.item_index is not None
@@ -2987,6 +3103,15 @@ async def _creative_comic(
                 _state.save(state_path, caches=False)
                 _report("panel", _pct())
 
+            if _append_panel_render_nodes(
+                render_graph,
+                state,
+                ci,
+                render_nodes_by_chunk,
+                batch_panel_keys,
+                continuity=image_config.panel_continuity,
+            ):
+                render_graph.validate()
             if image_config.panel_continuity:
                 for panel_node in render_nodes_by_chunk.get(ci, ()):
                     _require_render_node(panel_node)
