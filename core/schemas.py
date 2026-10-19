@@ -1517,8 +1517,53 @@ class Tombstone(BaseModel):
     created_at: str = Field(default_factory=_now_iso)
 
 
+# The heavy planning caches travel in the sibling ``cache.json`` so the
+# ``state.json`` checkpoint stays small enough to write on the render hot path
+# (two-part state design, 2026-10-19).
+CACHE_FILE_NAME = "cache.json"
+_CACHE_FIELDS = ("chunk_cache", "page_cache", "beat_cache", "visual_bible")
+
+
+def _atomic_write_text(path: Path, payload: str) -> None:
+    """Write ``payload`` to ``path`` atomically (temp + fsync + replace)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent, text=True)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as temp:
+            temp.write(payload)
+            temp.flush()
+            os.fsync(temp.fileno())
+        os.replace(temp_name, path)
+    except Exception:
+        Path(temp_name).unlink(missing_ok=True)
+        raise
+
+
+class ProjectCaches(BaseModel):
+    """The four heavy planning caches persisted to the sibling ``cache.json``.
+
+    These are the billable-to-recompute chat-stage outputs. They are caches in
+    the strict sense: losing the file costs a re-plan under the same action
+    keys, and never touches the authoritative human state kept in
+    ``state.json``. A cache file is the steady state from the first full save
+    on; a pre-split ``state.json`` that still carries them inline loads through
+    the same code path.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    chunk_cache: dict[str, ChunkCache] = Field(default_factory=dict)
+    page_cache: dict[str, ComicPagePlanSet] = Field(default_factory=dict)
+    beat_cache: dict[str, KeyBeatSet] = Field(default_factory=dict)
+    visual_bible: VisualBible | None = None
+
+
 class ProjectState(BaseModel):
-    """Resumable project state persisted to ``state.json`` between stages."""
+    """Resumable project state persisted between stages.
+
+    The checkpoint goes to ``state.json``; the four heavy planning caches go
+    to the sibling ``cache.json`` (see ``ProjectCaches``).
+    """
 
     model_config = ConfigDict(extra="ignore")
 
@@ -1589,25 +1634,51 @@ class ProjectState(BaseModel):
     errors: str = "logs/errors.jsonl"
     active_elapsed_seconds: float = 0.0
 
-    def save(self, path: str | Path) -> None:
-        """Persist state atomically, so interruption cannot truncate ``state.json``."""
+    def save(self, path: str | Path, *, caches: bool = True) -> None:
+        """Persist state atomically, so interruption cannot truncate ``state.json``.
+
+        ``caches=True`` (the default) writes the heavy planning caches to the
+        sibling ``cache.json`` first and then ``state.json`` without them: a
+        crash between the two writes leaves the cache ahead of the checkpoint,
+        which is safe on resume (completed stage caches are reused, nothing the
+        checkpoint recorded is re-run). ``caches=False`` writes ``state.json``
+        alone — for the render hot path, where no heavy field has changed since
+        the last full save.
+        """
         p = Path(path)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        fd, temp_name = tempfile.mkstemp(prefix=f".{p.name}.", dir=p.parent, text=True)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as temp:
-                temp.write(self.model_dump_json(indent=2))
-                temp.flush()
-                os.fsync(temp.fileno())
-            os.replace(temp_name, p)
-        except Exception:
-            Path(temp_name).unlink(missing_ok=True)
-            raise
+        if caches:
+            payload = ProjectCaches(
+                **{name: getattr(self, name) for name in _CACHE_FIELDS}
+            ).model_dump_json(indent=2)
+            _atomic_write_text(p.parent / CACHE_FILE_NAME, payload)
+        _atomic_write_text(p, self.model_dump_json(indent=2, exclude=set(_CACHE_FIELDS)))
 
     @classmethod
-    def load(cls, path: str | Path) -> "ProjectState":
-        """Load and validate state from a ``state.json`` file."""
-        return cls.model_validate_json(Path(path).read_text(encoding="utf-8"))
+    def load(cls, path: str | Path, *, caches: bool = True) -> "ProjectState":
+        """Load and validate state from a ``state.json`` file.
+
+        ``caches=True`` (the default) overlays the sibling ``cache.json`` when
+        it exists; when both files carry heavy fields, the cache file wins
+        (that state only arises from a crash between the two writes of a full
+        save). ``caches=False`` reads the checkpoint only: progress readers
+        cannot be blocked by a missing or corrupt ``cache.json``.
+
+        A corrupt ``state.json`` raises, and so does a corrupt ``cache.json``
+        for the default load — silently starting from empty caches would
+        re-plan the book and can cascade into repaints, which is worse than an
+        explicit "delete ``cache.json`` to recompute".
+        """
+        p = Path(path)
+        state = cls.model_validate_json(p.read_text(encoding="utf-8"))
+        if not caches:
+            return state
+        cache_path = p.parent / CACHE_FILE_NAME
+        if not cache_path.is_file():
+            return state
+        merged = ProjectCaches.model_validate_json(cache_path.read_text(encoding="utf-8"))
+        for name in _CACHE_FIELDS:
+            setattr(state, name, getattr(merged, name))
+        return state
 
     def migrate_legacy_page_keys(self) -> bool:
         """Rewrite pre-0b ``c{ci:04d}:{page_id}`` page keys to positional keys.
