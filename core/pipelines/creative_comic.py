@@ -1948,6 +1948,27 @@ async def _creative_comic(
             _require_render_node(node)
             completed_render_nodes.add(node.node_id)
 
+    def _schedule_export(node_id: str, *, dependencies: tuple[str, ...] = ()) -> WorkNode:
+        """Add one finalization step behind completed render work.
+
+        The export graph node is ephemeral and exists only for this run; the
+        helper raises instead of silently skipping finalization when any
+        render node is still incomplete.
+        """
+        node = WorkNode(
+            node_id=node_id,
+            phase=PipelinePhase.EXPORT,
+            kind=WorkKind.EXPORT,
+            unit_index=None,
+            item_index=None,
+            dependencies=dependencies,
+        )
+        render_graph.add(node)
+        render_graph.validate()
+        if node not in render_graph.ready(completed_render_nodes, PipelinePhase.EXPORT):
+            raise RuntimeError(f"export node {node_id} is not ready for dispatch")
+        return node
+
     for phase in ("plan", "render"):
         prev_panel_local = None
         if phase == "plan":
@@ -3000,6 +3021,15 @@ async def _creative_comic(
             state.save(state_path)
             _report("panels", _pct())
 
+    outstanding = sorted(
+        node.node_id
+        for nodes in render_nodes_by_chunk.values()
+        for node in nodes
+        if node.node_id not in completed_render_nodes
+    )
+    if outstanding:
+        raise RuntimeError("render work incomplete before export: " + ", ".join(outstanding))
+
     pdf: str | None = None
     webtoon: str | None = None
     cbz: str | None = None
@@ -3014,19 +3044,23 @@ async def _creative_comic(
         page_files = _prepare_finished_page_export(pages_dir) if pages_dir.exists() else []
         if page_files:
             if output_format == "webtoon":
+                node = _schedule_export("export.webtoon")
                 panel_imgs = [PanelImage(Image.open(p)) for p in page_files]
                 with perf.measure("layout"):
                     webtoon_paths = _export_webtoon_with_manifest(panel_imgs, pages_dir, output_dir)
                 webtoon = webtoon_paths[0] if webtoon_paths else None
                 pages = webtoon_paths
             elif output_format == "cbz":
+                node = _schedule_export("export.cbz")
                 with perf.measure("export"):
                     cbz = _export_cbz_with_manifest(pages_dir, output_dir)
                 pages = [str(p) for p in page_files]
             else:
+                node = _schedule_export("export.pdf")
                 with perf.measure("export"):
                     pdf = _export_pdf_with_manifest(pages_dir, output_dir)
                 pages = [str(p) for p in page_files]
+            completed_render_nodes.add(node.node_id)
     else:
         state.stage = "layout"
         _report("layout", max(0.90, _pct()))
@@ -3046,23 +3080,32 @@ async def _creative_comic(
             )
 
         if panel_imgs:
-            with perf.measure("layout"):
-                if output_format == "webtoon":
+            if output_format == "webtoon":
+                node = _schedule_export("export.webtoon")
+                with perf.measure("layout"):
                     pages = _export_webtoon_with_manifest(panel_imgs, pages_dir, output_dir)
-                else:
+                completed_render_nodes.add(node.node_id)
+                state.stage = "export"
+                _report("export", 0.95)
+                webtoon = pages[0] if pages else None
+            else:
+                layout_node = _schedule_export("export.layout")
+                with perf.measure("layout"):
                     laid_out = _layout_pages_with_manifest(panel_imgs, pages_dir, output_dir)
                     pages = [] if laid_out is None else laid_out
-
-            state.stage = "export"
-            _report("export", 0.95)
-            if output_format == "webtoon":
-                webtoon = pages[0] if pages else None
-            elif output_format == "cbz" and pages:
-                with perf.measure("export"):
-                    cbz = _export_cbz_with_manifest(pages_dir, output_dir)
-            elif pages:
-                with perf.measure("export"):
-                    pdf = _export_pdf_with_manifest(pages_dir, output_dir)
+                completed_render_nodes.add(layout_node.node_id)
+                state.stage = "export"
+                _report("export", 0.95)
+                if output_format == "cbz" and pages:
+                    bind_node = _schedule_export("export.cbz", dependencies=("export.layout",))
+                    with perf.measure("export"):
+                        cbz = _export_cbz_with_manifest(pages_dir, output_dir)
+                    completed_render_nodes.add(bind_node.node_id)
+                elif pages:
+                    bind_node = _schedule_export("export.pdf", dependencies=("export.layout",))
+                    with perf.measure("export"):
+                        pdf = _export_pdf_with_manifest(pages_dir, output_dir)
+                    completed_render_nodes.add(bind_node.node_id)
 
     state.save(state_path)
     if gate.awaiting and gate.project.paused_key is not None:
