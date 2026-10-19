@@ -126,18 +126,28 @@ Keep these prototypes only as migration material until they conform to the targe
   decisions. `_PIPELINE_STATE_VERSION` remains only in the legacy combined
   fingerprint.
 - [x] Phase 3 scheduler. A run plans every chunk before it draws a page or a
-  panel. The page count comes from that plan pass.
+  panel. The page count comes from that plan pass. An ephemeral two-phase work
+  graph now dispatches planning, expands render nodes from the plans (one
+  chained node per finished page; positional panel nodes with continuity, or
+  one bounded-concurrency batch per chunk without it), and schedules export
+  finalization only after every render node completed.
 
 ### P0 — Content-addressed pipeline migration (0a-0h)
 
 Per the [content-addressed pipeline design](architecture/2026-09-28-content-addressed-pipeline-design.md) §9.
 
+- **Local (2026-10-19, `main`):** Two-phase ephemeral scheduler foundation.
+  `core/pipelines/stage_scheduler.py` validates the in-memory plan/render/export
+  graph and selects ready nodes in deterministic order. `creative_comic` drives
+  the plan pass, finished-page rendering, both panel-compose modes, and export
+  finalization through that graph. Plan nodes remain composite (one per chunk);
+  plan-cache relocation, per-stage runners, legacy-fingerprint removal, and
+  action-key changes remain incomplete migration work.
 - **Local (2026-10-18, `main`):** Finished-page
   artifact projection now restores page and blank bytes from verified
   `render.page` / `letter` manifests; PDF, CBZ, Webtoon, and layout export
-  artifacts restore from verified manifests. The general DAG scheduler,
-  moving plan caches out of `state.json`, and deleting legacy fingerprints
-  remain separate, unfinished migration work.
+  artifacts restore from verified manifests. Plan caches still live in
+  `state.json`, and the legacy combined fingerprint still exists.
 
 - [x] **0b** Positional page identity: a page's identity is `c{ci:04d}-p{idx:04d}`,
   converging on the panel-key convention. Model-generated `page_id` no longer
