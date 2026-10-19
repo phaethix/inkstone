@@ -30,6 +30,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the book.
 
 ### Added
+- Continuity-review escalation (§12 invariant 11 — the phase 5b follow-up): when
+  one character's pending pages exceed `LEDGER_ESCALATION_THRESHOLD` (30, the same
+  order as the sample gate), the run holds the render phase at the plan→render
+  boundary — one deduplicated `stop` record per unchanged boundary — until a
+  human confirms the affected pages as they are; at or below the threshold the
+  flag stays quiet and only the ledger and the panel carry it. Confirming clears
+  the pending set via `ConsistencyLedger.confirm_review`,
+  `POST /api/project/<id>/ledger/confirm`, or
+  `inkstone identity --out <dir> --confirm <name>`. The web UI now renders a
+  "Continuity review" panel aggregating pending pages per character.
 - M2 comic-specific pipeline: `creative_comic` orchestration (segment → extract → character
   consistency L1/L2/L3 → storyboard → generate → layout → export) with resumable `state.json`
   and content-safety graceful skip on upstream rejection.

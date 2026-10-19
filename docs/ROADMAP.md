@@ -136,6 +136,18 @@ Keep these prototypes only as migration material until they conform to the targe
 
 Per the [content-addressed pipeline design](architecture/2026-09-28-content-addressed-pipeline-design.md) §9.
 
+- **Local (2026-10-19, `main`):** Continuity-review escalation (the 5b
+  follow-up 0d deferred). `LEDGER_ESCALATION_THRESHOLD = 30` (same order as the
+  sample gate, held by a test) holds the render phase at the plan→render
+  boundary — one deduplicated `stop` record per unchanged boundary, no render
+  call issued — until a human confirms; pending sets at or below the threshold
+  stay quiet and only appear in the ledger and the panel. Confirmation lands
+  through the ledger API, `POST /api/project/<id>/ledger/confirm`, and
+  `inkstone identity --confirm`; the web UI renders the aggregated "Continuity
+  review" panel. The ledger and the threshold enter no key or fingerprint, and
+  `consistency.json` keeps its schema. Scoping doc:
+  [escalation design](superpowers/specs/2026-10-19-ledger-escalation-design.md).
+
 - **Local (2026-10-19, `main`):** Two-part `state.json`. The heavy format
   caches (`chunk_cache`, `page_cache`, `beat_cache`, `visual_bible`) moved to
   the sibling `cache.json`; the render loop's per-page and per-panel saves
@@ -205,6 +217,9 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
   A resume at the same boundary does not append another stop or issue the
   call. The gate enters no fingerprint. Shared state is `gate.json` under the
   data directory when the CLI or web pass it, otherwise the project directory.
+  The deferred escalation half of §4's continuity flag landed 2026-10-19:
+  one character's pending set above `LEDGER_ESCALATION_THRESHOLD` (30) holds
+  the render boundary until confirmed; see the local note above.
 - [x] **0h growth** Doubling the alias-merge sample from 300 pages to 600, with the
   alias still on the same 15 pages, leaves the re-run at 15 stale keys, 15 image
   calls, and 0 chat calls. The current architecture already does not grow with book

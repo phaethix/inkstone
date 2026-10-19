@@ -1,7 +1,7 @@
 # Continuity-Review Escalation Design (Phase 5b Follow-Up)
 
 **Date:** 2026-10-19
-**Status:** Draft for review
+**Status:** Implemented (2026-10-19)
 **Parent:** [Content-Addressed Execution Pipeline](../../architecture/2026-09-28-content-addressed-pipeline-design.md) §4 (the continuity flag), §12 invariant 11, §13 resolved item 18
 **Follow-up to:** [Consistency Ledger Design](2026-09-30-consistency-ledger-design.md) — that slice landed `pending_pages` and deferred the policy explicitly: "0d stores `pending_pages`; the escalation policy is 5b." The sample gate landed without it.
 
@@ -174,3 +174,9 @@ Both are zero-quota: no provider calls, no key changes, no new persisted schema.
 ## Revision history
 
 - 2026-10-19: initial design; settles the 0d-deferred escalation policy.
+- 2026-10-19: implemented as designed — threshold 30 held by a test, the
+  render-boundary pause with the deduplicated stop record, confirmation via the
+  ledger API / web endpoint / CLI flag, and the aggregated panel. One decision
+  recorded while implementing: the boundary check rebuilds the ledger from the
+  freshly planned `page_cache` before reading `escalated()`, so a pending set
+  derived from earlier runs cannot go stale between saves.

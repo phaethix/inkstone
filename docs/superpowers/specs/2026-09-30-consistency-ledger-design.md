@@ -136,7 +136,10 @@ must not be a failure path.
   wire that without a schema change.
 - Continuity flags are **per character**, quiet by default, and only escalate to a
   human when one character's pending pages exceed a threshold (§4 invariant 11).
-  0d stores `pending_pages`; the escalation policy is 5b.
+  0d stores `pending_pages`; the escalation policy is 5b. Landed 2026-10-19:
+  `LEDGER_ESCALATION_THRESHOLD = 30` holds the render phase at the plan→render
+  boundary until `confirm_review` catches the reviewed version up; see the
+  [escalation design](2026-10-19-ledger-escalation-design.md).
 
 ## Testing
 
