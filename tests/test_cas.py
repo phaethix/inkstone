@@ -1,6 +1,7 @@
 """Phase 2: objects and manifests under a project, checked by verify."""
 
 import argparse
+import hashlib
 import inspect
 import subprocess
 import sys
@@ -13,17 +14,23 @@ from core.comic.cas import (
     Manifest,
     ManifestOutput,
     action_key,
+    beats_inputs,
+    bible_inputs,
     export_action_key,
+    extract_inputs,
     is_hit,
     layout_action_key,
     letter_action_key,
     load_manifest,
+    page_plan_inputs,
+    page_script_inputs,
     put_bytes,
     read_bytes,
     record_files,
     record_ok,
     rewrite_manifest,
     save_manifest,
+    storyboard_inputs,
     verify,
     webtoon_action_key,
 )
@@ -629,3 +636,22 @@ def test_a_rejected_layout_is_not_rebuilt_until_rebuild(tmp_path, monkeypatch):
     restored = _layout_pages_with_manifest(panels, pages, tmp_path)
     assert calls["n"] == 2
     assert [Path(path).read_bytes() for path in restored] == [b"sheet-1", b"sheet-2"]
+
+
+def _sha(text: str) -> str:
+    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def test_plan_stage_input_digests_name_their_texts():
+    """The six manifest input lists are the digest lists their keys build."""
+    chunk = "第一章\n福贵在村口。"
+    assert extract_inputs(chunk) == [_sha(chunk)]
+    assert bible_inputs(chunk) == [_sha(chunk)]
+    assert beats_inputs(chunk, "key-1") == [_sha(chunk), "key-1"]
+    assert page_plan_inputs(chunk, "{}", "key-1") == [_sha(chunk), _sha("{}"), "key-1"]
+    assert storyboard_inputs(chunk, "福贵") == [_sha(chunk), _sha("福贵")]
+    assert page_script_inputs(chunk, "board", "elements") == [
+        _sha(chunk),
+        _sha("board"),
+        _sha("elements"),
+    ]
