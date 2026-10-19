@@ -72,6 +72,14 @@ opt-in experiment. `apply_l3` guards were also retuned to use absolute face-pixe
   `state.json` checkpoints with legacy `c{ci:04d}:{page_id}` keys are rewritten deterministically
   on load (zero quota, idempotent), so a resumed project is not repainted.
 
+### Notes
+- Executed the idempotency probe (§13 item 27, shipped by Phase 0h): two identical requests to
+  Agnes (`agnes-image-2.5-flash`, 1024x1536) returned **different bytes** (1,441,715 and 1,336,638
+  bytes; digests `6e53513f…` and `0d5c7e7d…`). The provider is not deterministic, so §8's
+  duplicate-charge window stays open — "shrinkable, not closable" — now as a measurement rather
+  than an assumption. Re-run with `scripts/probe_image_idempotency.py` (two image calls; the
+  script loads `.env`).
+
 ## [0.1.0] - 2026-07-20
 
 ### Added
