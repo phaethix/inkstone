@@ -28,6 +28,9 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
+from typing import TypeVar
+
+from pydantic import BaseModel
 
 try:
     import fcntl
@@ -54,9 +57,11 @@ from core.comic.budget import BudgetPaused, BudgetSession, BudgetSpec
 from core.comic.cas import (
     beats_action_key,
     bible_action_key,
+    bible_inputs,
     export_action_key,
     export_inputs,
     extract_action_key,
+    extract_inputs,
     layout_action_key,
     letter_action_key,
     letter_inputs,
@@ -183,6 +188,7 @@ from core.schemas import (
     Storyboard,
     StoryElements,
     Tombstone,
+    VisualBibleReconcileResult,
 )
 from core.screenwriter import (
     extract_key_beats,
@@ -207,6 +213,26 @@ class ComicProject:
     pdf: str | None = None
     webtoon: str | None = None
     cbz: str | None = None
+
+
+T = TypeVar("T", bound=BaseModel)
+
+
+def _restore_stage_body(
+    root: Path,
+    key: str,
+    stage: str,
+    model: type[T],
+) -> T | None:
+    """Read and parse a verified manifest body, or return None on any miss."""
+    raw = stored_output(root, key, stage=stage)
+    if raw is None:
+        return None
+    try:
+        return model.model_validate_json(raw.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError) as exc:
+        logger.warning("corrupt manifest body for %s (%s): %s", key, stage, exc)
+        return None
 
 
 def _build_plan_graph(chunk_count: int) -> StageGraph:
@@ -2004,24 +2030,37 @@ async def _creative_comic(
                     continue
 
             # ---- extraction (only when not cached) ----
-            fresh_extract = elements is None
+            fresh_extract = False
             if elements is None:
-                state.stage = "extract"
-                _charge("extract", f"c{ci:04d}")
-                try:
-                    with perf.measure("extract"):
-                        elements = await extract_story_elements(chunk, chat=chat)
-                except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
-                    if is_content_policy_rejection(exc):
-                        logger.warning(
-                            "chunk %s skipped: content filter rejected extraction (%s)", ci, exc
-                        )
-                        if key not in state.skipped_chunks:
-                            state.skipped_chunks.append(key)
-                        state.save(state_path)
-                        _report("skip", _pct())
-                        continue
-                    raise
+                elements = _restore_stage_body(output_dir, extract_key, "extract", StoryElements)
+                if elements is None:
+                    fresh_extract = True
+                    state.stage = "extract"
+                    _charge("extract", f"c{ci:04d}")
+                    try:
+                        with perf.measure("extract"):
+                            elements = await extract_story_elements(chunk, chat=chat)
+                    except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
+                        if is_content_policy_rejection(exc):
+                            logger.warning(
+                                "chunk %s skipped: content filter rejected extraction (%s)", ci, exc
+                            )
+                            if key not in state.skipped_chunks:
+                                state.skipped_chunks.append(key)
+                            state.save(state_path)
+                            _report("skip", _pct())
+                            continue
+                        raise
+                    record_ok(
+                        output_dir,
+                        key=extract_key,
+                        stage="extract",
+                        stage_src=_EXTRACT_STAGE_SRC,
+                        env=snapshot.chat,
+                        inputs=extract_inputs(chunk),
+                        name="extract.json",
+                        data=elements.model_dump_json(indent=2).encode("utf-8"),
+                    )
                 # Cache so a later resume does not re-pay for extraction.
                 state.chunk_cache.setdefault(key, ChunkCache()).elements = elements
                 state.chunk_cache[key].extract_action_key = extract_key
@@ -2053,47 +2092,76 @@ async def _creative_comic(
             )
             stored_bible_key = state.bible_action_keys.get(key, "")
             needs_bible = state.visual_bible is None or fresh_extract or bool(new_names)
+            recon: VisualBibleReconcileResult | None = None
+            restored = False
             if not needs_bible:
-                if not stored_bible_key:
-                    state.bible_action_keys[key] = bible_key
-                elif stored_bible_key != bible_key:
+                if stored_bible_key == bible_key:
+                    pass
+                elif stored_bible_key and stored_bible_key != bible_key:
                     needs_bible = True
+                else:
+                    recon = _restore_stage_body(
+                        output_dir, bible_key, "bible", VisualBibleReconcileResult
+                    )
+                    if recon is not None:
+                        restored = True
+                    else:
+                        state.bible_action_keys[key] = bible_key
             if needs_bible:
-                _charge("bible", f"c{ci:04d}")
-                try:
-                    recon = await reconcile_visual_bible(
-                        chunk,
-                        state.characters,
-                        state.visual_bible,
-                        alias_hints=hints,
-                        preferred_style=style_guide or elements.style_guide,
-                        chat=chat,
-                    )
-                    prev_hash = state.visual_bible.content_hash if state.visual_bible else None
-                    had_render_assets = bool(
-                        state.generated.pages
-                        or state.generated.portraits
-                        or state.pages_done
-                        or state.panels_done
-                    )
-                    state = apply_reconcile(state, recon)
-                    sync_characters_from_bible(state)
-                    sanitized = sanitize_visual_bible_state(state)
-                    if sanitized:
+                recon = _restore_stage_body(
+                    output_dir, bible_key, "bible", VisualBibleReconcileResult
+                )
+                if recon is not None:
+                    restored = True
+                else:
+                    _charge("bible", f"c{ci:04d}")
+                    try:
+                        recon = await reconcile_visual_bible(
+                            chunk,
+                            state.characters,
+                            state.visual_bible,
+                            alias_hints=hints,
+                            preferred_style=style_guide or elements.style_guide,
+                            chat=chat,
+                        )
+                    except Exception as exc:  # noqa: BLE001 — reconcile is best-effort
+                        logger.warning("visual bible reconcile failed (%s); continuing", exc)
+                        recon = None
+                    if recon is not None:
+                        record_ok(
+                            output_dir,
+                            key=bible_key,
+                            stage="bible",
+                            stage_src=_BIBLE_STAGE_SRC,
+                            env=snapshot.chat,
+                            inputs=bible_inputs(chunk),
+                            name="bible.json",
+                            data=recon.model_dump_json(indent=2).encode("utf-8"),
+                        )
+            if recon is not None:
+                prev_hash = state.visual_bible.content_hash if state.visual_bible else None
+                had_render_assets = bool(
+                    state.generated.pages
+                    or state.generated.portraits
+                    or state.pages_done
+                    or state.panels_done
+                )
+                state = apply_reconcile(state, recon)
+                sync_characters_from_bible(state)
+                sanitized = sanitize_visual_bible_state(state)
+                if sanitized:
+                    _soft_invalidate_render(state)
+                elif state.visual_bible:
+                    state.visual_bible = refresh_bible_hash(state.visual_bible)
+                    if prev_hash and state.visual_bible.content_hash != prev_hash:
                         _soft_invalidate_render(state)
-                    elif state.visual_bible:
-                        state.visual_bible = refresh_bible_hash(state.visual_bible)
-                        if prev_hash and state.visual_bible.content_hash != prev_hash:
-                            _soft_invalidate_render(state)
-                        elif prev_hash is None and had_render_assets:
-                            _soft_invalidate_render(state)
-                    if state.visual_bible:
-                        new_render = _render_for_bible(state.visual_bible)
-                        if state.render_fingerprint != new_render:
-                            state.render_fingerprint = new_render
-                    state.bible_action_keys[key] = bible_key
-                except Exception as exc:  # noqa: BLE001 — reconcile is best-effort
-                    logger.warning("visual bible reconcile failed (%s); continuing", exc)
+                    elif not restored and prev_hash is None and had_render_assets:
+                        _soft_invalidate_render(state)
+                if state.visual_bible:
+                    new_render = _render_for_bible(state.visual_bible)
+                    if state.render_fingerprint != new_render:
+                        state.render_fingerprint = new_render
+                state.bible_action_keys[key] = bible_key
             if state.visual_bible and state.visual_bible.style_guide:
                 effective_style = state.visual_bible.style_guide
             else:
