@@ -179,6 +179,11 @@ def layout_action_key(
     )
 
 
+def extract_inputs(chunk: str) -> list[str]:
+    """Ordered inputs for an extract manifest: the chunk text digest."""
+    return ["sha256:" + _hex_digest(chunk.encode("utf-8"))]
+
+
 def extract_action_key(*, chunk: str, env: str, stage_src: str) -> str:
     """Key an extract from the chunk text.
 
@@ -188,7 +193,7 @@ def extract_action_key(*, chunk: str, env: str, stage_src: str) -> str:
     return action_key(
         stage="extract",
         stage_src=stage_src,
-        inputs=["sha256:" + _hex_digest(chunk.encode("utf-8"))],
+        inputs=extract_inputs(chunk),
         params={},
         env=env,
     )
@@ -226,6 +231,14 @@ def render_page_action_key(
     )
 
 
+def beats_inputs(chunk: str, extract_key: str) -> list[str]:
+    """Ordered inputs for a beats manifest: the chunk digest, then the extract key."""
+    return [
+        "sha256:" + _hex_digest(chunk.encode("utf-8")),
+        extract_key,
+    ]
+
+
 def beats_action_key(*, chunk: str, extract_key: str, env: str, stage_src: str) -> str:
     """Key a beat extract from the chunk and the extract that read it.
 
@@ -234,13 +247,19 @@ def beats_action_key(*, chunk: str, extract_key: str, env: str, stage_src: str) 
     return action_key(
         stage="beats",
         stage_src=stage_src,
-        inputs=[
-            "sha256:" + _hex_digest(chunk.encode("utf-8")),
-            extract_key,
-        ],
+        inputs=beats_inputs(chunk, extract_key),
         params={},
         env=env,
     )
+
+
+def page_plan_inputs(chunk: str, beats_json: str, beats_key: str) -> list[str]:
+    """Ordered inputs for a page-plan manifest: chunk, beats, upstream key."""
+    return [
+        "sha256:" + _hex_digest(chunk.encode("utf-8")),
+        "sha256:" + _hex_digest(beats_json.encode("utf-8")),
+        beats_key,
+    ]
 
 
 def page_plan_action_key(
@@ -262,11 +281,7 @@ def page_plan_action_key(
     return action_key(
         stage="page_plan",
         stage_src=stage_src,
-        inputs=[
-            "sha256:" + _hex_digest(chunk.encode("utf-8")),
-            "sha256:" + _hex_digest(beats_json.encode("utf-8")),
-            beats_key,
-        ],
+        inputs=page_plan_inputs(chunk, beats_json, beats_key),
         params={"history": history},
         env=env,
     )
@@ -308,6 +323,11 @@ def render_panel_action_key(
     )
 
 
+def bible_inputs(chunk: str) -> list[str]:
+    """Ordered inputs for a bible manifest: the chunk text digest."""
+    return ["sha256:" + _hex_digest(chunk.encode("utf-8"))]
+
+
 def bible_action_key(*, chunk: str, history: dict, env: str, stage_src: str) -> str:
     """Key a bible reconcile from the chunk and the bounded summary.
 
@@ -319,10 +339,18 @@ def bible_action_key(*, chunk: str, history: dict, env: str, stage_src: str) -> 
     return action_key(
         stage="bible",
         stage_src=stage_src,
-        inputs=["sha256:" + _hex_digest(chunk.encode("utf-8"))],
+        inputs=bible_inputs(chunk),
         params={"history": history},
         env=env,
     )
+
+
+def storyboard_inputs(chunk: str, cast: str) -> list[str]:
+    """Ordered inputs for a storyboard manifest: chunk digest, then cast digest."""
+    return [
+        "sha256:" + _hex_digest(chunk.encode("utf-8")),
+        "sha256:" + _hex_digest(cast.encode("utf-8")),
+    ]
 
 
 def storyboard_action_key(*, chunk: str, cast: str, env: str, stage_src: str) -> str:
@@ -334,13 +362,19 @@ def storyboard_action_key(*, chunk: str, cast: str, env: str, stage_src: str) ->
     return action_key(
         stage="storyboard",
         stage_src=stage_src,
-        inputs=[
-            "sha256:" + _hex_digest(chunk.encode("utf-8")),
-            "sha256:" + _hex_digest(cast.encode("utf-8")),
-        ],
+        inputs=storyboard_inputs(chunk, cast),
         params={},
         env=env,
     )
+
+
+def page_script_inputs(chunk: str, storyboard_json: str, elements_json: str) -> list[str]:
+    """Ordered inputs for a page-script manifest: chunk, storyboard, elements."""
+    return [
+        "sha256:" + _hex_digest(chunk.encode("utf-8")),
+        "sha256:" + _hex_digest(storyboard_json.encode("utf-8")),
+        "sha256:" + _hex_digest(elements_json.encode("utf-8")),
+    ]
 
 
 def page_script_action_key(
@@ -359,11 +393,7 @@ def page_script_action_key(
     return action_key(
         stage="page_script",
         stage_src=stage_src,
-        inputs=[
-            "sha256:" + _hex_digest(chunk.encode("utf-8")),
-            "sha256:" + _hex_digest(storyboard_json.encode("utf-8")),
-            "sha256:" + _hex_digest(elements_json.encode("utf-8")),
-        ],
+        inputs=page_script_inputs(chunk, storyboard_json, elements_json),
         params={},
         env=env,
     )
