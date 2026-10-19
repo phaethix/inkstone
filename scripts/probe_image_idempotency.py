@@ -11,11 +11,29 @@ plus its base URL and key).
 """
 
 import asyncio
+import os
 import sys
 import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+
+# Minimal .env loader (no python-dotenv dependency), matching probe_m2.py.
+def _load_dotenv(path: str = ".env") -> None:
+    if not os.path.exists(path):
+        return
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key, val = key.strip(), val.strip().strip('"').strip("'")
+            os.environ.setdefault(key, val)
+
+
+_load_dotenv()
 
 from core.api import get_image_provider  # noqa: E402
 from core.api.idempotency_probe import probe_image_idempotency  # noqa: E402
