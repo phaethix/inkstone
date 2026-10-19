@@ -304,7 +304,16 @@ def test_finished_page_mode_writes_generated_pages(tmp_path, monkeypatch):
     assert img.calls == 2  # 1 portrait + 1 page
     assert chat.calls == 4  # extract + reconcile + extract_key_beats + plan_comic_pages
 
-    # Resume: state.json already has the page recorded, so nothing regenerates.
+    # Two-part state: the checkpoint holds progress; the heavy plan caches the
+    # resumed run needs (chunk/page/beat cache) live in the sibling cache.json.
+    raw_state = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
+    for name in ("chunk_cache", "page_cache", "beat_cache", "visual_bible"):
+        assert name not in raw_state
+    raw_cache = json.loads((tmp_path / "cache.json").read_text(encoding="utf-8"))
+    assert set(raw_cache) == {"chunk_cache", "page_cache", "beat_cache", "visual_bible"}
+
+    # Resume: the page is recorded in state.json and the plan caches round-trip
+    # through cache.json, so nothing regenerates.
     chat2, img2 = FakeChat(), FakeImage()
     proj2 = asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=chat2, image=img2))
     assert img2.calls == 0

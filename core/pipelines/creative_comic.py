@@ -2415,7 +2415,9 @@ async def _creative_comic(
                             existing.mode = "finished_lettered"
                             existing.lettering_version = LETTERING_VERSION
                             record_page_artifact(_state, state_key, existing)
-                            _state.save(state_path)
+                            # Projection-only: no heavy cache changed since the
+                            # last full save, so this stays off cache.json.
+                            _state.save(state_path, caches=False)
                             _report("pages", _pct())
                         return
                     if not _page_needs_generation(_state, state_key):
@@ -2508,7 +2510,7 @@ async def _creative_comic(
                                     mode="finished_lettered",
                                 ),
                             )
-                            _state.save(state_path)
+                            _state.save(state_path, caches=False)
                             _report("pages", _pct())
                             return
                     # Hold past the sample without raising, so a later chunk can
@@ -2554,7 +2556,7 @@ async def _creative_comic(
                                     _state.stale_pages = [
                                         k for k in _state.stale_pages if k != state_key
                                     ]
-                                _state.save(state_path)
+                                _state.save(state_path, caches=False)
                                 out = None
                                 break
                             if (
@@ -2655,7 +2657,7 @@ async def _creative_comic(
                     )
                     if ledger.rebuild_from_state(_state):
                         ledger.save(ledger_path)
-                    _state.save(state_path)
+                    _state.save(state_path, caches=False)
                     _report("pages", _pct())
 
                 for page_node in render_nodes_by_chunk.get(ci, ()):
@@ -2669,7 +2671,7 @@ async def _creative_comic(
                 _mark_page_chunk_done_if_complete(state, key, pageset, ci)
                 ledger.rebuild_from_state(state)
                 ledger.save(ledger_path)
-                state.save(state_path)
+                state.save(state_path, caches=False)
                 _report("pages", _pct())
                 continue
 
@@ -2692,6 +2694,9 @@ async def _creative_comic(
                     board = None
                 elif not cached_chunk.storyboard_action_key:
                     cached_chunk.storyboard_action_key = storyboard_key
+                    # A stamp-only change is still a heavy-cache mutation;
+                    # persist it before any render save can run projection-only.
+                    state.save(state_path)
             if board is None:
                 state.stage = "storyboard"
                 _charge("storyboard", f"c{ci:04d}")
@@ -2894,12 +2899,12 @@ async def _creative_comic(
                         _state.skipped.append(state_key)
                     if state_key in _state.stale_panels:
                         _state.stale_panels = [k for k in _state.stale_panels if k != state_key]
-                    _state.save(state_path)
+                    _state.save(state_path, caches=False)
                     return
                 _state.generated.panels[state_key] = generated
                 _mark_panel_done(_state, state_key)
                 prev_panel_local = generated.local
-                _state.save(state_path)
+                _state.save(state_path, caches=False)
                 _report("panel", _pct())
 
             if image_config.panel_continuity:
@@ -2954,13 +2959,13 @@ async def _creative_comic(
                         state.generated.panels[state_key] = result
                         _mark_panel_done(state, state_key)
                         _report("panel", _pct())
-                    state.save(state_path)
+                    state.save(state_path, caches=False)
                     if operational_error is not None:
                         raise operational_error
                     completed_render_nodes.add(panel_node.node_id)
 
             _mark_chunk_done_if_complete(state, key, board, ci)
-            state.save(state_path)
+            state.save(state_path, caches=False)
             _report("panels", _pct())
 
     outstanding = sorted(
