@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Upgrade notes
+- **Upgrading recomputes each existing project once.** Stage keys are now
+  content-addressed (extract, beats, page plan, bible, portrait, storyboard panel,
+  finished-page render) and the legacy combined fingerprint is gone, so an existing
+  project's next run recomputes the book under the new keys; recorded human decisions
+  (review queue, dismissed aliases, merged aliases) survive. Treat the recompute as a
+  batch job, not an incident: at the free tier's 1 RPM it costs roughly one minute per
+  page of calls, so a 300-page book is on the order of five hours of wall clock.
+  `--budget N` pauses the run when N calls are spent, and `--carry-over` re-arms the
+  same budget on a later calendar day, so the recompute can settle over several days.
+  Progress is counted in produced pages, not percentage: a resumed run first shows
+  what was already produced and then advances.
+
 ### Added
 - M2 comic-specific pipeline: `creative_comic` orchestration (segment → extract → character
   consistency L1/L2/L3 → storyboard → generate → layout → export) with resumable `state.json`
