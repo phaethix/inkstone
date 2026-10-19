@@ -4,10 +4,7 @@ import json
 from unittest.mock import patch
 
 from core.comic.identity import dismiss_character_alias, remember_merged_alias
-from core.config import ImageConfig
 from core.pipelines.creative_comic import (
-    _input_fingerprint,
-    _legacy_combined_fingerprint,
     _render_fingerprint,
     _soft_invalidate_render,
     _structure_fingerprint,
@@ -86,17 +83,6 @@ def test_render_fingerprint_none_style_matches_empty_string():
         l3_enabled=False,
     )
     assert with_empty == with_none
-
-
-def test_legacy_combined_fingerprint_aliases_input_fingerprint():
-    kwargs = {
-        "source_txt": "story",
-        "style_guide": "manga",
-        "snapshot": _SNAPSHOT,
-        "panel_continuity": True,
-        "l3_enabled": False,
-    }
-    assert _input_fingerprint(**kwargs) == _legacy_combined_fingerprint(**kwargs)
 
 
 def test_project_state_roundtrip_dual_fingerprints(tmp_path):
@@ -299,33 +285,34 @@ def test_style_change_ignores_panel_keys_filter(tmp_path):
 
 
 @patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
-def test_legacy_state_with_matching_combined_fingerprint_migrates(tmp_path):
+def test_pre_split_state_takes_the_one_time_recompute(tmp_path):
+    """A stored project without split fingerprints recomputes once and keeps its
+    recorded human decisions (the accepted one-time invalidation)."""
     src = "第一章\n方鸿渐在甲板上。"
     asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage()))
     state = ProjectState.load(tmp_path / "state.json")
-    cache_keys = set(state.chunk_cache)
-    image_config = ImageConfig()
-    legacy = _input_fingerprint(
-        src,
-        None,
-        snapshot=state.model_snapshot,
-        panel_continuity=image_config.panel_continuity,
-        l3_enabled=False,
+    suggestion = CharacterAliasSuggestion(
+        new_name="鸿渐",
+        candidate="方鸿渐",
+        reason="kept by a person",
+        suggested=True,
     )
+    state.needs_review = [suggestion]
+    state.tombstones["c0000-p0000"] = Tombstone(reason="content_policy", stage="render.page")
     state.structure_fingerprint = ""
     state.render_fingerprint = ""
-    state.source_fingerprint = legacy
+    state.source_fingerprint = "pre-split-combined"
     state.save(tmp_path / "state.json")
 
-    chat2, img2 = FakeChat(), FakeImage()
-    asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=chat2, image=img2))
-    assert chat2.calls == 0
-    assert img2.calls == 0
+    asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage()))
     loaded = ProjectState.load(tmp_path / "state.json")
     assert loaded.structure_fingerprint == _structure_fingerprint(src)
     assert loaded.render_fingerprint
     assert loaded.source_fingerprint == loaded.structure_fingerprint
-    assert set(loaded.chunk_cache) == cache_keys
+    # The projection was rebuilt, so a pre-split tombstone does not silence it.
+    assert loaded.tombstones == {}
+    # Human decisions ride through `carried`.
+    assert loaded.needs_review == [suggestion]
 
 
 class _StoryboardChat(FinishedChat):

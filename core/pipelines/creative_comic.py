@@ -209,11 +209,6 @@ class ComicProject:
     cbz: str | None = None
 
 
-# Historical combined fingerprint only. The live structure fingerprint is the
-# source text, so this constant no longer invalidates extract caches.
-_PIPELINE_STATE_VERSION = "2026-07-22.3"
-
-
 def _build_plan_graph(chunk_count: int) -> StageGraph:
     """Describe the serial planning pass without touching pipeline state."""
     graph = StageGraph()
@@ -455,50 +450,6 @@ def _render_fingerprint(
         separators=(",", ":"),
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
-def _legacy_combined_fingerprint(
-    source_txt: str,
-    style_guide: str | None,
-    *,
-    snapshot: ModelSnapshot,
-    panel_continuity: bool,
-    l3_enabled: bool,
-) -> str:
-    """Legacy combined fingerprint (source + render inputs) for migration comparison."""
-    canonical_source = source_txt.replace("\r\n", "\n").replace("\r", "\n")
-    payload = json.dumps(
-        {
-            "pipeline": _PIPELINE_STATE_VERSION,
-            "source": canonical_source,
-            "style_guide": style_guide or "",
-            "model_snapshot": snapshot.model_dump(),
-            "panel_continuity": panel_continuity,
-            "l3_enabled": l3_enabled,
-        },
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
-def _input_fingerprint(
-    source_txt: str,
-    style_guide: str | None,
-    *,
-    snapshot: ModelSnapshot,
-    panel_continuity: bool,
-    l3_enabled: bool,
-) -> str:
-    """Fingerprint normalized source and every option that changes generated assets."""
-    return _legacy_combined_fingerprint(
-        source_txt,
-        style_guide,
-        snapshot=snapshot,
-        panel_continuity=panel_continuity,
-        l3_enabled=l3_enabled,
-    )
 
 
 def _portrait_content_id(output_dir: Path, path: str) -> str | None:
@@ -1808,13 +1759,6 @@ async def _creative_comic(
     image = image or get_image_provider()
     snapshot = _model_snapshot(chat, image)
     l3_on = l3_enabled()
-    fingerprint = _input_fingerprint(
-        source_txt,
-        style_guide,
-        snapshot=snapshot,
-        panel_continuity=image_config.panel_continuity,
-        l3_enabled=l3_on,
-    )
     density_plan = get_density_plan(_require_density(density))
     struct = _structure_fingerprint(
         source_txt,
@@ -1857,17 +1801,15 @@ async def _creative_comic(
     if state_path.exists():
         persisted = ProjectState.load(state_path)
         # Phase 0b: migrate pre-0b page keys before fingerprints/keys are read,
-        # so a resumed project keeps its recorded pages and is not repainted.
+        # so a resumed project keeps its recorded pages.
         persisted.migrate_legacy_page_keys()
         expected_render = _render_for_bible(persisted.visual_bible)
-        if not persisted.structure_fingerprint and not persisted.render_fingerprint:
-            if persisted.source_fingerprint == fingerprint:
-                state = persisted
-                state.structure_fingerprint = struct
-                state.render_fingerprint = expected_render
-                state.source_fingerprint = struct
-            else:
-                state = _fresh_state(carried=persisted)
+        if not persisted.structure_fingerprint:
+            # Pre-split states carry no structure fingerprint. The legacy
+            # combined fingerprint that used to adopt them in place is gone
+            # (resolved item 21): they take the accepted one-time recompute,
+            # and `carried` keeps the recorded human decisions.
+            state = _fresh_state(carried=persisted)
         elif persisted.structure_fingerprint != struct:
             state = _fresh_state(carried=persisted)
         elif persisted.render_fingerprint != expected_render:
