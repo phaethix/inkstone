@@ -19,15 +19,18 @@ version up.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from core.comic.runs import append_run
 from core.schemas import ProjectState
+
+logger = logging.getLogger(__name__)
 
 # §4 invariant 11 / §13 item 18: a character's pending pages escalate to a
 # human confirmation only above this count — by default the same order as
@@ -185,8 +188,10 @@ class ConsistencyLedger(BaseModel):
         if p.is_file():
             try:
                 return cls.load(p)
-            except Exception:  # noqa: BLE001 - a corrupt ledger is recoverable
-                pass
+            except (ValidationError, json.JSONDecodeError) as exc:
+                # A corrupt ledger is recoverable; a transient OSError is not,
+                # and must surface before any caller can overwrite human state.
+                logger.warning("corrupt consistency ledger at %s (%s); rebuilding", p, exc)
         led = cls()
         led.rebuild_from_state(state)
         return led
@@ -218,6 +223,19 @@ class ConsistencyLedger(BaseModel):
         """
         derived = _pages_by_character(state)
         changed = False
+
+        # A character that no longer appears on any planned page must not keep
+        # a stale page set. The entry itself is retained: its reference and
+        # reviewed_version are product decisions a rebuild cannot reproduce.
+        for name, entry in self.characters.items():
+            if name in derived:
+                continue
+            if entry.pages or entry.pending_pages:
+                entry.pages = []
+                entry.pending_pages = []
+                entry.updated_at = _now_iso()
+                changed = True
+
         for name, pages in derived.items():
             entry = self.characters.get(name)
             if entry is None:
@@ -283,7 +301,7 @@ class ConsistencyLedger(BaseModel):
         return {
             name: list(entry.pending_pages)
             for name, entry in self.characters.items()
-            if len(entry.pending_pages) > limit
+            if entry.pages and len(entry.pending_pages) > limit
         }
 
     def confirm_review(self, name: str) -> bool:
@@ -359,7 +377,23 @@ class ConsistencyLedger(BaseModel):
         for key in incoming.pending_pages:
             if key not in target.pending_pages:
                 target.pending_pages.append(key)
-        target.reviewed_version = max(target.reviewed_version, incoming.reviewed_version)
+        union_pending = list(target.pending_pages)
         if incoming.reference.version > target.reference.version:
             target.reference = incoming.reference
+        # A merge must never leave reviewed_version ahead of the merged
+        # reference. Doing so would make the pending test (reference > reviewed)
+        # permanently false and silently close continuity review.
+        target.reviewed_version = min(
+            target.reviewed_version,
+            incoming.reviewed_version,
+            target.reference.version,
+        )
+        # When the merged reference moved ahead of the reviewed version, every
+        # merged page is pending. Otherwise keep the recorded pending union: a
+        # ledger can mark pages pending before any portrait exists (v0 == v0).
+        target.pending_pages = (
+            list(target.pages)
+            if target.reference.version > target.reviewed_version
+            else union_pending
+        )
         target.updated_at = _now_iso()

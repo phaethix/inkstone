@@ -139,8 +139,11 @@ def adjust_sample_size(
     length caps a grown sample so the sample stays a sample.
     """
     if acceptance_rate >= 0.9:
-        grown = round(current * PHI)
-        if chapter_pages is not None and grown >= chapter_pages:
+        # The growth branch needs the same lower bound as the shrink branch: a
+        # zero or negative size makes every page "beyond the sample" and the
+        # gate can never release.
+        grown = max(1, round(current * PHI))
+        if chapter_pages is not None and chapter_pages >= 1 and grown >= chapter_pages:
             return chapter_pages
         return grown
     if acceptance_rate >= 0.5:
