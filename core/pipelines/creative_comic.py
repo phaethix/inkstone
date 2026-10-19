@@ -267,6 +267,65 @@ def _expand_page_render_nodes(
     return {chunk_index: tuple(nodes) for chunk_index, nodes in nodes_by_chunk.items()}
 
 
+def _expand_panel_render_nodes(
+    graph: StageGraph,
+    state: ProjectState,
+    chunk_count: int,
+    *,
+    continuity: bool,
+) -> tuple[dict[int, tuple[WorkNode, ...]], dict[str, tuple[str, ...]]]:
+    """Describe panel-compose rendering from the planned storyboards.
+
+    With continuity enabled, one ordered node per positional panel mirrors the
+    sequential run that hands ``prev_panel_local`` forward. Without it, one
+    batch node per chunk keeps the existing bounded-concurrency gather; the
+    batch's positional state keys stay as in-memory scheduler metadata and are
+    never persisted. Scheduler ids never become persisted keys either way.
+    """
+    nodes_by_chunk: dict[int, list[WorkNode]] = {}
+    batch_panel_keys: dict[str, tuple[str, ...]] = {}
+    previous_node_id: str | None = None
+    for chunk_index in range(chunk_count):
+        cached = state.chunk_cache.get(str(chunk_index))
+        board = cached.storyboard if cached else None
+        if board is None:
+            continue
+        if continuity:
+            for panel_index in range(len(board.panels)):
+                node_id = f"render.panel:{chunk_index:04d}:{panel_index:04d}"
+                node = WorkNode(
+                    node_id=node_id,
+                    phase=PipelinePhase.RENDER,
+                    kind=WorkKind.RENDER_PANEL,
+                    unit_index=chunk_index,
+                    item_index=panel_index,
+                    dependencies=() if previous_node_id is None else (previous_node_id,),
+                )
+                graph.add(node)
+                nodes_by_chunk.setdefault(chunk_index, []).append(node)
+                previous_node_id = node_id
+        else:
+            node_id = f"render.panel_batch:{chunk_index:04d}"
+            node = WorkNode(
+                node_id=node_id,
+                phase=PipelinePhase.RENDER,
+                kind=WorkKind.RENDER_PANEL_BATCH,
+                unit_index=chunk_index,
+                item_index=None,
+                dependencies=(),
+            )
+            graph.add(node)
+            nodes_by_chunk.setdefault(chunk_index, []).append(node)
+            batch_panel_keys[node_id] = tuple(
+                _panel_state_key(chunk_index, panel_index)
+                for panel_index in range(len(board.panels))
+            )
+    return (
+        {chunk_index: tuple(nodes) for chunk_index, nodes in nodes_by_chunk.items()},
+        batch_panel_keys,
+    )
+
+
 def _provider_label(provider, model: str) -> str:
     """Return a non-secret provider/model identity suitable for cache invalidation."""
     provider_type = f"{type(provider).__module__}.{type(provider).__qualname__}"
@@ -1876,6 +1935,7 @@ async def _creative_comic(
     # the graph and its node ids are ephemeral and never become persisted keys.
     render_graph = StageGraph()
     render_nodes_by_chunk: dict[int, tuple[WorkNode, ...]] = {}
+    batch_panel_keys: dict[str, tuple[str, ...]] = {}
     completed_render_nodes: set[str] = set()
 
     def _require_render_node(node: WorkNode) -> None:
@@ -1895,6 +1955,13 @@ async def _creative_comic(
         else:
             if mode == "finished_page":
                 render_nodes_by_chunk = _expand_page_render_nodes(render_graph, state, len(chunks))
+            else:
+                render_nodes_by_chunk, batch_panel_keys = _expand_panel_render_nodes(
+                    render_graph,
+                    state,
+                    len(chunks),
+                    continuity=image_config.panel_continuity,
+                )
             render_graph.validate()
             work_items = enumerate(chunks)
         for ci, chunk in work_items:
@@ -1957,6 +2024,7 @@ async def _creative_comic(
                         last_index = len(board.panels) - 1
                         state_key = _stored_panel_key(state, ci, last_index)
                         prev_panel_local = state.generated.panels[state_key].local
+                    _complete_render_chunk_nodes(ci)
                     _report("resume", _pct())
                     continue
 
@@ -2829,74 +2897,104 @@ async def _creative_comic(
 
             state.stage = "panels"
             check_cancel(cancel_check)
+
+            async def _render_continuity_panel_node(
+                panel_index: int,
+                panel,
+                *,
+                _state: ProjectState = state,
+                _chunk_index: int = ci,
+                _render=_render_panel,
+            ) -> None:
+                nonlocal prev_panel_local
+                state_key = _stored_panel_key(_state, _chunk_index, panel_index)
+                if panel_key_filter is not None and state_key not in panel_key_filter:
+                    if state_key in _state.panels_done and state_key in _state.generated.panels:
+                        prev_panel_local = _state.generated.panels[state_key].local
+                    return
+                if not _panel_needs_generation(_state, state_key):
+                    if state_key in _state.panels_done and state_key in _state.generated.panels:
+                        prev_panel_local = _state.generated.panels[state_key].local
+                    return
+                if not gate.allow(state_key, _chunk_index, total_chunks=total_chunks):
+                    return
+                check_cancel(cancel_check)
+                try:
+                    generated = await _render(state_key, panel_index, panel, prev_panel_local)
+                except Exception as exc:  # noqa: BLE001 — preserve policy skip behavior
+                    if not is_content_policy_rejection(exc):
+                        raise
+                    logger.warning(
+                        "panel %s skipped: content filter rejected it (%s)", panel.panel_id, exc
+                    )
+                    if state_key not in _state.skipped:
+                        _state.skipped.append(state_key)
+                    if state_key in _state.stale_panels:
+                        _state.stale_panels = [k for k in _state.stale_panels if k != state_key]
+                    _state.save(state_path)
+                    return
+                _state.generated.panels[state_key] = generated
+                _mark_panel_done(_state, state_key)
+                prev_panel_local = generated.local
+                _state.save(state_path)
+                _report("panel", _pct())
+
             if image_config.panel_continuity:
-                for panel_index, panel in enumerate(board.panels):
-                    state_key = _stored_panel_key(state, ci, panel_index)
-                    if panel_key_filter is not None and state_key not in panel_key_filter:
-                        if state_key in state.panels_done and state_key in state.generated.panels:
-                            prev_panel_local = state.generated.panels[state_key].local
-                        continue
-                    if not _panel_needs_generation(state, state_key):
-                        if state_key in state.panels_done and state_key in state.generated.panels:
-                            prev_panel_local = state.generated.panels[state_key].local
-                        continue
-                    if not gate.allow(state_key, ci, total_chunks=total_chunks):
-                        continue
-                    check_cancel(cancel_check)
-                    try:
-                        generated = await _render_panel(
-                            state_key, panel_index, panel, prev_panel_local
-                        )
-                    except Exception as exc:  # noqa: BLE001 — preserve policy skip behavior
-                        if not is_content_policy_rejection(exc):
-                            raise
-                        logger.warning(
-                            "panel %s skipped: content filter rejected it (%s)", panel.panel_id, exc
-                        )
-                        if state_key not in state.skipped:
-                            state.skipped.append(state_key)
-                        if state_key in state.stale_panels:
-                            state.stale_panels = [k for k in state.stale_panels if k != state_key]
-                        state.save(state_path)
-                        continue
-                    state.generated.panels[state_key] = generated
-                    _mark_panel_done(state, state_key)
-                    prev_panel_local = generated.local
-                    state.save(state_path)
-                    _report("panel", _pct())
+                for panel_node in render_nodes_by_chunk.get(ci, ()):
+                    _require_render_node(panel_node)
+                    assert panel_node.item_index is not None
+                    await _render_continuity_panel_node(
+                        panel_node.item_index, board.panels[panel_node.item_index]
+                    )
+                    completed_render_nodes.add(panel_node.node_id)
             else:
-                renderable = [
-                    item for item in pending if gate.allow(item[0], ci, total_chunks=total_chunks)
-                ]
-                tasks = (
-                    _render_panel(state_key, panel_index, panel, None)
-                    for state_key, panel_index, panel in renderable
-                )
-                rendered = await asyncio.gather(*tasks, return_exceptions=True)
-                operational_error = None
-                for (state_key, _panel_index, panel), result in zip(
-                    renderable, rendered, strict=True
-                ):
-                    if isinstance(result, Exception):
-                        if not is_content_policy_rejection(result):
-                            operational_error = operational_error or result
+                for panel_node in render_nodes_by_chunk.get(ci, ()):
+                    _require_render_node(panel_node)
+                    # Membership is scheduler-only metadata: it pins the batch to
+                    # the positions planned above and never enters state.json.
+                    recorded_keys = batch_panel_keys.get(panel_node.node_id)
+                    positional_keys = tuple(
+                        _stored_panel_key(state, ci, index) for index in range(len(board.panels))
+                    )
+                    if recorded_keys != positional_keys:
+                        raise RuntimeError(f"panel batch {panel_node.node_id} membership drifted")
+                    renderable = [
+                        item
+                        for item in pending
+                        if gate.allow(item[0], ci, total_chunks=total_chunks)
+                    ]
+                    tasks = (
+                        _render_panel(state_key, panel_index, panel, None)
+                        for state_key, panel_index, panel in renderable
+                    )
+                    rendered = await asyncio.gather(*tasks, return_exceptions=True)
+                    operational_error = None
+                    for (state_key, _panel_index, panel), result in zip(
+                        renderable, rendered, strict=True
+                    ):
+                        if isinstance(result, Exception):
+                            if not is_content_policy_rejection(result):
+                                operational_error = operational_error or result
+                                continue
+                            logger.warning(
+                                "panel %s skipped: content filter rejected it (%s)",
+                                panel.panel_id,
+                                result,
+                            )
+                            if state_key not in state.skipped:
+                                state.skipped.append(state_key)
+                            if state_key in state.stale_panels:
+                                state.stale_panels = [
+                                    k for k in state.stale_panels if k != state_key
+                                ]
                             continue
-                        logger.warning(
-                            "panel %s skipped: content filter rejected it (%s)",
-                            panel.panel_id,
-                            result,
-                        )
-                        if state_key not in state.skipped:
-                            state.skipped.append(state_key)
-                        if state_key in state.stale_panels:
-                            state.stale_panels = [k for k in state.stale_panels if k != state_key]
-                        continue
-                    state.generated.panels[state_key] = result
-                    _mark_panel_done(state, state_key)
-                    _report("panel", _pct())
-                state.save(state_path)
-                if operational_error is not None:
-                    raise operational_error
+                        state.generated.panels[state_key] = result
+                        _mark_panel_done(state, state_key)
+                        _report("panel", _pct())
+                    state.save(state_path)
+                    if operational_error is not None:
+                        raise operational_error
+                    completed_render_nodes.add(panel_node.node_id)
 
             _mark_chunk_done_if_complete(state, key, board, ci)
             state.save(state_path)
