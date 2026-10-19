@@ -19,6 +19,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   same budget on a later calendar day, so the recompute can settle over several days.
   Progress is counted in produced pages, not percentage: a resumed run first shows
   what was already produced and then advances.
+- **`state.json` is now the small checkpoint; the heavy planning caches live in
+  the sibling `cache.json`.** `chunk_cache`, `page_cache`, `beat_cache`, and
+  `visual_bible` move there, and the first full save after upgrading splits the
+  files. Readers using `ProjectState.load` / `ProjectState.save` are unaffected.
+  Deleting `cache.json` recomputes the plan stages under their existing action
+  keys (billable chat calls; already-rendered pages still restore from their
+  manifests when the recomputed keys match). A corrupt `cache.json` raises
+  until it is deleted — deliberately, so a lost cache never silently re-plans
+  the book.
 
 ### Added
 - M2 comic-specific pipeline: `creative_comic` orchestration (segment → extract → character
@@ -40,6 +49,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     panel generation. `InsightFace` embedding / L4 iterative refinement remain deferred (GPU-only).
 
 ### Changed
+- `state.json` no longer carries the heavy planning caches. `chunk_cache`,
+  `page_cache`, `beat_cache`, and `visual_bible` are written to the sibling
+  `cache.json`: a full save writes the cache file first and the checkpoint
+  second, and the render loop's per-page and per-panel saves write the
+  checkpoint only. Progress readers (web listing, resume seeding, timing) read
+  the checkpoint without requiring the cache file. `ProjectState` fields,
+  action keys, fingerprints, manifests, and output paths are unchanged.
 - The render fingerprint no longer carries the manual identity, stage-lock,
   layout, voice-timeline, beats, or lettering tokens. The next resume of an
   existing project repaints its pages once, because the stored fingerprint no

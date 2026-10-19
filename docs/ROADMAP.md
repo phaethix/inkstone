@@ -136,6 +136,15 @@ Keep these prototypes only as migration material until they conform to the targe
 
 Per the [content-addressed pipeline design](architecture/2026-09-28-content-addressed-pipeline-design.md) §9.
 
+- **Local (2026-10-19, `main`):** Two-part `state.json`. The heavy format
+  caches (`chunk_cache`, `page_cache`, `beat_cache`, `visual_bible`) moved to
+  the sibling `cache.json`; the render loop's per-page and per-panel saves
+  write the checkpoint only, and progress readers read it without the cache
+  file. Scoping doc:
+  [state-split design](superpowers/specs/2026-10-19-state-split-design.md).
+  Remaining migration work: manifest-backing the chat-stage cache bodies and
+  per-stage runners.
+
 - **Local (2026-10-19, `main`):** Migration close-out. The legacy combined
   fingerprint and `_PIPELINE_STATE_VERSION` are deleted; a `state.json`
   without split fingerprints now takes the announced one-time recompute and
