@@ -19,7 +19,7 @@ from pathlib import Path
 
 from core.comic.coverage import compute_coverage_report, write_coverage_report
 from core.comic.identity import clear_tombstones
-from core.comic.ledger import ConsistencyLedger
+from core.comic.ledger import LEDGER_ESCALATION_THRESHOLD, ConsistencyLedger
 from core.comic.prune import apply_prune, parse_older_than, plan_prune
 from core.comic.reader import chapter_pages, write_reader
 from core.comic.structure_report import chapter_validated, structural_report, write_structure_report
@@ -167,6 +167,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p_id = sub.add_parser("identity", help="Identity ledger: view characters and pending pages")
     p_id.add_argument("--view", action="store_true", help="Print the consistency ledger")
     p_id.add_argument("--merge", default=None, help="Merge alias: 'new:keep'")
+    p_id.add_argument(
+        "--confirm",
+        default=None,
+        help="Confirm a continuity review: raise a character's reviewed version",
+    )
     p_id.add_argument(
         "--out",
         default="comic_out",
@@ -552,7 +557,7 @@ def _run_read(args: argparse.Namespace) -> int:
 
 
 def _run_identity(args: argparse.Namespace) -> int:
-    """identity 子命令：打印一致性账本（§12）。"""
+    """identity 子命令：打印一致性账本（§12），或确认一个角色的待复核页（§4, 5b）。"""
     out = Path(args.out)
     state_path = out / "state.json"
     if not state_path.exists():
@@ -561,6 +566,18 @@ def _run_identity(args: argparse.Namespace) -> int:
     state = ProjectState.load(state_path)
     state.migrate_legacy_page_keys()
     ledger = ConsistencyLedger.load_or_rebuild(out / "consistency.json", state)
+
+    if args.confirm:
+        name = args.confirm
+        if name not in ledger.characters:
+            print(f"未找到角色 {name}：无法确认复核。")
+            return 1
+        ledger.confirm_review(name)
+        ledger.save(out / "consistency.json")
+        version = ledger.characters[name].reference.version
+        print(f"已确认 {name} 的复核：待复核页已清空（已复核版本升至 v{version}）。")
+        return 0
+
     if not ledger.characters:
         print("账本为空：尚无可显示的角色页集。")
         return 0
@@ -569,7 +586,10 @@ def _run_identity(args: argparse.Namespace) -> int:
         entry = ledger.characters[name]
         pending = len(entry.pending_pages)
         ref = entry.reference.version
-        print(f"  - {name}: {len(entry.pages)} 页，参考版本 v{ref}，待复核 {pending} 页")
+        note = ""
+        if pending > LEDGER_ESCALATION_THRESHOLD:
+            note = "（超过升级阈值：下次运行将在渲染前暂停待确认）"
+        print(f"  - {name}: {len(entry.pages)} 页，参考版本 v{ref}，待复核 {pending} 页{note}")
     return 0
 
 
