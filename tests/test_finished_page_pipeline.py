@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+import shutil
 from pathlib import Path
 from unittest.mock import patch
 
@@ -783,6 +784,12 @@ def test_legacy_completed_project_bootstraps_visual_bible(tmp_path, monkeypatch)
     state = ProjectState.load(tmp_path / "state.json")
     state.visual_bible = None
     state.save(tmp_path / "state.json")
+
+    # A legacy project predates the manifest backing: no bible body is recoverable
+    # from a manifest. Drop the CAS index and content objects so the resume has
+    # nothing to restore from and must call the provider (as a true legacy would).
+    shutil.rmtree(tmp_path / "index", ignore_errors=True)
+    shutil.rmtree(tmp_path / "cas", ignore_errors=True)
 
     chat2, img2 = FakeChat(), FakeImage()
     proj2 = asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=chat2, image=img2))
