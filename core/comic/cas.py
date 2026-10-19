@@ -82,16 +82,24 @@ def action_key(
     inputs: list[str],
     params: dict,
     env: str,
+    request_digest: str | None = None,
 ) -> str:
-    """SHA-256 of the declared inputs. ``inputs`` stay in the given order."""
+    """SHA-256 of the declared inputs. ``inputs`` stay in the given order.
+
+    ``request_digest`` is the digest of the exact chat request a stage sent.
+    A stage that supplies it uses schema 3; a stage that does not keeps the
+    schema-2 payload, so existing render/letter/export keys do not move.
+    """
     payload = {
-        "schema": 2,
+        "schema": 2 if request_digest is None else 3,
         "stage": stage,
         "stage_src": stage_src,
         "inputs": list(inputs),
         "params": params,
         "env": env,
     }
+    if request_digest is not None:
+        payload["request_digest"] = request_digest
     canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return "sha256:" + _hex_digest(canonical.encode("utf-8"))
 
@@ -184,8 +192,14 @@ def extract_inputs(chunk: str) -> list[str]:
     return ["sha256:" + _hex_digest(chunk.encode("utf-8"))]
 
 
-def extract_action_key(*, chunk: str, env: str, stage_src: str) -> str:
-    """Key an extract from the chunk text.
+def extract_action_key(
+    *,
+    chunk: str,
+    env: str,
+    stage_src: str,
+    request_digest: str | None = None,
+) -> str:
+    """Key an extract from the chunk text and the exact request.
 
     ``env`` is the chat model identity. Page size, continuity, and L3 stay out,
     so those knobs cannot make a stored extract miss.
@@ -196,6 +210,7 @@ def extract_action_key(*, chunk: str, env: str, stage_src: str) -> str:
         inputs=extract_inputs(chunk),
         params={},
         env=env,
+        request_digest=request_digest,
     )
 
 
@@ -239,7 +254,14 @@ def beats_inputs(chunk: str, extract_key: str) -> list[str]:
     ]
 
 
-def beats_action_key(*, chunk: str, extract_key: str, env: str, stage_src: str) -> str:
+def beats_action_key(
+    *,
+    chunk: str,
+    extract_key: str,
+    env: str,
+    stage_src: str,
+    request_digest: str | None = None,
+) -> str:
     """Key a beat extract from the chunk and the extract that read it.
 
     A changed extract key replans the beats. Render-only knobs stay out of ``env``.
@@ -250,6 +272,7 @@ def beats_action_key(*, chunk: str, extract_key: str, env: str, stage_src: str) 
         inputs=beats_inputs(chunk, extract_key),
         params={},
         env=env,
+        request_digest=request_digest,
     )
 
 
@@ -270,6 +293,7 @@ def page_plan_action_key(
     history: dict,
     env: str,
     stage_src: str,
+    request_digest: str | None = None,
 ) -> str:
     """Key a page plan from the chunk, its beats, and the bounded history.
 
@@ -284,6 +308,7 @@ def page_plan_action_key(
         inputs=page_plan_inputs(chunk, beats_json, beats_key),
         params={"history": history},
         env=env,
+        request_digest=request_digest,
     )
 
 
@@ -328,7 +353,14 @@ def bible_inputs(chunk: str) -> list[str]:
     return ["sha256:" + _hex_digest(chunk.encode("utf-8"))]
 
 
-def bible_action_key(*, chunk: str, history: dict, env: str, stage_src: str) -> str:
+def bible_action_key(
+    *,
+    chunk: str,
+    history: dict,
+    env: str,
+    stage_src: str,
+    request_digest: str | None = None,
+) -> str:
     """Key a bible reconcile from the chunk and the bounded summary.
 
     ``history`` is the window size plus summarizer source hashes. The bible
@@ -342,6 +374,7 @@ def bible_action_key(*, chunk: str, history: dict, env: str, stage_src: str) -> 
         inputs=bible_inputs(chunk),
         params={"history": history},
         env=env,
+        request_digest=request_digest,
     )
 
 
@@ -353,7 +386,14 @@ def storyboard_inputs(chunk: str, cast: str) -> list[str]:
     ]
 
 
-def storyboard_action_key(*, chunk: str, cast: str, env: str, stage_src: str) -> str:
+def storyboard_action_key(
+    *,
+    chunk: str,
+    cast: str,
+    env: str,
+    stage_src: str,
+    request_digest: str | None = None,
+) -> str:
     """Key a storyboard from the chunk and the names in that chunk.
 
     Earlier panels and the portrait files stay out. A repeat of the same chunk
@@ -365,6 +405,7 @@ def storyboard_action_key(*, chunk: str, cast: str, env: str, stage_src: str) ->
         inputs=storyboard_inputs(chunk, cast),
         params={},
         env=env,
+        request_digest=request_digest,
     )
 
 
@@ -384,6 +425,7 @@ def page_script_action_key(
     elements_json: str,
     env: str,
     stage_src: str,
+    request_digest: str | None = None,
 ) -> str:
     """Key a page script from this chunk's text, storyboard, and elements.
 
@@ -396,6 +438,7 @@ def page_script_action_key(
         inputs=page_script_inputs(chunk, storyboard_json, elements_json),
         params={},
         env=env,
+        request_digest=request_digest,
     )
 
 

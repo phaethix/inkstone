@@ -19,6 +19,8 @@ ENV_WEBTOON_MAX_PIXELS = "INKSTONE_WEBTOON_MAX_PIXELS"
 ENV_FONT_PATH = "INKSTONE_FONT_PATH"
 ENV_PAGE_SCRIPT = "INKSTONE_PAGE_SCRIPT"
 ENV_L3 = "INKSTONE_L3"
+ENV_GENRE = "INKSTONE_GENRE"
+ENV_REVIEW_PACKET = "INKSTONE_REVIEW_PACKET"
 ENV_ERROR_LOG = "INKSTONE_ERROR_LOG"
 ENV_RUN_DEADLINE_HOURS = "INKSTONE_RUN_DEADLINE_HOURS"
 ENV_SUPERVISOR_BACKOFF_BASE = "INKSTONE_SUPERVISOR_BACKOFF_BASE"
@@ -98,6 +100,16 @@ def agnes_image_3k_rpm() -> int:
 
 def page_script_enabled() -> bool:
     return env_bool(ENV_PAGE_SCRIPT, default=False)
+
+
+def genre() -> str:
+    """The project's craft profile: ``general`` unless chosen explicitly."""
+    return _get(ENV_GENRE, "general").strip().lower() or "general"
+
+
+def review_packet_enabled() -> bool:
+    """Write ``review/`` evidence for a run. Local only; never sent to a model."""
+    return env_bool(ENV_REVIEW_PACKET, default=True)
 
 
 def l3_enabled() -> bool:

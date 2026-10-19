@@ -50,6 +50,9 @@ jobs:
           uv sync --no-dev --frozen --no-editable
           uv run inkstone --help
           uv run inkstone plan --book examples/sample_novel.txt
+          uv run inkstone harness validate
+          uv run inkstone prompt --stage extract --text "第一章" > /dev/null
+          uv run inkstone prompt --stage page_plan --text "第一章" --genre wuxia --json > /dev/null
 
   verify:
     runs-on: ubuntu-latest

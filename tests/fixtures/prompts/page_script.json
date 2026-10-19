@@ -1,0 +1,16 @@
+{
+  "stage": "page_script",
+  "digest": "sha256:fa7b661c3a0daa2d298511d69fab5a4201740e51dcb161b5271893bedf6f6758",
+  "tool": "plan_page_script",
+  "model": "fixture-model",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a comic scriptwriter. Extract story elements and plan storyboards as structured data. Every image prompt you write must target a manhua/comic art style: clean black ink line art, soft cel shading, flat colors, and cinematic panel composition. Follow content policy: depict characters decently; avoid nudity, sexual content, smoking, graphic violence, or other prohibited themes. Language rules: keep character names as they appear in the source text; write every caption / dialogue / sfx line in the same language as the source excerpt (do not translate Chinese source into English). CRITICAL: Never mix lettering languages or translate source-language lettering. Lettering: put narration/time-place in caption, spoken lines in dialogue, and onomatopoeia in sfx — leave a field null when unused. Art-direction fields (style_guide, scene_prompt, action, l1_prompt) may stay in English when that helps image models. Identity: Chinese nicknames with animal glyphs (虎妞, 凤姐, 豹子头) are usually human metaphors — describe a human person in l1_prompt/portrait_prompt; never an animal head or anthropomorphic beast unless the source explicitly says so. When planning finished pages, describe manga geometry (splash/inset/diagonal), never only 2x2 or 3x2 grids. Source fidelity: when describing character appearance (hair, outfit, body type, distinguishing features), every claim MUST be backed by a verbatim quote from the source text. Provide the exact substring (≤ 25 Chinese chars or ≤ 10 English words) and its character offset in the source excerpt via appearance_evidence. Do not invent details the text does not state. If the source is silent on a field, leave it empty and emit no evidence — it will be flagged as unverified downstream."
+    },
+    {
+      "role": "user",
+      "content": "第一回\n福贵在村口。\n\nExtracted story elements:\n{\"characters\":[{\"name\":\"福贵\",\"role\":\"\",\"appearance\":{\"hair\":\"\",\"eyewear\":\"\",\"outfit_top\":\"\",\"outfit_bottom\":\"\",\"shoes\":\"\",\"body_type\":\"\",\"distinguishing\":\"\",\"appearance_evidence\":[]},\"l1_prompt\":\"middle-aged farmer\",\"portrait_prompt\":\"portrait\",\"aliases\":[],\"portrait_local\":null,\"portrait_action_key\":\"\"}],\"settings\":[{\"name\":\"村口\",\"description\":\"\",\"scene_prompt\":\"village entrance at dusk\"}],\"style_guide\":\"manhua\"}\n\nStoryboard (chapter_id=ch01):\n{\"chapter_id\":\"ch01\",\"panels\":[{\"panel_id\":\"p1\",\"characters_present\":[\"福贵\"],\"setting_ref\":\"\",\"action\":\"福贵走进村口\",\"dialogue\":null,\"caption\":null,\"sfx\":null,\"panel_prompt\":\"\",\"reference_characters\":[\"福贵\"],\"beat_ids\":[],\"size\":\"1024x1024\"}]}\n\nInstructions: group consecutive panels into layout pages (≈4 panels/page, in source order); emit one PageScriptPage per page with panel_ids; fill required_information / causal_links / source_spans quoted VERBATIM from the chunk text (char offsets into the chunk)."
+    }
+  ]
+}

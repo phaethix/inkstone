@@ -14,6 +14,7 @@
 """
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -163,6 +164,31 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="openai-compat unit price (CNY/panel); omit to show a price placeholder",
     )
+
+    p_prompt = sub.add_parser(
+        "prompt",
+        help="Render the exact chat request for one stage (no model call)",
+    )
+    p_prompt.add_argument(
+        "--stage",
+        required=True,
+        choices=["extract", "beats", "bible", "storyboard", "page_plan", "page_script"],
+        help="Which stage's request to render",
+    )
+    p_prompt.add_argument("--text", default=None, help="Chunk text to render with")
+    p_prompt.add_argument("--file", default=None, help="Read the chunk text from this file")
+    p_prompt.add_argument("--from-run", default=None, help="Project dir for stored context")
+    p_prompt.add_argument("--chunk", type=int, default=0, help="Chunk index for --from-run")
+    p_prompt.add_argument("--model", default="inspect", help="Model id to fingerprint")
+    p_prompt.add_argument(
+        "--genre", default=None, help="Domain profile (general, wuxia); default: env"
+    )
+    p_prompt.add_argument("--json", dest="as_json", action="store_true", help="Print request JSON")
+
+    p_harness = sub.add_parser("harness", help="Inspect and validate prompt-harness components")
+    h_sub = p_harness.add_subparsers(dest="harness_command", required=True)
+    h_sub.add_parser("validate", help="Validate every component in one pass")
+    h_sub.add_parser("list", help="List components and genres")
 
     p_id = sub.add_parser("identity", help="Identity ledger: view characters and pending pages")
     p_id.add_argument("--view", action="store_true", help="Print the consistency ledger")
@@ -816,6 +842,165 @@ def _run_verify(args: argparse.Namespace) -> int:
     return 0
 
 
+def _load_prompt_context(args: argparse.Namespace):
+    """Load the optional stored context for ``inkstone prompt``.
+
+    Returns ``(chunk, elements, beats, bible, board, characters, recent_layouts)``.
+    Missing state is not an error: the command still renders the stage template.
+    """
+    from core.comic.adaptation import key_beats_for_chunk
+    from core.comic.identity import page_state_key  # noqa: F401  (kept for parity)
+    from core.comic.segmentation import segment_text
+    from core.schemas import ProjectState, StoryElements
+
+    chunk = args.text or ""
+    if args.file:
+        chunk = Path(args.file).read_text(encoding="utf-8")
+    elements = StoryElements()
+    beats = None
+    bible = None
+    board = None
+    characters: dict = {}
+    recent_layouts: list[str] = []
+    if not args.from_run:
+        return chunk, elements, beats, bible, board, characters, recent_layouts
+
+    out = Path(args.from_run)
+    state = ProjectState.load(out / "state.json")
+    state.migrate_legacy_page_keys()
+    cached = state.chunk_cache.get(str(args.chunk))
+    if cached is not None:
+        elements = cached.elements or elements
+        board = cached.storyboard
+        beats = cached.beats
+    bible = state.visual_bible
+    characters = state.characters
+    if not chunk:
+        units = state.source_units
+        if units:
+            chunk = "".join(unit.text for unit in units)
+    from core.pipelines.creative_comic import _recent_layout_intents
+
+    recent_layouts = _recent_layout_intents(state)
+    if beats is None and chunk:
+        beats = key_beats_for_chunk(state, str(args.chunk), segment_text(chunk))
+    return chunk, elements, beats, bible, board, characters, recent_layouts
+
+
+def _run_prompt(args: argparse.Namespace) -> int:
+    """Print the exact request one stage would send. Never calls a provider."""
+    from core.density import PANELS_PER_CHUNK_B
+    from core.screenwriter import (
+        build_beats_request,
+        build_bible_request,
+        build_extract_request,
+        build_page_plan_request,
+        build_page_script_request,
+        build_storyboard_request,
+    )
+
+    if args.from_run and not (Path(args.from_run) / "state.json").is_file():
+        print(f"no state.json under {args.from_run}", file=sys.stderr)
+        return 1
+    if args.genre:
+        from core.harness.spec import available_genres
+
+        if args.genre not in available_genres():
+            print(
+                f"unknown genre {args.genre!r}; available: {', '.join(available_genres())}",
+                file=sys.stderr,
+            )
+            return 1
+    chunk, elements, beats, bible, board, characters, recent_layouts = _load_prompt_context(args)
+    model = args.model
+    if args.stage == "extract":
+        request = build_extract_request(chunk, model=model)
+    elif args.stage == "beats":
+        request = build_beats_request(chunk, elements, model=model)
+    elif args.stage == "bible":
+        request = build_bible_request(
+            chunk, characters, bible, alias_hints=(), preferred_style="", model=model
+        )
+    elif args.stage == "storyboard":
+        request = build_storyboard_request(
+            chunk,
+            elements,
+            key_beats=beats,
+            panel_budget=PANELS_PER_CHUNK_B,
+            genre=args.genre,
+            model=model,
+        )
+    elif args.stage == "page_plan":
+        request = build_page_plan_request(
+            chunk,
+            elements,
+            recent_layouts=recent_layouts,
+            visual_bible=bible,
+            key_beats=beats,
+            panel_budget=PANELS_PER_CHUNK_B,
+            genre=args.genre,
+            model=model,
+        )
+    elif args.stage == "page_script":
+        if board is None:
+            print("page_script needs a stored storyboard; pass --from-run", file=sys.stderr)
+            return 1
+        request = build_page_script_request(board, elements, chunk, model=model)
+    else:  # pragma: no cover - argparse restricts the choices
+        raise ValueError(args.stage)
+
+    if args.as_json:
+        payload = {
+            "stage": args.stage,
+            "digest": request.digest(),
+            "model": request.model,
+            "messages": request.messages,
+            "tools": request.tools,
+            "tool_choice": request.tool_choice,
+        }
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+
+    tool = request.tool_choice.get("function", {}).get("name", "?")
+    print(f"stage: {args.stage}")
+    print(f"digest: {request.digest()}")
+    print(f"model: {request.model}")
+    print(f"tool: {tool}")
+    for message in request.messages:
+        print(f"--- {message.get('role', '?')} ---")
+        print(message.get("content", ""))
+    return 0
+
+
+def _run_harness(args: argparse.Namespace) -> int:
+    """Validate or list the editable prompt-harness components."""
+    from core.harness.spec import (
+        HarnessError,
+        available_genres,
+        components,
+        harness_digest,
+        validate,
+    )
+
+    if args.harness_command == "list":
+        print(f"harness digest: {harness_digest()}")
+        for component in components():
+            print(f"  {component.id:16} {component.kind:9} {component.path}")
+        print(f"genres: {', '.join(available_genres())}")
+        return 0
+    try:
+        problems = validate()
+    except HarnessError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    if problems:
+        for problem in problems:
+            print(problem, file=sys.stderr)
+        return 1
+    print(f"ok {harness_digest()}")
+    return 0
+
+
 def main() -> None:
     """统一 CLI 入口。"""
     # 后向兼容：旧用法 `inkstone <source> ...` 无子命令时默认走 generate，
@@ -834,6 +1019,8 @@ def main() -> None:
         "prune",
         "gc",
         "verify",
+        "prompt",
+        "harness",
         "-h",
         "--help",
     ):
@@ -864,6 +1051,10 @@ def main() -> None:
         sys.exit(_run_gc(args))
     elif args.command == "verify":
         sys.exit(_run_verify(args))
+    elif args.command == "prompt":
+        sys.exit(_run_prompt(args))
+    elif args.command == "harness":
+        sys.exit(_run_harness(args))
 
 
 if __name__ == "__main__":
