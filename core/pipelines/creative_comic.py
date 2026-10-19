@@ -64,9 +64,9 @@ from core.comic.cas import (
     page_script_action_key,
     portrait_action_key,
     put_bytes,
+    read_manifest_entry,
     record_files,
     record_ok,
-    read_manifest_entry,
     render_page_action_key,
     render_page_inputs,
     render_panel_action_key,
@@ -232,6 +232,39 @@ def _build_plan_graph(chunk_count: int) -> StageGraph:
         )
         previous_node_id = node_id
     return graph
+
+
+def _expand_page_render_nodes(
+    graph: StageGraph, state: ProjectState, chunk_count: int
+) -> dict[int, tuple[WorkNode, ...]]:
+    """Describe finished-page rendering from the plans the plan phase produced.
+
+    One node per planned page, chained in reading order: a page's prompt uses
+    the blank of the page before it, and that blank is state written by the
+    earlier node. Node ids are ephemeral scheduler identities;
+    ``page_state_key`` is still derived from ``(chunk, page)`` only when a node
+    is dispatched, so no scheduler id ever becomes a persisted key.
+    """
+    nodes_by_chunk: dict[int, list[WorkNode]] = {}
+    previous_node_id: str | None = None
+    for chunk_index in range(chunk_count):
+        pageset = state.page_cache.get(str(chunk_index))
+        if pageset is None:
+            continue
+        for page_index in range(len(pageset.pages)):
+            node_id = f"render.page:{chunk_index:04d}:{page_index:04d}"
+            node = WorkNode(
+                node_id=node_id,
+                phase=PipelinePhase.RENDER,
+                kind=WorkKind.RENDER_PAGE,
+                unit_index=chunk_index,
+                item_index=page_index,
+                dependencies=() if previous_node_id is None else (previous_node_id,),
+            )
+            graph.add(node)
+            nodes_by_chunk.setdefault(chunk_index, []).append(node)
+            previous_node_id = node_id
+    return {chunk_index: tuple(nodes) for chunk_index, nodes in nodes_by_chunk.items()}
 
 
 def _provider_label(provider, model: str) -> str:
@@ -1195,9 +1228,7 @@ def _page_needs_generation(state: ProjectState, state_key: str) -> bool:
     return True
 
 
-def _drop_pages_outside_plan(
-    state: ProjectState, *, chunk_index: int, page_count: int
-) -> None:
+def _drop_pages_outside_plan(state: ProjectState, *, chunk_index: int, page_count: int) -> None:
     """Remove obsolete positional page projections from one replanned chunk.
 
     Only the current chunk's ``cNNNN-pNNNN`` keys past its new page range are
@@ -1840,15 +1871,31 @@ async def _creative_comic(
             # intentional skip path. Propagated operational errors bypass it.
             completed.add(node.node_id)
 
-    # Plan every chunk before drawing. The page count is known only after
-    # that pass, so pages and panels are expanded in the render pass.
+    # Plan every chunk before drawing, then expand render work from the plans.
+    # The page count and the panel layout are known only after the plan pass;
+    # the graph and its node ids are ephemeral and never become persisted keys.
+    render_graph = StageGraph()
+    render_nodes_by_chunk: dict[int, tuple[WorkNode, ...]] = {}
+    completed_render_nodes: set[str] = set()
+
+    def _require_render_node(node: WorkNode) -> None:
+        if node not in render_graph.ready(completed_render_nodes, PipelinePhase.RENDER):
+            raise RuntimeError(f"render node {node.node_id} is not ready for dispatch")
+
+    def _complete_render_chunk_nodes(chunk_index: int) -> None:
+        """Advance ordered render nodes when the existing chunk path skips them."""
+        for node in render_nodes_by_chunk.get(chunk_index, ()):
+            _require_render_node(node)
+            completed_render_nodes.add(node.node_id)
+
     for phase in ("plan", "render"):
         prev_panel_local = None
         if phase == "plan":
-            work_items = (
-                (node.unit_index, chunks[node.unit_index]) for node in _plan_work_items()
-            )
+            work_items = ((node.unit_index, chunks[node.unit_index]) for node in _plan_work_items())
         else:
+            if mode == "finished_page":
+                render_nodes_by_chunk = _expand_page_render_nodes(render_graph, state, len(chunks))
+            render_graph.validate()
             work_items = enumerate(chunks)
         for ci, chunk in work_items:
             assert ci is not None
@@ -1856,6 +1903,7 @@ async def _creative_comic(
             key = str(ci)
             if key in state.skipped_chunks:
                 logger.info("chunk %s skipped: previously rejected by content filter", key)
+                _complete_render_chunk_nodes(ci)
                 _report("skip", _pct())
                 continue
             cached = state.chunk_cache.get(key)
@@ -1893,6 +1941,7 @@ async def _creative_comic(
                     and panel_key_filter is None
                 )
                 if chunk_complete and state.visual_bible is not None:
+                    _complete_render_chunk_nodes(ci)
                     _report("resume", _pct())
                     continue
             elif (
@@ -2247,9 +2296,7 @@ async def _creative_comic(
                         chunk, state.beat_cache.get(key), snapshot.chat, beats_key
                     )
                     state.page_cache[key] = pageset
-                    _drop_pages_outside_plan(
-                        state, chunk_index=ci, page_count=len(pageset.pages)
-                    )
+                    _drop_pages_outside_plan(state, chunk_index=ci, page_count=len(pageset.pages))
                     state.save(state_path)
                     _report("page_plan", _pct())
 
@@ -2281,11 +2328,21 @@ async def _creative_comic(
 
                 state.stage = "pages"
                 check_cancel(cancel_check)
-                for page_index, plan in enumerate(pageset.pages):
-                    plan = _plan_ready_to_letter(state, plan)
+
+                async def _render_page_node(
+                    page_index: int,
+                    plan: ComicPagePlan,
+                    *,
+                    _state: ProjectState = state,
+                    _chunk: str = chunk,
+                    _pageset: ComicPagePlanSet = pageset,
+                    _chunk_index: int = ci,
+                    _style: str = effective_style,
+                ) -> None:
+                    plan = _plan_ready_to_letter(_state, plan)
                     page_id = plan.page_id
-                    state_key = page_state_key(ci, page_index)
-                    existing = state.generated.pages.get(state_key)
+                    state_key = page_state_key(_chunk_index, page_index)
+                    existing = _state.generated.pages.get(state_key)
                     blank_ok = bool(
                         existing
                         and existing.blank_local
@@ -2297,19 +2354,19 @@ async def _creative_comic(
                     # blank art is wrong and must be repainted. A font or lettering
                     # change reuses that blank: the letter key misses, and only the
                     # overlay is drawn again.
-                    page_is_stale = state_key in state.stale_pages
+                    page_is_stale = state_key in _state.stale_pages
                     if blank_ok and existing is not None and not page_is_stale:
-                        local = _page_asset_path(pages_dir, ci, page_index)
+                        local = _page_asset_path(pages_dir, _chunk_index, page_index)
                         status = _letter_resume_status(
                             Path(existing.blank_local),
                             local,
                             plan,
-                            chunk,
+                            _chunk,
                             output_dir,
                             resolved_size=existing.resolved_size or None,
                         )
                         if status == "tombstone":
-                            continue
+                            return
                         if status != "current" or existing.lettering_version != LETTERING_VERSION:
                             pages_dir.mkdir(parents=True, exist_ok=True)
                             await asyncio.to_thread(
@@ -2318,7 +2375,7 @@ async def _creative_comic(
                                     Path(existing.blank_local),
                                     local,
                                     plan,
-                                    source_text=chunk,
+                                    source_text=_chunk,
                                     output_dir=output_dir,
                                     resolved_size=existing.resolved_size or None,
                                 )
@@ -2326,35 +2383,35 @@ async def _creative_comic(
                             existing.local = str(local)
                             existing.mode = "finished_lettered"
                             existing.lettering_version = LETTERING_VERSION
-                            record_page_artifact(state, state_key, existing)
-                            state.save(state_path)
+                            record_page_artifact(_state, state_key, existing)
+                            _state.save(state_path)
                             _report("pages", _pct())
-                        continue
-                    if not _page_needs_generation(state, state_key):
-                        continue
+                        return
+                    if not _page_needs_generation(_state, state_key):
+                        return
                     check_cancel(cancel_check)
                     prev_blank_path = previous_page_blank(
-                        state, pageset, chunk_index=ci, page_index=page_index
+                        _state, _pageset, chunk_index=_chunk_index, page_index=page_index
                     )
                     prompt = render_finished_page_prompt(
                         plan,
-                        characters_by_name=state.characters,
-                        settings_by_name=state.settings,
-                        style_guide=effective_style,
-                        visual_bible=state.visual_bible,
+                        characters_by_name=_state.characters,
+                        settings_by_name=_state.settings,
+                        style_guide=_style,
+                        visual_bible=_state.visual_bible,
                     )
-                    if state.visual_bible is not None:
+                    if _state.visual_bible is not None:
                         refs = collect_finished_page_refs(
                             plan,
-                            state.characters,
-                            state.visual_bible,
+                            _state.characters,
+                            _state.visual_bible,
                             prev_blank=prev_blank_path,
                         )
                     else:
                         refs = [
-                            state.characters[name].portrait_local
+                            _state.characters[name].portrait_local
                             for name in _page_reference_names(plan)
-                            if name in state.characters and state.characters[name].portrait_local
+                            if name in _state.characters and _state.characters[name].portrait_local
                         ]
                     refs = [
                         ref for ref in refs if _is_within(ref, output_dir) and Path(ref).is_file()
@@ -2372,43 +2429,41 @@ async def _creative_comic(
                         output_dir, render_key, stage="render.page"
                     )
                     if recorded_render is not None and recorded_render.outcome != "ok":
-                        continue
-                    if state_key not in state.stale_pages:
-                        cached_blank = stored_output(
-                            output_dir, render_key, stage="render.page"
-                        )
+                        return
+                    if state_key not in _state.stale_pages:
+                        cached_blank = stored_output(output_dir, render_key, stage="render.page")
                         if cached_blank is not None:
                             pages_dir.mkdir(parents=True, exist_ok=True)
                             blank_dir = pages_dir / "blank"
                             blank_dir.mkdir(parents=True, exist_ok=True)
-                            blank_path = _page_asset_path(blank_dir, ci, page_index)
+                            blank_path = _page_asset_path(blank_dir, _chunk_index, page_index)
                             blank_path.write_bytes(cached_blank)
-                            local = _page_asset_path(pages_dir, ci, page_index)
+                            local = _page_asset_path(pages_dir, _chunk_index, page_index)
                             if (
                                 _letter_resume_status(
                                     blank_path,
                                     local,
                                     plan,
-                                    chunk,
+                                    _chunk,
                                     output_dir,
                                     resolved_size=page_size,
                                 )
                                 == "tombstone"
                             ):
-                                continue
+                                return
                             await asyncio.to_thread(
                                 partial(
                                     _letter_page_from_blank,
                                     blank_path,
                                     local,
                                     plan,
-                                    source_text=chunk,
+                                    source_text=_chunk,
                                     output_dir=output_dir,
                                     resolved_size=page_size,
                                 )
                             )
                             record_page_artifact(
-                                state,
+                                _state,
                                 state_key,
                                 GeneratedPage(
                                     local=str(local),
@@ -2417,19 +2472,19 @@ async def _creative_comic(
                                     resolved_size=page_size,
                                     render_action_key=render_key,
                                     page_id=page_id,
-                                    unit_index=ci,
+                                    unit_index=_chunk_index,
                                     page_index=page_index,
                                     mode="finished_lettered",
                                 ),
                             )
-                            state.save(state_path)
+                            _state.save(state_path)
                             _report("pages", _pct())
-                            continue
+                            return
                     # Hold past the sample without raising, so a later chunk can
                     # still take the reserved seat. The pause is raised once,
                     # after the sample has been exported.
-                    if not gate.allow(state_key, ci, total_chunks=total_chunks):
-                        continue
+                    if not gate.allow(state_key, _chunk_index, total_chunks=total_chunks):
+                        return
                     stricter_attempted = False
                     size_fallback_attempted = False
                     active_size = page_size
@@ -2455,20 +2510,20 @@ async def _creative_comic(
                                 logger.warning(
                                     "page %s skipped: content filter rejected it (%s)", page_id, exc
                                 )
-                                if state_key not in state.skipped_pages:
-                                    state.skipped_pages.append(state_key)
+                                if state_key not in _state.skipped_pages:
+                                    _state.skipped_pages.append(state_key)
                                 # §6: record outcome/reason so the rejection is a hit on
                                 # resume rather than an eternal retry that burns quota.
-                                state.tombstones[state_key] = Tombstone(
+                                _state.tombstones[state_key] = Tombstone(
                                     outcome="rejected",
                                     reason="content_policy",
                                     stage="render.page",
                                 )
-                                if state_key in state.stale_pages:
-                                    state.stale_pages = [
-                                        k for k in state.stale_pages if k != state_key
+                                if state_key in _state.stale_pages:
+                                    _state.stale_pages = [
+                                        k for k in _state.stale_pages if k != state_key
                                     ]
-                                state.save(state_path)
+                                _state.save(state_path)
                                 out = None
                                 break
                             if (
@@ -2490,11 +2545,11 @@ async def _creative_comic(
                                 stricter_attempted = True
                                 prompt = render_finished_page_prompt(
                                     plan,
-                                    characters_by_name=state.characters,
-                                    settings_by_name=state.settings,
-                                    style_guide=effective_style,
+                                    characters_by_name=_state.characters,
+                                    settings_by_name=_state.settings,
+                                    style_guide=_style,
                                     strict=True,
-                                    visual_bible=state.visual_bible,
+                                    visual_bible=_state.visual_bible,
                                 )
                                 logger.warning(
                                     "page %s image failed (%s); retrying once with stricter prompt",
@@ -2504,11 +2559,11 @@ async def _creative_comic(
                                 continue
                             raise
                     if out is None:
-                        continue
+                        return
                     pages_dir.mkdir(parents=True, exist_ok=True)
                     blank_dir = pages_dir / "blank"
                     blank_dir.mkdir(parents=True, exist_ok=True)
-                    blank_path = _page_asset_path(blank_dir, ci, page_index)
+                    blank_path = _page_asset_path(blank_dir, _chunk_index, page_index)
                     await asyncio.to_thread(out.save, str(blank_path))
                     stored_render_key = render_page_action_key(
                         plan_json=_plan_json(plan),
@@ -2528,32 +2583,32 @@ async def _creative_comic(
                         name="blank.png",
                         data=blank_path.read_bytes(),
                     )
-                    local = _page_asset_path(pages_dir, ci, page_index)
+                    local = _page_asset_path(pages_dir, _chunk_index, page_index)
                     if (
                         _letter_resume_status(
                             blank_path,
                             local,
                             plan,
-                            chunk,
+                            _chunk,
                             output_dir,
                             resolved_size=active_size,
                         )
                         == "tombstone"
                     ):
-                        continue
+                        return
                     await asyncio.to_thread(
                         partial(
                             _letter_page_from_blank,
                             blank_path,
                             local,
                             plan,
-                            source_text=chunk,
+                            source_text=_chunk,
                             output_dir=output_dir,
                             resolved_size=active_size,
                         )
                     )
                     record_page_artifact(
-                        state,
+                        _state,
                         state_key,
                         GeneratedPage(
                             local=str(local),
@@ -2562,15 +2617,23 @@ async def _creative_comic(
                             resolved_size=active_size,
                             render_action_key=stored_render_key,
                             page_id=page_id,
-                            unit_index=ci,
+                            unit_index=_chunk_index,
                             page_index=page_index,
                             mode="finished_lettered",
                         ),
                     )
-                    if ledger.rebuild_from_state(state):
+                    if ledger.rebuild_from_state(_state):
                         ledger.save(ledger_path)
-                    state.save(state_path)
+                    _state.save(state_path)
                     _report("pages", _pct())
+
+                for page_node in render_nodes_by_chunk.get(ci, ()):
+                    _require_render_node(page_node)
+                    assert page_node.item_index is not None
+                    await _render_page_node(
+                        page_node.item_index, pageset.pages[page_node.item_index]
+                    )
+                    completed_render_nodes.add(page_node.node_id)
 
                 _mark_page_chunk_done_if_complete(state, key, pageset, ci)
                 ledger.rebuild_from_state(state)
