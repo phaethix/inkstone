@@ -136,6 +136,15 @@ Keep these prototypes only as migration material until they conform to the targe
 
 Per the [content-addressed pipeline design](architecture/2026-09-28-content-addressed-pipeline-design.md) §9.
 
+- **Local (2026-10-19, `main`):** Migration close-out. The legacy combined
+  fingerprint and `_PIPELINE_STATE_VERSION` are deleted; a `state.json`
+  without split fingerprints now takes the announced one-time recompute and
+  keeps its recorded human decisions. The one-time invalidation announcement
+  and the idempotency-probe verdict (§13 item 27: two identical requests
+  returned different bytes, so §8's duplicate-charge window stays open) are
+  recorded in [CHANGELOG.md](../CHANGELOG.md). Plan caches still live in
+  `state.json`; per-stage runners remain later work.
+
 - **Local (2026-10-19, `main`):** Two-phase ephemeral scheduler foundation.
   `core/pipelines/stage_scheduler.py` validates the in-memory plan/render/export
   graph and selects ready nodes in deterministic order. `creative_comic` drives
