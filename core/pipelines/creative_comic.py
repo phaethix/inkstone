@@ -102,7 +102,7 @@ from core.comic.identity import (
 )
 from core.comic.key_beats import beat_coverage_retry_note, uncovered_must_draw_beats
 from core.comic.layout import LayoutEngine, PanelImage, _line_height, _webtoon_max_pixels
-from core.comic.ledger import ConsistencyLedger
+from core.comic.ledger import ConsistencyLedger, ContinuityReviewPaused
 from core.comic.lettering_lang import (
     sanitize_lettering_text,
     scrub_lettering_panel,
@@ -1916,6 +1916,18 @@ async def _creative_comic(
         if phase == "plan":
             work_items = ((node.unit_index, chunks[node.unit_index]) for node in _plan_work_items())
         else:
+            # §12 invariant 11 (phase 5b): before any render work is expanded
+            # or dispatched, a character whose pending pages exceed the
+            # escalation threshold holds the batch for a human confirmation.
+            # Below the threshold the flag stays quiet — the ledger and the
+            # aggregated UI panel only, no stop, no pause.
+            if ledger.rebuild_from_state(state):
+                ledger.save(ledger_path)
+            escalated = ledger.escalated()
+            if escalated:
+                ledger.record_escalation_stop(output_dir)
+                state.save(state_path)
+                raise ContinuityReviewPaused(escalated)
             if mode == "finished_page":
                 render_nodes_by_chunk = _expand_page_render_nodes(render_graph, state, len(chunks))
             else:
