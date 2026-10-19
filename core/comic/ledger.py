@@ -9,10 +9,16 @@ and saved like ``state.json``, and it enters no ``action_key`` or fingerprint
 Phase 0d lands the schema, maintenance, and queries with zero quota.
 A recorded portrait stores its bytes in ``cas/`` and sets ``content_hash`` to
 that id. Ledgers written before that field stay ``None``.
+
+The escalation policy (phase 5b, §4 invariant 11) lives here too: below
+``LEDGER_ESCALATION_THRESHOLD`` a pending set is quiet (ledger and panel only);
+above it the render phase is held until ``confirm_review`` catches the reviewed
+version up.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 from datetime import datetime, timezone
@@ -20,7 +26,14 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from core.comic.runs import append_run
 from core.schemas import ProjectState
+
+# §4 invariant 11 / §13 item 18: a character's pending pages escalate to a
+# human confirmation only above this count — by default the same order as
+# ``gate.SAMPLE_GATE_SIZE``, held by a test. At or below it the flag stays
+# quiet: recorded in the ledger and shown in the aggregated panel only.
+LEDGER_ESCALATION_THRESHOLD = 30
 
 
 def _now_iso() -> str:
@@ -59,6 +72,53 @@ def _pages_by_character(state: ProjectState) -> dict[str, list[str]]:
                 if key not in bucket:
                     bucket.append(key)
     return out
+
+
+class ContinuityReviewPaused(Exception):
+    """The render phase is held until a human confirms an oversized pending set.
+
+    Raised at the plan→render boundary (§12 invariant 11, phase 5b): at least
+    one character's pending pages exceed ``LEDGER_ESCALATION_THRESHOLD``. The
+    pause is recoverable; a resume re-checks and stops again until
+    ``ConsistencyLedger.confirm_review`` catches ``reviewed_version`` up.
+    """
+
+    def __init__(self, escalated: dict[str, list[str]]) -> None:
+        self.escalated = {name: list(pages) for name, pages in escalated.items()}
+        detail = ", ".join(
+            f"{name} ({len(pages)} {'page' if len(pages) == 1 else 'pages'})"
+            for name, pages in sorted(self.escalated.items())
+        )
+        super().__init__(f"awaiting_human: continuity review pending for {detail}")
+
+
+def _last_ledger_stop(output_dir: Path) -> dict | None:
+    """The most recent continuity-review stop in ``runs.jsonl``, if any.
+
+    Used to keep §6's rule — a pause at an unchanged boundary appends no second
+    stop record — without adding a persisted field anywhere.
+    """
+    path = output_dir / "runs.jsonl"
+    if not path.is_file():
+        return None
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    for line in reversed(lines):
+        try:
+            record = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(record, dict):
+            continue
+        if (
+            record.get("kind") == "stop"
+            and record.get("stage") == "ledger"
+            and record.get("reason") == "continuity_review"
+        ):
+            return record
+    return None
 
 
 class ReferenceVersion(BaseModel):
@@ -211,6 +271,76 @@ class ConsistencyLedger(BaseModel):
             for name, entry in self.characters.items()
             if entry.pending_pages
         }
+
+    def escalated(self, threshold: int | None = None) -> dict[str, list[str]]:
+        """Characters whose pending set exceeds the escalation threshold (§4).
+
+        Strictly above: "exceed a threshold" and the quiet default both hold
+        only when the comparison is ``>``. ``threshold`` is for tests; the
+        production default lives in ``LEDGER_ESCALATION_THRESHOLD``.
+        """
+        limit = LEDGER_ESCALATION_THRESHOLD if threshold is None else threshold
+        return {
+            name: list(entry.pending_pages)
+            for name, entry in self.characters.items()
+            if len(entry.pending_pages) > limit
+        }
+
+    def confirm_review(self, name: str) -> bool:
+        """Accept a character's pending pages as they are (§12, phase 5b).
+
+        Raises ``reviewed_version`` to the current reference version and clears
+        ``pending_pages``. Returns whether anything changed; idempotent. This is
+        the write the escalation pause waits on: the pages stay, the review
+        closes.
+        """
+        entry = self.characters.get(name)
+        if entry is None:
+            return False
+        caught_up = entry.reviewed_version >= entry.reference.version
+        if caught_up and not entry.pending_pages:
+            return False
+        if not caught_up:
+            entry.reviewed_version = entry.reference.version
+        entry.pending_pages = []
+        entry.updated_at = _now_iso()
+        return True
+
+    def record_escalation_stop(
+        self,
+        output_dir: str | Path,
+        threshold: int | None = None,
+    ) -> bool:
+        """Append the §6 stop record for an escalated boundary, once per change.
+
+        The record is audit only and is never replayed. An unchanged boundary
+        (same pending counts and reference versions) appends no second record,
+        so an unconfirmed resume loop cannot pollute ``runs.jsonl``. Returns
+        whether a record was written.
+        """
+        limit = LEDGER_ESCALATION_THRESHOLD if threshold is None else threshold
+        characters = {
+            name: {"pending": len(entry.pending_pages), "version": entry.reference.version}
+            for name, entry in sorted(self.characters.items())
+            if len(entry.pending_pages) > limit
+        }
+        if not characters:
+            return False
+        out = Path(output_dir)
+        previous = _last_ledger_stop(out)
+        if previous is not None and previous.get("characters") == characters:
+            return False
+        append_run(
+            out,
+            {
+                "kind": "stop",
+                "stage": "ledger",
+                "reason": "continuity_review",
+                "characters": characters,
+                "ts": _now_iso(),
+            },
+        )
+        return True
 
     def rename_character(self, old: str, new: str) -> None:
         """Merge ``old``'s entry into ``new`` (alias merge, §12 rule 3)."""
