@@ -17,6 +17,7 @@ import requests
 
 from core.comic.budget import BudgetPaused, BudgetSpec
 from core.comic.gate import GatePaused
+from core.comic.ledger import ContinuityReviewPaused
 from core.config import run_deadline_hours, supervisor_backoff_base, supervisor_backoff_cap
 from core.pipelines.cancel import PipelineCancelled, check_cancel
 from core.pipelines.creative_comic import ComicProject, creative_comic
@@ -181,10 +182,10 @@ async def run_until_complete(
                 sample_gate_size=sample_gate_size,
                 density=density,
             )
-        except (BudgetPaused, GatePaused) as exc:
-            # A budget or sample-gate pause is terminal for this invocation.
-            # Retrying it as a transient upstream error would spin until the
-            # wall-clock deadline without issuing the held call.
+        except (BudgetPaused, GatePaused, ContinuityReviewPaused) as exc:
+            # A budget, sample-gate, or continuity-review pause is terminal for
+            # this invocation. Retrying it as a transient upstream error would
+            # spin until the wall-clock deadline without issuing the held call.
             elapsed = time.monotonic() - start
             logger.warning("run paused: %s", exc)
             return PausedRun(
