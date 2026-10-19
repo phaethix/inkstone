@@ -113,7 +113,7 @@ holds exactly the four heavy fields. Both files use the same atomic write
 |---|---|
 | pipeline `creative_comic` | full load; full saves except the nine render hot sites |
 | web `_load_project_state` (merge/dismiss, regen) | full load — unchanged; merge rewrites caches and its save must persist them |
-| web `_load_checkpoint_state` (progress seeding, pause snapshots) | `caches=False` |
+| web `_load_checkpoint_state` (progress seeding) | full load; falls back to `caches=False` when only the cache file is unreadable — the progress estimate reads the plan caches |
 | web `_load_timing_elapsed` legacy fallback | `caches=False` |
 | web `list_projects` | `caches=False` |
 | CLI `status` / `rebuild` / `gate` / `identity` / planned counts | full — unchanged (`_planned_counts` reads `page_cache`) |
@@ -200,3 +200,8 @@ restore from their manifests when the recomputed plan keys match.
 
 - 2026-10-19: initial design; settles §13 item 7's two-part contract and the
   scheduler slice's deferred plan-cache relocation.
+- 2026-10-19, implementation note: `_load_checkpoint_state` keeps the full load
+  and falls back to `caches=False` only when the cache file is the unreadable
+  one. The resume estimate reads `chunk_cache` / `page_cache` for its
+  denominator, so a blind projection read would have moved the resumed
+  progress bar.
