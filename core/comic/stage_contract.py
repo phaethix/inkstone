@@ -58,11 +58,14 @@ def _chat(stage: str, *hard: str) -> StageContract:
 _STAGES: dict[str, StageContract] = {
     "extract": _chat("extract", "source_chunk"),
     # The current bible is the one summary of earlier chunks. Prior chunk text
-    # is not an input. The character table is this project's identities.
+    # is not an input. The character table changes the prompt but is pinned out
+    # of the key: a recorded merge or a new name must not re-reconcile every
+    # earlier chunk. It is therefore a soft reference for identity purposes.
     "bible": StageContract(
         stage="bible",
         reads_accumulated=True,
-        hard_inputs=frozenset({"source_chunk", "character_table", "bible_summary"}),
+        hard_inputs=frozenset({"source_chunk", "bible_summary"}),
+        soft_refs=frozenset({"character_table"}),
         historical_limit=1,
     ),
     "beats": _chat("beats", "source_chunk"),

@@ -107,11 +107,15 @@ from core.comic.identity import (
 )
 from core.comic.key_beats import beat_coverage_retry_note, uncovered_must_draw_beats
 from core.comic.layout import LayoutEngine, PanelImage, _line_height, _webtoon_max_pixels
+from core.comic.layout_diversity import layout_diversity_instructions
 from core.comic.ledger import ConsistencyLedger, ContinuityReviewPaused
 from core.comic.lettering_lang import (
+    lettering_field_mismatches,
     sanitize_lettering_text,
+    sanitize_plan_lettering,
     scrub_lettering_panel,
     source_lettering_script,
+    strip_mismatched_lettering,
     strip_pinyin_glosses,
     truncate_lettering,
 )
@@ -130,6 +134,7 @@ from core.comic.page_lettering import (
     resolve_lettering_jobs,
 )
 from core.comic.page_prompt import render_finished_page_prompt
+from core.comic.review_packet import ReviewPacket
 from core.comic.runs import bind_audit, clear_audit, image_failure, image_intent
 from core.comic.segmentation import (
     detect_character_aliases,
@@ -160,18 +165,23 @@ from core.comic.visual_bible import (
     sanitize_visual_bible_state,
     sync_characters_from_bible,
 )
-from core.comic.voice import sanitize_plan_voice
+from core.comic.voice import sanitize_plan_voice, voice_timeline_plan_instructions
 from core.config import (
     ImageConfig,
     finished_page_size,
     l3_enabled,
     page_script_enabled,
+    review_packet_enabled,
 )
 from core.config import (
     data_dir as config_data_dir,
 )
+from core.config import (
+    genre as config_genre,
+)
 from core.config import render_mode as config_render_mode
 from core.density import PANELS_PER_CHUNK_B, DensityTier, get_density_plan
+from core.harness.spec import genre_block, harness_digest, validate_or_raise
 from core.perf import PerfCollector
 from core.pipelines.cancel import check_cancel
 from core.pipelines.stage_scheduler import PipelinePhase, StageGraph, WorkKind, WorkNode
@@ -191,6 +201,14 @@ from core.schemas import (
     VisualBibleReconcileResult,
 )
 from core.screenwriter import (
+    _budget_sentence,
+    _clip_page_plan,
+    build_beats_request,
+    build_bible_request,
+    build_extract_request,
+    build_page_plan_request,
+    build_page_script_request,
+    build_storyboard_request,
     extract_key_beats,
     extract_story_elements,
     is_content_policy_rejection,
@@ -792,12 +810,25 @@ def _sync_stored_panel_key(
         state.panels_done.remove(state_key)
 
 
-_EXTRACT_STAGE_SRC = stage_source_hash(extract_story_elements)
-_BEATS_STAGE_SRC = stage_source_hash(extract_key_beats)
-_BIBLE_STAGE_SRC = stage_source_hash(reconcile_visual_bible)
-_PAGE_PLAN_STAGE_SRC = stage_source_hash(plan_comic_pages)
-_STORYBOARD_STAGE_SRC = stage_source_hash(plan_storyboard)
-_PAGE_SCRIPT_STAGE_SRC = stage_source_hash(plan_page_script)
+_EXTRACT_STAGE_SRC = stage_source_hash(build_extract_request, extract_story_elements)
+_BEATS_STAGE_SRC = stage_source_hash(build_beats_request, extract_key_beats)
+_BIBLE_STAGE_SRC = stage_source_hash(build_bible_request, reconcile_visual_bible)
+_PAGE_PLAN_STAGE_SRC = stage_source_hash(
+    build_page_plan_request,
+    plan_comic_pages,
+    _clip_page_plan,
+    _budget_sentence,
+    source_lettering_script,
+    lettering_field_mismatches,
+    strip_mismatched_lettering,
+    sanitize_plan_lettering,
+    layout_diversity_instructions,
+    voice_timeline_plan_instructions,
+)
+_STORYBOARD_STAGE_SRC = stage_source_hash(
+    build_storyboard_request, plan_storyboard, assign_panel_beat_ids
+)
+_PAGE_SCRIPT_STAGE_SRC = stage_source_hash(build_page_script_request, plan_page_script)
 _PORTRAIT_STAGE_SRC = stage_source_hash(_portrait_key_material)
 _RENDER_PANEL_STAGE_SRC = stage_source_hash(_panel_key_material)
 _RENDER_PAGE_STAGE_SRC = stage_source_hash(render_finished_page_prompt)
@@ -856,12 +887,18 @@ def _page_script_plan(cache: ChunkCache | None, chunk: str, chat_model: str) -> 
         return False, ""
     elements = cache.elements if cache is not None else None
     board = cache.storyboard if cache is not None else None
+    key_request = (
+        build_page_script_request(board, StoryElements(), chunk, model=chat_model)
+        if board is not None
+        else None
+    )
     script_key = page_script_action_key(
         chunk=chunk,
         storyboard_json=_model_payload(board),
         elements_json=_page_script_elements(elements),
         env=chat_model,
         stage_src=_PAGE_SCRIPT_STAGE_SRC,
+        request_digest=key_request.digest() if key_request is not None else None,
     )
     if cache is not None and cache.page_script is not None:
         stored = cache.page_script_action_key
@@ -894,7 +931,13 @@ def _scrub_chunk_lettering(state: ProjectState, key: str, chunk: str) -> bool:
     return changed
 
 
-def _page_plan_key(chunk: str, beats, chat_model: str, beats_key: str) -> str:
+def _page_plan_key(
+    chunk: str,
+    beats,
+    chat_model: str,
+    beats_key: str,
+    request_digest: str | None = None,
+) -> str:
     return page_plan_action_key(
         chunk=chunk,
         beats_json=_beats_payload(beats),
@@ -902,6 +945,7 @@ def _page_plan_key(chunk: str, beats, chat_model: str, beats_key: str) -> str:
         history=historical_identity("page_plan"),
         env=chat_model,
         stage_src=_PAGE_PLAN_STAGE_SRC,
+        request_digest=request_digest,
     )
 
 
@@ -1838,6 +1882,10 @@ async def _creative_comic(
     panel_key_filter = set(panel_keys) if panel_keys is not None else None
     mode = render_mode or config_render_mode()
     page_size = finished_page_size()
+    # Fail before the first billable call when the harness or its genre is
+    # malformed. A broken component is a startup error, not a mid-book pause.
+    validate_or_raise()
+    genre_block(config_genre())
 
     perf = PerfCollector()
 
@@ -1993,6 +2041,20 @@ async def _creative_comic(
     sync_adaptation_plans(state, chunks)
     total_chunks = len(chunks) or 1
 
+    review = ReviewPacket(
+        output_dir,
+        project_id=project_id,
+        enabled=review_packet_enabled(),
+    )
+    review.start(
+        source=source_txt,
+        state=state,
+        genre=config_genre(),
+        harness_digest=harness_digest(),
+        render_mode=mode,
+        density=density_plan.tier,
+    )
+
     def _pct() -> float:
         return estimate_progress(state, total_chunks)
 
@@ -2092,8 +2154,13 @@ async def _creative_comic(
             cached = state.chunk_cache.get(key)
             board = cached.storyboard if cached else None
             elements = cached.elements if cached else None
+            extract_request = build_extract_request(chunk, model=snapshot.chat)
+            review.record("extract", ci, extract_request)
             extract_key = extract_action_key(
-                chunk=chunk, env=snapshot.chat, stage_src=_EXTRACT_STAGE_SRC
+                chunk=chunk,
+                env=snapshot.chat,
+                stage_src=_EXTRACT_STAGE_SRC,
+                request_digest=extract_request.digest(),
             )
             if elements is not None and cached is not None:
                 if cached.extract_action_key and cached.extract_action_key != extract_key:
@@ -2153,7 +2220,9 @@ async def _creative_comic(
                     _charge("extract", f"c{ci:04d}")
                     try:
                         with perf.measure("extract"):
-                            elements = await extract_story_elements(chunk, chat=chat)
+                            elements = await extract_story_elements(
+                                chunk, chat=chat, request=extract_request
+                            )
                     except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
                         if is_content_policy_rejection(exc):
                             logger.warning(
@@ -2198,11 +2267,27 @@ async def _creative_comic(
             hints = list(detect_character_aliases(state.characters, new_names))
             for name, cand, reason in hints:
                 offer_alias_suggestion(state, suggestion_from_alias(name, cand, reason))
+            # The character table, the bible prose, and the project style are
+            # deliberately pinned out of the key request: a recorded merge or a
+            # style change must not make every earlier chunk reconcile again.
+            # The digest still covers the system prompt, stage instructions,
+            # tool schema, and chunk.
+            bible_key_request = build_bible_request(
+                chunk,
+                {},
+                None,
+                alias_hints=(),
+                # preferred_style is not a declared hard input for bible: a
+                # project style change must not re-reconcile every chunk.
+                preferred_style="",
+                model=snapshot.chat,
+            )
             bible_key = bible_action_key(
                 chunk=chunk,
                 history=historical_identity("bible"),
                 env=snapshot.chat,
                 stage_src=_BIBLE_STAGE_SRC,
+                request_digest=bible_key_request.digest(),
             )
             stored_bible_key = state.bible_action_keys.get(key, "")
             needs_bible = state.visual_bible is None or fresh_extract or bool(new_names)
@@ -2230,6 +2315,15 @@ async def _creative_comic(
                 else:
                     _charge("bible", f"c{ci:04d}")
                     try:
+                        bible_request = build_bible_request(
+                            chunk,
+                            state.characters,
+                            state.visual_bible,
+                            alias_hints=hints,
+                            preferred_style=style_guide or elements.style_guide,
+                            model=snapshot.chat,
+                        )
+                        review.record("bible", ci, bible_request)
                         recon = await reconcile_visual_bible(
                             chunk,
                             state.characters,
@@ -2237,6 +2331,7 @@ async def _creative_comic(
                             alias_hints=hints,
                             preferred_style=style_guide or elements.style_guide,
                             chat=chat,
+                            request=bible_request,
                         )
                     except Exception as exc:  # noqa: BLE001 — reconcile is best-effort
                         logger.warning("visual bible reconcile failed (%s); continuing", exc)
@@ -2433,11 +2528,15 @@ async def _creative_comic(
             if mode == "finished_page":
                 if pageset is not None and state.visual_bible is not None:
                     pageset = rewrite_pageset_from_bible(pageset, state.visual_bible)
+                beats_request = build_beats_request(chunk, elements, model=snapshot.chat)
+                review.record("beats", ci, beats_request)
+                beats_key_request = build_beats_request(chunk, StoryElements(), model=snapshot.chat)
                 beats_key = beats_action_key(
                     chunk=chunk,
                     extract_key=extract_key,
                     env=snapshot.chat,
                     stage_src=_BEATS_STAGE_SRC,
+                    request_digest=beats_key_request.digest(),
                 )
                 cached_beats = state.beat_cache.get(key)
                 if cached_beats is not None:
@@ -2446,8 +2545,24 @@ async def _creative_comic(
                         pageset = None
                     elif not cached_beats.action_key:
                         cached_beats.action_key = beats_key
+                # The recent layout strings and the bible body are accumulated
+                # context: they must not cascade a key through the rest of the
+                # book. The key request pins them out; the sent request keeps them.
+                plan_key_request = build_page_plan_request(
+                    chunk,
+                    StoryElements(),
+                    recent_layouts=[],
+                    visual_bible=None,
+                    key_beats=state.beat_cache.get(key),
+                    panel_budget=density_plan.panels_per_chunk,
+                    model=snapshot.chat,
+                )
                 plan_key = _page_plan_key(
-                    chunk, state.beat_cache.get(key), snapshot.chat, beats_key
+                    chunk,
+                    state.beat_cache.get(key),
+                    snapshot.chat,
+                    beats_key,
+                    request_digest=plan_key_request.digest(),
                 )
                 if pageset is not None:
                     if pageset.action_key and pageset.action_key != plan_key:
@@ -2462,7 +2577,12 @@ async def _creative_comic(
                             if beats is None:
                                 _charge("beats", f"c{ci:04d}")
                                 try:
-                                    beats = await extract_key_beats(chunk, elements, chat=chat)
+                                    beats = await extract_key_beats(
+                                        chunk,
+                                        elements,
+                                        chat=chat,
+                                        request=beats_request,
+                                    )
                                     beats.action_key = beats_key
                                     state.beat_cache[key] = beats
                                     sync_adaptation_plans(state, chunks)
@@ -2474,6 +2594,16 @@ async def _creative_comic(
                                     )
                                     beats = None
                             _charge("page_plan", f"c{ci:04d}")
+                            plan_request = build_page_plan_request(
+                                chunk,
+                                planned_elements,
+                                recent_layouts=_recent_layout_intents(state),
+                                visual_bible=state.visual_bible,
+                                key_beats=beats,
+                                panel_budget=density_plan.panels_per_chunk,
+                                model=snapshot.chat,
+                            )
+                            review.record("page_plan", ci, plan_request)
                             pageset = await plan_comic_pages(
                                 chunk,
                                 planned_elements,
@@ -2483,6 +2613,7 @@ async def _creative_comic(
                                 key_beats=beats,
                                 panel_budget=density_plan.panels_per_chunk,
                                 enforce_budget=density_plan.tier != "B",
+                                request=plan_request,
                             )
                             if beats is not None:
                                 missing = uncovered_must_draw_beats(beats, pageset)
@@ -2517,8 +2648,21 @@ async def _creative_comic(
                         raise
                     if state.visual_bible is not None:
                         pageset = rewrite_pageset_from_bible(pageset, state.visual_bible)
+                    stored_plan_key_request = build_page_plan_request(
+                        chunk,
+                        StoryElements(),
+                        recent_layouts=[],
+                        visual_bible=None,
+                        key_beats=state.beat_cache.get(key),
+                        panel_budget=density_plan.panels_per_chunk,
+                        model=snapshot.chat,
+                    )
                     pageset.action_key = _page_plan_key(
-                        chunk, state.beat_cache.get(key), snapshot.chat, beats_key
+                        chunk,
+                        state.beat_cache.get(key),
+                        snapshot.chat,
+                        beats_key,
+                        request_digest=stored_plan_key_request.digest(),
                     )
                     state.page_cache[key] = pageset
                     _drop_pages_outside_plan(state, chunk_index=ci, page_count=len(pageset.pages))
@@ -2875,11 +3019,28 @@ async def _creative_comic(
             storyboard_cast = "\n".join(
                 sorted(character.name for character in planned_elements.characters)
             )
+            storyboard_beats = key_beats_for_chunk(state, key, chunks)
+            storyboard_request = build_storyboard_request(
+                chunk,
+                planned_elements,
+                key_beats=storyboard_beats,
+                panel_budget=density_plan.panels_per_chunk,
+                model=snapshot.chat,
+            )
+            review.record("storyboard", ci, storyboard_request)
+            storyboard_key_request = build_storyboard_request(
+                chunk,
+                StoryElements(),
+                key_beats=storyboard_beats,
+                panel_budget=density_plan.panels_per_chunk,
+                model=snapshot.chat,
+            )
             storyboard_key = storyboard_action_key(
                 chunk=chunk,
                 cast=storyboard_cast,
                 env=snapshot.chat,
                 stage_src=_STORYBOARD_STAGE_SRC,
+                request_digest=storyboard_key_request.digest(),
             )
             cached_chunk = state.chunk_cache.get(key)
             if board is not None and cached_chunk is not None:
@@ -2904,7 +3065,8 @@ async def _creative_comic(
                             chat=chat,
                             panel_budget=density_plan.panels_per_chunk,
                             enforce_budget=density_plan.tier != "B",
-                            key_beats=key_beats_for_chunk(state, key, chunks),
+                            key_beats=storyboard_beats,
+                            request=storyboard_request,
                         )
                 except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
                     if is_content_policy_rejection(exc):
@@ -2933,10 +3095,20 @@ async def _creative_comic(
             # ---- page-script ----
             # Optional legacy PageScript metadata (NOT a quality gate). Off by default.
             if _page_script_enabled() and script_missing:
+                page_script_request = build_page_script_request(
+                    board, planned_elements, chunk, model=snapshot.chat
+                )
+                review.record("page_script", ci, page_script_request)
                 _charge("page_script", f"c{ci:04d}")
                 try:
                     with perf.measure("page_script"):
-                        ps = await plan_page_script(board, planned_elements, chunk, chat=chat)
+                        ps = await plan_page_script(
+                            board,
+                            planned_elements,
+                            chunk,
+                            chat=chat,
+                            request=page_script_request,
+                        )
                 except Exception as exc:  # noqa: BLE001
                     if is_content_policy_rejection(exc):
                         logger.warning(
@@ -3261,7 +3433,9 @@ async def _creative_comic(
 
     state.save(state_path)
     if gate.awaiting and gate.project.paused_key is not None:
+        review.finish(state=state, source=source_txt, pages=pages)
         raise GatePaused(gate.project.paused_key)
+    review.finish(state=state, source=source_txt, pages=pages)
     _report("done", 1.0)
     perf.log_summary()
     return ComicProject(

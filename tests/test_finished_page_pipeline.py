@@ -13,6 +13,7 @@ from core.api import ChatProvider, ImageProvider
 from core.comic.cas import beats_action_key
 from core.comic.segmentation import segment_text
 from core.comic.structure_report import structural_report
+from core.density import PANELS_PER_CHUNK_B
 from core.pipelines import creative_comic as pipeline
 from core.pipelines.creative_comic import (
     _BEATS_STAGE_SRC,
@@ -21,8 +22,12 @@ from core.pipelines.creative_comic import (
     creative_comic,
     is_unsupported_image_size_error,
 )
-from core.schemas import ModelSnapshot, ProjectState
-from core.screenwriter import is_content_policy_rejection
+from core.schemas import ModelSnapshot, ProjectState, StoryElements
+from core.screenwriter import (
+    build_beats_request,
+    build_page_plan_request,
+    is_content_policy_rejection,
+)
 
 
 class FakeImageOutput:
@@ -836,11 +841,13 @@ def test_a_stored_beats_key_includes_the_extract_key(tmp_path, monkeypatch):
     )
     chunk = segment_text(src)[0]
     extract_key = proj.state.chunk_cache["0"].extract_action_key
+    key_request = build_beats_request(chunk, StoryElements(), model=proj.state.model_snapshot.chat)
     expected = beats_action_key(
         chunk=chunk,
         extract_key=extract_key,
         env=proj.state.model_snapshot.chat,
         stage_src=_BEATS_STAGE_SRC,
+        request_digest=key_request.digest(),
     )
     assert proj.state.beat_cache["0"].action_key == expected
 
@@ -853,11 +860,22 @@ def test_a_stored_page_plan_key_includes_the_beats_key(tmp_path, monkeypatch):
         creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage())
     )
     beats = proj.state.beat_cache["0"]
+    chunk = segment_text(src)[0]
+    key_request = build_page_plan_request(
+        chunk,
+        StoryElements(),
+        recent_layouts=[],
+        visual_bible=None,
+        key_beats=beats,
+        panel_budget=PANELS_PER_CHUNK_B,
+        model=proj.state.model_snapshot.chat,
+    )
     expected = _page_plan_key(
-        segment_text(src)[0],
+        chunk,
         beats,
         proj.state.model_snapshot.chat,
         beats.action_key,
+        request_digest=key_request.digest(),
     )
     assert proj.state.page_cache["0"].action_key == expected
 

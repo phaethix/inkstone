@@ -37,7 +37,7 @@ Repository = "https://github.com/phaethix/inkstone"
 "Bug Tracker" = "https://github.com/phaethix/inkstone/issues"
 
 [tool.setuptools]
-packages = ["core", "core.api", "core.comic", "core.pipelines", "utils"]
+packages = ["core", "core.api", "core.comic", "core.harness", "core.pipelines", "utils"]
 
 [tool.ruff]
 line-length = 100
@@ -53,3 +53,6 @@ known-first-party = ["core", "utils"]
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-q"
+
+[tool.setuptools.package-data]
+"core.harness" = ["data/*.json", "data/common/*.md", "data/stages/*.md", "data/genres/*.md"]

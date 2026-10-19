@@ -1,0 +1,70 @@
+{
+  "schema": 1,
+  "version": "2026-10-20",
+  "components": [
+    {
+      "id": "system",
+      "path": "common/system.md",
+      "kind": "invariant",
+      "max_chars": 8000
+    },
+    {
+      "id": "stage.extract",
+      "path": "stages/extract.md",
+      "kind": "stage",
+      "max_chars": 4000,
+      "slots": ["source_chunk"]
+    },
+    {
+      "id": "stage.beats",
+      "path": "stages/beats.md",
+      "kind": "stage",
+      "max_chars": 4000,
+      "slots": ["source_chunk", "elements_json"]
+    },
+    {
+      "id": "stage.bible",
+      "path": "stages/bible.md",
+      "kind": "stage",
+      "max_chars": 6000,
+      "slots": ["source_chunk", "characters_json", "current_bible_block", "bible_note", "alias_hints"]
+    },
+    {
+      "id": "stage.storyboard",
+      "path": "stages/storyboard.md",
+      "kind": "stage",
+      "max_chars": 5000,
+      "slots": ["source_chunk", "elements_json", "beats_blob", "budget_sentence", "domain"]
+    },
+    {
+      "id": "stage.page_plan",
+      "path": "stages/page_plan.md",
+      "kind": "stage",
+      "max_chars": 6000,
+      "slots": ["source_chunk", "elements_json", "beats_blob", "budget_sentence", "diversity", "voice", "lang_reminder", "note", "domain"]
+    },
+    {
+      "id": "stage.page_script",
+      "path": "stages/page_script.md",
+      "kind": "stage",
+      "max_chars": 5000,
+      "slots": ["source_chunk", "elements_json", "chapter_id", "board_json"]
+    },
+    {
+      "id": "genre.general",
+      "path": "genres/general.md",
+      "kind": "domain",
+      "max_chars": 2000
+    },
+    {
+      "id": "genre.wuxia",
+      "path": "genres/wuxia.md",
+      "kind": "domain",
+      "max_chars": 2000
+    }
+  ],
+  "genres": ["general", "wuxia"],
+  "caps": {
+    "genre_chars": 2000
+  }
+}

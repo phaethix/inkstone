@@ -22,6 +22,9 @@ from core.comic.lettering_lang import (
     strip_mismatched_lettering,
 )
 from core.comic.runs import note_chat_attempt, note_chat_failure
+from core.harness.request import ChatRequest
+from core.harness.spec import genre_block, render_stage, system_prompt
+from core.harness.tripwire import assert_no_quality_verdicts
 from core.schemas import (
     ComicPagePlanSet,
     KeyBeatSet,
@@ -38,6 +41,10 @@ logger = logging.getLogger(__name__)
 
 async def _audited_chat(chat, messages, tools, tool_choice):
     """Issue one forced call and audit it when a run has bound a scope."""
+    system_text = "\n".join(
+        str(message.get("content", "")) for message in messages if message.get("role") == "system"
+    )
+    assert_no_quality_verdicts(system_text=system_text, tools=tools)
     note_chat_attempt(json.dumps(messages, ensure_ascii=False))
     try:
         return await chat.chat_function_call(messages, tools, tool_choice)
@@ -46,33 +53,9 @@ async def _audited_chat(chat, messages, tools, tool_choice):
         raise
 
 
-SYSTEM_PROMPT = (
-    "You are a comic scriptwriter. Extract story elements and plan storyboards "
-    "as structured data. Every image prompt you write must target a manhua/comic "
-    "art style: clean black ink line art, soft cel shading, flat colors, and "
-    "cinematic panel composition. Follow content policy: depict characters decently; "
-    "avoid nudity, sexual content, smoking, graphic violence, or other prohibited themes. "
-    "Language rules: keep character names as they appear in the source text; "
-    "write every caption / dialogue / sfx line in the same language as "
-    "the source excerpt (do not translate Chinese source into English). "
-    "CRITICAL: Never mix lettering languages or translate source-language lettering. "
-    "Lettering: put narration/time-place in caption, spoken lines in dialogue, "
-    "and onomatopoeia in sfx — leave a field null when unused. "
-    "Art-direction fields (style_guide, scene_prompt, action, l1_prompt) may stay "
-    "in English when that helps image models. "
-    "Identity: Chinese nicknames with animal glyphs (虎妞, 凤姐, 豹子头) are usually "
-    "human metaphors — describe a human person in l1_prompt/portrait_prompt; never "
-    "an animal head or anthropomorphic beast unless the source explicitly says so. "
-    "When planning finished pages, describe manga geometry (splash/inset/diagonal), "
-    "never only 2x2 or 3x2 grids. "
-    "Source fidelity: when describing character appearance (hair, outfit, body "
-    "type, distinguishing features), every claim MUST be backed by a verbatim "
-    "quote from the source text. Provide the exact substring (≤ 25 Chinese chars "
-    "or ≤ 10 English words) and its character offset in the source excerpt via "
-    "appearance_evidence. Do not invent details the text does not state. If the "
-    "source is silent on a field, leave it empty and emit no evidence — it will "
-    "be flagged as unverified downstream."
-)
+# The invariant system prompt lives in ``core/harness/data/common/system.md``.
+# It is read once at import; a prompt edit is a file diff, not a buried string.
+SYSTEM_PROMPT = system_prompt()
 
 EXTRACT_TOOL = to_tool_schema(
     StoryElements,
@@ -116,6 +99,235 @@ def _tool_choice(name: str) -> dict:
     return {"type": "function", "function": {"name": name}}
 
 
+# Each builder is the single place a stage's messages, tools, and forced tool
+# choice are assembled. The pipeline builds the request once, sends it, and
+# uses ``request.digest()`` as the stage's cache identity — so a prompt or
+# schema edit can never hit a stale plan.
+
+
+def build_extract_request(text: str, *, model: str = "") -> ChatRequest:
+    """The extract request for one chunk."""
+    user = render_stage("extract", {"source_chunk": sanitize_text(text)})
+    return ChatRequest(
+        model=model,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user},
+        ],
+        tools=[EXTRACT_TOOL],
+        tool_choice=_tool_choice("extract_story_elements"),
+    )
+
+
+def build_beats_request(text: str, elements: StoryElements, *, model: str = "") -> ChatRequest:
+    """The key-beats request for one text unit."""
+    user = render_stage(
+        "beats",
+        {
+            "source_chunk": sanitize_text(text),
+            "elements_json": elements.model_dump_json(),
+        },
+    )
+    return ChatRequest(
+        model=model,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user},
+        ],
+        tools=[KEY_BEATS_TOOL],
+        tool_choice=_tool_choice("extract_key_beats"),
+    )
+
+
+def build_storyboard_request(
+    text: str,
+    elements: StoryElements,
+    *,
+    key_beats: KeyBeatSet | None = None,
+    panel_budget: int | None = None,
+    genre: str | None = None,
+    model: str = "",
+) -> ChatRequest:
+    """The storyboard request for one chunk."""
+    from core.config import genre as config_genre
+
+    domain = genre_block(genre if genre is not None else config_genre())
+    beats_blob = ""
+    if key_beats is not None and key_beats.beats:
+        beats_blob = (
+            "Key beats to stage (set beat_ids on the panels that show them):\n"
+            f"{key_beats.model_dump_json()}\n\n"
+        )
+    context = render_stage(
+        "storyboard",
+        {
+            "source_chunk": sanitize_text(text),
+            "elements_json": elements.model_dump_json(),
+            "beats_blob": beats_blob,
+            "budget_sentence": _budget_sentence(panel_budget),
+            "domain": domain,
+        },
+    )
+    return ChatRequest(
+        model=model,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": context},
+        ],
+        tools=[STORYBOARD_TOOL],
+        tool_choice=_tool_choice("plan_storyboard"),
+    )
+
+
+def build_page_plan_request(
+    text: str,
+    elements: StoryElements,
+    *,
+    recent_layouts: list[str] | None = None,
+    visual_bible=None,
+    key_beats: KeyBeatSet | None = None,
+    extra_user_note: str = "",
+    panel_budget: int | None = None,
+    genre: str | None = None,
+    model: str = "",
+) -> ChatRequest:
+    """The finished-page plan request for one chunk."""
+    from core.comic.layout_diversity import layout_diversity_instructions
+    from core.comic.voice import voice_timeline_plan_instructions
+    from core.config import genre as config_genre
+
+    domain = genre_block(genre if genre is not None else config_genre())
+
+    lang_reminder = (
+        "Reminder: caption / dialogue / sfx must match the source language "
+        "(if the excerpt is Chinese, lettering must be Chinese — never English translation). "
+        "Do NOT add pinyin, romanization, or latin glosses in parentheses. "
+        "Keep each caption/dialogue short (one breath). "
+        "Place lettering_boxes near panel edges — never covering faces; keep boxes fully "
+        "inside the page (0.05–0.95). "
+        "Also emit lettering_boxes: normalized 0-1 page rectangles "
+        "(kind, panel_id, x, y, w, h) for every non-null lettering field."
+    )
+    diversity = layout_diversity_instructions(recent_layouts)
+    voice = voice_timeline_plan_instructions(visual_bible)
+    beats_blob = ""
+    if key_beats is not None and key_beats.beats:
+        beats_blob = (
+            "Key beats to cover (set covers_beats on staging pages):\n"
+            f"{key_beats.model_dump_json()}\n\n"
+        )
+    note = f"\n\n{extra_user_note}" if extra_user_note else ""
+    user = render_stage(
+        "page_plan",
+        {
+            "source_chunk": sanitize_text(text),
+            "elements_json": elements.model_dump_json(),
+            "beats_blob": beats_blob,
+            "budget_sentence": _budget_sentence(panel_budget),
+            "diversity": diversity,
+            "voice": voice,
+            "lang_reminder": lang_reminder,
+            "note": note,
+            "domain": domain,
+        },
+    )
+    return ChatRequest(
+        model=model,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user},
+        ],
+        tools=[PAGE_PLAN_TOOL],
+        tool_choice=_tool_choice("plan_comic_pages"),
+    )
+
+
+def build_bible_request(
+    text: str,
+    state_characters: dict,
+    bible: VisualBible | None,
+    *,
+    alias_hints: list[tuple[str, str, str]] = (),
+    preferred_style: str = "",
+    model: str = "",
+) -> ChatRequest:
+    """The visual-bible reconcile request for one chunk."""
+    char_blob = json.dumps(
+        {k: v.model_dump() for k, v in state_characters.items()},
+        ensure_ascii=False,
+    )
+    hints_blob = (
+        "\n".join(f"- {alias} → {canonical} ({reason})" for alias, canonical, reason in alias_hints)
+        or "(none)"
+    )
+    if bible is None:
+        style_hint = (
+            f" Use preferred_style={preferred_style!r} for style_guide when non-empty."
+            if preferred_style
+            else ""
+        )
+        bible_note = (
+            "No visual bible yet. Fill style_guide, color (4–6 palette swatches), "
+            f"and full canons for every canonical character.{style_hint}"
+        )
+        bible_blob = ""
+    else:
+        bible_note = (
+            "Existing visual bible below. Keep the existing color palette unless "
+            "color_patches are clearly justified. Still return merges/stages/keeps "
+            "for any new names."
+        )
+        bible_blob = bible.model_dump_json()
+    current_bible_block = f"Current visual bible:\n{bible_blob}\n\n" if bible_blob else ""
+    user = render_stage(
+        "bible",
+        {
+            "source_chunk": sanitize_text(text),
+            "characters_json": char_blob,
+            "current_bible_block": current_bible_block,
+            "bible_note": bible_note,
+            "alias_hints": hints_blob,
+        },
+    )
+    return ChatRequest(
+        model=model,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user},
+        ],
+        tools=[RECONCILE_BIBLE_TOOL],
+        tool_choice=_tool_choice("reconcile_visual_bible"),
+    )
+
+
+def build_page_script_request(
+    board: Storyboard,
+    elements: StoryElements,
+    chunk: str,
+    *,
+    model: str = "",
+) -> ChatRequest:
+    """The optional legacy PageScript request for one chunk."""
+    context = render_stage(
+        "page_script",
+        {
+            "source_chunk": sanitize_text(chunk),
+            "elements_json": elements.model_dump_json(),
+            "chapter_id": board.chapter_id,
+            "board_json": board.model_dump_json(),
+        },
+    )
+    return ChatRequest(
+        model=model,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": context},
+        ],
+        tools=[PAGE_SCRIPT_TOOL],
+        tool_choice=_tool_choice("plan_page_script"),
+    )
+
+
 def sanitize_text(
     text: str,
     banned: "list[str] | tuple[str, ...]" = DEFAULT_BANNED_TERMS,
@@ -150,19 +362,16 @@ def is_content_policy_rejection(exc: Exception) -> bool:
     return any(k in text for k in ("content_policy", "content policy", "policy_violation"))
 
 
-async def extract_story_elements(text: str, *, chat=None) -> StoryElements:
+async def extract_story_elements(
+    text: str,
+    *,
+    chat=None,
+    request: ChatRequest | None = None,
+) -> StoryElements:
     """Extract characters / settings / style from ``text`` via forced call."""
     chat = chat or get_chat_provider()
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": sanitize_text(text)},
-    ]
-    args = await _audited_chat(
-        chat,
-        messages,
-        [EXTRACT_TOOL],
-        _tool_choice("extract_story_elements"),
-    )
+    request = request or build_extract_request(text, model=getattr(chat, "model", ""))
+    args = await _audited_chat(chat, request.messages, request.tools, request.tool_choice)
     return StoryElements.model_validate(args)
 
 
@@ -214,35 +423,18 @@ async def plan_storyboard(
     panel_budget: int | None = None,
     enforce_budget: bool = False,
     key_beats: KeyBeatSet | None = None,
+    request: ChatRequest | None = None,
 ) -> Storyboard:
     """Plan the panels for ``text`` given already-extracted ``elements``."""
     chat = chat or get_chat_provider()
-    beats_blob = ""
-    if key_beats is not None and key_beats.beats:
-        beats_blob = (
-            "Key beats to stage (set beat_ids on the panels that show them):\n"
-            f"{key_beats.model_dump_json()}\n\n"
-        )
-    context = (
-        f"{sanitize_text(text)}\n\n"
-        "Extracted story elements (reuse these names and descriptions):\n"
-        f"{elements.model_dump_json()}\n\n"
-        f"{beats_blob}"
-        f"{_budget_sentence(panel_budget)}"
-        "Reminder: caption / dialogue / sfx must match the source language "
-        "(if the excerpt is Chinese, lettering must be Chinese — never English translation). "
-        "Split narration into caption, speech into dialogue, and onomatopoeia into sfx."
+    request = request or build_storyboard_request(
+        text,
+        elements,
+        key_beats=key_beats,
+        panel_budget=panel_budget,
+        model=getattr(chat, "model", ""),
     )
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": context},
-    ]
-    args = await _audited_chat(
-        chat,
-        messages,
-        [STORYBOARD_TOOL],
-        _tool_choice("plan_storyboard"),
-    )
+    args = await _audited_chat(chat, request.messages, request.tools, request.tool_choice)
     board = Storyboard.model_validate(args)
     if panel_budget is not None and enforce_budget:
         board = board.model_copy(update={"panels": board.panels[:panel_budget]})
@@ -254,28 +446,17 @@ async def plan_storyboard(
     return board
 
 
-async def extract_key_beats(text: str, elements: StoryElements, *, chat=None) -> KeyBeatSet:
+async def extract_key_beats(
+    text: str,
+    elements: StoryElements,
+    *,
+    chat=None,
+    request: ChatRequest | None = None,
+) -> KeyBeatSet:
     """Extract must-draw dramatizable beats for a text unit."""
     chat = chat or get_chat_provider()
-    user = (
-        f"{sanitize_text(text)}\n\n"
-        f"Known elements:\n{elements.model_dump_json()}\n\n"
-        "Extract key beats: dramatizable turning points that a comic must SHOW "
-        "(environment + body action), not only narrate in captions. "
-        "Prefer 4–12 beats. Each beat needs beat_id (short slug), summary, "
-        "must_draw=true for critical ones, optional characters and setting_hint. "
-        "Do not invent novel-specific fixed lists — derive from this excerpt only."
-    )
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user},
-    ]
-    args = await _audited_chat(
-        chat,
-        messages,
-        [KEY_BEATS_TOOL],
-        _tool_choice("extract_key_beats"),
-    )
+    request = request or build_beats_request(text, elements, model=getattr(chat, "model", ""))
+    args = await _audited_chat(chat, request.messages, request.tools, request.tool_choice)
     return KeyBeatSet.model_validate(args)
 
 
@@ -290,54 +471,22 @@ async def plan_comic_pages(
     extra_user_note: str = "",
     panel_budget: int | None = None,
     enforce_budget: bool = False,
+    request: ChatRequest | None = None,
 ) -> ComicPagePlanSet:
     """Plan finished readable pages for ``text`` given ``elements``."""
-    from core.comic.layout_diversity import layout_diversity_instructions
-    from core.comic.voice import voice_timeline_plan_instructions
-
     chat = chat or get_chat_provider()
     script = source_lettering_script(text)
-    lang_reminder = (
-        "Reminder: caption / dialogue / sfx must match the source language "
-        "(if the excerpt is Chinese, lettering must be Chinese — never English translation). "
-        "Do NOT add pinyin, romanization, or latin glosses in parentheses. "
-        "Keep each caption/dialogue short (one breath). "
-        "Place lettering_boxes near panel edges — never covering faces; keep boxes fully "
-        "inside the page (0.05–0.95). "
-        "Also emit lettering_boxes: normalized 0-1 page rectangles "
-        "(kind, panel_id, x, y, w, h) for every non-null lettering field."
+    request = request or build_page_plan_request(
+        text,
+        elements,
+        recent_layouts=recent_layouts,
+        visual_bible=visual_bible,
+        key_beats=key_beats,
+        extra_user_note=extra_user_note,
+        panel_budget=panel_budget,
+        model=getattr(chat, "model", ""),
     )
-    diversity = layout_diversity_instructions(recent_layouts)
-    voice = voice_timeline_plan_instructions(visual_bible)
-    beats_blob = ""
-    if key_beats is not None and key_beats.beats:
-        beats_blob = (
-            "Key beats to cover (set covers_beats on staging pages):\n"
-            f"{key_beats.model_dump_json()}\n\n"
-        )
-    note = f"\n\n{extra_user_note}" if extra_user_note else ""
-    user = (
-        f"{sanitize_text(text)}\n\n"
-        f"Known elements:\n{elements.model_dump_json()}\n\n"
-        f"{beats_blob}"
-        "Plan finished readable pages (not a flat 2x2 collage). "
-        f"{_budget_sentence(panel_budget)}"
-        "Each page needs purpose, layout_intent, panels, and lettering_boxes. "
-        f"{diversity}"
-        f"{voice}"
-        f"{lang_reminder}"
-        f"{note}"
-    )
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user},
-    ]
-    args = await _audited_chat(
-        chat,
-        messages,
-        [PAGE_PLAN_TOOL],
-        _tool_choice("plan_comic_pages"),
-    )
+    args = await _audited_chat(chat, request.messages, request.tools, request.tool_choice)
     pageset = ComicPagePlanSet.model_validate(args)
 
     def _any_mismatch(plan_set: ComicPagePlanSet) -> bool:
@@ -348,19 +497,10 @@ async def plan_comic_pages(
             "plan_comic_pages language mismatch; retrying once (script=%s)",
             script,
         )
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": user + "\n\nCRITICAL: previous plan mixed languages. Fix lettering now.",
-            },
-        ]
-        args = await _audited_chat(
-            chat,
-            messages,
-            [PAGE_PLAN_TOOL],
-            _tool_choice("plan_comic_pages"),
+        retry = request.with_user_suffix(
+            "\n\nCRITICAL: previous plan mixed languages. Fix lettering now."
         )
+        args = await _audited_chat(chat, retry.messages, retry.tools, retry.tool_choice)
         pageset = ComicPagePlanSet.model_validate(args)
 
     if script in ("cjk", "latin"):
@@ -389,74 +529,19 @@ async def reconcile_visual_bible(
     alias_hints: list[tuple[str, str, str]] = (),
     preferred_style: str = "",
     chat=None,
+    request: ChatRequest | None = None,
 ) -> VisualBibleReconcileResult:
     """Build or update the project visual bible from chunk text and known characters."""
     chat = chat or get_chat_provider()
-    char_blob = json.dumps(
-        {k: v.model_dump() for k, v in state_characters.items()},
-        ensure_ascii=False,
+    request = request or build_bible_request(
+        text,
+        state_characters,
+        bible,
+        alias_hints=alias_hints,
+        preferred_style=preferred_style,
+        model=getattr(chat, "model", ""),
     )
-    hints_blob = (
-        "\n".join(f"- {alias} → {canonical} ({reason})" for alias, canonical, reason in alias_hints)
-        or "(none)"
-    )
-    if bible is None:
-        style_hint = (
-            f" Use preferred_style={preferred_style!r} for style_guide when non-empty."
-            if preferred_style
-            else ""
-        )
-        bible_note = (
-            "No visual bible yet. Fill style_guide, color (4–6 palette swatches), "
-            f"and full canons for every canonical character.{style_hint}"
-        )
-        bible_blob = ""
-    else:
-        bible_note = (
-            "Existing visual bible below. Keep the existing color palette unless "
-            "color_patches are clearly justified. Still return merges/stages/keeps "
-            "for any new names."
-        )
-        bible_blob = bible.model_dump_json()
-    instructions = (
-        "Reconcile character identities for the visual bible.\n"
-        "- Prefer merging pronouns/descriptive labels for the same person "
-        "(男人（被叙述者）, 他（被爱者）, 李先生, R·) into one canonical.\n"
-        "- Age variants → stages under one canonical, not new root characters.\n"
-        "- Use confidence=high only when clearly the same person; otherwise low.\n"
-        "- Never invent English prose character names "
-        "(no 'man with dark hair, wearing a jacket').\n"
-        "- Never high-merge incompatible roles "
-        "(mother≠daughter, count≠novelist, servant≠master).\n"
-        "- Never high-merge conflicting genders (male≠female) or "
-        "letter_reader↔letter_writer.\n"
-        "- Fill project era once (e.g. 'Vienna c.1900–1910' or 'contemporary China') "
-        "and keep it stable across chunks; set era_forbidden_wardrobe when helpful.\n"
-        "- Every canon must include gender (male/female/nonbinary/unknown) and "
-        "narrative_function (letter_reader/letter_writer/protagonist/love_interest/"
-        "servant/parent/child/extra).\n"
-        "- Always fill face_lock, hair_lock, outfit_lock, and age_look for every stage.\n"
-        "- For historical eras use period wardrobe only — never hoodies, sneakers, "
-        "or athleisure.\n"
-        "- portrait_key must be short form {canonical_name}@{stage} only "
-        "(e.g. R@adult), never prose.\n"
-        f"- {bible_note}\n"
-        f"String alias hints:\n{hints_blob}"
-    )
-    user = f"{sanitize_text(text)}\n\nKnown character assets:\n{char_blob}\n\n"
-    if bible_blob:
-        user += f"Current visual bible:\n{bible_blob}\n\n"
-    user += instructions
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user},
-    ]
-    args = await _audited_chat(
-        chat,
-        messages,
-        [RECONCILE_BIBLE_TOOL],
-        _tool_choice("reconcile_visual_bible"),
-    )
+    args = await _audited_chat(chat, request.messages, request.tools, request.tool_choice)
     return VisualBibleReconcileResult.model_validate(args)
 
 
@@ -469,7 +554,12 @@ PAGE_SCRIPT_TOOL = to_tool_schema(
 
 
 async def plan_page_script(
-    board: Storyboard, elements: StoryElements, chunk: str, *, chat=None
+    board: Storyboard,
+    elements: StoryElements,
+    chunk: str,
+    *,
+    chat=None,
+    request: ChatRequest | None = None,
 ) -> PageScript:
     """为 storyboard 后的单个 chunk 生成可选遗留 PageScript 审计元数据（page-script 阶段）。
 
@@ -480,22 +570,10 @@ async def plan_page_script(
     （模型偏移略偏也不破坏一致性）。产物仅供原型审计，不是可读性/质量闸门。
     """
     chat = chat or get_chat_provider()
-    context = (
-        f"{sanitize_text(chunk)}\n\n"
-        "Extracted story elements:\n"
-        f"{elements.model_dump_json()}\n\n"
-        f"Storyboard (chapter_id={board.chapter_id}):\n"
-        f"{board.model_dump_json()}\n\n"
-        "Instructions: group consecutive panels into layout pages (≈4 panels/page, "
-        "in source order); emit one PageScriptPage per page with panel_ids; fill "
-        "required_information / causal_links / source_spans quoted VERBATIM from the "
-        "chunk text (char offsets into the chunk)."
+    request = request or build_page_script_request(
+        board, elements, chunk, model=getattr(chat, "model", "")
     )
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": context},
-    ]
-    args = await _audited_chat(chat, messages, [PAGE_SCRIPT_TOOL], _tool_choice("plan_page_script"))
+    args = await _audited_chat(chat, request.messages, request.tools, request.tool_choice)
     ps = PageScript.model_validate(args)
     # 服务端反推 span.text，保证与 chunk 切片自洽（模型偏移略偏也不破坏一致性）。
     for page in ps.pages:

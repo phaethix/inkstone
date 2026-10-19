@@ -75,7 +75,8 @@ def test_bible_reads_one_summary_rather_than_earlier_chunks():
     contract = stage_contract("bible")
     assert contract.reads_accumulated is True
     assert contract.historical_limit == 1
-    assert contract.hard_inputs == frozenset({"source_chunk", "character_table", "bible_summary"})
+    assert contract.hard_inputs == frozenset({"source_chunk", "bible_summary"})
+    assert contract.soft_refs == frozenset({"character_table"})
     assert "visual_bible" not in contract.hard_inputs
     identity = historical_identity("bible")
     blob = json.dumps(identity)
