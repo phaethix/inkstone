@@ -68,6 +68,9 @@ Keep these prototypes only as migration material until they conform to the targe
 
 ### P0 — Make the current state honest and deterministic
 
+- **Local (2026-10-20, `main`):** Four more specs on the runner (`letter`,
+  `layout`, `export` PDF and CBZ). Each keeps its own key derivation; only the
+  replay check and the manifest write moved.
 - **Local (2026-10-20, `main`):** Per-stage runner. `core/pipelines/stage_runner.py`
   implements the four properties §9 states, with the action key passed in rather
   than derived, the manifest stage resolved from `stage_registry` (so `webtoon`
