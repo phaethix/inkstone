@@ -1562,6 +1562,28 @@ def _mark_page_chunk_done_if_complete(
         state.chunks_done.append(key)
 
 
+def clear_stale_bible_stamps(state: ProjectState) -> bool:
+    """Drop ``bible_action_keys`` when the bible body they described is gone.
+
+    A stamp is a claim: "this chunk was reconciled against exactly this key, and
+    here is the body that came out". With ``visual_bible`` missing the second
+    half is false, so the stamp is a leftover that outlives its subject.
+
+    The rule is not what makes a lost bible recover. ``needs_bible`` already
+    includes ``state.visual_bible is None``, so the stage re-fetches either way.
+    What the rule prevents is the *stamp* being read as evidence in a later run:
+    the stage consults ``bible_action_keys`` before it consults any manifest, so
+    a stale entry is the one path by which a body that no longer exists is
+    treated as already reconciled.
+
+    Returns whether anything was cleared, so a caller can decide to save.
+    """
+    if state.visual_bible is not None or not state.bible_action_keys:
+        return False
+    state.bible_action_keys = {}
+    return True
+
+
 def _soft_invalidate_render(state: ProjectState) -> None:
     """Drop render-owned assets while keeping structural chat caches.
 
@@ -2104,6 +2126,11 @@ async def _creative_comic(
             state = persisted
     else:
         state = _fresh_state()
+    # A stamp describes a bible body. If the body is gone, the stamps are
+    # leftovers from the run that wrote it; clear them before the bible stage
+    # reads them. §Task 2 step 3.
+    if clear_stale_bible_stamps(state):
+        state.save(state_path)
     state.density = density_plan.tier
     state.panels_per_chunk = density_plan.panels_per_chunk
     state.source_units = source_units(source_txt)

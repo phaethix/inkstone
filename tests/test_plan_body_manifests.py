@@ -8,9 +8,10 @@ import asyncio
 from pathlib import Path
 from unittest.mock import patch
 
+import core.pipelines.creative_comic as creative_comic_module
 from core.comic.cas import verify
-from core.pipelines.creative_comic import creative_comic
-from core.schemas import ProjectState
+from core.pipelines.creative_comic import clear_stale_bible_stamps, creative_comic
+from core.schemas import ColorBible, ProjectState, VisualBible
 from tests.test_finished_page_pipeline import FakeChat, FakeImage, _fake_export_pdf
 
 _SRC = "第一章\n福贵在村口。"
@@ -73,8 +74,8 @@ def test_cache_loss_restores_extract_and_bible_bodies(tmp_path: Path, monkeypatc
     proj2 = asyncio.run(creative_comic(_SRC, output_dir=str(tmp_path), chat=chat2, image=img2))
 
     # Extract and bible bodies were restored from manifests: neither stage called
-    # the provider (beats/page_plan are not yet manifest-backed and still call,
-    # which is expected in this slice).
+    # the provider. Beats and page plans are manifest-backed too (Task 3), so they
+    # restore as well; page renders come from the finished-page cache.
     assert not chat2.called(_EXTRACT_TOOL), f"extract called: {chat2.tool_names}"
     assert not chat2.called(_BIBLE_TOOL), f"bible called: {chat2.tool_names}"
 
@@ -97,15 +98,107 @@ def test_cache_loss_restores_extract_and_bible_bodies(tmp_path: Path, monkeypatc
     assert proj2.state.visual_bible is not None
     assert proj2.state.visual_bible.content_hash == pre_bible.content_hash
 
-    # bible_action_keys was repopulated (stamp rule cleared it at run start because
-    # visual_bible was None; the bible manifest restore put it back)
-    assert len(proj2.state.bible_action_keys) > 0
-    # The repopulated stamps match the original values
-    assert proj2.state.bible_action_keys == pre_bible_keys
+    # bible_action_keys was repopulated by the bible stage on this resume. The
+    # stamps match the original values because the key is a pure function of the
+    # chunk, history, and request digest, all of which are unchanged.
+    got = proj2.state.bible_action_keys
+    assert got, "the bible stage left no stamps"
+    assert got == pre_bible_keys
 
     # The restored bible replay must NOT wipe pages_done:
     # the invalidation guard is suppressed when the reconcile came from a manifest
     assert proj2.state.pages_done == pre_pages_done
+
+
+def _bible(**overrides):
+    payload = {
+        "version": "bible_v1",
+        "style_guide": "",
+        "color": ColorBible(palette=[], lighting="", forbidden=[]),
+        "characters": {},
+        "sheet_ref_local": None,
+    }
+    payload.update(overrides)
+    return VisualBible(**payload)
+
+
+def test_a_lost_bible_clears_the_stamps_that_described_it():
+    """A stamp describes a bible body. With the body gone the stamp lies.
+
+    ``state.visual_bible is None`` already forces ``needs_bible``, so this rule
+    does not rescue a restore on its own. What it prevents is a *stamp* outliving
+    the body it describes: the stage reads ``bible_action_keys`` before it reads
+    any manifest, and a leftover key is how a later run would decide a chunk was
+    already reconciled against a body that no longer exists.
+    """
+    state = ProjectState(project_id="p", bible_action_keys={"0": "sha256:aaa"})
+    state.visual_bible = None
+
+    assert clear_stale_bible_stamps(state) is True
+    assert state.bible_action_keys == {}
+
+
+def test_a_live_bible_keeps_its_stamps():
+    """Clearing stamps on every run would make each chunk reconcile again."""
+    state = ProjectState(project_id="p", bible_action_keys={"0": "sha256:aaa"})
+    state.visual_bible = _bible()
+
+    assert clear_stale_bible_stamps(state) is False
+    assert state.bible_action_keys == {"0": "sha256:aaa"}
+
+
+def test_clearing_a_stamp_twice_is_idempotent():
+    """The rule runs once per run; a second pass must report no change."""
+    state = ProjectState(project_id="p", bible_action_keys={"0": "sha256:aaa"})
+    state.visual_bible = None
+
+    assert clear_stale_bible_stamps(state) is True
+    assert clear_stale_bible_stamps(state) is False
+
+
+def test_a_lost_bible_with_no_stamps_changes_nothing():
+    """A fresh project has neither body nor stamps; the rule stays quiet."""
+    state = ProjectState(project_id="p", bible_action_keys={})
+    state.visual_bible = None
+
+    assert clear_stale_bible_stamps(state) is False
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_the_stamp_rule_runs_before_the_bible_stage(tmp_path: Path, monkeypatch) -> None:
+    """A lost body must not leave its stamps visible to the stage that reads them.
+
+    Pinned at the pipeline level because the rule is only useful if it runs at
+    run start: anywhere later and the stage has already consulted the stamps.
+    """
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+    chat, img = FakeChat(), FakeImage()
+    asyncio.run(creative_comic(_SRC, output_dir=str(tmp_path), chat=chat, image=img))
+
+    pre = ProjectState.load(tmp_path / "state.json")
+    assert pre.bible_action_keys
+
+    # Lose the body, keep the stamps: what a partial write leaves behind.
+    pre.visual_bible = None
+    pre.save(tmp_path / "state.json")
+
+    observed: list[dict[str, str]] = []
+    original = creative_comic_module.bible_action_key
+
+    def spy(**kwargs):
+        observed.append(dict(ProjectState.load(tmp_path / "state.json").bible_action_keys))
+        return original(**kwargs)
+
+    monkeypatch.setattr(creative_comic_module, "bible_action_key", spy)
+
+    chat2, img2 = RecordingChat(), FakeImage()
+    proj2 = asyncio.run(creative_comic(_SRC, output_dir=str(tmp_path), chat=chat2, image=img2))
+
+    assert observed, "the bible stage never ran"
+    # Every consult of the stage found the stamps already cleared.
+    assert observed[0] == {}
+    # The reconcile that then ran restamped its chunks.
+    assert proj2.state.bible_action_keys
 
 
 @patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
