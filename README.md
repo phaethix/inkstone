@@ -164,11 +164,16 @@ inkstone experiment plan \
   --candidate path/to/candidate \
   --out experiments/wuxia-a
 inkstone experiment pick --run experiments/wuxia-a --choice A --why "clearer staging"
+inkstone experiment compose --run experiments/wuxia-a --choice A --out harness/wuxia-a
 ```
 
 The experiment writes an anonymised `candidates/A|B/` packet and a
 `selection.json`. `--candidate` can be repeated; `base` means the builtin tree.
-The MVP probes `page_plan` only and never draws a page.
+By default each candidate runs extract + key beats + page plan (no image calls);
+pass `--shared-evidence` for the cheaper page_plan-only probe. `compose` copies
+the picked tree, optionally merging named components from another candidate
+(`--merge-from B --component stage.page_plan`), validates it, and never
+overwrites the builtin tree.
 
 The local Web UI has an **A/B** tab for the same experiments: it lists the
 packets under `INKSTONE_EXPERIMENTS_DIR` (default `comic_out/experiments`),

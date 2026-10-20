@@ -67,6 +67,14 @@ Keep these prototypes only as migration material until they conform to the targe
 
 ### P0 — Make the current state honest and deterministic
 
+- **Local (2026-10-20, `main`):** Candidate-level A/B + compose. The default
+  experiment now runs extract/beats/page_plan under each candidate;
+  `--shared-evidence` keeps the cheaper page_plan-only probe.
+  `inkstone experiment compose` adopts the picked tree and can merge named
+  components from another candidate; the result is validated in staging before
+  it is moved into place, and `compose.json` / `ADOPTION.md` record the choice.
+  Regression: `tests/test_experiment.py`. Next: sequential recursion /
+  project-level harness override; the Web card still only selects, not composes.
 - **Local (2026-10-20, `main`):** Web A/B card. The local UI has an A/B tab that
   lists `INKSTONE_EXPERIMENTS_DIR`, shows anonymised plans and structure reports,
   and records a pick + required `why` through the same `selection.json` writer

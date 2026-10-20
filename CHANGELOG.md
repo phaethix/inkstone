@@ -27,6 +27,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   you intend to re-plan every stage.
 
 ### Added
+- Candidate-level A/B planning: by default each candidate now runs
+  `extract`, `key_beats`, and `page_plan` under its own harness, so the probe
+  compares the whole planning path. `--shared-evidence` keeps the cheaper
+  page_plan-only probe (4 chat calls for base + one candidate instead of 6).
+- `inkstone experiment compose --run <dir> --choice A --out <harness-dir>`
+  materialises the picked candidate; `--merge-from B --component
+  stage.page_plan` takes named components from another candidate. The tree is
+  copied to staging, merged explicitly, validated with `Harness.validate()`,
+  and only then moved into place. It writes `compose.json` + `ADOPTION.md`,
+  marks the experiment `composed`, and never overwrites the builtin tree or
+  an existing output directory.
 - Web A/B card: the local UI lists experiments under
   `INKSTONE_EXPERIMENTS_DIR` (default `comic_out/experiments`), shows both
   anonymised plans plus their structure reports, keeps candidate labels hidden,
