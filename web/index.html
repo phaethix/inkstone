@@ -468,6 +468,41 @@
     }
     .exp-why:focus { outline: none; border-color: var(--border-strong); }
     .exp-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+    .btn-sm { padding: 7px 14px; font-size: 12px; }
+    .ledger-row {
+      border: 1px solid var(--border); border-radius: 14px; background: var(--surface-2);
+      padding: 12px 14px; margin: 10px 0;
+    }
+    .ledger-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; flex-wrap: wrap;
+    }
+    .ledger-pages {
+      display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;
+      max-height: 150px; overflow: auto; padding: 2px;
+    }
+    .page-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px;
+      background: var(--bg); color: var(--muted); font-size: 11px;
+      cursor: pointer; transition: border-color .15s, color .15s;
+    }
+    .page-chip:hover { border-color: var(--border-strong); color: var(--text); }
+    .page-chip input { accent-color: var(--accent); margin: 0; }
+    .ledger-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .toast {
+      position: fixed; left: 50%; bottom: 26px; z-index: 120;
+      transform: translate(-50%, 18px); opacity: 0; pointer-events: none;
+      max-width: min(520px, calc(100vw - 40px));
+      padding: 12px 16px; border-radius: 12px;
+      background: var(--surface-2); border: 1px solid var(--border-strong);
+      color: var(--text); font-size: 13px; line-height: 1.5;
+      box-shadow: 0 18px 50px rgba(0,0,0,0.45);
+      transition: opacity .2s ease, transform .2s ease;
+    }
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+    .toast.error { border-color: rgba(248,113,113,0.55); color: #fecaca; }
+    .toast.success { border-color: rgba(134,239,172,0.45); color: #bbf7d0; }
     @media (max-width: 760px) { .exp-grid { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -702,6 +737,7 @@
     <button class="lightbox-close" onclick="closeLightbox()" aria-label="close">✕</button>
     <img id="lightboxImg" src="assets/samples/webtoon_preview.png" alt="webtoon full" />
   </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script>
     const $ = (id) => document.getElementById(id);
@@ -957,7 +993,7 @@
     async function pickSequence(choice) {
       const why = ($("expWhy")?.value || "").trim();
       if (!why) {
-        alert("Write why this candidate is better before picking.");
+        toast("Write why this candidate is better before picking.", "error");
         return;
       }
       try {
@@ -970,7 +1006,7 @@
         if (!res.ok) throw new Error(payload.error || ("HTTP " + res.status));
         openSequence(currentSequenceId);
       } catch (e) {
-        alert("Pick failed: " + e.message);
+        toast("Pick failed: " + e.message, "error");
       }
     }
 
@@ -987,7 +1023,7 @@
         if (!res.ok) throw new Error(payload.error || ("HTTP " + res.status));
         openSequence(currentSequenceId);
       } catch (e) {
-        alert("Advance failed: " + e.message);
+        toast("Advance failed: " + e.message, "error");
       }
     }
 
@@ -1049,14 +1085,14 @@
         if (!res.ok) throw new Error(payload.error || ("HTTP " + res.status));
         openExperiment(currentExperimentId);
       } catch (e) {
-        alert("Compose failed: " + e.message);
+        toast("Compose failed: " + e.message, "error");
       }
     }
 
     async function pickExperiment(choice) {
       const why = ($("expWhy")?.value || "").trim();
       if (!why) {
-        alert("Write why this candidate is better before picking.");
+        toast("Write why this candidate is better before picking.", "error");
         return;
       }
       try {
@@ -1069,7 +1105,7 @@
         if (!res.ok) throw new Error(payload.error || ("HTTP " + res.status));
         openExperiment(currentExperimentId);
       } catch (e) {
-        alert("Pick failed: " + e.message);
+        toast("Pick failed: " + e.message, "error");
       }
     }
 
@@ -1524,31 +1560,87 @@
       const threshold = job.ledger_escalation_threshold;
       names.forEach((name) => {
         const pages = pending[name] || [];
-        const row = document.createElement("div");
-        row.style.cssText = "display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start;margin:8px 0;font-size:13px;";
         const escalated = threshold != null && pages.length > threshold;
-        const shown = pages.slice(0, 12).join(", ") + (pages.length > 12 ? ", …" : "");
-        const label = document.createElement("span");
-        label.style.cssText = "flex:1;min-width:220px;";
-        label.textContent = name + ": " + pages.length + " page(s) pending — " + shown
-          + (escalated ? " (over the escalation threshold: the run pauses until confirmed)" : "");
-        row.appendChild(label);
-        const btn = document.createElement("button");
-        btn.className = escalated ? "btn btn-primary" : "btn btn-secondary";
-        btn.textContent = "Confirm";
-        btn.onclick = () => ledgerConfirm(name);
-        row.appendChild(btn);
+        const row = document.createElement("div");
+        row.className = "ledger-row";
+
+        const head = document.createElement("div");
+        head.className = "ledger-head";
+        const info = document.createElement("div");
+        const title = document.createElement("strong");
+        title.textContent = name;
+        info.appendChild(title);
+        const meta = document.createElement("div");
+        meta.className = "exp-meta";
+        meta.textContent = pages.length + " page(s) pending"
+          + (escalated ? " · over the escalation threshold: the next run pauses until enough are confirmed" : "");
+        meta.style.marginTop = "2px";
+        info.appendChild(meta);
+        head.appendChild(info);
+
+        const confirmAll = document.createElement("button");
+        confirmAll.className = escalated ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm";
+        confirmAll.textContent = "Confirm all";
+        confirmAll.onclick = () => ledgerConfirm(name);
+        head.appendChild(confirmAll);
+        row.appendChild(head);
+
+        const chips = document.createElement("div");
+        chips.className = "ledger-pages";
+        pages.forEach((page) => {
+          const label = document.createElement("label");
+          label.className = "page-chip";
+          const box = document.createElement("input");
+          box.type = "checkbox";
+          box.value = page;
+          label.appendChild(box);
+          label.appendChild(document.createTextNode(page));
+          chips.appendChild(label);
+        });
+        row.appendChild(chips);
+
+        const actions = document.createElement("div");
+        actions.className = "ledger-actions";
+        const confirmSelected = document.createElement("button");
+        confirmSelected.className = "btn btn-secondary btn-sm";
+        confirmSelected.textContent = "Confirm selected (0)";
+        confirmSelected.disabled = true;
+        const toggle = document.createElement("button");
+        toggle.className = "btn btn-secondary btn-sm";
+        toggle.textContent = "Select all";
+        const update = () => {
+          const count = chips.querySelectorAll("input:checked").length;
+          confirmSelected.textContent = "Confirm selected (" + count + ")";
+          confirmSelected.disabled = count === 0;
+          toggle.textContent = count === pages.length ? "Clear" : "Select all";
+        };
+        chips.addEventListener("change", update);
+        toggle.onclick = () => {
+          const boxes = [...chips.querySelectorAll("input")];
+          const select = boxes.some((box) => !box.checked);
+          boxes.forEach((box) => { box.checked = select; });
+          update();
+        };
+        confirmSelected.onclick = () => {
+          const selected = [...chips.querySelectorAll("input:checked")].map((box) => box.value);
+          if (selected.length) ledgerConfirm(name, selected);
+        };
+        actions.appendChild(confirmSelected);
+        actions.appendChild(toggle);
+        row.appendChild(actions);
         list.appendChild(row);
       });
     }
 
-    async function ledgerConfirm(name) {
+    async function ledgerConfirm(name, pages) {
       if (!currentProjectId) return fail("No project id");
       try {
+        const body = { character: name };
+        if (pages) body.pages = pages;
         const res = await fetch("/api/project/" + currentProjectId + "/ledger/confirm", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ character: name }),
+          body: JSON.stringify(body),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
@@ -1695,6 +1787,16 @@
         btn.disabled = false;
         btn.textContent = "Stop";
       }
+    }
+
+    let toastTimer = null;
+    function toast(message, kind) {
+      const node = $("toast");
+      if (!node) return;
+      node.textContent = message;
+      node.className = "toast show" + (kind ? " " + kind : "");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { node.className = "toast"; }, 5200);
     }
 
     function fail(msg) {

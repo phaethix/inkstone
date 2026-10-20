@@ -990,3 +990,34 @@ def test_apply_review_unknown_keep_is_a_value_error(tmp_path, monkeypatch):
         assert "keep character not found" in str(exc)
     else:
         raise AssertionError("unknown keep name must not become a 500")
+
+
+def test_post_ledger_confirm_accepts_a_page_subset(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    out = _seed_review_project(tmp_path)
+    with _running_server() as httpd:
+        status, payload = _request(
+            httpd.server_port,
+            "/api/project/demo/ledger/confirm",
+            "POST",
+            data=json.dumps({"character": "福贵", "pages": ["c0000-p0000"]}).encode(),
+        )
+    assert status == 200
+    assert payload["ledger_pending"] == {"福贵": ["c0000-p0001"]}
+    persisted = ConsistencyLedger.load(out / "consistency.json").characters["福贵"]
+    assert persisted.reviewed_pages == ["c0000-p0000"]
+    assert persisted.pending_pages == ["c0000-p0001"]
+
+
+def test_post_ledger_confirm_rejects_unknown_pages(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    _seed_review_project(tmp_path)
+    with _running_server() as httpd:
+        status, payload = _request(
+            httpd.server_port,
+            "/api/project/demo/ledger/confirm",
+            "POST",
+            data=json.dumps({"character": "福贵", "pages": ["c9999-p9999"]}).encode(),
+        )
+    assert status == 400
+    assert "belong" in payload["error"]

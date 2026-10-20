@@ -566,18 +566,28 @@ def apply_review(project_id: str, action: str, new_name: str, candidate: str) ->
     return _state_snapshot(state, out_dir)
 
 
-def apply_ledger_confirm(project_id: str, character: str) -> dict:
-    """Confirm a continuity review; persist ``consistency.json`` (§4, 5b).
+def apply_ledger_confirm(
+    project_id: str,
+    character: str,
+    pages: list[str] | None = None,
+) -> dict:
+    """Confirm all or a subset of a continuity review; persist the ledger.
 
-    Accepting keeps the affected pages as they are. Unknown characters raise
-    ``ValueError`` so the handler can answer 404 instead of pretending to
-    confirm something that does not exist.
+    ``pages=None`` accepts every current page. A subset must name at least one
+    page of this character; unknown characters or page keys raise ``ValueError``
+    so the handler can answer 400/404 instead of claiming success.
     """
     out_dir, state = _load_project_state(project_id)
     ledger = ConsistencyLedger.load_or_rebuild(out_dir / "consistency.json", state)
     if character not in ledger.characters:
-        raise ValueError(f"unknown character: {character}")
-    ledger.confirm_review(character)
+        raise KeyError(f"unknown character: {character}")
+    if pages is not None:
+        current = set(ledger.characters[character].pages)
+        selected = [page for page in pages if page in current]
+        if not selected:
+            raise ValueError(f"none of the pages belong to {character}")
+        pages = selected
+    ledger.confirm_review(character, pages=pages)
     ledger.save(out_dir / "consistency.json")
     return _state_snapshot(state, out_dir)
 
@@ -1359,13 +1369,22 @@ class Handler(BaseHTTPRequestHandler):
         project_id = parts[2]
         payload = self._read_json()
         character = (payload.get("character") or "").strip()
+        pages = payload.get("pages")
         if not character:
             self._send_json({"error": "missing character"}, status=400)
             return
+        if pages is not None and not isinstance(pages, list):
+            self._send_json({"error": "pages must be a list"}, status=400)
+            return
+        if pages is not None:
+            pages = [str(page) for page in pages if str(page).strip()]
         try:
-            result = apply_ledger_confirm(project_id, character)
-        except ValueError as exc:
+            result = apply_ledger_confirm(project_id, character, pages)
+        except KeyError as exc:
             self._send_json({"error": str(exc)}, status=404)
+            return
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, status=400)
             return
         self._send_json({"project_id": project_id, **result})
 
