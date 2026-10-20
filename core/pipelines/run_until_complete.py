@@ -133,6 +133,7 @@ async def run_until_complete(
     gate_yes: bool = False,
     sample_gate_size: int | None = None,
     density: str | None = None,
+    harness_dir: str | None = None,
 ) -> ComicProject | PausedRun:
     """Run ``creative_comic`` until success or wall-clock pause.
 
@@ -181,6 +182,7 @@ async def run_until_complete(
                 gate_yes=gate_yes,
                 sample_gate_size=sample_gate_size,
                 density=density,
+                harness_dir=harness_dir,
             )
         except (BudgetPaused, GatePaused, ContinuityReviewPaused) as exc:
             # A budget, sample-gate, or continuity-review pause is terminal for

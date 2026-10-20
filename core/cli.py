@@ -82,6 +82,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Render past the sample gate without human confirmation; audited into runs.jsonl",
     )
     p_gen.add_argument(
+        "--harness-dir",
+        default=None,
+        help="Run chat stages with this validated harness tree (default: builtin)",
+    )
+    p_gen.add_argument(
         "--density",
         choices=["A", "B", "C"],
         default="B",
@@ -812,6 +817,7 @@ def _run_generate(args: argparse.Namespace) -> None:
             carry_over=args.carry_over,
             gate_yes=args.yes,
             density=args.density,
+            harness_dir=args.harness_dir,
         )
     )
 
@@ -1014,17 +1020,21 @@ def _run_prompt(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return 1
-    if candidate is not None and args.stage != "page_plan":
-        print("note: --harness-dir currently affects page_plan only", file=sys.stderr)
     chunk, elements, beats, bible, board, characters, recent_layouts = _load_prompt_context(args)
     model = args.model
     if args.stage == "extract":
-        request = build_extract_request(chunk, model=model)
+        request = build_extract_request(chunk, harness=candidate, model=model)
     elif args.stage == "beats":
-        request = build_beats_request(chunk, elements, model=model)
+        request = build_beats_request(chunk, elements, harness=candidate, model=model)
     elif args.stage == "bible":
         request = build_bible_request(
-            chunk, characters, bible, alias_hints=(), preferred_style="", model=model
+            chunk,
+            characters,
+            bible,
+            alias_hints=(),
+            preferred_style="",
+            harness=candidate,
+            model=model,
         )
     elif args.stage == "storyboard":
         request = build_storyboard_request(
@@ -1033,6 +1043,7 @@ def _run_prompt(args: argparse.Namespace) -> int:
             key_beats=beats,
             panel_budget=PANELS_PER_CHUNK_B,
             genre=args.genre,
+            harness=candidate,
             model=model,
         )
     elif args.stage == "page_plan":
@@ -1065,7 +1076,7 @@ def _run_prompt(args: argparse.Namespace) -> int:
         if board is None:
             print("page_script needs a stored storyboard; pass --from-run", file=sys.stderr)
             return 1
-        request = build_page_script_request(board, elements, chunk, model=model)
+        request = build_page_script_request(board, elements, chunk, harness=candidate, model=model)
     else:  # pragma: no cover - argparse restricts the choices
         raise ValueError(args.stage)
 

@@ -58,3 +58,25 @@ def test_harness_validate_and_list(capsys):
     assert "system" in out
     assert "genre.wuxia" in out
     assert "wuxia" in out
+
+
+def test_prompt_harness_dir_applies_to_extract(tmp_path, capsys):
+    import shutil
+
+    from core.harness.spec import DATA_DIR
+
+    candidate = tmp_path / "candidate"
+    shutil.copytree(DATA_DIR, candidate)
+    system = candidate / "common" / "system.md"
+    system.write_text(system.read_text(encoding="utf-8") + "\nEXTRACT HARNESS MARKER\n")
+
+    args = _args(
+        "--stage",
+        "extract",
+        "--text",
+        "第一回",
+        "--harness-dir",
+        str(candidate),
+    )
+    assert _run_prompt(args) == 0
+    assert "EXTRACT HARNESS MARKER" in capsys.readouterr().out

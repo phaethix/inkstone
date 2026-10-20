@@ -166,32 +166,37 @@ def build_storyboard_request(
     key_beats: KeyBeatSet | None = None,
     panel_budget: int | None = None,
     genre: str | None = None,
+    harness: Harness | None = None,
     model: str = "",
 ) -> ChatRequest:
     """The storyboard request for one chunk."""
     from core.config import genre as config_genre
 
-    domain = genre_block(genre if genre is not None else config_genre())
+    name = genre if genre is not None else config_genre()
+    domain = harness.genre_block(name) if harness is not None else genre_block(name)
+    system = harness.system_prompt() if harness is not None else SYSTEM_PROMPT
     beats_blob = ""
     if key_beats is not None and key_beats.beats:
         beats_blob = (
             "Key beats to stage (set beat_ids on the panels that show them):\n"
             f"{key_beats.model_dump_json()}\n\n"
         )
-    context = render_stage(
-        "storyboard",
-        {
-            "source_chunk": sanitize_text(text),
-            "elements_json": elements.model_dump_json(),
-            "beats_blob": beats_blob,
-            "budget_sentence": _budget_sentence(panel_budget),
-            "domain": domain,
-        },
+    values = {
+        "source_chunk": sanitize_text(text),
+        "elements_json": elements.model_dump_json(),
+        "beats_blob": beats_blob,
+        "budget_sentence": _budget_sentence(panel_budget),
+        "domain": domain,
+    }
+    context = (
+        harness.render_stage("storyboard", values)
+        if harness is not None
+        else render_stage("storyboard", values)
     )
     return ChatRequest(
         model=model,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system},
             {"role": "user", "content": context},
         ],
         tools=[STORYBOARD_TOOL],
@@ -282,9 +287,11 @@ def build_bible_request(
     *,
     alias_hints: list[tuple[str, str, str]] = (),
     preferred_style: str = "",
+    harness: Harness | None = None,
     model: str = "",
 ) -> ChatRequest:
     """The visual-bible reconcile request for one chunk."""
+    system = harness.system_prompt() if harness is not None else SYSTEM_PROMPT
     char_blob = json.dumps(
         {k: v.model_dump() for k, v in state_characters.items()},
         ensure_ascii=False,
@@ -312,20 +319,22 @@ def build_bible_request(
         )
         bible_blob = bible.model_dump_json()
     current_bible_block = f"Current visual bible:\n{bible_blob}\n\n" if bible_blob else ""
-    user = render_stage(
-        "bible",
-        {
-            "source_chunk": sanitize_text(text),
-            "characters_json": char_blob,
-            "current_bible_block": current_bible_block,
-            "bible_note": bible_note,
-            "alias_hints": hints_blob,
-        },
+    values = {
+        "source_chunk": sanitize_text(text),
+        "characters_json": char_blob,
+        "current_bible_block": current_bible_block,
+        "bible_note": bible_note,
+        "alias_hints": hints_blob,
+    }
+    user = (
+        harness.render_stage("bible", values)
+        if harness is not None
+        else render_stage("bible", values)
     )
     return ChatRequest(
         model=model,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
         tools=[RECONCILE_BIBLE_TOOL],
@@ -338,22 +347,26 @@ def build_page_script_request(
     elements: StoryElements,
     chunk: str,
     *,
+    harness: Harness | None = None,
     model: str = "",
 ) -> ChatRequest:
     """The optional legacy PageScript request for one chunk."""
-    context = render_stage(
-        "page_script",
-        {
-            "source_chunk": sanitize_text(chunk),
-            "elements_json": elements.model_dump_json(),
-            "chapter_id": board.chapter_id,
-            "board_json": board.model_dump_json(),
-        },
+    values = {
+        "source_chunk": sanitize_text(chunk),
+        "elements_json": elements.model_dump_json(),
+        "chapter_id": board.chapter_id,
+        "board_json": board.model_dump_json(),
+    }
+    context = (
+        harness.render_stage("page_script", values)
+        if harness is not None
+        else render_stage("page_script", values)
     )
+    system = harness.system_prompt() if harness is not None else SYSTEM_PROMPT
     return ChatRequest(
         model=model,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system},
             {"role": "user", "content": context},
         ],
         tools=[PAGE_SCRIPT_TOOL],

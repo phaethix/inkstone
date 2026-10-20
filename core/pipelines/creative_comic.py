@@ -170,9 +170,15 @@ from core.config import (
 from core.config import (
     genre as config_genre,
 )
+from core.config import harness_dir as config_harness_dir
 from core.config import render_mode as config_render_mode
 from core.density import PANELS_PER_CHUNK_B, DensityTier, get_density_plan
-from core.harness.spec import genre_block, harness_digest, validate_or_raise
+from core.harness.spec import (
+    HarnessError,
+    builtin_harness,
+    harness_from_dir,
+    validate_or_raise,
+)
 from core.lessons import LessonStore, format_craft_notes
 from core.perf import PerfCollector
 from core.pipelines.cancel import check_cancel
@@ -870,7 +876,13 @@ def _page_script_elements(elements) -> str:
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def _page_script_plan(cache: ChunkCache | None, chunk: str, chat_model: str) -> tuple[bool, str]:
+def _page_script_plan(
+    cache: ChunkCache | None,
+    chunk: str,
+    chat_model: str,
+    *,
+    harness=None,
+) -> tuple[bool, str]:
     """Return whether a page script is missing, and the key for the one to store.
 
     An empty key is stamped. A mismatched key drops the stored script.
@@ -880,7 +892,7 @@ def _page_script_plan(cache: ChunkCache | None, chunk: str, chat_model: str) -> 
     elements = cache.elements if cache is not None else None
     board = cache.storyboard if cache is not None else None
     key_request = (
-        build_page_script_request(board, StoryElements(), chunk, model=chat_model)
+        build_page_script_request(board, StoryElements(), chunk, harness=harness, model=chat_model)
         if board is not None
         else None
     )
@@ -1772,6 +1784,7 @@ async def creative_comic(
     gate_yes: bool = False,
     sample_gate_size: int | None = None,
     density: str | None = None,
+    harness_dir: str | Path | None = None,
 ) -> ComicProject:
     """Generate a project while holding its process-level mutation lock."""
     with _project_lock(Path(output_dir)):
@@ -1793,6 +1806,7 @@ async def creative_comic(
             gate_yes=gate_yes,
             sample_gate_size=sample_gate_size,
             density=density,
+            harness_dir=harness_dir,
         )
 
 
@@ -1819,6 +1833,7 @@ async def _creative_comic(
     gate_yes: bool = False,
     sample_gate_size: int | None = None,
     density: str | None = None,
+    harness_dir: str | Path | None = None,
 ) -> ComicProject:
     """Generate a comic from ``source_txt`` into ``output_dir``.
 
@@ -1858,6 +1873,10 @@ async def _creative_comic(
         density: planning tier ``A`` / ``B`` / ``C``. ``None`` is ``B``, the
             tier stored before this field existed. A different tier changes the
             structure fingerprint and the panel budget passed to planning.
+        harness_dir: optional harness tree for the chat stages. ``None`` uses
+            ``INKSTONE_HARNESS_DIR`` when set, otherwise the builtin tree. The
+            tree is validated before the first billable call; it does not change
+            the image renderer.
 
     Returns:
         A ``ComicProject`` with the final state, produced page paths, and PDF.
@@ -1872,8 +1891,20 @@ async def _creative_comic(
     page_size = finished_page_size()
     # Fail before the first billable call when the harness or its genre is
     # malformed. A broken component is a startup error, not a mid-book pause.
-    validate_or_raise()
-    genre_block(config_genre())
+    selected_harness_dir = Path(harness_dir) if harness_dir is not None else config_harness_dir()
+    if selected_harness_dir is not None:
+        try:
+            run_harness = harness_from_dir(selected_harness_dir)
+        except HarnessError as exc:
+            raise ValueError(f"invalid harness: {exc}") from exc
+        problems = run_harness.validate()
+        if problems:
+            raise ValueError("invalid harness: " + " | ".join(problems))
+    else:
+        validate_or_raise()
+        run_harness = builtin_harness()
+    run_genre = config_genre()
+    run_harness.genre_block(run_genre)
 
     perf = PerfCollector()
 
@@ -2037,8 +2068,8 @@ async def _creative_comic(
     review.start(
         source=source_txt,
         state=state,
-        genre=config_genre(),
-        harness_digest=harness_digest(),
+        genre=run_genre,
+        harness_digest=run_harness.digest(),
         render_mode=mode,
         density=density_plan.tier,
     )
@@ -2143,7 +2174,7 @@ async def _creative_comic(
             cached = state.chunk_cache.get(key)
             board = cached.storyboard if cached else None
             elements = cached.elements if cached else None
-            extract_request = build_extract_request(chunk, model=snapshot.chat)
+            extract_request = build_extract_request(chunk, harness=run_harness, model=snapshot.chat)
             review.record("extract", ci, extract_request)
             extract_key = extract_action_key(
                 chunk=chunk,
@@ -2189,7 +2220,9 @@ async def _creative_comic(
                 and _chunk_complete(state, board, output_dir, ci)
                 and panel_key_filter is None
             ):
-                script_missing, _script_key = _page_script_plan(cached, chunk, snapshot.chat)
+                script_missing, _script_key = _page_script_plan(
+                    cached, chunk, snapshot.chat, harness=run_harness
+                )
                 if not script_missing:
                     if image_config.panel_continuity and board.panels:
                         last_index = len(board.panels) - 1
@@ -2269,6 +2302,7 @@ async def _creative_comic(
                 # preferred_style is not a declared hard input for bible: a
                 # project style change must not re-reconcile every chunk.
                 preferred_style="",
+                harness=run_harness,
                 model=snapshot.chat,
             )
             bible_key = bible_action_key(
@@ -2310,6 +2344,7 @@ async def _creative_comic(
                             state.visual_bible,
                             alias_hints=hints,
                             preferred_style=style_guide or elements.style_guide,
+                            harness=run_harness,
                             model=snapshot.chat,
                         )
                         review.record("bible", ci, bible_request)
@@ -2517,9 +2552,13 @@ async def _creative_comic(
             if mode == "finished_page":
                 if pageset is not None and state.visual_bible is not None:
                     pageset = rewrite_pageset_from_bible(pageset, state.visual_bible)
-                beats_request = build_beats_request(chunk, elements, model=snapshot.chat)
+                beats_request = build_beats_request(
+                    chunk, elements, harness=run_harness, model=snapshot.chat
+                )
                 review.record("beats", ci, beats_request)
-                beats_key_request = build_beats_request(chunk, StoryElements(), model=snapshot.chat)
+                beats_key_request = build_beats_request(
+                    chunk, StoryElements(), harness=run_harness, model=snapshot.chat
+                )
                 beats_key = beats_action_key(
                     chunk=chunk,
                     extract_key=extract_key,
@@ -2544,6 +2583,7 @@ async def _creative_comic(
                     visual_bible=None,
                     key_beats=state.beat_cache.get(key),
                     panel_budget=density_plan.panels_per_chunk,
+                    harness=run_harness,
                     model=snapshot.chat,
                 )
                 plan_key = _page_plan_key(
@@ -2592,7 +2632,7 @@ async def _creative_comic(
                                     )
                                 craft_notes = format_craft_notes(
                                     lesson_store.retrieve(
-                                        genre=config_genre(),
+                                        genre=run_genre,
                                         query=query,
                                         applies_to="page_plan",
                                     )
@@ -2605,6 +2645,7 @@ async def _creative_comic(
                                 key_beats=beats,
                                 panel_budget=density_plan.panels_per_chunk,
                                 craft_notes=craft_notes,
+                                harness=run_harness,
                                 model=snapshot.chat,
                             )
                             review.record("page_plan", ci, plan_request)
@@ -2659,6 +2700,7 @@ async def _creative_comic(
                         visual_bible=None,
                         key_beats=state.beat_cache.get(key),
                         panel_budget=density_plan.panels_per_chunk,
+                        harness=run_harness,
                         model=snapshot.chat,
                     )
                     pageset.action_key = _page_plan_key(
@@ -3031,6 +3073,7 @@ async def _creative_comic(
                 planned_elements,
                 key_beats=storyboard_beats,
                 panel_budget=density_plan.panels_per_chunk,
+                harness=run_harness,
                 model=snapshot.chat,
             )
             review.record("storyboard", ci, storyboard_request)
@@ -3039,6 +3082,7 @@ async def _creative_comic(
                 StoryElements(),
                 key_beats=storyboard_beats,
                 panel_budget=density_plan.panels_per_chunk,
+                harness=run_harness,
                 model=snapshot.chat,
             )
             storyboard_key = storyboard_action_key(
@@ -3098,13 +3142,17 @@ async def _creative_comic(
                 assign_panel_beat_ids(board.panels, known_beats.beats)
 
             script_missing, script_key = _page_script_plan(
-                state.chunk_cache.get(key), chunk, snapshot.chat
+                state.chunk_cache.get(key), chunk, snapshot.chat, harness=run_harness
             )
             # ---- page-script ----
             # Optional legacy PageScript metadata (NOT a quality gate). Off by default.
             if _page_script_enabled() and script_missing:
                 page_script_request = build_page_script_request(
-                    board, planned_elements, chunk, model=snapshot.chat
+                    board,
+                    planned_elements,
+                    chunk,
+                    harness=run_harness,
+                    model=snapshot.chat,
                 )
                 review.record("page_script", ci, page_script_request)
                 _charge("page_script", f"c{ci:04d}")

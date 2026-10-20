@@ -68,6 +68,7 @@ async def _run(
     carry_over: bool = False,
     gate_yes: bool = False,
     density: str | None = None,
+    harness_dir: str | None = None,
 ) -> None:
     text = Path(source).read_text(encoding="utf-8")
     spec = None
@@ -92,6 +93,7 @@ async def _run(
             data_dir=str(data_dir()),
             gate_yes=gate_yes,
             density=density,
+            harness_dir=harness_dir,
         )
 
     if isinstance(result, PausedRun):
@@ -177,6 +179,7 @@ def run_generate(
     carry_over: bool = False,
     gate_yes: bool = False,
     density: str | None = None,
+    harness_dir: str | None = None,
 ) -> int:
     """Validate inputs and run the pipeline. Returns a process exit code."""
     if budget is not None and budget < 0:
@@ -213,6 +216,7 @@ def run_generate(
             carry_over=carry_over,
             gate_yes=gate_yes,
             density=density,
+            harness_dir=harness_dir,
         )
     )
     return 0

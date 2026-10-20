@@ -38,6 +38,7 @@ from core.config import (
     ENV_EXPERIMENTS_DIR,
     ENV_FONT_PATH,
     ENV_GENRE,
+    ENV_HARNESS_DIR,
     ENV_INKSTONE_DATA_DIR,
     ENV_INKSTONE_IMAGE_CONCURRENCY,
     ENV_INKSTONE_PANEL_CONTINUITY,
@@ -118,6 +119,9 @@ H_ENV_EXCLUDED: frozenset[str] = frozenset(
         ENV_LESSONS,
         # The Web UI's experiment root selects what to list, not what to draw.
         ENV_EXPERIMENTS_DIR,
+        # A harness tree enters the chat request digest, not h_env: it must
+        # not invalidate image/export keys.
+        ENV_HARNESS_DIR,
         ENV_AGNES_API_KEY,
         ENV_OPENAI_COMPAT_API_KEY,
         ENV_OPENAI_COMPAT_CHAT_API_KEY,

@@ -23,6 +23,7 @@ ENV_GENRE = "INKSTONE_GENRE"
 ENV_LESSONS = "INKSTONE_LESSONS"
 ENV_REVIEW_PACKET = "INKSTONE_REVIEW_PACKET"
 ENV_EXPERIMENTS_DIR = "INKSTONE_EXPERIMENTS_DIR"
+ENV_HARNESS_DIR = "INKSTONE_HARNESS_DIR"
 ENV_ERROR_LOG = "INKSTONE_ERROR_LOG"
 ENV_RUN_DEADLINE_HOURS = "INKSTONE_RUN_DEADLINE_HOURS"
 ENV_SUPERVISOR_BACKOFF_BASE = "INKSTONE_SUPERVISOR_BACKOFF_BASE"
@@ -125,6 +126,12 @@ def experiments_dir() -> Path:
     if raw:
         return Path(raw).expanduser()
     return Path.cwd() / "comic_out" / "experiments"
+
+
+def harness_dir() -> Path | None:
+    """Run generation with this harness tree; ``None`` means the builtin tree."""
+    raw = _get(ENV_HARNESS_DIR, "").strip()
+    return Path(raw).expanduser() if raw else None
 
 
 def l3_enabled() -> bool:

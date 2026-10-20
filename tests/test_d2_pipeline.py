@@ -182,11 +182,12 @@ def test_d2_pipeline_skipped_pages_on_policy_rejection(tmp_path, monkeypatch):
 
 
 def test_d2_pipeline_extension_block_is_small():
-    """The page-script block stays a small extension (≤33 non-blank lines).
+    """The page-script block stays a small extension (≤37 non-blank lines).
 
     The bound was 23 until the request-digest phase built the ``ChatRequest``
-    for ``plan_page_script`` and the review packet recorded that request. Raise
-    it only when that block gains a real line.
+    for ``plan_page_script``, the review packet recorded that request, and the
+    harness override was threaded into the request. Raise it only when that
+    block gains a real line.
     """
     path = Path(__file__).resolve().parents[1] / "core" / "pipelines" / "creative_comic.py"
     text = path.read_text(encoding="utf-8")
@@ -194,4 +195,4 @@ def test_d2_pipeline_extension_block_is_small():
     end = text.index("# ---- panels ----", start)
     block = text[start:end]
     added = [ln for ln in block.splitlines() if ln.strip()]
-    assert len(added) <= 33
+    assert len(added) <= 37

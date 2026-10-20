@@ -7,6 +7,7 @@ import shutil
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from PIL import Image
 
 from core.api import ChatProvider, ImageProvider
@@ -14,6 +15,7 @@ from core.comic.cas import beats_action_key
 from core.comic.segmentation import segment_text
 from core.comic.structure_report import structural_report
 from core.density import PANELS_PER_CHUNK_B
+from core.harness.spec import DATA_DIR, harness_from_dir
 from core.pipelines import creative_comic as pipeline
 from core.pipelines.creative_comic import (
     _BEATS_STAGE_SRC,
@@ -933,3 +935,69 @@ def test_every_chunk_is_planned_before_any_page_is_drawn(tmp_path, monkeypatch):
     plans = [index for index, item in enumerate(log) if item == "plan_comic_pages"]
     assert len(plans) == 2
     assert plans[-1] < log.index("page")
+
+
+def _custom_harness(tmp_path: Path, marker: str = "CUSTOM HARNESS MARKER") -> Path:
+    target = tmp_path / "custom-harness"
+    shutil.copytree(DATA_DIR, target)
+    page_plan = target / "stages" / "page_plan.md"
+    page_plan.write_text(page_plan.read_text(encoding="utf-8") + "\n" + marker + "\n")
+    return target
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_an_explicit_harness_dir_reaches_the_chat_requests(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+    custom = _custom_harness(tmp_path)
+    out = tmp_path / "out"
+    asyncio.run(
+        creative_comic(
+            "第一章\n福贵在村口。",
+            output_dir=str(out),
+            chat=FakeChat(),
+            image=FakeImage(),
+            harness_dir=str(custom),
+        )
+    )
+    prompt = json.loads(
+        (out / "review" / "prompts" / "page_plan.c0000.json").read_text(encoding="utf-8")
+    )
+    assert "CUSTOM HARNESS MARKER" in prompt["messages"][-1]["content"]
+    manifest = json.loads((out / "review" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["harness_digest"] == harness_from_dir(custom).digest()
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_harness_dir_env_is_used_when_no_argument_is_passed(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+    custom = _custom_harness(tmp_path, "ENV HARNESS MARKER")
+    monkeypatch.setenv("INKSTONE_HARNESS_DIR", str(custom))
+    out = tmp_path / "out"
+    asyncio.run(
+        creative_comic(
+            "第一章\n福贵在村口。",
+            output_dir=str(out),
+            chat=FakeChat(),
+            image=FakeImage(),
+        )
+    )
+    prompt = json.loads(
+        (out / "review" / "prompts" / "page_plan.c0000.json").read_text(encoding="utf-8")
+    )
+    assert "ENV HARNESS MARKER" in prompt["messages"][-1]["content"]
+
+
+def test_a_missing_harness_dir_fails_before_any_provider_call(tmp_path):
+    chat, image = FakeChat(), FakeImage()
+    with pytest.raises(ValueError, match="invalid harness"):
+        asyncio.run(
+            creative_comic(
+                "第一章\n福贵在村口。",
+                output_dir=str(tmp_path / "out"),
+                chat=chat,
+                image=image,
+                harness_dir=str(tmp_path / "missing"),
+            )
+        )
+    assert chat.calls == 0
+    assert image.calls == 0
