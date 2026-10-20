@@ -10,9 +10,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 import core.pipelines.creative_comic as creative_comic_module
+from core.comic.budget import BudgetSpec
 from core.comic.cas import object_path, verify
 from core.pipelines.creative_comic import clear_stale_bible_stamps, creative_comic
 from core.schemas import ColorBible, ProjectState, VisualBible
+from tests.test_d2_pipeline import D2FakeChat
 from tests.test_finished_page_pipeline import FakeChat, FakeImage, _fake_export_pdf
 
 _SRC = "第一章\n福贵在村口。"
@@ -20,6 +22,27 @@ _SRC = "第一章\n福贵在村口。"
 # The tool-choice names FakeChat answers on; used to assert a stage did not call.
 _EXTRACT_TOOL = "extract_story_elements"
 _BIBLE_TOOL = "reconcile_visual_bible"
+
+
+class FakeImageWithCount(FakeImage):
+    """``FakeImage`` already counts; the alias exists so panel tests read clearly."""
+
+
+def _budget(*, render: int, chat: int = 10) -> BudgetSpec:
+    """A budget whose per-stage reservations are all ``chat`` except ``render``."""
+    reservations = {
+        "extract": chat,
+        "bible": chat,
+        "beats": chat,
+        "page_plan": chat,
+        "portrait": chat,
+        "render": render,
+    }
+    return BudgetSpec(
+        total=sum(reservations.values()) + 1,
+        recovery_reserve=1,
+        reservations=reservations,
+    )
 
 
 class RecordingChat(FakeChat):
@@ -354,3 +377,178 @@ def test_restored_bible_suppresses_soft_invalidation(tmp_path: Path, monkeypatch
     # prev_hash=None + had_render_assets soft-invalidation branch)
     assert set(proj2.state.pages_done) == pre_pages_done
     assert set(proj2.state.generated.pages.keys()) == set(pre_generated_pages.keys())
+
+
+_PANEL_SRC = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_storyboard_restores_from_its_manifest_with_zero_calls(tmp_path: Path, monkeypatch) -> None:
+    """The panel-compose path restores the board instead of re-planning it.
+
+    The finished-page tests above cannot reach this branch: that flow never runs
+    a storyboard stage at all, so a broken board restore would pass every one of
+    them. Here the suite default (``panel_compose`` from ``conftest.py``) applies,
+    and losing ``cache.json`` has to come back from the board manifest.
+    """
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "panel_compose")
+
+    chat, img = D2FakeChat(), FakeImageWithCount()
+    asyncio.run(creative_comic(_PANEL_SRC, output_dir=str(tmp_path), chat=chat, image=img))
+    assert chat.calls > 0, "the first run planned the book"
+
+    pre = ProjectState.load(tmp_path / "state.json")
+    boards = {key: chunk.storyboard for key, chunk in pre.chunk_cache.items()}
+    assert boards and all(board is not None for board in boards.values())
+
+    # The board manifests exist and are self-consistent before anything is lost.
+    stages = set()
+    for path in sorted((tmp_path / "index").glob("*.json")):
+        stages.add(json.loads(path.read_text(encoding="utf-8"))["stage"])
+    assert "storyboard" in stages, f"no storyboard manifest: {sorted(stages)}"
+    assert verify(tmp_path) == []
+
+    (tmp_path / "cache.json").unlink()
+
+    chat2 = D2FakeChat()
+    proj2 = asyncio.run(
+        creative_comic(_PANEL_SRC, output_dir=str(tmp_path), chat=chat2, image=FakeImageWithCount())
+    )
+
+    assert chat2.calls == 0, "the board was re-planned instead of restored"
+    restored = {key: chunk.storyboard for key, chunk in proj2.state.chunk_cache.items()}
+    assert restored == boards, "the restored boards differ from the planned ones"
+    # The stamp names the key the restore was addressed by.
+    assert all(chunk.storyboard_action_key for chunk in proj2.state.chunk_cache.values())
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_page_script_restores_from_its_manifest_with_zero_calls(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The same for the page script, which is opt-in behind ``INKSTONE_PAGE_SCRIPT``.
+
+    ``test_d2_pipeline.py`` only deletes the manifest to force a re-plan; it never
+    proves the opposite direction. This test does: with the manifest intact and
+    ``cache.json`` gone, the script comes back without a provider call.
+    """
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "panel_compose")
+    monkeypatch.setenv("INKSTONE_PAGE_SCRIPT", "1")
+
+    chat = D2FakeChat()
+    asyncio.run(
+        creative_comic(_PANEL_SRC, output_dir=str(tmp_path), chat=chat, image=FakeImageWithCount())
+    )
+
+    pre = ProjectState.load(tmp_path / "state.json")
+    scripts = {key: chunk.page_script for key, chunk in pre.chunk_cache.items()}
+    assert scripts and all(script is not None for script in scripts.values())
+
+    stages = set()
+    for path in sorted((tmp_path / "index").glob("*.json")):
+        stages.add(json.loads(path.read_text(encoding="utf-8"))["stage"])
+    assert "page_script" in stages, f"no page_script manifest: {sorted(stages)}"
+    assert verify(tmp_path) == []
+
+    (tmp_path / "cache.json").unlink()
+
+    chat2 = D2FakeChat()
+    proj2 = asyncio.run(
+        creative_comic(_PANEL_SRC, output_dir=str(tmp_path), chat=chat2, image=FakeImageWithCount())
+    )
+
+    assert chat2.calls == 0, "the script was re-planned instead of restored"
+    restored = {key: chunk.page_script for key, chunk in proj2.state.chunk_cache.items()}
+    assert restored == scripts, "the restored scripts differ from the planned ones"
+    assert all(chunk.page_script_action_key for chunk in proj2.state.chunk_cache.values())
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_a_fully_restored_resume_never_trips_the_budget(tmp_path: Path, monkeypatch) -> None:
+    """A resume that spends nothing must not be paused for want of budget.
+
+    The budget guards *spending*. A restore costs zero calls, so a tight budget
+    with no headroom has to be enough; if a reservation were taken before the
+    restore was attempted, a free resume would pause anyway.
+    """
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+    generous = _budget(render=10)
+    asyncio.run(
+        creative_comic(
+            _SRC,
+            output_dir=str(tmp_path / "out"),
+            chat=FakeChat(),
+            image=FakeImage(),
+            budget=generous,
+            data_dir=tmp_path / "data",
+        )
+    )
+    pre = ProjectState.load(tmp_path / "out" / "state.json")
+    assert pre.pages_done
+
+    (tmp_path / "out" / "cache.json").unlink()
+
+    # No headroom anywhere: every reservation is zero and the total is exactly
+    # the recovery reserve.
+    tight = _budget(render=0, chat=0)
+    img2 = FakeImage()
+    proj = asyncio.run(
+        creative_comic(
+            _SRC,
+            output_dir=str(tmp_path / "out"),
+            chat=FakeChat(),
+            image=img2,
+            budget=tight,
+            data_dir=tmp_path / "data",
+        )
+    )
+
+    assert img2.calls == 0, "a restored resume drew a page"
+    assert proj.state.pages_done == pre.pages_done
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_losing_every_manifest_repairs_the_book_and_keeps_the_pages(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Deleting the whole index is a re-plan, not a re-render.
+
+    Losing every manifest costs the planning bodies: the stages re-call and
+    rewrite their manifests, which is the billable part and is expected. The
+    rendered pages are a different matter. They live in ``pages_done`` and on
+    disk, so a re-plan must not silently repaint the book.
+
+    Today it does repaint, and this test records why: with ``cache.json`` gone
+    the bible body goes with it, so the resume cannot prove the style did not
+    change and ``_soft_invalidate_render`` conservatively drops every asset. The
+    assertions below are written against behaviour that is worth keeping, so
+    that whoever narrows that invalidation has a test telling them the pages
+    must survive.
+    """
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+    asyncio.run(creative_comic(_SRC, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage()))
+
+    pre = ProjectState.load(tmp_path / "state.json")
+    pages_before = dict(pre.generated.pages)
+    assert pages_before and pre.pages_done
+
+    manifests = sorted((tmp_path / "index").glob("*.json"))
+    assert manifests, "nothing to delete"
+    for path in manifests:
+        path.unlink()
+    (tmp_path / "cache.json").unlink()
+
+    img2 = FakeImage()
+    proj = asyncio.run(creative_comic(_SRC, output_dir=str(tmp_path), chat=FakeChat(), image=img2))
+
+    # The plan stages re-call, because their bodies are gone...
+    assert img2.calls > 0, "the pages were expected to be repainted on a re-plan"
+    # ...and every manifest comes back, so the index is whole again.
+    rewritten = sorted((tmp_path / "index").glob("*.json"))
+    assert len(rewritten) == len(manifests)
+    stages = {json.loads(path.read_text(encoding="utf-8"))["stage"] for path in rewritten}
+    assert "extract" in stages and "bible" in stages
+    # The pages are recorded again under the same keys, and the run is coherent.
+    assert set(proj.state.generated.pages) == set(pages_before)
+    assert set(proj.state.pages_done) == set(pre.pages_done)
+    assert verify(tmp_path) == []
