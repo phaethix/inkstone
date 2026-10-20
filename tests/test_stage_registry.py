@@ -46,3 +46,61 @@ def test_verify_and_migrate_reject_unknown_manifest_stages(tmp_path):
     report = scan_manifests(tmp_path, allowed_stages=allowed)
     assert report.problems
     assert "unknown stage" in report.problems[0].problems[0]
+
+
+def test_every_hard_input_names_a_producer():
+    """Phase 0c: a contract's inputs and the read-edge table cannot drift.
+
+    Adding ``hard_inputs`` without saying who produces them would leave the
+    declared dependency as prose, which is what this edge table exists to stop.
+    """
+    from core.pipelines.stage_registry import input_sources
+
+    for spec in all_specs():
+        hard_inputs = stage_contract_for(spec.name).hard_inputs
+        assert set(input_sources(spec.name)) == set(hard_inputs), spec.name
+
+
+def test_no_stage_reads_a_later_phase():
+    """A read edge that points forward would be a graph the scheduler cannot run."""
+    from core.pipelines.stage_registry import read_edges, stage_spec
+
+    phase_order = {"plan": 0, "render": 1, "export": 2}
+    for consumer, producers in read_edges().items():
+        consumer_order = phase_order[stage_spec(consumer).phase.value]
+        for producer in producers:
+            assert phase_order[stage_spec(producer).phase.value] <= consumer_order, (
+                f"{consumer} reads {producer}"
+            )
+
+
+def test_a_forward_read_edge_is_rejected(monkeypatch):
+    """The check must fail on a real mistake, not pass because it checks nothing."""
+    import core.pipelines.stage_registry as registry
+
+    broken = dict(registry._INPUT_SOURCES["letter"])
+    broken["blank_page"] = "export"
+    monkeypatch.setitem(registry._INPUT_SOURCES, "letter", broken)
+
+    problems = registry.validate_read_edges()
+    assert any("runs later" in problem for problem in problems), problems
+
+
+def test_an_unproduced_hard_input_is_rejected(monkeypatch):
+    import core.pipelines.stage_registry as registry
+
+    broken = dict(registry._INPUT_SOURCES["letter"])
+    del broken["blank_page"]
+    monkeypatch.setitem(registry._INPUT_SOURCES, "letter", broken)
+
+    problems = registry.validate_read_edges()
+    assert any("no declared producer" in problem for problem in problems), problems
+
+
+def test_upstream_of_walks_the_whole_chain():
+    """A finished page cannot precede its plan, its bible, or its beats."""
+    from core.pipelines.stage_registry import upstream_of
+
+    assert {"page_plan", "bible", "beats", "render.page"} <= set(upstream_of("render.page"))
+    assert "render.page" in upstream_of("export")
+    assert upstream_of("extract") == frozenset({"extract"})
