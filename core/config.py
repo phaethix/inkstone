@@ -22,6 +22,7 @@ ENV_L3 = "INKSTONE_L3"
 ENV_GENRE = "INKSTONE_GENRE"
 ENV_LESSONS = "INKSTONE_LESSONS"
 ENV_REVIEW_PACKET = "INKSTONE_REVIEW_PACKET"
+ENV_EXPERIMENTS_DIR = "INKSTONE_EXPERIMENTS_DIR"
 ENV_ERROR_LOG = "INKSTONE_ERROR_LOG"
 ENV_RUN_DEADLINE_HOURS = "INKSTONE_RUN_DEADLINE_HOURS"
 ENV_SUPERVISOR_BACKOFF_BASE = "INKSTONE_SUPERVISOR_BACKOFF_BASE"
@@ -116,6 +117,14 @@ def review_packet_enabled() -> bool:
 def lessons_enabled() -> bool:
     """Inject approved craft lessons into page planning. On by default."""
     return env_bool(ENV_LESSONS, default=True)
+
+
+def experiments_dir() -> Path:
+    """Root the Web UI lists A/B experiments from. Not a byte input."""
+    raw = _get(ENV_EXPERIMENTS_DIR, "").strip()
+    if raw:
+        return Path(raw).expanduser()
+    return Path.cwd() / "comic_out" / "experiments"
 
 
 def l3_enabled() -> bool:

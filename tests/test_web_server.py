@@ -749,3 +749,97 @@ def test_index_html_has_the_continuity_panel():
     assert 'id="ledgerWrap"' in html
     assert 'id="ledgerList"' in html
     assert "/ledger/confirm" in html
+
+
+def _make_experiment(root: Path, name: str = "exp1") -> Path:
+    experiment = root / name
+    for anon in ("A", "B"):
+        candidate = experiment / "candidates" / anon
+        candidate.mkdir(parents=True)
+        (candidate / "plan.json").write_text(
+            json.dumps({"unit_id": "0", "pages": [{"page_id": f"p{anon}"}]}),
+            encoding="utf-8",
+        )
+        (candidate / "structure_report.json").write_text(
+            json.dumps({"ok": True, "checks": []}), encoding="utf-8"
+        )
+    (experiment / "experiment.json").write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "status": "awaiting_selection",
+                "created_at": "2026-10-20T00:00:00+00:00",
+                "chunk_index": 0,
+                "genre": "wuxia",
+                "candidates": {
+                    "A": {
+                        "label": "base",
+                        "harness_digest": "base",
+                        "chat_calls": 1,
+                        "prompt_digest": "sha256:a",
+                    },
+                    "B": {
+                        "label": "candidate",
+                        "harness_digest": "sha256:b",
+                        "chat_calls": 1,
+                        "prompt_digest": "sha256:b",
+                    },
+                },
+                "cost": {"chat_calls": 4, "image_calls": 0},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return experiment
+
+
+def test_experiment_list_hides_labels_until_selection(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "EXPERIMENTS_DIR", tmp_path)
+    _make_experiment(tmp_path)
+    with _running_server() as httpd:
+        status, payload = _request(httpd.server_port, "/api/experiments", "GET")
+        detail_status, detail = _request(httpd.server_port, "/api/experiment/exp1", "GET")
+    assert status == 200
+    assert payload[0]["id"] == "exp1"
+    assert payload[0]["candidates"] == ["A", "B"]
+    assert "chosen_label" not in payload[0] or payload[0]["chosen_label"] is None
+    assert detail_status == 200
+    assert set(detail["candidates"]) == {"A", "B"}
+    assert all("label" not in item for item in detail["candidates"].values())
+    assert detail["candidates"]["A"]["plan"]["pages"]
+
+
+def test_experiment_pick_records_selection_and_reveals_labels(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "EXPERIMENTS_DIR", tmp_path)
+    _make_experiment(tmp_path)
+    body = json.dumps({"choice": "A", "why": "更清楚的空间建立"}).encode()
+    with _running_server() as httpd:
+        status, selection = _request(
+            httpd.server_port, "/api/experiment/exp1/pick", "POST", data=body
+        )
+        detail_status, detail = _request(httpd.server_port, "/api/experiment/exp1", "GET")
+    assert status == 200
+    assert selection["chosen"] == "A"
+    assert selection["chosen_label"] == "base"
+    assert detail_status == 200
+    assert detail["candidates"]["A"]["label"] == "base"
+    assert detail["selection"]["why"] == "更清楚的空间建立"
+
+
+def test_experiment_pick_requires_why(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "EXPERIMENTS_DIR", tmp_path)
+    _make_experiment(tmp_path)
+    body = json.dumps({"choice": "A"}).encode()
+    with _running_server() as httpd:
+        status, payload = _request(
+            httpd.server_port, "/api/experiment/exp1/pick", "POST", data=body
+        )
+    assert status == 400
+    assert "choice/why" in payload["error"]
+
+
+def test_experiment_id_traversal_is_rejected(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "EXPERIMENTS_DIR", tmp_path)
+    with _running_server() as httpd:
+        status, payload = _request(httpd.server_port, "/api/experiment/..%2Fsecret", "GET")
+    assert status in (400, 404)

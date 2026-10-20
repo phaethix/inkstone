@@ -440,6 +440,35 @@
       .phone-screen { height: 320px; }
       .mini-features { padding-bottom: 70px; }
     }
+
+    /* harness A/B */
+    .exp-list { display: grid; gap: 12px; max-width: 900px; margin: 0 auto; }
+    .exp-row {
+      display: flex; justify-content: space-between; align-items: center; gap: 16px;
+      padding: 18px 22px; border: 1px solid var(--border); border-radius: 16px;
+      background: var(--surface); cursor: pointer; transition: border-color .2s;
+    }
+    .exp-row:hover { border-color: var(--border-strong); }
+    .exp-row h3 { margin: 0 0 4px; font-size: 16px; }
+    .exp-meta { font-size: 12px; color: var(--muted); }
+    .exp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 20px; }
+    .exp-card {
+      border: 1px solid var(--border); border-radius: 18px; background: var(--surface);
+      padding: 20px; min-width: 0;
+    }
+    .exp-card h3 { margin: 0 0 8px; font-size: 18px; }
+    .exp-plan {
+      font-size: 13px; color: var(--muted); line-height: 1.65; white-space: pre-wrap;
+      max-height: 320px; overflow: auto; margin: 10px 0;
+    }
+    .exp-why {
+      width: 100%; min-height: 72px; resize: vertical; background: var(--bg);
+      border: 1px solid var(--border); border-radius: 12px; padding: 12px;
+      color: var(--text); font: inherit; font-size: 13px; line-height: 1.6;
+    }
+    .exp-why:focus { outline: none; border-color: var(--border-strong); }
+    .exp-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+    @media (max-width: 760px) { .exp-grid { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
@@ -454,6 +483,7 @@
         <button class="tab active" data-target="home">Home</button>
         <button class="tab" data-target="effect">Showcase</button>
         <button class="tab" data-target="generate">Generate</button>
+        <button class="tab" data-target="experiment">A/B</button>
       </div>
       <div class="nav-extra">
         <span id="mode" class="badge">…</span>
@@ -649,6 +679,19 @@
     </div>
   </section>
 
+  <!-- HARNESS A/B -->
+  <section id="page-experiment" class="page">
+    <div class="wrap" style="padding-top:76px; padding-bottom:100px;">
+      <div class="section-head">
+        <div class="eyebrow">Harness A/B</div>
+        <h2>Compare planning-only candidates</h2>
+        <p>Blind page plans from <code>inkstone experiment plan</code>. Candidate labels stay hidden until you pick.</p>
+      </div>
+      <div id="experimentList" class="exp-list"></div>
+      <div id="experimentDetail" class="hidden"></div>
+    </div>
+  </section>
+
   <footer class="wrap">
     <p>Inkstone — open-source novel → comic generator · MIT License · <a href="https://github.com/phaethix/inkstone">GitHub</a></p>
     <p style="margin-top:6px;opacity:.55;">Powered by the free Agnes multimodal API. No GPU, no paid key.</p>
@@ -761,6 +804,132 @@
       renderTiming();
     }
 
+    // harness A/B
+    const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[c]));
+    let currentExperimentId = null;
+
+    function expPlanText(plan) {
+      const pages = (plan && plan.pages) || [];
+      if (!pages.length) return "(no pages)";
+      return pages.map((page, index) => {
+        const panels = page.panels || [];
+        const dialogue = panels.reduce((n, panel) => n + ((panel.dialogue || []).length), 0);
+        return `Page ${index + 1}: ${page.purpose || "(no purpose)"}\n`
+          + `  layout: ${page.layout_intent || ""}\n`
+          + `  panels: ${panels.length}, dialogue: ${dialogue}`;
+      }).join("\n\n");
+    }
+
+    function expStructureText(structure) {
+      const checks = (structure && structure.checks) || [];
+      if (!checks.length) return "structure: no checks";
+      const failed = checks.filter((check) => check.status === "fail").length;
+      return "structure: " + (failed ? failed + " fail" : "no fail")
+        + " · " + checks.map((check) => check.name + "=" + check.status).join(", ");
+    }
+
+    async function loadExperiments() {
+      const list = $("experimentList");
+      const detail = $("experimentDetail");
+      list.classList.remove("hidden");
+      detail.classList.add("hidden");
+      if (mode !== "live") {
+        list.innerHTML = '<div class="card"><p class="muted">Start the local backend to list A/B experiments.</p></div>';
+        return;
+      }
+      list.innerHTML = '<div class="card"><p class="muted">Loading experiments…</p></div>';
+      let rows = [];
+      try {
+        const res = await fetch("/api/experiments");
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        rows = await res.json();
+      } catch (e) {
+        list.innerHTML = '<div class="card"><p class="muted">Could not list experiments: ' + esc(e.message) + '</p></div>';
+        return;
+      }
+      if (!rows.length) {
+        list.innerHTML = '<div class="card"><p class="muted">No experiments yet. Run <code>inkstone experiment plan</code> first.</p></div>';
+        return;
+      }
+      list.innerHTML = rows.map((row) => `
+        <div class="exp-row" onclick="openExperiment('${esc(row.id)}')">
+          <div>
+            <h3>${esc(row.id)}</h3>
+            <div class="exp-meta">${esc(row.status)} · chunk ${esc(row.chunk_index)} · ${esc(row.genre || "general")} · ${esc((row.cost || {}).chat_calls)} chat / ${esc((row.cost || {}).image_calls)} image</div>
+          </div>
+          <div class="exp-meta">${row.chosen ? "picked " + esc(row.chosen) : "awaiting pick"} →</div>
+        </div>
+      `).join("");
+    }
+
+    async function openExperiment(id) {
+      currentExperimentId = id;
+      const list = $("experimentList");
+      const detail = $("experimentDetail");
+      list.classList.add("hidden");
+      detail.classList.remove("hidden");
+      detail.innerHTML = '<div class="card"><p class="muted">Loading ' + esc(id) + '…</p></div>';
+      let data;
+      try {
+        const res = await fetch("/api/experiment/" + encodeURIComponent(id));
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        data = await res.json();
+      } catch (e) {
+        detail.innerHTML = '<div class="card"><p class="muted">Could not open experiment: ' + esc(e.message) + '</p></div>';
+        return;
+      }
+      const selection = data.selection;
+      const cards = Object.values(data.candidates || {}).map((candidate) => {
+        const label = candidate.label ? ' <span class="badge live">' + esc(candidate.label) + '</span>' : "";
+        const pick = selection ? "" : `
+          <div class="exp-actions">
+            <button class="btn btn-primary" onclick="pickExperiment('${esc(candidate.id)}')">Pick ${esc(candidate.id)}</button>
+          </div>`;
+        return `
+          <div class="exp-card">
+            <h3>Candidate ${esc(candidate.id)}${label}</h3>
+            <div class="exp-meta">${esc(candidate.harness_digest)} · ${esc(candidate.chat_calls)} chat</div>
+            <pre class="exp-plan">${esc(expPlanText(candidate.plan))}</pre>
+            <div class="exp-meta">${esc(expStructureText(candidate.structure))}</div>
+            ${pick}
+          </div>`;
+      }).join("");
+      const head = `
+        <div class="card" style="max-width:none;">
+          <div style="display:flex;justify-content:space-between;gap:16px;align-items:center;flex-wrap:wrap;">
+            <div>
+              <h3 style="margin:0 0 6px;">${esc(data.id)}</h3>
+              <div class="exp-meta">${esc(data.status)} · chunk ${esc(data.chunk_index)} · ${esc(data.genre || "general")}</div>
+            </div>
+            <button class="btn btn-secondary" onclick="loadExperiments()">← All experiments</button>
+          </div>
+          ${selection ? '<p style="margin:16px 0 0;color:var(--muted);">Picked ' + esc(selection.chosen) + ' (' + esc(selection.chosen_label) + '): ' + esc(selection.why) + '</p>' : '<p style="margin:16px 0 0;color:var(--muted);">Read both plans, write why one is better, then pick. The labels are revealed after the pick.</p><textarea id="expWhy" class="exp-why" placeholder="Why does this plan read better? Cite a page or a layout choice."></textarea>'}
+        </div>`;
+      detail.innerHTML = head + '<div class="exp-grid">' + cards + '</div>';
+    }
+
+    async function pickExperiment(choice) {
+      const why = ($("expWhy")?.value || "").trim();
+      if (!why) {
+        alert("Write why this candidate is better before picking.");
+        return;
+      }
+      try {
+        const res = await fetch("/api/experiment/" + encodeURIComponent(currentExperimentId) + "/pick", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ choice, why }),
+        });
+        const payload = await res.json();
+        if (!res.ok) throw new Error(payload.error || ("HTTP " + res.status));
+        openExperiment(currentExperimentId);
+      } catch (e) {
+        alert("Pick failed: " + e.message);
+      }
+    }
+
     // tabs with sliding indicator
     function moveSlider(tab) {
       const slider = $("tabSlider");
@@ -773,6 +942,7 @@
       document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.target === target));
       const activeTab = document.querySelector('.tab[data-target="' + target + '"]');
       if (activeTab) moveSlider(activeTab);
+      if (target === "experiment") loadExperiments();
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
     document.querySelectorAll(".tab").forEach(t => {

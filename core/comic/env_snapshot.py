@@ -35,6 +35,7 @@ from core.config import (
     ENV_AGNES_IMAGE_RETRY_BASE_DELAY,
     ENV_AGNES_RATE_LIMIT,
     ENV_ERROR_LOG,
+    ENV_EXPERIMENTS_DIR,
     ENV_FONT_PATH,
     ENV_GENRE,
     ENV_INKSTONE_DATA_DIR,
@@ -115,6 +116,8 @@ H_ENV_EXCLUDED: frozenset[str] = frozenset(
         # Lessons enter the chat request digest, not h_env: they must not
         # invalidate image/export keys.
         ENV_LESSONS,
+        # The Web UI's experiment root selects what to list, not what to draw.
+        ENV_EXPERIMENTS_DIR,
         ENV_AGNES_API_KEY,
         ENV_OPENAI_COMPAT_API_KEY,
         ENV_OPENAI_COMPAT_CHAT_API_KEY,

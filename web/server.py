@@ -16,6 +16,9 @@ Routes:
                                     -> {job_id, project_id}
     GET  /api/job/<job_id>        -> job status + panels + review fields
     GET  /api/projects            -> list projects from comic_out/*/state.json
+    GET  /api/experiments         -> list planning-only A/B experiments
+    GET  /api/experiment/<id>     -> one experiment (labels hidden until picked)
+    POST /api/experiment/<id>/pick -> {choice, why} -> selection.json
     POST /api/job/<job_id>/stop   -> cooperative cancel -> {ok: true} or 404
     POST /api/project/<id>/review -> {action: merge|dismiss, new_name, candidate}
     POST /api/project/<id>/regen  -> {stale?: true, keys?: [...]} -> {job_id, project_id}
@@ -55,7 +58,7 @@ from core.comic.identity import (  # noqa: E402
 )
 from core.comic.ledger import LEDGER_ESCALATION_THRESHOLD, ConsistencyLedger  # noqa: E402
 from core.comic.reader import chapter_pages, write_reader  # noqa: E402
-from core.config import data_dir  # noqa: E402
+from core.config import data_dir, experiments_dir  # noqa: E402
 from core.pipelines.creative_comic import estimate_progress  # noqa: E402
 from core.pipelines.run_until_complete import PausedRun, run_until_complete  # noqa: E402
 from core.pipelines.timing import estimate_remaining  # noqa: E402
@@ -64,12 +67,14 @@ from core.schemas import ProjectState  # noqa: E402
 logger = logging.getLogger(__name__)
 
 OUTPUT_DIR = ROOT / "comic_out"
+EXPERIMENTS_DIR = experiments_dir()
 HOST = os.environ.get("INKSTONE_UI_HOST", "127.0.0.1")
 PORT = int(os.environ.get("INKSTONE_UI_PORT", "8000"))
 # Cap novel-paste / JSON POSTs (three-body-scale text is ~0.5–1 MB; 8 MB is ample).
 MAX_JSON_BODY_BYTES = int(os.environ.get("INKSTONE_UI_MAX_BODY_BYTES", str(8 * 1024 * 1024)))
 
 _PROJECT_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+_EXPERIMENT_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,80}$")
 
 # In-memory job registry. Each job writes under comic_out/<project_id>/.
 JOBS: dict[str, dict] = {}
@@ -638,6 +643,119 @@ def list_projects() -> list[dict]:
     return projects
 
 
+def validate_experiment_id(experiment_id: str) -> str:
+    """Reject traversal and hidden ids; the id is a single directory name."""
+    value = (experiment_id or "").strip()
+    if not _EXPERIMENT_ID_RE.fullmatch(value) or value in {".", ".."}:
+        raise ValueError(f"invalid experiment id: {experiment_id!r}")
+    return value
+
+
+def _experiment_dir(experiment_id: str) -> Path:
+    root = EXPERIMENTS_DIR.resolve()
+    target = (root / validate_experiment_id(experiment_id)).resolve()
+    if target.parent != root:
+        raise ValueError(f"experiment escapes {root}")
+    return target
+
+
+def _experiment_manifest(path: Path) -> dict:
+    manifest_path = path / "experiment.json"
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"no experiment.json under {path}")
+    return json.loads(manifest_path.read_text(encoding="utf-8"))
+
+
+def _experiment_selection(path: Path) -> dict | None:
+    selection_path = path / "selection.json"
+    if not selection_path.is_file():
+        return None
+    return json.loads(selection_path.read_text(encoding="utf-8"))
+
+
+def list_experiments() -> list[dict]:
+    """List planning-only A/B experiments; candidate labels stay hidden."""
+    if not EXPERIMENTS_DIR.is_dir():
+        return []
+    out: list[dict] = []
+    for entry in sorted(EXPERIMENTS_DIR.iterdir(), reverse=True):
+        if not entry.is_dir():
+            continue
+        try:
+            manifest = _experiment_manifest(entry)
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        selection = _experiment_selection(entry)
+        out.append(
+            {
+                "id": entry.name,
+                "status": manifest.get("status", "unknown"),
+                "created_at": manifest.get("created_at"),
+                "chunk_index": manifest.get("chunk_index"),
+                "genre": manifest.get("genre"),
+                "cost": manifest.get("cost"),
+                "candidates": sorted(manifest.get("candidates") or {}),
+                "chosen": (selection or {}).get("chosen"),
+                "chosen_label": (selection or {}).get("chosen_label"),
+            }
+        )
+    return out
+
+
+def experiment_detail(experiment_id: str) -> dict:
+    """Read one experiment; labels are revealed only after a selection exists."""
+    path = _experiment_dir(experiment_id)
+    manifest = _experiment_manifest(path)
+    selection = _experiment_selection(path)
+    candidates: dict[str, dict] = {}
+    for anon, record in sorted((manifest.get("candidates") or {}).items()):
+        directory = path / "candidates" / anon
+        plan: dict | None = None
+        structure: dict | None = None
+        try:
+            plan = json.loads((directory / "plan.json").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            pass
+        try:
+            structure = json.loads(
+                (directory / "structure_report.json").read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError):
+            pass
+        item = {
+            "id": anon,
+            "harness_digest": record.get("harness_digest"),
+            "chat_calls": record.get("chat_calls"),
+            "prompt_digest": record.get("prompt_digest"),
+            "plan": plan,
+            "structure": structure,
+        }
+        if selection is not None:
+            item["label"] = record.get("label")
+        candidates[anon] = item
+    return {
+        "id": experiment_id,
+        "status": manifest.get("status", "unknown"),
+        "created_at": manifest.get("created_at"),
+        "chunk_index": manifest.get("chunk_index"),
+        "genre": manifest.get("genre"),
+        "cost": manifest.get("cost"),
+        "candidates": candidates,
+        "selection": selection,
+    }
+
+
+def pick_experiment_api(experiment_id: str, choice: str, why: str) -> dict:
+    """Record a human pick through the same writer the CLI uses."""
+    from core.experiment import ExperimentError, pick_experiment
+
+    path = _experiment_dir(experiment_id)
+    try:
+        return pick_experiment(path, choice=choice, why=why)
+    except ExperimentError as exc:
+        raise ValueError(str(exc)) from exc
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "InkstoneUI/0.1"
 
@@ -710,6 +828,21 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/projects":
             self._send_json(list_projects())
             return
+        if self.path == "/api/experiments":
+            self._send_json(list_experiments())
+            return
+        if self.path.startswith("/api/experiment/"):
+            experiment_id = self.path[len("/api/experiment/") :]
+            try:
+                payload = experiment_detail(experiment_id)
+            except ValueError as exc:
+                self._send_json({"error": str(exc)}, status=400)
+                return
+            except FileNotFoundError as exc:
+                self._send_json({"error": str(exc)}, status=404)
+                return
+            self._send_json(payload)
+            return
         if self.path.startswith("/api/job/"):
             job_id = self.path.split("/")[-1]
             job, error = _resolve_job(job_id)
@@ -776,6 +909,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if self.path.startswith("/api/job/") and self.path.endswith("/stop"):
                 self._post_stop()
+                return
+            if self.path.startswith("/api/experiment/") and self.path.endswith("/pick"):
+                self._post_experiment_pick()
                 return
             if self.path.startswith("/api/project/") and self.path.endswith("/review"):
                 self._post_review()
@@ -872,6 +1008,24 @@ class Handler(BaseHTTPRequestHandler):
             )
         else:
             self._send_json({"error": "unknown job"}, status=404)
+
+    def _post_experiment_pick(self) -> None:
+        experiment_id = self.path[len("/api/experiment/") : -len("/pick")]
+        body = self._read_json()
+        choice = str(body.get("choice", "")).strip()
+        why = str(body.get("why", "")).strip()
+        if not choice or not why:
+            self._send_json({"error": "missing choice/why"}, status=400)
+            return
+        try:
+            selection = pick_experiment_api(experiment_id, choice, why)
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, status=400)
+            return
+        except FileNotFoundError as exc:
+            self._send_json({"error": str(exc)}, status=404)
+            return
+        self._send_json(selection)
 
     def _post_review(self) -> None:
         # /api/project/<id>/review
