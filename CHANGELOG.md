@@ -27,6 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   you intend to re-plan every stage.
 
 ### Added
+- Web continuity review: each pending character now expands into page chips
+  with checkboxes, Select all/Clear, Confirm selected, and Confirm all.
+  `POST /api/project/<id>/ledger/confirm` accepts an optional `pages` list,
+  so the Web UI can confirm a subset without dropping the rest of the
+  pending set.
+- Web A/B and sequence actions report failures through a temporary toast
+  instead of a blocking `alert`; the continuity panel uses the same visual
+  language.
 - One-release harness fallback: `INKSTONE_HARNESS=0` forces the builtin
   tree, ignores `INKSTONE_HARNESS_DIR` / `--harness-dir`, forces the `general`
   genre, and disables craft-lesson injection. `review/manifest.json` records
