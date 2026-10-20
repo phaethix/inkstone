@@ -8,13 +8,10 @@ from requests import Response
 from core.api.error_collector import collect_error
 from core.api.image_provider import ImageOutput, ImageProvider
 from core.api.retry import collect_provider_error, retryable_post
+from core.config import agnes_base_url
 from utils.image import resolve_image_ref_async
 
 logger = logging.getLogger(__name__)
-
-# TODO(temp): domestic-access workaround — switch back to apihub.agnes-ai.com
-# (or env-configurable base URL) once .com is reachable again for all users.
-BASE_URL = "https://apihub.agnes-ai.cn/v1"
 
 
 class AgnesImageAPI(ImageProvider):
@@ -99,7 +96,7 @@ class AgnesImageAPI(ImageProvider):
 
         resp = await retryable_post(
             provider_tag="[AgnesImage]",
-            url=f"{BASE_URL}/images/generations",
+            url=f"{agnes_base_url()}/images/generations",
             headers=self.headers,
             json_payload=payload,
             max_retries=max_retries if max_retries is not None else self.max_retries,

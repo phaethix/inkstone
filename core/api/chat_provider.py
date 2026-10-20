@@ -26,13 +26,10 @@ from abc import ABC, abstractmethod
 from requests import Response
 
 from core.api.retry import collect_provider_error, retryable_post
+from core.config import agnes_base_url
 from core.schemas import decode_tool_arguments
 
 logger = logging.getLogger(__name__)
-
-# TODO(temp): domestic-access workaround — switch back to apihub.agnes-ai.com
-# (or env-configurable base URL) once .com is reachable again for all users.
-BASE_URL = "https://apihub.agnes-ai.cn/v1"
 
 
 class ChatProvider(ABC):
@@ -80,7 +77,7 @@ class AgnesChatAPI(ChatProvider):
     def __init__(self, api_key: str, model: str = "agnes-3.0-flash"):
         self.api_key = api_key
         self.model = model
-        self.base_url = BASE_URL
+        self.base_url = agnes_base_url()
         self.headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",

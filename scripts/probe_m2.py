@@ -18,6 +18,8 @@ import os
 
 import requests
 
+from core.config import agnes_base_url
+
 
 # Minimal .env loader (no python-dotenv dependency).
 def _load_dotenv(path: str = ".env") -> None:
@@ -35,8 +37,7 @@ def _load_dotenv(path: str = ".env") -> None:
 
 _load_dotenv()
 
-# TODO(temp): keep in sync with core/api/* BASE_URL (.cn is temporary).
-CHAT_URL = "https://apihub.agnes-ai.cn/v1/chat/completions"
+CHAT_URL = f"{agnes_base_url()}/chat/completions"
 CHAT_MODEL = "agnes-3.0-flash"
 CHAT_HEADERS = {
     "Authorization": f"Bearer {os.environ.get('AGNES_API_KEY', '')}",

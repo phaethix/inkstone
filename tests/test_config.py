@@ -79,6 +79,15 @@ def test_harness_enabled_defaults_true_and_can_be_killed(monkeypatch):
     assert lessons_enabled() is False
 
 
+def test_agnes_base_url_defaults_to_the_documented_host(monkeypatch):
+    from core.config import ENV_AGNES_BASE_URL, agnes_base_url
+
+    monkeypatch.delenv(ENV_AGNES_BASE_URL, raising=False)
+    assert agnes_base_url() == "https://apihub.agnes-ai.com/v1"
+    monkeypatch.setenv(ENV_AGNES_BASE_URL, "https://apihub.agnes-ai.cn/v1/")
+    assert agnes_base_url() == "https://apihub.agnes-ai.cn/v1"
+
+
 def test_pdf_batch_size_is_registered_and_parsed(monkeypatch):
     from core.config import ALL_ENV_VARS, ENV_PDF_BATCH, pdf_batch_size
 

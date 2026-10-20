@@ -42,7 +42,7 @@ When completing a change:
 | Area | Status | Notes |
 |---|---|---|
 | Core TXT → comic pipeline | Released | Segmentation, extraction, portraits, storyboard, panels, layout, PDF / Webtoon export, `state.json` resume. **Default render mode is `finished_page`** (one image per comic page); `panel_compose` is the explicit legacy fallback (`INKSTONE_RENDER_MODE=panel_compose`). **Finished-page text:** deferred lettering — blank art + font overlay ([spec](superpowers/specs/2026-07-31-deferred-lettering-design.md)). |
-| Providers and reliability | Released | Agnes + OpenAI-compatible routing, rate limit, retry and JSONL error collection. **Local temp:** default Agnes `BASE_URL` is `apihub.agnes-ai.cn` (domestic reachability); revert to `.com` or make env-configurable when access stabilizes (`TODO(temp)` in `core/api/chat_provider.py` / `agnes_image.py`). |
+| Providers and reliability | Released | Agnes + OpenAI-compatible routing, rate limit, retry and JSONL error collection. Default Agnes host is `https://apihub.agnes-ai.com/v1` ([Agnes 3.0 Flash](https://agnes-ai.com/en/docs/agnes-30-flash)); `AGNES_BASE_URL` overrides it. |
 | Cross-chapter identity | Released | L1/L2 consistency, alias review, stale-only redraw; L3 is experimental and off by default |
 | Web UI and unattended supervisor | Released | Local browser UI, cancel, retry, review, deadline pause / resume; job/project JSON exposes `render_mode`, `pages_done`, `skipped_pages` |
 | Colab operations | Released | Background jobs, download progress, alias adopt after 404/401 |

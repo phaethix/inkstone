@@ -216,6 +216,7 @@ Inkstone is configured through environment variables (copy `.env.example` → `.
 | Variable | Required | Default | Description |
 |----------|:---:|---|---|
 | `AGNES_API_KEY` | ✅ | — | Free Access tier key; the only thing ordinary users need. |
+| `AGNES_BASE_URL` | | `https://apihub.agnes-ai.com/v1` | Agnes API root ([docs](https://agnes-ai.com/en/docs/agnes-30-flash)). |
 | `AGNES_CHAT_MODEL` | | `agnes-3.0-flash` | Text / tool-calling model ([docs](https://agnes-ai.com/en/docs/agnes-30-flash)). |
 | `AGNES_RATE_LIMIT` | | `20` | Free-tier text + image-1K RPM ceiling (× 0.8 safety factor). |
 | `AGNES_IMAGE_2K_RPM` | | `10` | Free-tier image 2K RPM (max side ≤2048). |

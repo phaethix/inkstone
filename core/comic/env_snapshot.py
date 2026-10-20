@@ -27,6 +27,7 @@ import json
 from core.comic.fonts import resolved_font_digest
 from core.config import (
     ENV_AGNES_API_KEY,
+    ENV_AGNES_BASE_URL,
     ENV_AGNES_CHAT_MODEL,
     ENV_AGNES_IMAGE_2K_RPM,
     ENV_AGNES_IMAGE_3K_RPM,
@@ -129,6 +130,9 @@ H_ENV_EXCLUDED: frozenset[str] = frozenset(
         ENV_HARNESS,
         # Batch size bounds peak memory; it does not change output bytes.
         ENV_PDF_BATCH,
+        # The host selects which Agnes gateway answers. The model name is the
+        # generation identity; a mirror override must not invalidate a book.
+        ENV_AGNES_BASE_URL,
         ENV_AGNES_API_KEY,
         ENV_OPENAI_COMPAT_API_KEY,
         ENV_OPENAI_COMPAT_CHAT_API_KEY,

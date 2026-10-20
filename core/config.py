@@ -34,6 +34,7 @@ ENV_RENDER_MODE = "INKSTONE_RENDER_MODE"
 ENV_PAGE_SIZE = "INKSTONE_PAGE_SIZE"
 ENV_PROVIDER = "PROVIDER"
 ENV_AGNES_API_KEY = "AGNES_API_KEY"
+ENV_AGNES_BASE_URL = "AGNES_BASE_URL"
 ENV_AGNES_IMAGE_I2I_MODEL = "AGNES_IMAGE_I2I_MODEL"
 ENV_AGNES_CHAT_MODEL = "AGNES_CHAT_MODEL"
 ENV_AGNES_IMAGE_MAX_RETRIES = "AGNES_IMAGE_MAX_RETRIES"
@@ -89,6 +90,12 @@ def env_bool(name: str, default: bool = False) -> bool:
     if raw is None or not str(raw).strip():
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def agnes_base_url() -> str:
+    """Agnes API root. Official chat host is ``apihub.agnes-ai.com``."""
+    raw = _get(ENV_AGNES_BASE_URL, "https://apihub.agnes-ai.com/v1").strip()
+    return raw.rstrip("/") or "https://apihub.agnes-ai.com/v1"
 
 
 def agnes_rate_limit_rpm() -> int:
