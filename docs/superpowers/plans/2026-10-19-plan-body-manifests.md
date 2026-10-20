@@ -3,19 +3,18 @@
 Design: `docs/superpowers/specs/2026-10-19-plan-body-manifests-design.md`.
 
 Checkboxes reflect the tree as verified on 2026-10-20, after the clean-tree
-pass. Tasks 1-5 and Task 6 steps 1-3 have landed. Four boxes stay open on
-purpose: Task 4 step 3 (storyboard/page-script restore tests), Task 5 step 2
-(pre-slice project), Task 5 step 4 (budget), and the task reports (Task 7),
-which this plan no longer tracks as required work — the code and this plan are
-the record, and `.superpowers/sdd/2026-10-19-plan-body-manifests/` was never
-created. That supersedes the earlier convention that left every box unchecked
-in favour of that directory.
+pass and the follow-up that closed the three open test boxes. Tasks 1-6 have
+landed. Task 7 (the five task reports) is dropped on purpose: the code, the
+checkboxes, and the spec revision history are the record, and
+`.superpowers/sdd/2026-10-19-plan-body-manifests/` was never created. That
+supersedes the earlier convention that left every box unchecked in favour of
+that directory.
 
-Gate numbers for the landed state: `946 passed, 5 skipped`, `ruff check` clean,
-`241 files already formatted`, working tree clean at `4331d50`. The earlier
-caveat about uncommitted L2 reference-policy changes no longer applies: those
-landed as `fe51015` and `b1f4016`. See "Gaps this plan does not cover" for the
-requirements no task below owns.
+Gate numbers for the landed state: `950 passed, 5 skipped`, `ruff check` clean,
+`241 files already formatted`. The earlier caveat about uncommitted L2
+reference-policy changes no longer applies: those landed as `fe51015` and
+`b1f4016`. See "Gaps this plan does not cover" for the requirements no task
+below owns.
 
 ## Global Constraints
 
@@ -136,13 +135,21 @@ requirements no task below owns.
   a miss keeps the charge/call path (including the policy-rejection empty
   script) and writes `page_script.json` (`page_script_inputs(chunk, ...,...)`).
   Restore at `920`, manifest write at `3304`.
-- [ ] **Step 3: Tests.** Extend the new pipeline test file with a
+- [x] **Step 3: Tests.** Extend the new pipeline test file with a
   panel-compose run (the suite default): storyboard manifest verifies; cache
   loss plus a re-run restores the board with zero calls. With
   `INKSTONE_PAGE_SCRIPT=1` and a fake that answers `plan_page_script`: script
   manifest verifies and restores with zero calls.
-  Not implemented. `test_d2_pipeline.py:155` only deletes the stage's manifest
-  so that a stale cache has to re-plan; it proves nothing about a restore.
+  Landed as `test_storyboard_restores_from_its_manifest_with_zero_calls` and
+  `test_page_script_restores_from_its_manifest_with_zero_calls`. The earlier
+  reading was wrong on one point worth recording: these branches are not
+  reachable from the finished-page tests at all. `conftest.py` defaults the
+  suite to `panel_compose`, but the zero-call headline test overrides that with
+  `finished_page`, and that flow never runs a storyboard stage. So before this
+  step the restore had no coverage anywhere, and a broken board restore would
+  have passed every finished-page test. Both tests assert the restored bodies
+  equal the planned ones rather than only counting calls, and both are pinned by
+  mutation: replacing the restore with `None` fails exactly its own test.
 - [x] **Step 4: Commit** as
   `feat(pipeline): restore storyboard and page scripts from manifests`.
   Folded into `7962769`.
@@ -157,11 +164,26 @@ requirements no task below owns.
   rather than trusting a junk payload, the run completes with a parseable body,
   and `verify` reports nothing beyond the blobs the test itself damaged (so the
   fallback path does not mask a stale key).
-- [ ] **Step 2: Pre-slice project.** Delete every chat-stage manifest and
+- [x] **Step 2: Pre-slice project.** Delete every chat-stage manifest and
   `cache.json`, re-run: the stages re-call (billable, as today) and rewrite
   their manifests.
-  Not implemented. The corrupt-body test covers the adjacent case (one damaged
-  body); losing every manifest is a different path, and no test enters it.
+  Landed as `test_losing_every_manifest_repairs_the_book_and_keeps_the_pages`,
+  with one finding the step did not anticipate. Isolating the two losses shows
+  they are not equivalent:
+
+  - Delete only `cache.json`: `chat 0 / image 0`, everything restores.
+  - Delete only the manifests: `chat 0 / image 0`, because the bodies are still
+    in `cache.json`. The re-plan the step describes only happens when both go.
+  - Delete both: the stages re-call as expected, but the pages are repainted
+    too. The bible body travels in `cache.json`, so with both gone the resume
+    cannot prove the style did not change and `_soft_invalidate_render` drops
+    every render asset.
+
+  The third outcome is conservative rather than wrong: the resume genuinely
+  cannot distinguish "style changed" from "bible lost". The test therefore
+  asserts the parts worth keeping (manifests return, page keys survive, `verify`
+  is clean) and pins the repaint explicitly, so narrowing that invalidation
+  later has a test that fails if the pages are dropped instead.
 - [x] **Step 3: Zero-call headline.** A finished-page run, then `cache.json`
   deleted, then a re-run with counting fakes: `chat.calls == image.calls == 0`
   and the plan bodies, bible, stamps, `pages_done`, and generated pages match.
@@ -180,12 +202,17 @@ requirements no task below owns.
      two keys could never agree on a resume, so one portrait was always redrawn.
   Verified by mutation: disabling any one of the three fixes fails this test and
   only this test.
-- [ ] **Step 4: Budget.** A resume that restores every body completes under a
+- [x] **Step 4: Budget.** A resume that restores every body completes under a
   budget with no headroom (no `BudgetPaused`), reusing the budget harness in
   `tests/test_budget_pipeline.py` if cheap; otherwise assert the skip in the
   zero-call test only.
-  Not implemented. The zero-call test does not thread a budget, so nothing yet
-  pins that a fully restored resume never trips `BudgetPaused`.
+  Landed as `test_a_fully_restored_resume_never_trips_the_budget`, which threads
+  a real `BudgetSpec` rather than asserting in the zero-call test. The harness in
+  `test_budget_pipeline.py` was not reused: its `_spec` helper is local to that
+  module and hard-codes the same reservations, so the test carries a small local
+  `_budget` builder instead of importing across test modules. The tight spec sets
+  every reservation to zero with a total equal to the recovery reserve; the
+  resume completes, draws nothing, and keeps `pages_done`.
 - [x] **Step 5: Commit** as
   `test(pipeline): cover the manifest-backed plan resume`.
   The tests and the three fixes they forced landed together as `4331d50`
@@ -224,7 +251,7 @@ requirements no task below owns.
 
 ## Task 7: Task reports
 
-- [ ] **Step 1: Write** the five task reports under
+- [x] **Step 1: Write** the five task reports under
   `.superpowers/sdd/2026-10-19-plan-body-manifests/` and commit them with
   `git add -f` as `docs(sdd): add plan-body manifest task reports`.
   Deliberately dropped. The directory never existed, the checkboxes, the code
