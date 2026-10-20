@@ -27,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   you intend to re-plan every stage.
 
 ### Added
+- Web visual pass: animated hero gradient, focus-visible rings, custom
+  scrollbars, softer card depth, hover feedback on experiment rows/cards,
+  checked-page chips, a shimmering progress bar, a responsive tab bar on
+  mobile, clickable/keyboard-accessible result panels, and left/right
+  keyboard navigation for the showcase carousel. Reduced-motion users get
+  the static layout.
 - Web A/B and sequence views: candidate cards now carry a compact
   page-level diff (page count plus the first differing layout intents), and
   a sequence shows a round timeline (done / picked / awaiting pick) above
