@@ -134,12 +134,21 @@ def test_pausing_twice_on_the_same_boundary_appends_one_stop(tmp_path):
 
 def test_no_carry_over_does_not_rearm_on_the_next_day(tmp_path):
     spec = BudgetSpec(total=2, recovery_reserve=1, reservations={"render": 1})
-    _open(tmp_path, spec).charge("render", "c0000-p0000")
+    first = _open(tmp_path, spec)
+    first.charge("render", "c0000-p0000")
+    with pytest.raises(BudgetPaused):
+        first.charge("render", "c0000-p0001")
+
     later = _open(tmp_path, spec, today="2026-10-10")
     with pytest.raises(BudgetPaused):
         later.charge("render", "c0000-p0001")
+
     assert len(_lines(tmp_path / "data" / "quota.jsonl")) == 1
-    assert len(_lines(tmp_path / "out" / "runs.jsonl")) == 1
+    # A new day clears the stored boundary, so the same held key writes a
+    # fresh §6 stop record instead of being suppressed by the old one.
+    stops = _lines(tmp_path / "out" / "runs.jsonl")
+    assert len(stops) == 2
+    assert [row["key"] for row in stops] == ["c0000-p0001", "c0000-p0001"]
 
 
 def test_carry_over_rearms_only_on_a_new_day(tmp_path):
@@ -182,3 +191,15 @@ def test_budget_does_not_enter_fingerprint_inputs():
         names = fn.__code__.co_varnames
         assert "budget" not in names
         assert "carry_over" not in names
+
+
+def test_no_carry_over_advances_the_stored_day_without_rearming(tmp_path):
+    spec = BudgetSpec(total=2, recovery_reserve=1, reservations={"render": 1})
+    first = _open(tmp_path, spec, today="2026-10-09")
+    first.charge("render", "c0000-p0000")
+
+    later = _open(tmp_path, spec, today="2026-10-10")
+
+    assert later._project.day == "2026-10-10"
+    assert later._project.paused_key is None
+    assert later._project.spent == {"render": 1}

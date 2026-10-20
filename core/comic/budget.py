@@ -274,13 +274,15 @@ class BudgetSession:
                     granted=dict(spec.reservations),
                 )
             else:
-                # The switch on *this* invocation decides the new day. Yesterday's
-                # stored flag must not block an explicit --carry-over, and today's
-                # flag must not mint a second allowance before midnight.
-                if day != project.day and spec.carry_over:
-                    project.spent = {}
-                    project.paused_key = None
+                # The switch on *this* invocation decides whether the new day
+                # re-arms spent counts. The day and paused boundary advance
+                # regardless: a stale paused_key would otherwise suppress the
+                # §6 stop record for a new day's boundary.
+                if day != project.day:
                     project.day = day
+                    project.paused_key = None
+                    if spec.carry_over:
+                        project.spent = {}
                 project.total = spec.total
                 project.recovery_reserve = spec.recovery_reserve
                 project.carry_over = spec.carry_over

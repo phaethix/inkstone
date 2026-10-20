@@ -231,6 +231,10 @@ class GateSession:
         # when the gate record itself lives in the project directory.
         root = data_dir if data_dir is not None else output_dir
         self._lock_path = root / ".gate.lock"
+        # Within one run, several pages can be beyond the sample; only the
+        # first held boundary is the run's pause point. A new session may
+        # resume at a different boundary, which is recorded then.
+        self._held_this_session = False
 
     @staticmethod
     def _path_for(data_dir: Path | None, output_dir: Path) -> Path:
@@ -470,17 +474,22 @@ class GateSession:
         self._store = store
 
     def _hold(self, key: str) -> None:
-        if self.project.paused_key is None:
-            self._append(
-                {
-                    "kind": "stop",
-                    "key": key,
-                    "stage": "render",
-                    "reason": "awaiting_human",
-                    "ts": _now_iso(),
-                }
-            )
-            self.project.paused_key = key
+        if not self._held_this_session:
+            # A resume can reach a different boundary after total_chunks or the
+            # sample keys changed. Record it; keeping the old key would report
+            # (and pause on) a page the run is no longer at.
+            if self.project.paused_key != key:
+                self._append(
+                    {
+                        "kind": "stop",
+                        "key": key,
+                        "stage": "render",
+                        "reason": "awaiting_human",
+                        "ts": _now_iso(),
+                    }
+                )
+                self.project.paused_key = key
+            self._held_this_session = True
         self._save()
 
     def _append(self, record: dict) -> None:

@@ -171,3 +171,29 @@ def test_gate_does_not_enter_fingerprint_inputs():
         assert "gate" not in names
         assert "sample_gate_size" not in names
         assert "gate_yes" not in names
+
+
+def test_hold_updates_the_boundary_on_a_new_session(tmp_path):
+    first = GateSession.open(
+        data_dir=None,
+        output_dir=tmp_path / "out",
+        project_id="p",
+        sample_size=1,
+    )
+    first._hold("c0000-p0000")
+    # A second held page in the same run is not a new pause point.
+    first._hold("c0001-p0000")
+
+    second = GateSession.open(
+        data_dir=None,
+        output_dir=tmp_path / "out",
+        project_id="p",
+        sample_size=1,
+    )
+    assert second.project.paused_key == "c0000-p0000"
+    second._hold("c0001-p0000")
+    second._hold("c0001-p0000")
+
+    assert second.project.paused_key == "c0001-p0000"
+    stops = [line for line in _lines(tmp_path / "out" / "runs.jsonl") if line["kind"] == "stop"]
+    assert [row["key"] for row in stops] == ["c0000-p0000", "c0001-p0000"]
