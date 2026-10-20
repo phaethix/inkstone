@@ -27,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   you intend to re-plan every stage.
 
 ### Added
+- Sequential recursion in the A/B tab: `/api/sequences` lists sequence
+  directories, `/api/sequence/<id>` returns the current round plus its
+  candidate plans/structure reports, and `/api/sequence/<id>/pick|advance`
+  reuse the CLI selection and compose writers. The SPA lists sequences above
+  standalone experiments, keeps labels hidden before a pick, and advances to
+  the next round from the same page.
 - Sequential recursion: `inkstone experiment sequence plan --book ...
   --candidate <dir> --rounds N --out <dir>` creates round 1 with the current
   checkpoint (`base` or `--base`) plus the candidate directories. After a

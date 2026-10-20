@@ -202,6 +202,11 @@ Each round probes the current checkpoint plus the same candidates; `advance`
 composes the pick into `rounds/<n>/checkpoint` and plans the next round. The
 last advance marks the sequence `done`.
 
+The Web **A/B** tab lists sequences above standalone experiments. Opening one
+shows the current round, the same anonymous plan cards, and an **Advance
+sequence** action after a pick; the APIs are `GET /api/sequences`,
+`GET /api/sequence/<id>`, and `POST /api/sequence/<id>/pick|advance`.
+
 ## Configuration
 
 Inkstone is configured through environment variables (copy `.env.example` → `.env`):

@@ -67,6 +67,12 @@ Keep these prototypes only as migration material until they conform to the targe
 
 ### P0 — Make the current state honest and deterministic
 
+- **Local (2026-10-20, `main`):** Sequence Web view. The A/B tab lists
+  sequences above experiments; opening one shows the current round's anonymous
+  plan cards, records a pick, and advances to the next round from the same
+  page. APIs: `GET /api/sequences`, `GET /api/sequence/<id>`,
+  `POST /api/sequence/<id>/pick|advance`. Regression:
+  `tests/test_web_server.py`. Remaining: `INKSTONE_HARNESS=0` fallback.
 - **Local (2026-10-20, `main`):** Sequential recursion.
   `experiment sequence plan|advance|status` carries a composed checkpoint
   through N rounds: each round probes the current checkpoint plus the same
