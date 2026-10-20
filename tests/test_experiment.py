@@ -10,9 +10,12 @@ import pytest
 from core.cli import _build_parser, _run_experiment, _run_harness, _run_prompt
 from core.experiment import (
     ExperimentError,
+    advance_sequence_async,
     compose_harness,
     pick_experiment,
     plan_experiment,
+    plan_sequence_async,
+    sequence_status,
 )
 from core.harness.spec import DATA_DIR
 from core.schemas import StoryElements
@@ -274,3 +277,125 @@ def test_compose_can_merge_one_component_from_the_other_candidate(tmp_path):
     assert "CANDIDATE MARKER" not in (adopted / "common" / "system.md").read_text()
     with pytest.raises(ExperimentError, match="does not match"):
         compose_harness(out, choice=candidate_anon, out_dir=tmp_path / "wrong")
+
+
+def test_sequence_runs_two_rounds_and_carries_the_checkpoint(tmp_path):
+    candidate = _candidate(tmp_path)
+    sequence_dir = tmp_path / "sequence"
+    sequence = asyncio.run(
+        plan_sequence_async(
+            "第一章\n福贵在村口。",
+            out_dir=sequence_dir,
+            candidates=[str(candidate)],
+            rounds=2,
+            chat=FakeChat(),
+        )
+    )
+    assert sequence["status"] == "awaiting_pick"
+    assert sequence["current_round"] == 1
+    assert (sequence_dir / "rounds" / "1" / "experiment.json").is_file()
+
+    round_one = json.loads(
+        (sequence_dir / "rounds" / "1" / "experiment.json").read_text(encoding="utf-8")
+    )
+    candidate_anon = next(
+        anon
+        for anon, record in round_one["candidates"].items()
+        if record["label"] == str(candidate)
+    )
+    pick_experiment(sequence_dir / "rounds" / "1", choice=candidate_anon, why="更清楚的构图")
+
+    sequence = asyncio.run(advance_sequence_async(sequence_dir, chat=FakeChat()))
+    assert sequence["status"] == "awaiting_pick"
+    assert sequence["current_round"] == 2
+    assert (sequence_dir / "rounds" / "1" / "checkpoint" / "manifest.json").is_file()
+    assert (sequence_dir / "rounds" / "2" / "experiment.json").is_file()
+
+    round_two = json.loads(
+        (sequence_dir / "rounds" / "2" / "experiment.json").read_text(encoding="utf-8")
+    )
+    # The current checkpoint is one of the two candidates in round 2.
+    labels = {record["label"] for record in round_two["candidates"].values()}
+    assert str(sequence_dir / "rounds" / "1" / "checkpoint") in labels
+    assert str(candidate) in labels
+
+    pick_experiment(sequence_dir / "rounds" / "2", choice="A", why="第二轮更稳定")
+    sequence = asyncio.run(advance_sequence_async(sequence_dir, chat=FakeChat()))
+    assert sequence["status"] == "done"
+    assert sequence["completed_rounds"] == [1, 2]
+    status = sequence_status(sequence_dir)
+    assert status["status"] == "done"
+    assert status["current_checkpoint"].endswith("rounds/2/checkpoint")
+
+
+def test_sequence_advance_requires_a_pick(tmp_path):
+    candidate = _candidate(tmp_path)
+    sequence_dir = tmp_path / "sequence"
+    asyncio.run(
+        plan_sequence_async(
+            "第一章\n福贵在村口。",
+            out_dir=sequence_dir,
+            candidates=[str(candidate)],
+            rounds=1,
+            chat=FakeChat(),
+        )
+    )
+    with pytest.raises(ExperimentError, match="pick a candidate"):
+        asyncio.run(advance_sequence_async(sequence_dir, chat=FakeChat()))
+
+
+def test_cli_sequence_plan_status_and_advance(tmp_path, monkeypatch, capsys):
+    candidate = _candidate(tmp_path)
+    monkeypatch.setattr("core.experiment.get_chat_provider", lambda: FakeChat())
+    parser = _build_parser()
+    sequence_dir = tmp_path / "sequence"
+
+    plan = parser.parse_args(
+        [
+            "experiment",
+            "sequence",
+            "plan",
+            "--book",
+            str(_book(tmp_path)),
+            "--out",
+            str(sequence_dir),
+            "--candidate",
+            str(candidate),
+            "--rounds",
+            "1",
+        ]
+    )
+    assert _run_experiment(plan) == 0
+    assert "wrote" in capsys.readouterr().out
+
+    status = parser.parse_args(["experiment", "sequence", "status", "--run", str(sequence_dir)])
+    assert _run_experiment(status) == 0
+    assert "awaiting_pick" in capsys.readouterr().out
+
+    # Pick the candidate, then advance the single round to completion.
+    round_one = json.loads(
+        (sequence_dir / "rounds" / "1" / "experiment.json").read_text(encoding="utf-8")
+    )
+    candidate_anon = next(
+        anon
+        for anon, record in round_one["candidates"].items()
+        if record["label"] == str(candidate)
+    )
+    pick = parser.parse_args(
+        [
+            "experiment",
+            "pick",
+            "--run",
+            str(sequence_dir / "rounds" / "1"),
+            "--choice",
+            candidate_anon,
+            "--why",
+            "更好的空间建立",
+        ]
+    )
+    assert _run_experiment(pick) == 0
+    capsys.readouterr()
+
+    advance = parser.parse_args(["experiment", "sequence", "advance", "--run", str(sequence_dir)])
+    assert _run_experiment(advance) == 0
+    assert "status: done" in capsys.readouterr().out

@@ -427,3 +427,162 @@ def _experiment_selection(run: Path) -> dict | None:
     if not path.is_file():
         return None
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+# --- sequential recursion -------------------------------------------------
+
+
+def _sequence_path(run: str | Path) -> Path:
+    return Path(run) / "sequence.json"
+
+
+def load_sequence(run: str | Path) -> dict:
+    path = _sequence_path(run)
+    if not path.is_file():
+        raise ExperimentError(f"no sequence.json under {run}")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write_sequence(run: Path, sequence: dict) -> None:
+    _write_json(_sequence_path(run), sequence)
+
+
+def sequence_status(run: str | Path) -> dict:
+    """Return a compact view of a sequential run."""
+    sequence = load_sequence(run)
+    return {
+        "run": str(Path(run)),
+        "status": sequence.get("status"),
+        "rounds": sequence.get("rounds"),
+        "current_round": sequence.get("current_round"),
+        "completed_rounds": sequence.get("completed_rounds", []),
+        "current_checkpoint": sequence.get("current_checkpoint"),
+        "candidates": sequence.get("candidates", []),
+    }
+
+
+def _round_candidates(base: str, candidates: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in [base, *candidates]:
+        key = str(Path(value).resolve()) if value != "base" else "base"
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(value)
+    return out
+
+
+async def plan_sequence_async(
+    source_txt: str,
+    *,
+    out_dir: str | Path,
+    candidates: list[str],
+    base: str | None = None,
+    rounds: int = 2,
+    chunk_index: int = 0,
+    genre: str | None = None,
+    chat: ChatProvider | None = None,
+    seed: str = "",
+    shared_evidence: bool = False,
+) -> dict:
+    """Async body for ``plan_sequence`` (kept separate so the CLI can await it)."""
+    if rounds < 1:
+        raise ExperimentError("rounds must be >= 1")
+    if not candidates:
+        raise ExperimentError("a sequence needs at least one --candidate")
+    base_spec = (base or "base").strip()
+    round_candidates = _round_candidates(base_spec, candidates)
+    _load_candidates(round_candidates)
+    out = Path(out_dir)
+    if out.exists() and any(out.iterdir()):
+        raise ExperimentError(f"sequence directory is not empty: {out}")
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "task.md").write_text(source_txt, encoding="utf-8")
+    round_one = out / "rounds" / "1"
+    manifest = await plan_experiment(
+        source_txt,
+        out_dir=round_one,
+        candidates=round_candidates,
+        chunk_index=chunk_index,
+        genre=genre,
+        chat=chat,
+        seed=f"{seed}-r1",
+        shared_evidence=shared_evidence,
+    )
+    sequence = {
+        "schema": 1,
+        "created_at": _now_iso(),
+        "status": "awaiting_pick",
+        "source_sha256": manifest["source_sha256"],
+        "chunk_index": chunk_index,
+        "genre": genre,
+        "rounds": rounds,
+        "current_round": 1,
+        "completed_rounds": [],
+        "base": base_spec,
+        "candidates": list(candidates),
+        "shared_evidence": shared_evidence,
+        "current_checkpoint": base_spec,
+        "seed": seed,
+        "round_dirs": {"1": str(round_one)},
+    }
+    _write_sequence(out, sequence)
+    return sequence
+
+
+async def advance_sequence_async(
+    run_dir: str | Path,
+    *,
+    chat: ChatProvider | None = None,
+    merge_from: list[str] | None = None,
+    components: list[str] | None = None,
+) -> dict:
+    """Compose the current round's pick and build the next round, if any."""
+    run = Path(run_dir)
+    sequence = load_sequence(run)
+    if sequence.get("status") == "done":
+        raise ExperimentError("sequence is already done")
+    current = int(sequence.get("current_round", 1))
+    total = int(sequence.get("rounds", 1))
+    round_dir = run / "rounds" / str(current)
+    experiment_path = round_dir / "experiment.json"
+    if not experiment_path.is_file():
+        raise ExperimentError(f"round {current} has no experiment.json")
+    selection = _experiment_selection(round_dir)
+    if selection is None:
+        raise ExperimentError(f"round {current} has no selection; pick a candidate first")
+    chosen = str(selection.get("chosen") or "")
+    checkpoint = round_dir / "checkpoint"
+    compose_harness(
+        round_dir,
+        choice=chosen,
+        out_dir=checkpoint,
+        merge_from=merge_from or [],
+        components=components or [],
+    )
+    sequence.setdefault("completed_rounds", []).append(current)
+    sequence["current_checkpoint"] = str(checkpoint)
+    if current >= total:
+        sequence["status"] = "done"
+        sequence["current_round"] = current
+        _write_sequence(run, sequence)
+        return sequence
+    next_round = current + 1
+    sequence["current_round"] = next_round
+    sequence["status"] = "awaiting_pick"
+    round_candidates = _round_candidates(str(checkpoint), list(sequence.get("candidates") or []))
+    next_dir = run / "rounds" / str(next_round)
+    await plan_experiment(
+        (run / "task.md").read_text(encoding="utf-8") if (run / "task.md").is_file() else "",
+        out_dir=next_dir,
+        candidates=round_candidates,
+        chunk_index=int(sequence.get("chunk_index", 0)),
+        genre=sequence.get("genre"),
+        chat=chat,
+        seed=f"{sequence.get('seed', '')}-r{next_round}",
+        shared_evidence=bool(sequence.get("shared_evidence")),
+    )
+    sequence.setdefault("round_dirs", {})[str(next_round)] = str(next_dir)
+    _write_sequence(run, sequence)
+    return sequence

@@ -217,6 +217,33 @@ def _build_parser() -> argparse.ArgumentParser:
     e_pick.add_argument("--run", required=True, help="Experiment directory")
     e_pick.add_argument("--choice", required=True, help="Anonymised candidate id (A/B/C)")
     e_pick.add_argument("--why", required=True, help="Why this candidate read better")
+    e_seq = e_sub.add_parser("sequence", help="Sequential recursion over repeated rounds")
+    s_sub = e_seq.add_subparsers(dest="sequence_command", required=True)
+    s_plan = s_sub.add_parser("plan", help="Create round 1 of a sequence")
+    s_plan.add_argument("--book", required=True, help="Source text file")
+    s_plan.add_argument("--out", required=True, help="Sequence directory")
+    s_plan.add_argument(
+        "--candidate", action="append", required=True, help="Candidate harness directory"
+    )
+    s_plan.add_argument("--base", default=None, help="Starting checkpoint (default: base)")
+    s_plan.add_argument("--rounds", type=int, default=2, help="Total rounds (default 2)")
+    s_plan.add_argument("--chunk", type=int, default=0, help="Chunk index (default 0)")
+    s_plan.add_argument("--genre", default=None, help="Domain profile")
+    s_plan.add_argument("--seed", default="", help="Extra anonymisation seed")
+    s_plan.add_argument(
+        "--shared-evidence",
+        action="store_true",
+        help="Reuse one extract/beats pass (cheaper, page_plan-only)",
+    )
+    s_adv = s_sub.add_parser("advance", help="Compose the round pick and plan the next round")
+    s_adv.add_argument("--run", required=True, help="Sequence directory")
+    s_adv.add_argument(
+        "--merge-from", action="append", default=[], help="Candidate id to merge from"
+    )
+    s_adv.add_argument("--component", action="append", default=[], help="Component id to merge")
+    s_status = s_sub.add_parser("status", help="Show a sequence's progress")
+    s_status.add_argument("--run", required=True, help="Sequence directory")
+
     e_compose = e_sub.add_parser("compose", help="Materialise the picked harness")
     e_compose.add_argument("--run", required=True, help="Experiment directory")
     e_compose.add_argument("--choice", required=True, help="The picked candidate id")
@@ -1221,12 +1248,65 @@ def _run_experiment(args: argparse.Namespace) -> int:
     """Plan a blind A/B probe or record its human choice."""
     from core.experiment import (
         ExperimentError,
+        advance_sequence_async,
         compose_harness,
         pick_experiment,
         plan_experiment,
+        plan_sequence_async,
+        sequence_status,
     )
 
     try:
+        if args.experiment_command == "sequence":
+            if args.sequence_command == "status":
+                state = sequence_status(args.run)
+                print(f"status: {state['status']}")
+                print(
+                    f"round: {state['current_round']}/{state['rounds']}"
+                    f" · completed: {state['completed_rounds']}"
+                )
+                print(f"checkpoint: {state['current_checkpoint']}")
+                print(f"run: {state['run']}")
+                return 0
+            if args.sequence_command == "advance":
+                state = asyncio.run(
+                    advance_sequence_async(
+                        args.run,
+                        merge_from=args.merge_from,
+                        components=args.component,
+                    )
+                )
+                print(
+                    f"advanced to round {state['current_round']}/{state['rounds']}"
+                    f" · status: {state['status']}"
+                )
+                print(f"checkpoint: {state['current_checkpoint']}")
+                if state["status"] != "done":
+                    print(
+                        "next: inkstone experiment pick --run "
+                        f"{args.run}/rounds/{state['current_round']} "
+                        '--choice A --why "..."'
+                    )
+                return 0
+            source = Path(args.book).read_text(encoding="utf-8")
+            state = asyncio.run(
+                plan_sequence_async(
+                    source,
+                    out_dir=args.out,
+                    candidates=args.candidate,
+                    base=args.base,
+                    rounds=args.rounds,
+                    chunk_index=args.chunk,
+                    genre=args.genre,
+                    seed=args.seed,
+                    shared_evidence=args.shared_evidence,
+                )
+            )
+            print(f"wrote {args.out} ({state['rounds']} round(s))")
+            print(
+                f'next: inkstone experiment pick --run {args.out}/rounds/1 --choice A --why "..."'
+            )
+            return 0
         if args.experiment_command == "compose":
             record = compose_harness(
                 args.run,
