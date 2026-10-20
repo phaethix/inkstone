@@ -67,6 +67,14 @@ Keep these prototypes only as migration material until they conform to the targe
 
 ### P0 — Make the current state honest and deterministic
 
+- **Local (2026-10-20, `main`):** Shared-state hardening for Phase 2. A reusable
+  data-directory lock serializes `budget.json` / `gate.json` read-modify-write,
+  and open sessions refresh the shared spent/sample state before writing; a
+  corrupt shared JSON is quarantined and rebuilt instead of failing every
+  project; `GateSession.load` finds both the shared and project-local gate; and
+  cache-hit beats/page-plan stamps persist immediately. Regression:
+  `tests/test_shared_state.py`. This is the prerequisite for running multiple
+  candidate harnesses without corrupting experiment accounting.
 - **Local (2026-10-20, `main`):** Prompt-harness phase 0 + first phase-1 slice.
   Chat action keys carry a request digest (schema 3) over the system prompt,
   stage instructions, tool schema, model, and declared inputs; accumulated

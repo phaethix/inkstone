@@ -59,6 +59,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is logged.
 - D-04: the sample gate's growth branch is clamped to at least one page, so a
   zero `chapter_pages` cannot make every page "beyond the sample" forever.
+- D-05: `budget.json` and `gate.json` are read-modify-written under a
+  data-directory lock, and an already-open session refreshes the shared spent /
+  sample state before it writes. Two projects can no longer lose each other's
+  charges or gate decisions.
+- D-06: a corrupt shared `budget.json` or `gate.json` is quarantined as
+  `<name>.corrupt-<timestamp>`, logged, and audited in `runs.jsonl`; the run
+  rebuilds an empty account instead of failing every project. `OSError` still
+  propagates, because a permission or I/O failure is not corruption.
+- D-07: `GateSession.load` searches the shared data directory first and the
+  project directory second, so the CLI and `gc` find a gate the pipeline wrote
+  project-locally when no `data_dir` was supplied. `gc` already considers both.
+- D-10: a cache-hit beats/page-plan stamp is saved at the mutation, not at the
+  next end-of-run save. A budget/continuity pause or a crash can no longer lose
+  the stamp and force the next resume to re-derive it.
 
 ### Upgrade notes
 - **Upgrading recomputes each existing project once.** Stage keys are now
