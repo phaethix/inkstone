@@ -67,6 +67,13 @@ Keep these prototypes only as migration material until they conform to the targe
 
 ### P0 — Make the current state honest and deterministic
 
+- **Local (2026-10-20, `main`):** Project-level harness override.
+  `generate --harness-dir` / `INKSTONE_HARNESS_DIR` runs all six chat stages with
+  a validated tree; the digest lands in the review manifest and the request
+  digest in each chat key. The image renderer/export keys are unchanged;
+  `inkstone prompt --harness-dir` covers every stage. Regression:
+  `tests/test_finished_page_pipeline.py`, `tests/test_cli_prompt.py`. Next:
+  sequential recursion.
 - **Local (2026-10-20, `main`):** Web compose button. The A/B card composes the
   picked tree into `<experiment>/adopted/` via
   `POST /api/experiment/<id>/compose`, with an optional `stage.page_plan` merge

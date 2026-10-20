@@ -27,6 +27,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   you intend to re-plan every stage.
 
 ### Added
+- Project-level harness override: `inkstone generate --harness-dir <tree>`
+  or `INKSTONE_HARNESS_DIR` runs all six chat stages with a validated tree
+  (extract, beats, bible, storyboard, page_plan, page_script). The tree is
+  checked before the first billable call, its digest is recorded in
+  `review/manifest.json`, and page-plan keys use its request digest. The
+  image renderer and export keys are unchanged. `inkstone prompt
+  --harness-dir` now applies to every stage, not only page_plan.
 - Candidate-level A/B planning: by default each candidate now runs
   `extract`, `key_beats`, and `page_plan` under its own harness, so the probe
   compares the whole planning path. `--shared-evidence` keeps the cheaper

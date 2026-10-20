@@ -42,7 +42,7 @@ ChatProvider / ImageProvider   (Agnes default; openai_compat optional)
 | Providers | Swappable chat/image APIs, rate limit, retry, error log | `core/api/` |
 | Contracts | Pydantic models; LLM tool schemas generated from the same types | `core/schemas.py` |
 | Planning | Extract, storyboard, finished-page plans, visual-bible reconcile, key beats | `core/screenwriter.py` |
-| Prompt harness | Editable system prompt, six stage templates, genre packs, request digest, quality tripwire | `core/harness/` |
+| Prompt harness | Editable system prompt, six stage templates, genre packs, request digest, quality tripwire, project-level override | `core/harness/` |
 | Comic domain | Consistency L1/L2/L3, bible, lettering, layout, export, alias merge | `core/comic/` |
 | Pipeline | Segment → plan → paint → letter → bind; fingerprints; resume | `core/pipelines/creative_comic.py` |
 | Supervisor | Keep a job alive through free-tier failures | `core/pipelines/run_until_complete.py` |

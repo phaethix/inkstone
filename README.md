@@ -165,6 +165,7 @@ inkstone experiment plan \
   --out experiments/wuxia-a
 inkstone experiment pick --run experiments/wuxia-a --choice A --why "clearer staging"
 inkstone experiment compose --run experiments/wuxia-a --choice A --out harness/wuxia-a
+inkstone generate examples/scene1.txt --out comic_out/wuxia --harness-dir harness/wuxia-a
 ```
 
 The experiment writes an anonymised `candidates/A|B/` packet and a
@@ -173,7 +174,10 @@ By default each candidate runs extract + key beats + page plan (no image calls);
 pass `--shared-evidence` for the cheaper page_plan-only probe. `compose` copies
 the picked tree, optionally merging named components from another candidate
 (`--merge-from B --component stage.page_plan`), validates it, and never
-overwrites the builtin tree.
+overwrites the builtin tree. `generate --harness-dir` (or
+`INKSTONE_HARNESS_DIR`) runs all six chat stages with that tree; the tree is
+validated before the first billable call and its digest is recorded in the
+review manifest. The image renderer and export keys are unchanged.
 
 The local Web UI has an **A/B** tab for the same experiments: it lists the
 packets under `INKSTONE_EXPERIMENTS_DIR` (default `comic_out/experiments`),
@@ -203,6 +207,7 @@ Inkstone is configured through environment variables (copy `.env.example` → `.
 | `INKSTONE_REVIEW_PACKET` | | `1` | Write a local `review/` evidence packet (effective prompts, source, plans, structure report, decisions). `0` disables it; it is never sent to a model. |
 | `INKSTONE_LESSONS` | | `1` | Inject active craft lessons from `<INKSTONE_DATA_DIR>/library/` into page planning. `0` disables retrieval; approved lessons stay on disk. |
 | `INKSTONE_EXPERIMENTS_DIR` | | `comic_out/experiments` | Root the Web UI **A/B** tab lists. Set it to the parent of the `--out` directories you created. |
+| `INKSTONE_HARNESS_DIR` | | — | Run all chat stages with this harness tree (same layout as `core/harness/data/`). `generate --harness-dir` overrides it. The tree is validated at startup. |
 | `INKSTONE_PAGE_SCRIPT` | | `0` | Write legacy PageScript metadata. Off. Not a quality gate. |
 | `INKSTONE_DATA_DIR` | | `~/.inkstone` | Shared quota, budget, and sample-gate files. |
 | `INKSTONE_RENDER_MODE` | | `finished_page` | Default: one finished comic page per image call. Set `panel_compose` to use the legacy storyboard → panel → layout path (recovery when finished pages fail). |
