@@ -2219,7 +2219,10 @@ async def _creative_comic(
                     and _page_chunk_complete(state, pageset, output_dir, ci, chunk)
                     and panel_key_filter is None
                 )
-                if chunk_complete and state.visual_bible is not None:
+                if chunk_complete:
+                    # The panel branch below does not require a visual bible,
+                    # and a finished page does not read one: both resume paths
+                    # must short-circuit on the same evidence.
                     _complete_render_chunk_nodes(ci)
                     _report("resume", _pct())
                     continue

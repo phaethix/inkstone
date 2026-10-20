@@ -1043,3 +1043,36 @@ def test_harness_kill_switch_ignores_override_genre_and_lessons(tmp_path, monkey
     assert manifest["harness_fallback"] is True
     assert manifest["genre"] == "general"
     assert manifest["harness_digest"] == harness_from_dir(DATA_DIR).digest()
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_finished_page_resume_does_not_require_a_visual_bible(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+    source = "第一章\n福贵在村口。"
+    first = FakeImage()
+    asyncio.run(creative_comic(source, output_dir=str(tmp_path), chat=FakeChat(), image=first))
+    assert first.calls == 2
+
+    state = ProjectState.load(tmp_path / "state.json")
+    state.visual_bible = None
+    state.save(tmp_path / "state.json")
+    # The point is the resume condition, not re-deriving a letter key that was
+    # recorded against a bible: force the completeness check so only the
+    # visual_bible guard can keep the run out of the resume branch.
+    monkeypatch.setattr(
+        "core.pipelines.creative_comic._page_chunk_complete", lambda *args, **kwargs: True
+    )
+
+    stages: list[str] = []
+    second = FakeImage()
+    asyncio.run(
+        creative_comic(
+            source,
+            output_dir=str(tmp_path),
+            chat=FakeChat(),
+            image=second,
+            progress_callback=lambda stage, _pct: stages.append(stage),
+        )
+    )
+
+    assert "resume" in stages
