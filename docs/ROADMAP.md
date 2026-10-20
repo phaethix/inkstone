@@ -18,7 +18,8 @@ Status definitions:
 Developer onboarding for the shipped tree is [`docs/ONBOARDING.md`](ONBOARDING.md).
 The **target** architecture is now versioned:
 [`docs/architecture/2026-09-28-content-addressed-pipeline-design.md`](architecture/2026-09-28-content-addressed-pipeline-design.md)
-(Chinese version: [`…-design.zh-CN.md`](architecture/2026-09-28-content-addressed-pipeline-design.zh-CN.md)).
+(Chinese version: [`…-design.zh-CN.md`](architecture/2026-09-28-content-addressed-pipeline-design.zh-CN.md),
+**lagging as of 2026-10-19**: it lacks the dated revisions from 2026-10-20 onward, so the English file governs).
 Its three original blockers (L2 continuity cascade, dynamic page DAG, missing
 tombstones) and its majors were verified against the shipped tree and have been
 folded into the design (§2, §4, §6, §12); they are now design requirements rather
@@ -56,7 +57,7 @@ When completing a change:
 
 Do **not** present the current D1/D2 code as a completed quality feature:
 
-- density tiers now set the planning budget and the structure fingerprint; the page-count estimate is still uncalibrated;
+- density tiers now set the planning budget and the structure fingerprint; the panel budget `3/8/14` is still an experience value, while the page count is derived through `PANELS_PER_PAGE = 4`, which is held in sync with `LayoutEngine._paginate(per_page=4)` so it cannot drift;
 - PageScript is created after storyboard, so it cannot restore omitted narrative beats;
 - coverage currently checks non-empty fields and substring matches, not reader-visible information;
 - policy-rejected pages must not be excluded from a final completeness denominator.
@@ -67,6 +68,13 @@ Keep these prototypes only as migration material until they conform to the targe
 
 ### P0 — Make the current state honest and deterministic
 
+- **Local (2026-10-20, `main`):** Per-stage runner. `core/pipelines/stage_runner.py`
+  implements the four properties §9 states, with the action key passed in rather
+  than derived, the manifest stage resolved from `stage_registry` (so `webtoon`
+  records under `export`), an empty key refused, and a non-ok manifest treated as
+  settled. `layout` and `webtoon` now execute through it; the remaining ten stages
+  still run inline. `tests/test_stage_runner.py` holds each property with an
+  injected counterexample.
 - **Local (2026-10-20, `main`):** Architecture evolution. Added the declarative
   stage catalog (`inkstone stages`, startup validation) and a manifest schema
   migrator (`inkstone migrate`, dry-run by default, refusing key/filename
@@ -333,8 +341,9 @@ Per the [content-addressed pipeline design](architecture/2026-09-28-content-addr
   returned different bytes, so §8's duplicate-charge window stays open) are
   recorded in [CHANGELOG.md](../CHANGELOG.md). The plan caches moved to the
   sibling `cache.json` in the state split above, not left in `state.json`;
-  per-stage runners remain later work and their contract is stated in the
-  [content-addressed design](architecture/2026-09-28-content-addressed-pipeline-design.md) §9.
+  per-stage runners were later work on this date, and their contract is stated in
+  the [content-addressed design](architecture/2026-09-28-content-addressed-pipeline-design.md) §9
+  (superseded 2026-10-20: the runner landed for `layout` and `webtoon`).
 
 - **Local (2026-10-19, `main`):** Two-phase ephemeral scheduler foundation.
   `core/pipelines/stage_scheduler.py` validates the in-memory plan/render/export
