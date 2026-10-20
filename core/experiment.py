@@ -1,13 +1,16 @@
 """core.experiment — planning-only A/B probes for harness candidates.
 
-One experiment uses a single chunk and a shared base evidence set (extract +
-key beats). Each candidate then runs only the page-plan request, so the default
-comparison costs no image calls. Candidates are anonymised A/B; a human picks
-one with ``inkstone experiment pick`` and the selection is recorded.
+One experiment uses a single chunk. By default each candidate runs extract,
+key beats, and page plan under its own harness (three chat calls, no images).
+``shared_evidence=True`` keeps the cheaper probe: extract/beats run once under
+the builtin harness and only page_plan is per candidate.
 
-This is the Phase 2 MVP: it does not compose a harness automatically and it
-does not run extract/beats under the candidate. Those are the next steps once
-the selection format has real use.
+Candidates are anonymised A/B; a human picks one with
+``inkstone experiment pick``. ``inkstone experiment compose`` then copies the
+picked tree into a new harness directory, optionally taking named components
+from another candidate (``--merge-from`` + ``--component``). Composition is
+explicit, validated in a staging directory, and never overwrites the builtin
+tree.
 """
 
 from __future__ import annotations
@@ -15,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 import random
+import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,9 +27,11 @@ from core.api import ChatProvider, get_chat_provider
 from core.comic.segmentation import segment_text
 from core.comic.structure_report import structural_report
 from core.density import PANELS_PER_CHUNK_B
-from core.harness.spec import Harness, HarnessError, harness_from_dir
+from core.harness.spec import Harness, HarnessError, builtin_harness, harness_from_dir
 from core.schemas import ProjectState
 from core.screenwriter import (
+    build_beats_request,
+    build_extract_request,
     build_page_plan_request,
     extract_key_beats,
     extract_story_elements,
@@ -68,6 +74,21 @@ def _write_json(path: Path, payload: dict) -> None:
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+
+
+def _write_prompt(directory: Path, stage: str, request) -> None:
+    payload = {
+        "stage": stage,
+        "digest": request.digest(),
+        "model": request.model,
+        "messages": request.messages,
+        "tools": request.tools,
+        "tool_choice": request.tool_choice,
+    }
+    _write_json(directory / "prompts" / f"{stage}.json", payload)
+    if stage == "page_plan":
+        # Keep the MVP's flat prompt.json as an alias for existing readers.
+        _write_json(directory / "prompt.json", payload)
 
 
 def _load_candidates(specs: list[str]) -> list[Candidate]:
@@ -114,8 +135,14 @@ async def plan_experiment(
     genre: str | None = None,
     chat: ChatProvider | None = None,
     seed: str = "",
+    shared_evidence: bool = False,
 ) -> dict:
-    """Probe page planning for each candidate; write an anonymised experiment."""
+    """Probe the planning pipeline for each candidate; write an anonymised experiment.
+
+    By default each candidate runs extract, key beats, and page plan under its
+    own harness. ``shared_evidence=True`` keeps the cheaper MVP: extract/beats
+    run once under the builtin harness and only page_plan is per candidate.
+    """
     chunks = segment_text(source_txt)
     if not chunks:
         raise ExperimentError("source text produced no chunks")
@@ -135,13 +162,43 @@ async def plan_experiment(
     out.mkdir(parents=True, exist_ok=True)
     (out / "task.md").write_text(chunk, encoding="utf-8")
 
-    elements = await extract_story_elements(chunk, chat=counting)
-    beats = await extract_key_beats(chunk, elements, chat=counting)
-    shared_calls = counting.calls
+    model = getattr(provider, "model", "")
+    shared_elements = None
+    shared_beats = None
+    shared_calls = 0
+    if shared_evidence:
+        shared_extract = build_extract_request(chunk, harness=None, model=model)
+        shared_elements = await extract_story_elements(chunk, chat=counting, request=shared_extract)
+        shared_beats = await extract_key_beats(
+            chunk,
+            shared_elements,
+            chat=counting,
+            request=build_beats_request(chunk, shared_elements, harness=None, model=model),
+        )
+        shared_calls = counting.calls
+        _write_prompt(out / "shared", "extract", shared_extract)
+        _write_prompt(
+            out / "shared",
+            "beats",
+            build_beats_request(chunk, shared_elements, harness=None, model=model),
+        )
 
     records: dict[str, dict] = {}
     for candidate in loading:
         before = counting.calls
+        directory = out / "candidates" / candidate.anon
+        if shared_evidence:
+            elements = shared_elements
+            beats = shared_beats
+        else:
+            extract_request = build_extract_request(chunk, harness=candidate.harness, model=model)
+            _write_prompt(directory, "extract", extract_request)
+            elements = await extract_story_elements(chunk, chat=counting, request=extract_request)
+            beats_request = build_beats_request(
+                chunk, elements, harness=candidate.harness, model=model
+            )
+            _write_prompt(directory, "beats", beats_request)
+            beats = await extract_key_beats(chunk, elements, chat=counting, request=beats_request)
         request = build_page_plan_request(
             chunk,
             elements,
@@ -151,8 +208,9 @@ async def plan_experiment(
             panel_budget=PANELS_PER_CHUNK_B,
             genre=genre,
             harness=candidate.harness,
-            model=getattr(provider, "model", ""),
+            model=model,
         )
+        _write_prompt(directory, "page_plan", request)
         pageset = await plan_comic_pages(
             chunk,
             elements,
@@ -164,18 +222,6 @@ async def plan_experiment(
             request=request,
         )
         candidate.calls = counting.calls - before
-        directory = out / "candidates" / candidate.anon
-        _write_json(
-            directory / "prompt.json",
-            {
-                "stage": "page_plan",
-                "digest": request.digest(),
-                "model": request.model,
-                "messages": request.messages,
-                "tools": request.tools,
-                "tool_choice": request.tool_choice,
-            },
-        )
         _write_json(directory / "plan.json", pageset.model_dump(mode="json"))
         state = ProjectState(project_id=f"experiment-{candidate.anon}")
         state.page_cache[str(chunk_index)] = pageset
@@ -199,6 +245,7 @@ async def plan_experiment(
         "chunk_index": chunk_index,
         "chunk_chars": len(chunk),
         "genre": genre,
+        "evidence": "shared" if shared_evidence else "candidate",
         "candidates": records,
         "cost": {
             "chat_calls": counting.calls,
@@ -253,3 +300,130 @@ def pick_experiment(run_dir: str | Path, *, choice: str, why: str) -> dict:
     manifest["chosen"] = anon
     _write_json(manifest_path, manifest)
     return selection
+
+
+def _candidate_harness(manifest: dict, candidate_id: str) -> Harness:
+    record = (manifest.get("candidates") or {}).get(candidate_id)
+    if record is None:
+        raise ExperimentError(f"candidate {candidate_id!r} is not in the experiment")
+    label = str(record.get("label", ""))
+    if label == "base":
+        return builtin_harness()
+    try:
+        return harness_from_dir(label)
+    except HarnessError as exc:
+        raise ExperimentError(f"candidate {candidate_id}: {exc}") from exc
+
+
+def compose_harness(
+    run_dir: str | Path,
+    *,
+    choice: str,
+    out_dir: str | Path,
+    merge_from: list[str] | None = None,
+    components: list[str] | None = None,
+) -> dict:
+    """Materialise the human-picked harness, optionally merging components.
+
+    The chosen tree is copied first. Each ``--merge-from`` candidate contributes
+    only the explicitly named components; there is no implicit merge. The
+    result is validated in a temporary directory and only then moved into place.
+    """
+    run = Path(run_dir)
+    manifest_path = run / "experiment.json"
+    if not manifest_path.is_file():
+        raise ExperimentError(f"no experiment.json under {run}")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    selection = _experiment_selection(run)
+    if selection is None:
+        raise ExperimentError("pick a candidate before composing (no selection.json)")
+    anon = (choice or "").strip().upper()
+    if anon != selection.get("chosen"):
+        raise ExperimentError(
+            f"choice {choice!r} does not match the recorded pick {selection.get('chosen')!r}"
+        )
+    chosen = _candidate_harness(manifest, anon)
+    merge_ids = [value.strip() for value in (merge_from or []) if value.strip()]
+    component_ids = [value.strip() for value in (components or []) if value.strip()]
+    if merge_ids and not component_ids:
+        raise ExperimentError("--merge-from needs at least one --component")
+    if component_ids and not merge_ids:
+        raise ExperimentError("--component needs at least one --merge-from")
+
+    merge_sources: list[tuple[str, Harness]] = []
+    for spec in merge_ids:
+        if spec in (manifest.get("candidates") or {}):
+            merge_sources.append((spec, _candidate_harness(manifest, spec)))
+        else:
+            try:
+                merge_sources.append((spec, harness_from_dir(spec)))
+            except HarnessError as exc:
+                raise ExperimentError(f"merge source {spec}: {exc}") from exc
+
+    out = Path(out_dir)
+    if out.exists():
+        raise ExperimentError(f"output already exists: {out}")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    staging = out.with_name(out.name + ".tmp")
+    if staging.exists():
+        shutil.rmtree(staging)
+    try:
+        shutil.copytree(chosen.root, staging)
+        for component_id in component_ids:
+            target = next((c for c in chosen.components if c.id == component_id), None)
+            if target is None:
+                raise ExperimentError(f"component {component_id!r} is not in the chosen harness")
+            for source_label, source in merge_sources:
+                source_component = next(
+                    (c for c in source.components if c.id == component_id), None
+                )
+                if source_component is None:
+                    raise ExperimentError(
+                        f"component {component_id!r} is not in merge source {source_label}"
+                    )
+                (staging / target.path).write_text(
+                    source.component_text(source_component.id), encoding="utf-8"
+                )
+        merged = harness_from_dir(staging)
+        problems = merged.validate()
+        if problems:
+            raise ExperimentError("composed harness is invalid: " + "; ".join(problems))
+        digest = merged.digest()
+        staging.replace(out)
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+
+    record = {
+        "experiment": run.name,
+        "chosen": anon,
+        "chosen_label": selection.get("chosen_label"),
+        "why": selection.get("why"),
+        "components": component_ids,
+        "merge_from": merge_ids,
+        "harness_digest": digest,
+        "harness_dir": str(out),
+        "created_at": _now_iso(),
+    }
+    _write_json(run / "compose.json", record)
+    manifest["status"] = "composed"
+    manifest["composed_harness"] = str(out)
+    manifest["composed_digest"] = digest
+    _write_json(manifest_path, manifest)
+    (out / "ADOPTION.md").write_text(
+        "# Adopted harness\n\n"
+        f"- experiment: `{run.name}`\n"
+        f"- chosen: `{anon}` ({selection.get('chosen_label')})\n"
+        f"- why: {selection.get('why')}\n"
+        f"- merged components: {', '.join(component_ids) or '(none)'}\n"
+        f"- digest: `{digest}`\n",
+        encoding="utf-8",
+    )
+    return record
+
+
+def _experiment_selection(run: Path) -> dict | None:
+    path = run / "selection.json"
+    if not path.is_file():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))

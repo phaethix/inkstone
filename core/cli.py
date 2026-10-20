@@ -203,10 +203,31 @@ def _build_parser() -> argparse.ArgumentParser:
     e_plan.add_argument("--chunk", type=int, default=0, help="Chunk index (default 0)")
     e_plan.add_argument("--genre", default=None, help="Domain profile")
     e_plan.add_argument("--seed", default="", help="Extra anonymisation seed")
+    e_plan.add_argument(
+        "--shared-evidence",
+        action="store_true",
+        help="Run extract/beats once under the builtin harness (cheaper, page_plan-only)",
+    )
     e_pick = e_sub.add_parser("pick", help="Record the human A/B choice")
     e_pick.add_argument("--run", required=True, help="Experiment directory")
     e_pick.add_argument("--choice", required=True, help="Anonymised candidate id (A/B/C)")
     e_pick.add_argument("--why", required=True, help="Why this candidate read better")
+    e_compose = e_sub.add_parser("compose", help="Materialise the picked harness")
+    e_compose.add_argument("--run", required=True, help="Experiment directory")
+    e_compose.add_argument("--choice", required=True, help="The picked candidate id")
+    e_compose.add_argument("--out", required=True, help="Output harness directory")
+    e_compose.add_argument(
+        "--merge-from",
+        action="append",
+        default=[],
+        help="Candidate id or harness dir to merge components from (repeatable)",
+    )
+    e_compose.add_argument(
+        "--component",
+        action="append",
+        default=[],
+        help="Component id to take from --merge-from, e.g. stage.page_plan",
+    )
 
     p_lesson = sub.add_parser("lesson", help="Approve, list, or retire craft lessons")
     l_sub = p_lesson.add_subparsers(dest="lesson_command", required=True)
@@ -1187,9 +1208,27 @@ def _run_lesson(args: argparse.Namespace) -> int:
 
 def _run_experiment(args: argparse.Namespace) -> int:
     """Plan a blind A/B probe or record its human choice."""
-    from core.experiment import ExperimentError, pick_experiment, plan_experiment
+    from core.experiment import (
+        ExperimentError,
+        compose_harness,
+        pick_experiment,
+        plan_experiment,
+    )
 
     try:
+        if args.experiment_command == "compose":
+            record = compose_harness(
+                args.run,
+                choice=args.choice,
+                out_dir=args.out,
+                merge_from=args.merge_from,
+                components=args.component,
+            )
+            print(
+                f"composed {args.out} -> {record['harness_digest']} "
+                f"(merged: {', '.join(record['components']) or 'none'})"
+            )
+            return 0
         if args.experiment_command == "pick":
             selection = pick_experiment(args.run, choice=args.choice, why=args.why)
             print(
@@ -1206,6 +1245,7 @@ def _run_experiment(args: argparse.Namespace) -> int:
                 chunk_index=args.chunk,
                 genre=args.genre,
                 seed=args.seed,
+                shared_evidence=args.shared_evidence,
             )
         )
     except (ExperimentError, OSError) as exc:

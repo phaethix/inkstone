@@ -105,13 +105,24 @@ def _tool_choice(name: str) -> dict:
 # schema edit can never hit a stale plan.
 
 
-def build_extract_request(text: str, *, model: str = "") -> ChatRequest:
+def build_extract_request(
+    text: str,
+    *,
+    harness: Harness | None = None,
+    model: str = "",
+) -> ChatRequest:
     """The extract request for one chunk."""
-    user = render_stage("extract", {"source_chunk": sanitize_text(text)})
+    values = {"source_chunk": sanitize_text(text)}
+    user = (
+        harness.render_stage("extract", values)
+        if harness is not None
+        else render_stage("extract", values)
+    )
+    system = harness.system_prompt() if harness is not None else SYSTEM_PROMPT
     return ChatRequest(
         model=model,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
         tools=[EXTRACT_TOOL],
@@ -119,19 +130,28 @@ def build_extract_request(text: str, *, model: str = "") -> ChatRequest:
     )
 
 
-def build_beats_request(text: str, elements: StoryElements, *, model: str = "") -> ChatRequest:
+def build_beats_request(
+    text: str,
+    elements: StoryElements,
+    *,
+    harness: Harness | None = None,
+    model: str = "",
+) -> ChatRequest:
     """The key-beats request for one text unit."""
-    user = render_stage(
-        "beats",
-        {
-            "source_chunk": sanitize_text(text),
-            "elements_json": elements.model_dump_json(),
-        },
+    values = {
+        "source_chunk": sanitize_text(text),
+        "elements_json": elements.model_dump_json(),
+    }
+    user = (
+        harness.render_stage("beats", values)
+        if harness is not None
+        else render_stage("beats", values)
     )
+    system = harness.system_prompt() if harness is not None else SYSTEM_PROMPT
     return ChatRequest(
         model=model,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
         tools=[KEY_BEATS_TOOL],

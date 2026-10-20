@@ -163,6 +163,13 @@ class Harness:
             )
         return component
 
+    def component_text(self, component_id: str) -> str:
+        """The raw body of one component; callers use it for explicit merges."""
+        component = next((c for c in self._components if c.id == component_id), None)
+        if component is None:
+            raise HarnessError(f"harness has no component {component_id!r}")
+        return self._bodies[component.id]
+
     def stage_template(self, stage: str) -> str:
         return self._bodies[self._stage_component(stage).id].strip()
 

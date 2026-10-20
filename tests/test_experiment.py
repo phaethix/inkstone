@@ -10,6 +10,7 @@ import pytest
 from core.cli import _build_parser, _run_experiment, _run_harness, _run_prompt
 from core.experiment import (
     ExperimentError,
+    compose_harness,
     pick_experiment,
     plan_experiment,
 )
@@ -54,13 +55,17 @@ def test_plan_experiment_writes_an_anonymised_packet(tmp_path):
 
     assert manifest["status"] == "awaiting_selection"
     assert set(manifest["candidates"]) == {"A", "B"}
+    assert manifest["evidence"] == "candidate"
     assert manifest["cost"]["image_calls"] == 0
-    assert manifest["cost"]["chat_calls"] == 4  # extract + beats + two plans
+    # Each candidate runs extract + beats + page_plan.
+    assert manifest["cost"]["chat_calls"] == 6
     assert (out / "task.md").is_file()
     for anon in ("A", "B"):
         assert (out / "candidates" / anon / "plan.json").is_file()
         assert (out / "candidates" / anon / "structure_report.json").is_file()
         assert (out / "candidates" / anon / "prompt.json").is_file()
+        assert (out / "candidates" / anon / "prompts" / "extract.json").is_file()
+        assert (out / "candidates" / anon / "prompts" / "beats.json").is_file()
     prompts = {
         anon: json.loads((out / "candidates" / anon / "prompt.json").read_text(encoding="utf-8"))[
             "messages"
@@ -141,6 +146,22 @@ def test_cli_plan_and_pick_with_a_fake_provider(tmp_path, monkeypatch, capsys):
     assert _run_experiment(pick) == 0
     assert "selected B" in capsys.readouterr().out
 
+    compose = parser.parse_args(
+        [
+            "experiment",
+            "compose",
+            "--run",
+            str(out),
+            "--choice",
+            "B",
+            "--out",
+            str(tmp_path / "adopted"),
+        ]
+    )
+    assert _run_experiment(compose) == 0
+    assert "composed" in capsys.readouterr().out
+    assert (tmp_path / "adopted" / "manifest.json").is_file()
+
 
 def _book(tmp_path: Path) -> Path:
     path = tmp_path / "book.txt"
@@ -169,3 +190,87 @@ def test_cli_harness_dir_validate_and_prompt(tmp_path, capsys):
     )
     assert _run_prompt(args) == 0
     assert "CANDIDATE MARKER" in capsys.readouterr().out
+
+
+def test_shared_evidence_keeps_the_cheaper_four_call_probe(tmp_path):
+    candidate = _candidate(tmp_path)
+    out = tmp_path / "experiment-shared"
+    manifest = asyncio.run(
+        plan_experiment(
+            "第一章\n福贵在村口。",
+            out_dir=out,
+            candidates=["base", str(candidate)],
+            chat=FakeChat(),
+            shared_evidence=True,
+        )
+    )
+    assert manifest["evidence"] == "shared"
+    assert manifest["cost"]["chat_calls"] == 4
+    assert (out / "shared" / "prompts" / "extract.json").is_file()
+    assert not (out / "candidates" / "A" / "prompts" / "extract.json").exists()
+
+
+def test_compose_adopts_the_picked_harness(tmp_path):
+    candidate = _candidate(tmp_path)
+    out = tmp_path / "experiment"
+    manifest = asyncio.run(
+        plan_experiment(
+            "第一章\n福贵在村口。",
+            out_dir=out,
+            candidates=["base", str(candidate)],
+            chat=FakeChat(),
+            shared_evidence=True,
+        )
+    )
+    anon = next(
+        key for key, record in manifest["candidates"].items() if record["label"] == str(candidate)
+    )
+    with pytest.raises(ExperimentError, match="pick a candidate"):
+        compose_harness(out, choice=anon, out_dir=tmp_path / "too-early")
+    pick_experiment(out, choice=anon, why="更清楚的构图")
+    adopted = tmp_path / "adopted"
+    record = compose_harness(out, choice=anon, out_dir=adopted)
+
+    from core.harness.spec import harness_from_dir
+
+    assert record["harness_digest"] == harness_from_dir(candidate).digest()
+    assert (adopted / "stages" / "page_plan.md").is_file()
+    assert "CANDIDATE MARKER" in (adopted / "stages" / "page_plan.md").read_text()
+    assert (adopted / "ADOPTION.md").is_file()
+    updated = json.loads((out / "experiment.json").read_text(encoding="utf-8"))
+    assert updated["status"] == "composed"
+    assert updated["composed_digest"] == record["harness_digest"]
+
+
+def test_compose_can_merge_one_component_from_the_other_candidate(tmp_path):
+    candidate = _candidate(tmp_path)
+    out = tmp_path / "experiment"
+    manifest = asyncio.run(
+        plan_experiment(
+            "第一章\n福贵在村口。",
+            out_dir=out,
+            candidates=["base", str(candidate)],
+            chat=FakeChat(),
+            shared_evidence=True,
+        )
+    )
+    base_anon = next(
+        key for key, record in manifest["candidates"].items() if record["label"] == "base"
+    )
+    candidate_anon = next(
+        key for key, record in manifest["candidates"].items() if record["label"] == str(candidate)
+    )
+    pick_experiment(out, choice=base_anon, why="base is the safer starting point")
+    adopted = tmp_path / "merged"
+    record = compose_harness(
+        out,
+        choice=base_anon,
+        out_dir=adopted,
+        merge_from=[candidate_anon],
+        components=["stage.page_plan"],
+    )
+    assert record["components"] == ["stage.page_plan"]
+    assert "CANDIDATE MARKER" in (adopted / "stages" / "page_plan.md").read_text()
+    assert "CANDIDATE MARKER" not in (adopted / "common" / "system.md").read_text()
+    with pytest.raises(ExperimentError, match="does not match"):
+        compose_harness(out, choice=candidate_anon, out_dir=tmp_path / "wrong")
