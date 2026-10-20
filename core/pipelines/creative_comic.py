@@ -2116,6 +2116,18 @@ async def _creative_comic(
             state = _fresh_state(carried=persisted)
         elif persisted.structure_fingerprint != struct:
             state = _fresh_state(carried=persisted)
+        elif persisted.visual_bible is None:
+            # ``cache.json`` is a hot copy, and the bible body lives in it. With
+            # the file deleted the body is None, so a fingerprint recomputed from
+            # it cannot match the recorded one — the comparison would read a lost
+            # cache as a style change and repaint every page and portrait.
+            #
+            # The bible stage owns this decision instead, because only it knows
+            # whether a manifest restore succeeded: see ``restored`` and the
+            # ``prev_hash is None and had_render_assets`` guard below, which
+            # invalidates exactly when the body could not be restored. A project
+            # that genuinely has no bible has no render assets to protect.
+            state = persisted
         elif persisted.render_fingerprint != expected_render:
             state = persisted
             _soft_invalidate_render(state)
@@ -2487,7 +2499,14 @@ async def _creative_comic(
                 state = apply_reconcile(state, recon)
                 sync_characters_from_bible(state)
                 sanitized = sanitize_visual_bible_state(state)
-                if sanitized:
+                # A restored body is the reconcile result the original run
+                # recorded, so it carries that run's pre-sanitize shape and
+                # sanitize mutates it again — filling locks, inferring the era,
+                # bumping to v3. That is a replay, not drift: the assets on disk
+                # were already drawn from the sanitized version of this exact
+                # body. Invalidation would repaint the book for a normalisation
+                # that already happened once.
+                if sanitized and not restored:
                     _soft_invalidate_render(state)
                 elif state.visual_bible:
                     state.visual_bible = refresh_bible_hash(state.visual_bible)
@@ -2581,6 +2600,13 @@ async def _creative_comic(
 
             portrait_names = []
             for name, asset in state.characters.items():
+                # The key must be computed from the same material ``_render_portrait``
+                # will stamp, and that function normalises the prompt first
+                # (``ensure_character_l1`` appends the evidence markers). Skipping it
+                # here compares an unmarked prompt against a marked stamp: a restored
+                # bible rewrites ``l1_prompt`` from the canon, so the check would miss
+                # on every resume and repaint a portrait whose bytes already match.
+                ensure_character_l1(asset, source_text=chunk)
                 material = _portrait_key_material(name, asset, portrait_style)
                 key_for_portrait = portrait_action_key(
                     name=name,

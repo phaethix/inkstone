@@ -5,11 +5,12 @@ Task:   Task 2, Step 5 of docs/superpowers/plans/2026-10-19-plan-body-manifests.
 """
 
 import asyncio
+import json
 from pathlib import Path
 from unittest.mock import patch
 
 import core.pipelines.creative_comic as creative_comic_module
-from core.comic.cas import verify
+from core.comic.cas import object_path, verify
 from core.pipelines.creative_comic import clear_stale_bible_stamps, creative_comic
 from core.schemas import ColorBible, ProjectState, VisualBible
 from tests.test_finished_page_pipeline import FakeChat, FakeImage, _fake_export_pdf
@@ -168,25 +169,32 @@ def test_a_lost_bible_with_no_stamps_changes_nothing():
 def test_the_stamp_rule_runs_before_the_bible_stage(tmp_path: Path, monkeypatch) -> None:
     """A lost body must not leave its stamps visible to the stage that reads them.
 
-    Pinned at the pipeline level because the rule is only useful if it runs at
-    run start: anywhere later and the stage has already consulted the stamps.
+    Pinned at the pipeline level because the rule is only useful at run start:
+    anywhere later and the stage has already consulted the stamps.
     """
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
-    chat, img = FakeChat(), FakeImage()
-    asyncio.run(creative_comic(_SRC, output_dir=str(tmp_path), chat=chat, image=img))
+    asyncio.run(creative_comic(_SRC, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage()))
 
     pre = ProjectState.load(tmp_path / "state.json")
     assert pre.bible_action_keys
 
-    # Lose the body, keep the stamps: what a partial write leaves behind.
+    # Lose the body, keep the stamps: what a partial write leaves behind. The
+    # page is un-done so the chunk loop actually runs and reaches the bible stage
+    # instead of resuming past it.
     pre.visual_bible = None
+    pre.pages_done = []
     pre.save(tmp_path / "state.json")
 
     observed: list[dict[str, str]] = []
     original = creative_comic_module.bible_action_key
 
     def spy(**kwargs):
-        observed.append(dict(ProjectState.load(tmp_path / "state.json").bible_action_keys))
+        # Read what the on-disk state holds at the moment the stage keys a chunk:
+        # that is what the rule was supposed to have cleared already.
+        try:
+            observed.append(dict(ProjectState.load(tmp_path / "state.json").bible_action_keys))
+        except Exception:  # noqa: BLE001 — an unreadable state proves nothing; record it
+            observed.append({"<unreadable>": "1"})
         return original(**kwargs)
 
     monkeypatch.setattr(creative_comic_module, "bible_action_key", spy)
@@ -199,6 +207,116 @@ def test_the_stamp_rule_runs_before_the_bible_stage(tmp_path: Path, monkeypatch)
     assert observed[0] == {}
     # The reconcile that then ran restamped its chunks.
     assert proj2.state.bible_action_keys
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_a_lost_cache_costs_no_provider_call(tmp_path: Path, monkeypatch) -> None:
+    """The headline claim: ``cache.json`` is a hot copy, not the record.
+
+    Deleting it must not re-plan the book. Every planning body is restored from
+    its manifest and every rendered asset is recorded in ``state.json``, so a
+    resume spends zero chat calls and zero image calls, and carries the same
+    bodies forward. This is the test that makes the manifest backing real: the
+    cheaper assertions elsewhere only pin one stage at a time.
+    """
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+    chat, img = RecordingChat(), FakeImage()
+    asyncio.run(creative_comic(_SRC, output_dir=str(tmp_path), chat=chat, image=img))
+    assert chat.calls > 0 and img.calls > 0  # the first run did the work
+
+    pre = ProjectState.load(tmp_path / "state.json")
+    assert pre.visual_bible is not None
+    snapshot = {
+        "chunk_cache": pre.chunk_cache,
+        "beat_cache": pre.beat_cache,
+        "page_cache": pre.page_cache,
+        "visual_bible": pre.visual_bible,
+        "pages_done": list(pre.pages_done),
+        "generated_pages": dict(pre.generated.pages),
+    }
+    assert snapshot["beat_cache"] and snapshot["page_cache"] and snapshot["pages_done"]
+
+    # Only the hot copy goes; the manifests and the checkpoint stay.
+    (tmp_path / "cache.json").unlink()
+    assert not (tmp_path / "cache.json").exists()
+
+    chat2, img2 = RecordingChat(), FakeImage()
+    proj2 = asyncio.run(creative_comic(_SRC, output_dir=str(tmp_path), chat=chat2, image=img2))
+
+    assert chat2.calls == 0, f"chat re-called: {chat2.tool_names}"
+    assert img2.calls == 0
+
+    # Bodies, not just counts: a restore that silently normalized a field would
+    # pass a "did not call" assertion while changing what gets rendered.
+    #
+    # The extract body is compared on what the manifest owns (the parsed story
+    # elements). `elements.characters` holds the *shared* CharacterAsset objects
+    # that the bible stage enriches in place, so those legitimately differ from a
+    # pre-run snapshot and are asserted through the pipeline-visible state below.
+    restored_elements = proj2.state.chunk_cache["0"].elements
+    saved_elements = snapshot["chunk_cache"]["0"].elements
+    assert restored_elements is not None
+    assert [c.name for c in restored_elements.characters] == [
+        c.name for c in saved_elements.characters
+    ]
+    assert restored_elements.style_guide == saved_elements.style_guide
+    assert restored_elements.settings == saved_elements.settings
+    assert proj2.state.beat_cache == snapshot["beat_cache"]
+    assert proj2.state.page_cache == snapshot["page_cache"]
+    assert proj2.state.visual_bible == snapshot["visual_bible"]
+    assert proj2.state.pages_done == snapshot["pages_done"]
+    assert proj2.state.generated.pages == snapshot["generated_pages"]
+    # The stamps were rewritten by the restore, and name the same keys.
+    assert proj2.state.bible_action_keys == pre.bible_action_keys
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_a_corrupt_body_falls_back_to_the_provider(tmp_path: Path, monkeypatch) -> None:
+    """A damaged CAS object must degrade to a call, not to a crash or a fake hit.
+
+    ``_restore_stage_body`` warns and returns None on a decode failure. That
+    branch exists for exactly this case and is otherwise unexercised, so a bad
+    object would be discovered only in production.
+    """
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+    asyncio.run(creative_comic(_SRC, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage()))
+
+    # Corrupt the extract body: overwrite every CAS object the extract manifest
+    # points at with junk, leaving the manifest and its key intact.
+    index = tmp_path / "index"
+    assert index.is_dir()
+    extract_keys = 0
+    corrupted: set[str] = set()
+    for path in sorted(index.glob("*.json")):
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        if manifest.get("stage") != "extract":
+            continue
+        extract_keys += 1
+        for output in manifest.get("outputs", []):
+            blob = object_path(tmp_path, output["content"])
+            blob.write_bytes(b"not a story elements payload")
+            corrupted.add(output["content"].split(":", 1)[-1])
+    assert extract_keys, "no extract manifest to corrupt"
+
+    (tmp_path / "cache.json").unlink()
+
+    chat2, img2 = RecordingChat(), FakeImage()
+    proj2 = asyncio.run(creative_comic(_SRC, output_dir=str(tmp_path), chat=chat2, image=img2))
+
+    # The corrupt body was not trusted: the stage called instead.
+    assert chat2.called(_EXTRACT_TOOL), f"extract never re-called: {chat2.tool_names}"
+    # The run completed and re-published a parseable body.
+    assert proj2.state.chunk_cache["0"].elements is not None
+    # The only consistency complaints left are the blobs this test damaged; no
+    # key went stale and no unrelated object went missing.
+    complaints = verify(tmp_path)
+    assert complaints, "the damaged objects should still be reported"
+    assert all(any(cid in complaint for cid in corrupted) for complaint in complaints), (
+        f"unexpected complaints: {complaints}"
+    )
+    assert all("does not match its bytes" in complaint for complaint in complaints), (
+        f"unexpected complaint kinds: {complaints}"
+    )
 
 
 @patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
