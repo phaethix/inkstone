@@ -48,6 +48,7 @@ ChatProvider / ImageProvider   (Agnes default; openai_compat optional)
 | Supervisor | Keep a job alive through free-tier failures | `core/pipelines/run_until_complete.py` |
 | Review evidence | Local `review/` packet: source, effective prompts, plans, structure report, decisions | `core/comic/review_packet.py` |
 | Lessons | Human-approved craft notes, retrieval, and `{{craft_notes}}` injection | `core/lessons.py` |
+| Experiments | External harness loading, planning-only A/B probes, human selection | `core/experiment.py` |
 | Surfaces | CLI, local web UI, examples, launch scripts | `core/cli.py`, `web/`, `examples/`, `scripts/` |
 | Config | Every env read | `core/config.py`, `.env.example` |
 

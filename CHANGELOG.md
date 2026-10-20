@@ -27,6 +27,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   you intend to re-plan every stage.
 
 ### Added
+- Planning-only blind A/B: `inkstone experiment plan --book ... --candidate base
+  --candidate <harness-dir> ...` runs extract + beats once, then only the
+  page-plan request under each candidate (no image calls), anonymises the
+  candidates A/B/C, and writes `experiment.json`, per-candidate `prompt.json` /
+  `plan.json` / `structure_report.json`. `inkstone experiment pick --run ...
+  --choice A --why "..."` records the human choice in `selection.json` and
+  reveals the label. The MVP probes page_plan only; extract/beats stay on the
+  builtin harness, and it does not compose a harness automatically.
+- External harness loading: `inkstone harness validate --dir <tree>`,
+  `inkstone harness list --dir <tree>`, and
+  `inkstone prompt --stage page_plan --harness-dir <tree>`. A tree is the same
+  layout as `core/harness/data/`; it is validated before its first use.
 - Lesson library MVP: `inkstone lesson add|list|retire` stores one
   human-approved craft note per file under
   `<INKSTONE_DATA_DIR>/library/<genre>/`, with a `cue`, `lesson`, evidence

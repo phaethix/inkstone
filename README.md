@@ -149,6 +149,27 @@ Paste a novel, optionally set a **project id** (resume the same `comic_out/<id>/
 
 **The same `web/index.html` is also deployed to GitHub Pages.** The SPA auto-detects whether a backend is present: locally it generates your comic; on the static site it runs in *demo mode* with the identical interface. See `https://phaethix.github.io/inkstone/`.
 
+## Harness A/B
+
+A harness is the editable prompt tree under `core/harness/data/` (system prompt,
+six stage templates, genre packs). The planning-only A/B command compares a
+baseline with a candidate tree without spending image calls:
+
+```bash
+inkstone harness validate --dir path/to/candidate
+inkstone experiment plan \
+  --book examples/showcase/journey-west-ch1/source.txt \
+  --chunk 0 \
+  --candidate base \
+  --candidate path/to/candidate \
+  --out experiments/wuxia-a
+inkstone experiment pick --run experiments/wuxia-a --choice A --why "clearer staging"
+```
+
+The experiment writes an anonymised `candidates/A|B/` packet and a
+`selection.json`. `--candidate` can be repeated; `base` means the builtin tree.
+The MVP probes `page_plan` only and never draws a page.
+
 ## Configuration
 
 Inkstone is configured through environment variables (copy `.env.example` → `.env`):

@@ -67,6 +67,15 @@ Keep these prototypes only as migration material until they conform to the targe
 
 ### P0 — Make the current state honest and deterministic
 
+- **Local (2026-10-20, `main`):** Planning-only blind A/B + external harness
+  loading. `Harness` can load any tree with the builtin layout;
+  `inkstone harness validate|list --dir` and `inkstone prompt --harness-dir`
+  check one. `inkstone experiment plan` shares extract/beats, probes
+  `page_plan` under each candidate with zero image calls, anonymises A/B/C, and
+  writes `experiment.json` + per-candidate evidence; `inkstone experiment pick`
+  records the human choice and `why` in `selection.json`. The MVP does not
+  auto-compose and does not probe extract/beats per candidate. Regression:
+  `tests/test_experiment.py`. Next: web A/B card and compose.
 - **Local (2026-10-20, `main`):** Lesson Library MVP. Human-approved lessons
   live under `<INKSTONE_DATA_DIR>/library/<genre>/`; `inkstone lesson
   add|list|retire` writes/retires them, and page planning retrieves up to three
