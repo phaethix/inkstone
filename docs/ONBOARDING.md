@@ -269,9 +269,10 @@ non-overwritable `face_lock` are on the consistency/fidelity line of work.
 
 **Next approved product work** (see roadmap):
 
-- **P0** — Calibrate the page-count estimate with a public-domain sample. The
-  constants stay 3/8/14. A local Journey generate planned 14 panels and 8 pages
-  for one chunk; the experience rate for that text was 8 panels and 2 pages.
+- **P0** — Done for the estimator. Panel budgets stay 3/8/14. The public Journey
+  excerpt is one chunk and locks tier B at 8 panels and 2 pages
+  (`tests/test_density.py`). A generate of that text planned more pages; the
+  estimate keeps the measured 2.
 - **P1** — The local Journey excerpt passes every structural check and has 8
   stored pages. Lettering is kept only when it is a contiguous span of the source.
 - **P2** — CBZ, the page reader, and the identity ledger view are in tree. The

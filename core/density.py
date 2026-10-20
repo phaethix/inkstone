@@ -8,11 +8,13 @@ touches the network — so the estimate is instant and free.
 ``ProjectState.density`` stores the tier, and generate passes ``panels_per_chunk``
 to planning. Tier B at the historical panel count stays out of the structure
 fingerprint so an older project still resumes. Another tier changes that
-fingerprint and the planner sees the new budget. The page-count estimate below
-is still an uncalibrated experience value.
+fingerprint and the planner sees the new budget.
 
-The panel-per-chunk numbers (A/B/C) and the per-page / per-minute rates are
-**experience values** awaiting calibration against a real 《三体》 sample.
+The panel budgets stay 3/8/14. The public-domain Journey excerpt
+(``examples/showcase/journey-west-ch1``) is one chunk and locks the default
+page estimate: tier B is 8 panels and 2 pages. That is ``ceil(panels / 4)``,
+the same rate the layout engine uses. A finished-page run of that excerpt
+planned more pages than this rate; the estimate keeps the measured 2.
 
 Product brief alignment:
 A 主线概览 (sparser) → B 章级完整 (default) → C 近原著 (denser).
@@ -27,11 +29,12 @@ from core.comic.segmentation import segment_text
 from core.config import webtoon_warn_mb
 
 # --------------------------------------------------------------------------- #
-# Experience constants (to be calibrated against a real 《三体》 sample)
+# Experience constants. Panel budgets stay 3/8/14. The Journey excerpt locks
+# tier B at 8 panels and 2 pages for one chunk (``ceil(panels / 4)``).
 # --------------------------------------------------------------------------- #
 
 # A 主线概览 (sparser) → B 章级完整 (default) → C 近原著 (denser).
-# Numbers remain uncalibrated experience values. The tier is the planning budget.
+# The tier is the planning budget. Page count follows the measured rate.
 PANELS_PER_CHUNK_A = 3  # 主线概览
 PANELS_PER_CHUNK_B = 8  # 章级完整 / 标准
 PANELS_PER_CHUNK_C = 14  # 近原著
