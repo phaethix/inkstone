@@ -27,6 +27,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   you intend to re-plan every stage.
 
 ### Added
+- Content-addressed planning: beats, page_plan, storyboard, and page_script
+  now write `ok` manifests beside their caches. A lost `cache.json` restores
+  them from CAS/manifests instead of re-paying the chat call, so those stages
+  join extract/bible/render/letter/export in the manifest-hit rule.
+- L2 references: finished-page rendering now consults the ledger's
+  authoritative reference path before the character's cached portrait path,
+  matching the priority table in the content-addressed design.
 - Web theme toggle: a persisted light/dark switch in the nav (localStorage,
   applied before first paint). The light theme adjusts surfaces, borders,
   badges, buttons, inputs, and the tab slider; dark remains the default.

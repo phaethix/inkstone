@@ -67,6 +67,13 @@ Keep these prototypes only as migration material until they conform to the targe
 
 ### P0 — Make the current state honest and deterministic
 
+- **Local (2026-10-20, `main`):** Content-addressed design close-out.
+  beats/page_plan/storyboard/page_script are manifest-backed, so a lost cache
+  restores them instead of re-planning; finished-page rendering now prefers the
+  ledger's authoritative reference path over a stale cached portrait. The design
+  document was corrected to use runtime pauses (not `stopped`/`awaiting_human`
+  manifests), deletion-based release, scoped `h_env`, schema-3 chat keys, and
+  the six-field `cache.json`.
 - **Local (2026-10-20, `main`):** Web continuity polish. The review panel lists
   pending pages as selectable chips, supports Confirm selected / Confirm all,
   and `POST /ledger/confirm` accepts a `pages` subset. A/B and sequence errors
