@@ -24,6 +24,9 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
+# A recorded outcome is a hit. New writers produce only ``ok`` / ``rejected``;
+# ``stopped`` / ``awaiting_human`` remain readable for old files but are now
+# runtime pause state, not manifests.
 HIT_OUTCOMES = frozenset({"ok", "rejected", "stopped", "awaiting_human"})
 
 
