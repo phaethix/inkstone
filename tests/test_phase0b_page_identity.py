@@ -134,3 +134,11 @@ def test_start_regen_job_treats_positional_page_keys_as_pages(tmp_path, monkeypa
     reloaded = ProjectState.load(out / "state.json")
     assert reloaded.stale_pages == ["c0000-p0000"]
     assert reloaded.stale_panels == []
+
+
+def test_page_state_key_rejects_out_of_range_positions():
+    import pytest
+
+    for chunk, page in ((-1, 0), (0, -1), (10_000, 0), (0, 10_000)):
+        with pytest.raises(ValueError, match="out of range"):
+            page_state_key(chunk, page)

@@ -13,8 +13,8 @@ import asyncio
 from unittest.mock import patch
 
 from core.comic.identity import clear_tombstones
-from core.pipelines.creative_comic import creative_comic
-from core.schemas import ProjectState
+from core.pipelines.creative_comic import _page_needs_generation, creative_comic
+from core.schemas import ProjectState, Tombstone
 from tests.test_finished_page_pipeline import (
     FakeChat,
     FakeImage,
@@ -93,3 +93,22 @@ def test_successful_page_records_no_tombstone(tmp_path, monkeypatch):
 
     assert proj.state.tombstones == {}
     assert proj.state.pages_done
+
+
+def test_clearing_a_tombstone_also_removes_pages_done():
+    """A released page must not stay 'done' just because a stale marker was removed."""
+    key = "c0000-p0000"
+    state = ProjectState(
+        project_id="t",
+        pages_done=[key],
+        stale_pages=[key],
+        skipped_pages=[key],
+        tombstones={"c0000-p0000": Tombstone(outcome="rejected", reason="content_policy")},
+    )
+
+    assert clear_tombstones(state, [key]) == [key]
+
+    assert key not in state.pages_done
+    assert key not in state.stale_pages
+    assert key not in state.skipped_pages
+    assert _page_needs_generation(state, key) is True

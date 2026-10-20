@@ -971,3 +971,22 @@ def test_sequence_pick_requires_why(tmp_path, monkeypatch):
         )
     assert status == 400
     assert "choice/why" in payload["error"]
+
+
+def test_apply_review_unknown_keep_is_a_value_error(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    project_id = "proj1"
+    out = tmp_path / project_id
+    out.mkdir()
+    state = ProjectState(
+        project_id=project_id,
+        characters={"鸿渐": CharacterAsset(name="鸿渐")},
+    )
+    state.save(out / "state.json")
+
+    try:
+        server.apply_review(project_id, "merge", "鸿渐", "方鸿渐")
+    except ValueError as exc:
+        assert "keep character not found" in str(exc)
+    else:
+        raise AssertionError("unknown keep name must not become a 500")

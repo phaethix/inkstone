@@ -372,3 +372,44 @@ def test_ensure_character_l1_no_source_keeps_evidence():
     )
     ensure_character_l1(char)
     assert "头上永远剃得发亮" in char.l1_prompt
+
+
+def test_ensure_character_l1_is_idempotent_with_existing_prompt_and_evidence():
+    from core.comic.identity import ensure_character_l1
+    from core.schemas import EvidenceQuote
+
+    char = CharacterAsset(
+        name="福贵",
+        l1_prompt="福贵",
+        appearance=Appearance(
+            appearance_evidence=[
+                EvidenceQuote(field="body_type", quote="瘦", offset=0),
+            ]
+        ),
+    )
+    ensure_character_l1(char, source_text="福贵很瘦")
+    first = char.l1_prompt
+    ensure_character_l1(char, source_text="福贵很瘦")
+    assert char.l1_prompt == first
+    assert char.l1_prompt.count("source:") == 1
+
+
+def test_elements_with_recorded_merges_resolves_a_chain():
+    state = ProjectState(
+        project_id="p",
+        merged_aliases=[
+            CharacterAliasSuggestion(new_name="A", candidate="B", reason="merged"),
+            CharacterAliasSuggestion(new_name="B", candidate="C", reason="merged"),
+        ],
+    )
+    elements = StoryElements(
+        characters=[
+            CharacterAsset(name="A"),
+            CharacterAsset(name="B"),
+            CharacterAsset(name="C"),
+        ]
+    )
+
+    planned = elements_with_recorded_merges(elements, state)
+
+    assert [character.name for character in planned.characters] == ["C"]

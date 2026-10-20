@@ -42,7 +42,13 @@ def page_state_key(chunk_index: int, page_index: int) -> str:
     — matching the convention panel keys already use. The model-generated
     ``ComicPagePlan.page_id`` is deliberately **not** part of this key: a replan
     that renames pages would otherwise orphan every recorded page.
+
+    The range guard keeps the key at four digits. ``_drop_pages_outside_plan``
+    and the artifact projection both treat the suffix as exactly four digits, so
+    a negative or 10,000+ index would silently escape cleanup.
     """
+    if not 0 <= chunk_index <= 9999 or not 0 <= page_index <= 9999:
+        raise ValueError(f"page position out of range: chunk={chunk_index} page={page_index}")
     return f"c{chunk_index:04d}-p{page_index:04d}"
 
 
@@ -199,22 +205,22 @@ def ensure_character_l1(
             unverified = verify_evidence_against_source(char.appearance, source_text)
             verified_quotes = [it.quote for it in evidence if it.quote in source_text]
             suffix = _evidence_suffix(verified_quotes)
-            if suffix:
+            if suffix and suffix not in char.l1_prompt:
                 char.l1_prompt = f"{char.l1_prompt}{suffix}"
             if not evidence:
-                char.l1_prompt = (
-                    f"{char.l1_prompt}; ⚠ no source evidence; using generic placeholder"
-                )
+                marker = "; ⚠ no source evidence; using generic placeholder"
+                if marker not in char.l1_prompt:
+                    char.l1_prompt = f"{char.l1_prompt}{marker}"
             elif unverified:
-                char.l1_prompt = (
-                    f"{char.l1_prompt}; ⚠ unverified evidence for: {', '.join(unverified)}"
-                )
+                marker = f"; ⚠ unverified evidence for: {', '.join(unverified)}"
+                if marker not in char.l1_prompt:
+                    char.l1_prompt = f"{char.l1_prompt}{marker}"
         else:
             # Legacy / no-source callers: no verification is possible, but we
             # still carry the evidence quotes into the prompt so the source
             # fidelity grounding actually reaches the image model.
             suffix = _evidence_suffix(it.quote for it in evidence)
-            if suffix:
+            if suffix and suffix not in char.l1_prompt:
                 char.l1_prompt = f"{char.l1_prompt}{suffix}"
 
     if char.portrait_prompt:
@@ -275,11 +281,6 @@ def _panel_keys_referencing(
             present = set(panel.characters_present) | set(panel.reference_characters)
             if character_name in present:
                 keys.append(f"c{chunk_index:04d}-p{panel_index:04d}")
-    # Also include generated panel records that still point at this name via source.
-    for key, gen in state.generated.panels.items():
-        if key not in keys and character_name in (gen.source_panel_id or ""):
-            # source_panel_id is LLM id — unreliable; skip name match here.
-            pass
     return keys
 
 
@@ -457,11 +458,19 @@ def elements_with_recorded_merges(elements: StoryElements, state: ProjectState) 
     alias_to_keep = {s.new_name: s.candidate for s in state.merged_aliases}
     if not alias_to_keep:
         return elements
+
+    def _canonical(name: str) -> str:
+        seen: set[str] = set()
+        while name in alias_to_keep and name not in seen:
+            seen.add(name)
+            name = alias_to_keep[name]
+        return name
+
     rewritten: list[CharacterAsset] = []
     seen: set[str] = set()
     changed = False
     for character in elements.characters:
-        name = alias_to_keep.get(character.name, character.name)
+        name = _canonical(character.name)
         if name != character.name:
             changed = True
             character = character.model_copy(update={"name": name})
@@ -527,7 +536,11 @@ def clear_tombstones(state: ProjectState, keys: list[str]) -> list[str]:
         del state.tombstones[key]
     # ``skipped_pages`` is the legacy skip set the pipeline still consults when
     # deciding whether a page needs generating; leaving the key there would keep
-    # the page skipped and make the override a no-op.
+    # the page skipped and make the override a no-op. A key can also be in both
+    # ``pages_done`` and ``stale_pages`` (an alias merge and a gate decision
+    # both create that pair); removing only the stale marker would leave it in
+    # ``pages_done`` and silently suppress the retry.
+    state.pages_done = [k for k in state.pages_done if k not in key_set]
     state.skipped_pages = [k for k in state.skipped_pages if k not in key_set]
     state.stale_pages = [k for k in state.stale_pages if k not in key_set]
     return released

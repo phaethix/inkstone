@@ -550,7 +550,12 @@ def apply_review(project_id: str, action: str, new_name: str, candidate: str) ->
     out_dir, state = _load_project_state(project_id)
     ledger = ConsistencyLedger.load_or_rebuild(out_dir / "consistency.json", state)
     if action == "merge":
-        merge_character_alias(state, new_name, candidate, ledger=ledger)
+        try:
+            merge_character_alias(state, new_name, candidate, ledger=ledger)
+        except KeyError as exc:
+            # Concurrent merges can remove the kept name between the UI load and
+            # this request. Answer 400 instead of leaking a 500.
+            raise ValueError(str(exc)) from exc
         remember_merged_alias(state, new_name, candidate)
     elif action == "dismiss":
         dismiss_character_alias(state, new_name, candidate)
