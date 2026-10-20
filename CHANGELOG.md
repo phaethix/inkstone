@@ -27,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   you intend to re-plan every stage.
 
 ### Added
+- Web theme toggle: a persisted light/dark switch in the nav (localStorage,
+  applied before first paint). The light theme adjusts surfaces, borders,
+  badges, buttons, inputs, and the tab slider; dark remains the default.
+- Web A/B diff markers: the compact comparison now marks corresponding
+  pages with ◆ inside each candidate plan, so the summary and the page list
+  agree.
 - Web visual pass: animated hero gradient, focus-visible rings, custom
   scrollbars, softer card depth, hover feedback on experiment rows/cards,
   checked-page chips, a shimmering progress bar, a responsive tab bar on

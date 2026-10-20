@@ -73,7 +73,9 @@ Keep these prototypes only as migration material until they conform to the targe
   use a toast instead of `alert`. Candidate cards also show a page-level diff,
   and sequences show a round timeline. A final visual pass adds focus rings,
   mobile tab navigation, panel lightbox/keyboard support, carousel arrow keys,
-  and reduced-motion handling. Regression: `tests/test_web_server.py`.
+  and reduced-motion handling. A persisted light/dark theme toggle and inline
+  ◆ A/B diff markers complete the visual pass. Regression:
+  `tests/test_web_server.py`.
 - **Local (2026-10-20, `main`):** Final review batch. `h_env` is split by stage
   scope; budget specs must fund every charged stage; partial continuity
   confirmation is available through `identity --confirm --page`; failed alias
