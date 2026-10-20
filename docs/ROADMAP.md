@@ -67,6 +67,12 @@ Keep these prototypes only as migration material until they conform to the targe
 
 ### P0 — Make the current state honest and deterministic
 
+- **Local (2026-10-20, `main`):** D-12 + D-14. A new day advances the budget's
+  stored `day`/`paused_key` even without carry-over (spent counts still reset
+  only with carry-over), so a stale boundary cannot suppress the new day's stop
+  record. `GateSession._hold` records a changed resume boundary once per
+  session while still emitting one stop for multiple beyond-sample pages in a
+  single run. Regression: `tests/test_budget.py`, `tests/test_gate.py`.
 - **Local (2026-10-20, `main`):** D-20 + D-21. `clear_tombstones` now removes
   the key from `pages_done` too, so a released page is actually retried.
   `page_state_key` enforces the four-digit range, `ensure_character_l1` is

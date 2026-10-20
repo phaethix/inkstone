@@ -121,6 +121,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   contain those phrases.
 
 ### Fixed
+- D-12: a new calendar day now advances `project.day` and clears the stored
+  `paused_key` even without `--carry-over`; spent counts are reset only when
+  carry-over is requested. A stale boundary can no longer suppress a new
+  day's §6 stop record.
+- D-14: `GateSession._hold` records a new boundary once per session, so a
+  resume whose total chunk count or sample set changed reports the page it is
+  actually paused at, while multiple beyond-sample pages in one run still
+  produce a single stop.
 - D-21: `clear_tombstones` now removes the released key from `pages_done`
   as well as `skipped_pages` and `stale_pages`. A page that was both done
   and stale could otherwise lose its retry marker while remaining marked
