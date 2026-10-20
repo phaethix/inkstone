@@ -67,6 +67,15 @@ Keep these prototypes only as migration material until they conform to the targe
 
 ### P0 — Make the current state honest and deterministic
 
+- **Local (2026-10-20, `main`):** Lesson Library MVP. Human-approved lessons
+  live under `<INKSTONE_DATA_DIR>/library/<genre>/`; `inkstone lesson
+  add|list|retire` writes/retires them, and page planning retrieves up to three
+  by genre + cue overlap and injects `{{craft_notes}}`. Writes require evidence
+  (run + page/decision), `--no-entry` is valid, and `INKSTONE_LESSONS=0` disables
+  injection. The review packet now records `plans/` and `pages.json`. Regression:
+  `tests/test_lessons.py`, `tests/test_review_packet.py`. Next Phase 2 step is
+  external harness loading + blind A/B. Scoping doc:
+  [prompt-harness design](architecture/2026-10-19-prompt-harness-design.md).
 - **Local (2026-10-20, `main`):** Shared-state hardening for Phase 2. A reusable
   data-directory lock serializes `budget.json` / `gate.json` read-modify-write,
   and open sessions refresh the shared spent/sample state before writing; a

@@ -27,6 +27,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   you intend to re-plan every stage.
 
 ### Added
+- Lesson library MVP: `inkstone lesson add|list|retire` stores one
+  human-approved craft note per file under
+  `<INKSTONE_DATA_DIR>/library/<genre>/`, with a `cue`, `lesson`, evidence
+  (run plus page/decision), confidence, and genre. `add` refuses a missing
+  evidence run, a page decision without a page, a page that is not stale for a
+  redraw, and any measurement marker; `--no-entry` records nothing. Page
+  planning retrieves up to three active notes by genre plus cue-keyword overlap
+  and injects them through the new `{{craft_notes}}` slot; the notes are pinned
+  out of the page-plan key request so adding a lesson does not invalidate a
+  book that was already planned. Disable injection with `INKSTONE_LESSONS=0`.
+- The local `review/` packet now records the plan output under
+  `plans/<stage>.c<chunk>.json` and a `pages.json` index, so a lesson can cite
+  the page and the plan a human judged.
 - `inkstone prompt --stage <extract|beats|bible|storyboard|page_plan|page_script>`
   prints the exact request a stage would send, including its digest; `--json`
   emits the full payload. This is the first way to review an effective prompt

@@ -46,7 +46,8 @@ ChatProvider / ImageProvider   (Agnes default; openai_compat optional)
 | Comic domain | Consistency L1/L2/L3, bible, lettering, layout, export, alias merge | `core/comic/` |
 | Pipeline | Segment → plan → paint → letter → bind; fingerprints; resume | `core/pipelines/creative_comic.py` |
 | Supervisor | Keep a job alive through free-tier failures | `core/pipelines/run_until_complete.py` |
-| Review evidence | Local `review/` packet: source, effective prompts, structure report, decisions | `core/comic/review_packet.py` |
+| Review evidence | Local `review/` packet: source, effective prompts, plans, structure report, decisions | `core/comic/review_packet.py` |
+| Lessons | Human-approved craft notes, retrieval, and `{{craft_notes}}` injection | `core/lessons.py` |
 | Surfaces | CLI, local web UI, examples, launch scripts | `core/cli.py`, `web/`, `examples/`, `scripts/` |
 | Config | Every env read | `core/config.py`, `.env.example` |
 
