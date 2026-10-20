@@ -128,9 +128,14 @@ state from the first save on, and both old and new files load through the same
 code path.
 
 A missing `cache.json` (deleted by hand, or never written) is not an error:
-the pipeline starts with empty caches for the four fields and recomputes the
-plan stages under their action keys as needed. Already-rendered pages still
-restore from their manifests when the recomputed plan keys match.
+the pipeline starts with empty caches for the four fields, then restores every
+chat-stage body from its manifest under the re-derived action key. The plan
+stages therefore do not re-run, and a fully restorable project finishes the
+resume with zero provider calls. A stage whose body is missing or unreadable
+falls back to the call path under the same key, so the fallback stays billable
+rather than wrong. This supersedes the earlier "recomputes the plan stages"
+wording: that described the pre-manifest state and would now overstate the cost
+of a lost cache.
 
 ## What does not change
 
@@ -150,7 +155,7 @@ restore from their manifests when the recomputed plan keys match.
 |---|---|
 | Crash during a file write | temp file removed; both files individually valid |
 | Crash between the two writes of a full save | cache ahead of checkpoint; safe on resume |
-| `cache.json` missing | empty heavy caches; plan stages recompute |
+| `cache.json` missing | empty heavy caches; chat-stage bodies restore from manifests, so plan stages do not recompute |
 | `cache.json` corrupt | default load raises; progress readers (`caches=False`) unaffected |
 | `state.json` missing | project treated as new (unchanged) |
 

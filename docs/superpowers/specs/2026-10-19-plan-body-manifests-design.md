@@ -1,6 +1,7 @@
 # Plan-Body Manifests Design (Migration Follow-Up)
 
-**Status:** Accepted · **Date:** 2026-10-19 · **Depends on:** the state split
+**Status:** Accepted · **Landed:** 2026-10-20 · **Date:** 2026-10-19 ·
+**Depends on:** the state split
 (`2026-10-19-state-split-design.md`) and the content-addressed pipeline design
 (`docs/architecture/2026-09-28-content-addressed-pipeline-design.md`, §4, §8).
 
@@ -188,3 +189,13 @@ guard: a rebuilt bible still invalidates assets it cannot prove.
 
 - 2026-10-19 — initial design, accepted with the implementation plan
   (`docs/superpowers/plans/2026-10-19-plan-body-manifests.md`).
+- 2026-10-20 — landed. The goal as written ("losing `cache.json` costs
+  nothing") was false when first tested end-to-end: one portrait was still
+  repainted. Three defects had to be fixed outside the manifest layer, none of
+  which any per-stage test could see. Run start treated a lost `visual_bible` as
+  a style change and cleared every render asset before a restore could run; a
+  replayed reconcile body was sanitized a second time and the normalisation read
+  as drift; and the portrait hit check hashed the prompt before its evidence
+  markers were appended, so it never matched the stamp it had written. The
+  goal sentence is unchanged because it is now true, and it is pinned by
+  `test_a_lost_cache_costs_no_provider_call`.

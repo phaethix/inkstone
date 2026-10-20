@@ -2,19 +2,19 @@
 
 Design: `docs/superpowers/specs/2026-10-19-plan-body-manifests-design.md`.
 
-Checkboxes reflect the tree as verified on 2026-10-20. Tasks 1-4 have landed in
-code; Task 5, the design-of-record revision (Task 6 steps 2-3), and the task
-reports (Task 7) remain open. This supersedes the earlier convention that left
-every box unchecked in favour of `.superpowers/sdd/2026-10-19-plan-body-manifests/`
-- that directory was never created, so the code and this plan are the record.
+Checkboxes reflect the tree as verified on 2026-10-20, after the clean-tree
+pass. Tasks 1-5 and Task 6 steps 1-3 have landed; Task 5 step 2 (pre-slice
+project) and step 4 (budget) remain open, and so do the task reports (Task 7),
+which this plan no longer tracks as required work: the code and this plan are
+the record, and `.superpowers/sdd/2026-10-19-plan-body-manifests/` was never
+created. That supersedes the earlier convention that left every box unchecked
+in favour of that directory.
 
-Caveat on the gate numbers below: the 2026-10-20 verification ran against a
-working tree that still carried uncommitted L2 reference-policy changes
-(`core/comic/visual_bible.py`, `core/comic/cas.py`,
-`core/pipelines/creative_comic.py`, `tests/test_phase3_keys.py`,
-`tests/test_visual_bible.py`, and this file). The suite and lint numbers are
-real for that snapshot, but the tree was not clean. See "Gaps this plan does
-not cover" for requirements that no task below owns.
+Gate numbers for the landed state: `946 passed, 5 skipped`, `ruff check` clean,
+`241 files already formatted`, working tree clean at `4331d50`. The earlier
+caveat about uncommitted L2 reference-policy changes no longer applies: those
+landed as `fe51015` and `b1f4016`. See "Gaps this plan does not cover" for the
+requirements no task below owns.
 
 ## Global Constraints
 
@@ -58,17 +58,26 @@ not cover" for requirements that no task below owns.
   `extract.json` (`stage="extract"`, `_EXTRACT_STAGE_SRC`, `snapshot.chat`,
   `extract_inputs(chunk)`). Both paths run the existing cache/save/report tail.
   Restore at `2289`, manifest write at `2310`.
-- [ ] **Step 3: The stamp rule.** After the state is selected at run start, if
+- [x] **Step 3: The stamp rule.** After the state is selected at run start, if
   `state.visual_bible is None and state.bible_action_keys` then clear the
   stamps, with the "a stamp describes a bible body" comment.
-  Not implemented: `bible_action_keys` is only ever read at `2366` and written
-  at `2382`/`2448`; no run-start clearing exists. The `needs_bible` test at
-  `2367` includes `state.visual_bible is None`, so a lost bible still restores,
-  which is why the missing rule does not show up as a failed restore. The
-  comment in `test_plan_body_manifests.py:100` already claims the rule ran,
-  so that explanation is ahead of the code. A similar stale comment sits at
-  `test_plan_body_manifests.py:76`, which still says beats/page_plan "are not
-  yet manifest-backed and still call" - they are, and they do not.
+  Landed as `clear_stale_bible_stamps` (`creative_comic.py:1565`), called
+  immediately after state selection (`creative_comic.py:2144`). Note what the
+  rule does and does not do:
+  `needs_bible` already includes `state.visual_bible is None`, so a lost body
+  restored from a manifest either way; the rule stops a *stamp* outliving the
+  body it describes, because the stage reads `bible_action_keys` before any
+  manifest. Tests:
+  `test_a_lost_bible_clears_the_stamps_that_described_it`,
+  `test_a_live_bible_keeps_its_stamps`,
+  `test_clearing_a_stamp_twice_is_idempotent`,
+  `test_a_lost_bible_with_no_stamps_changes_nothing`, and the pipeline-level
+  `test_the_stamp_rule_runs_before_the_bible_stage`. Verified by mutation:
+  disabling the call site fails the pipeline test; making the guard always
+  return False fails three. Two stale comments in
+  `test_plan_body_manifests.py` (lines 76 and 100 of the old file) claimed the
+  rule already ran and that beats/page_plan still call the provider; both
+  contradicted the code and were corrected.
 - [x] **Step 4: Bible.** Reconcile this run resolves to one of: stamp match
   (nothing, as today), `needs_bible` (restore at `bible_key` or call), or a
   missing stamp (restore, else stamp-only as today; a drifted stamp joins
@@ -101,12 +110,15 @@ not cover" for requirements that no task below owns.
   `record_ok`s `page_plan.json` with the tail body (`page_plan_inputs(chunk,
   _beats_payload(beats), beats_key)`) — never on the restore path.
   Restore at `2660`, manifest write at `2792`.
-- [ ] **Step 3: Tests.** Beats and `page_plan` manifests exist after a run;
+- [x] **Step 3: Tests.** Beats and `page_plan` manifests exist after a run;
   with `cache.json` deleted the re-run spends zero chat calls and the reloaded
   `beat_cache` and `page_cache` equal the pre-deletion snapshot body-for-body.
-  Partial: `test_finished_page_pipeline.py:1117` asserts `page_plan_calls == 0`
-  but does not compare `beat_cache`/`page_cache` body-for-body, and does not
-  assert a zero total chat count.
+  Landed as the body-for-body half of
+  `test_plan_body_manifests.py::test_a_lost_cache_costs_no_provider_call`: it
+  asserts `beat_cache` and `page_cache` equal the snapshot and that the run
+  spent zero chat calls, which subsumes the older
+  `test_finished_page_pipeline.py:1117` page-plan-only check. The zero-call
+  total was false until the three fixes recorded under Task 5 Step 3.
 - [x] **Step 4: Commit** as
   `feat(pipeline): restore beats and page plans from manifests`.
   Folded into the combined commit `7962769`, not a standalone commit.
@@ -136,46 +148,68 @@ not cover" for requirements that no task below owns.
 
 ## Task 5: Robustness and the headline resume
 
-- [ ] **Step 1: Corrupt body falls back.** Overwrite the extract CAS object
+- [x] **Step 1: Corrupt body falls back.** Overwrite the extract CAS object
   with junk, delete `cache.json`, re-run: the extract stage calls once, the
-  run completes, and a fresh extract manifest verifies.
-  Not implemented as a test. `_restore_stage_body` does warn and return `None`
-  on a `ValueError`, so the fallback path exists unexercised.
+  run completes, and the damaged objects are the only `verify` complaints.
+  Landed as `test_plan_body_manifests.py::test_a_corrupt_body_falls_back_to_the_provider`.
+  It pins three things the earlier reading left open: the stage really re-calls
+  rather than trusting a junk payload, the run completes with a parseable body,
+  and `verify` reports nothing beyond the blobs the test itself damaged (so the
+  fallback path does not mask a stale key).
 - [ ] **Step 2: Pre-slice project.** Delete every chat-stage manifest and
   `cache.json`, re-run: the stages re-call (billable, as today) and rewrite
   their manifests.
-  Not implemented.
-- [ ] **Step 3: Zero-call headline.** A finished-page run, then `cache.json`
+  Not implemented. The corrupt-body test covers the adjacent case (one damaged
+  body); losing every manifest is a different path, and no test enters it.
+- [x] **Step 3: Zero-call headline.** A finished-page run, then `cache.json`
   deleted, then a re-run with counting fakes: `chat.calls == image.calls == 0`
-  and `chunk_cache`, `beat_cache`, `page_cache`, `visual_bible`,
-  `bible_action_keys`, `pages_done`, and `generated` equal the snapshot.
-  Not implemented. The closest test asserts only that extract and bible did not
-  call, and that `pages_done`/`generated.pages` survive.
+  and the plan bodies, bible, stamps, `pages_done`, and generated pages match.
+  Landed as `test_a_lost_cache_costs_no_provider_call`. Writing it exposed three
+  real defects that the per-stage tests all missed; fixing any one alone still
+  left a call, which is why the end-to-end assertion had to exist:
+  1. Run start recomputed the render fingerprint from the lost bible (`None`)
+     and read the mismatch as a style change, clearing every render asset
+     before the bible could be restored. The bible stage now owns that
+     decision, because only it knows whether a restore succeeded.
+  2. The restored reconcile body carries the original run's pre-sanitize shape,
+     so `sanitize_visual_bible_state` mutated it again and the mutation was read
+     as drift. A replay of a normalisation that already happened is not drift.
+  3. The portrait check hashed the asset before `ensure_character_l1` appended
+     its evidence markers, while the render itself stamps the marked prompt. The
+     two keys could never agree on a resume, so one portrait was always redrawn.
+  Verified by mutation: disabling any one of the three fixes fails this test and
+  only this test.
 - [ ] **Step 4: Budget.** A resume that restores every body completes under a
   budget with no headroom (no `BudgetPaused`), reusing the budget harness in
   `tests/test_budget_pipeline.py` if cheap; otherwise assert the skip in the
   zero-call test only.
-  Not implemented.
-- [ ] **Step 5: Commit** as
+  Not implemented. The zero-call test does not thread a budget, so nothing yet
+  pins that a fully restored resume never trips `BudgetPaused`.
+- [x] **Step 5: Commit** as
   `test(pipeline): cover the manifest-backed plan resume`.
-  Not made.
+  The tests and the three fixes they forced landed together as `4331d50`
+  (`fix(pipeline): make a lost cache.json actually cost zero calls`): the
+  assertions are only meaningful with the fixes in place.
 
 ## Task 6: Records
 
-- [ ] **Step 1: Spec status.** Mark the design Accepted/landed and append the
+- [x] **Step 1: Spec status.** Mark the design Accepted/landed and append the
   revision note (what the implementation changed, if anything).
-  Partial: `Status: Accepted` is already set, but nothing marks it landed and
-  the revision history holds only the initial-design entry.
-- [ ] **Step 2: Design of record.** Append a `Revision 2026-10-19,
+  The header now reads `Status: Accepted · Landed: 2026-10-20`, and the
+  revision history records the three defects the end-to-end test uncovered.
+- [x] **Step 2: Design of record.** Append a `Revision 2026-10-19,
   plan-body manifests` paragraph to
   `docs/architecture/2026-09-28-content-addressed-pipeline-design.md` §8:
   the chat caches are manifest-backed; `cache.json` is a hot copy.
-  Not done. The revision log in that document (§9, line 718) still says the
-  chat-stage cache bodies are not yet manifest-backed.
-- [ ] **Step 3: State-split spec sentence.** Replace the "still recomputed by
+  Both the §8 prose ("Landed 2026-10-20") and the §9 revision log now say the
+  chat-stage bodies are manifest-backed and that a lost `cache.json` restores
+  rather than re-plans.
+- [x] **Step 3: State-split spec sentence.** Replace the "still recomputed by
   re-planning" note with the landed behavior.
-  Not done. `2026-10-19-state-split-design.md:131` still describes a lost
-  `cache.json` as recomputing the plan stages.
+  Replaced. `2026-10-19-state-split-design.md` now describes a missing
+  `cache.json` as restoring every chat-stage body from its manifest, notes that
+  a missing or unreadable body falls back to the call path, and the failure
+  table row matches.
 - [x] **Step 4: ROADMAP.** Update the remaining-work sentence: chat-body
   manifest-backing is done; per-stage runners remain.
   `docs/ROADMAP.md:78` names the four stages as manifest-backed.
@@ -184,20 +218,24 @@ not cover" for requirements that no task below owns.
   without a manifest).
   `CHANGELOG.md:42`.
 - [x] **Step 6: Commit** as `docs(plan): record the plan-body manifest backing`.
-  Commit `f1804bd`, which covers steps 4-5 only.
+  Commit `f1804bd` covered steps 4-5; this pass landed steps 1-3 with the
+  documentation commit that follows `4331d50`.
 
 ## Task 7: Task reports
 
 - [ ] **Step 1: Write** the five task reports under
   `.superpowers/sdd/2026-10-19-plan-body-manifests/` and commit them with
   `git add -f` as `docs(sdd): add plan-body manifest task reports`.
-  Not done; the directory does not exist.
+  Deliberately dropped. The directory never existed, the checkboxes, the code
+  comments, and the spec revision history already carry the same information,
+  and five retrospective reports would restate this file. Treat as out of scope
+  unless a reviewer asks for them.
 - [x] **Step 2: Final gate.** Full suite, `ruff check`, `ruff format --check`,
   clean tree; report the numbers.
-  929 passed, 5 skipped; `ruff check` clean; 241 files already formatted.
-  Verified 2026-10-20. The "clean tree" part of this step did not hold: the run
-  covered uncommitted L2 reference-policy edits (listed in the header caveat).
-  The numbers are reproducible; the cleanliness claim is withdrawn.
+  946 passed, 5 skipped; `ruff check` clean; 241 files already formatted;
+  working tree clean at `4331d50`. The earlier 929/5 run covered uncommitted
+  work and its cleanliness claim was withdrawn; this run is reproducible on the
+  committed tree.
 
 ## Gaps this plan does not cover
 
