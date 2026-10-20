@@ -59,12 +59,10 @@ from core.comic.cas import (
     portrait_action_key,
     put_bytes,
     read_manifest_entry,
-    record_files,
     record_ok,
     render_page_action_key,
     render_page_inputs,
     render_panel_action_key,
-    stored_files,
     stored_output,
     storyboard_action_key,
     webtoon_action_key,
@@ -185,6 +183,7 @@ from core.lessons import LessonStore, format_craft_notes
 from core.perf import PerfCollector
 from core.pipelines.cancel import check_cancel
 from core.pipelines.stage_registry import validate_stage_registry
+from core.pipelines.stage_runner import run_stage
 from core.pipelines.stage_scheduler import PipelinePhase, StageGraph, WorkKind, WorkNode
 from core.schemas import (
     ChunkCache,
@@ -1202,29 +1201,29 @@ def _export_webtoon_with_manifest(
         env=env,
         stage_src=_WEBTOON_STAGE_SRC,
     )
-    recorded = read_manifest_entry(output_dir, key, stage="export")
-    if recorded is not None and recorded.outcome != "ok":
-        return [str(out)]
-    cached = stored_output(output_dir, key, stage="export")
-    if cached is not None:
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(cached)
-        return [str(out)]
-    pages_dir.mkdir(parents=True, exist_ok=True)
-    paths = engine.compose(panels, pages_dir, layout_mode="webtoon")
-    if not paths:
-        return []
-    record_ok(
+
+    def _stack() -> list[tuple[str, bytes]]:
+        pages_dir.mkdir(parents=True, exist_ok=True)
+        paths = engine.compose(panels, pages_dir, layout_mode="webtoon")
+        return [(Path(paths[0]).name, Path(paths[0]).read_bytes())] if paths else []
+
+    run = run_stage(
         output_dir,
-        key=key,
-        stage="export",
+        "webtoon",
+        key,
+        _stack,
         stage_src=_WEBTOON_STAGE_SRC,
         env=env,
         inputs=export_inputs(blobs),
-        name=out.name,
-        data=Path(paths[0]).read_bytes(),
     )
-    return paths
+    if run.tombstoned:
+        return [str(out)]
+    if not run.files:
+        return []
+    pages_dir.mkdir(parents=True, exist_ok=True)
+    for name, data in run.files:
+        (pages_dir / Path(name).name).write_bytes(data)
+    return [str(out)]
 
 
 def _drop_stale_panel_sheets(pages_dir: Path, keep: list[str]) -> None:
@@ -1266,34 +1265,37 @@ def _layout_pages_with_manifest(
         env=env,
         stage_src=_LAYOUT_STAGE_SRC,
     )
-    recorded = read_manifest_entry(output_dir, key, stage="layout")
-    if recorded is not None and recorded.outcome != "ok":
-        return None
-    cached = stored_files(output_dir, key, stage="layout")
-    if cached is not None:
+
+    def _compose() -> list[tuple[str, bytes]]:
+        # Report an empty collage instead of recording an ``ok`` manifest whose
+        # ``outputs`` is empty: that would be a hit no reader can satisfy.
         pages_dir.mkdir(parents=True, exist_ok=True)
-        restored: list[str] = []
-        for name, data in cached:
-            dest = pages_dir / Path(name).name
-            dest.write_bytes(data)
-            restored.append(str(dest))
-        _drop_stale_panel_sheets(pages_dir, restored)
-        return restored
-    pages_dir.mkdir(parents=True, exist_ok=True)
-    paths = engine.compose(panels, pages_dir, layout_mode="page")
-    if not paths:
-        return []
-    _drop_stale_panel_sheets(pages_dir, paths)
-    record_files(
+        paths = engine.compose(panels, pages_dir, layout_mode="page")
+        return [(Path(path).name, Path(path).read_bytes()) for path in paths]
+
+    run = run_stage(
         output_dir,
-        key=key,
-        stage="layout",
+        "layout",
+        key,
+        _compose,
         stage_src=_LAYOUT_STAGE_SRC,
         env=env,
         inputs=export_inputs(blobs),
-        files=[(Path(path).name, Path(path).read_bytes()) for path in paths],
     )
-    return paths
+    if run.tombstoned:
+        return None
+    if not run.files:
+        # Nothing was composed and nothing was replayed. Returning here keeps an
+        # empty ``keep`` list from deleting the sheets a previous run wrote.
+        return []
+    pages_dir.mkdir(parents=True, exist_ok=True)
+    restored: list[str] = []
+    for name, data in run.files:
+        dest = pages_dir / Path(name).name
+        dest.write_bytes(data)
+        restored.append(str(dest))
+    _drop_stale_panel_sheets(pages_dir, restored)
+    return restored
 
 
 def _finished_page_files(pages_dir: Path) -> list[Path]:

@@ -201,3 +201,29 @@ def test_compose_empty_page_mode_writes_nothing(tmp_path):
     paths = LayoutEngine().compose([], tmp_path, layout_mode="page")
     assert paths == []
     assert list(tmp_path.glob("*.png")) == []
+
+
+def test_an_empty_collage_does_not_delete_the_sheets_on_disk(tmp_path, monkeypatch):
+    """A failed collage must not clear the pages a previous run already bound.
+
+    ``_drop_stale_panel_sheets`` deletes every ``page_*.png`` that is not in the
+    list it is handed, so an empty production passing an empty list would wipe
+    the previous collage and the PDF binder would then bind nothing. The panels
+    are non-empty here on purpose: an empty *input* takes the early return and
+    would never reach the branch under test.
+    """
+    from core.comic.layout import LayoutEngine, PanelImage
+    from core.pipelines.creative_comic import _layout_pages_with_manifest
+
+    pages_dir = tmp_path / "pages"
+    output_dir = tmp_path / "out"
+    pages_dir.mkdir()
+    survivor = pages_dir / "page_01.png"
+    survivor.write_bytes(b"previous collage")
+
+    monkeypatch.setattr(LayoutEngine, "compose", lambda *a, **k: [])
+
+    produced = _layout_pages_with_manifest([PanelImage(_img())], pages_dir, output_dir)
+
+    assert produced == []
+    assert survivor.exists(), "an empty collage must not wipe existing sheets"
