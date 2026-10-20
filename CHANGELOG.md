@@ -27,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   you intend to re-plan every stage.
 
 ### Added
+- Manifest stage validation: `verify` and `migrate` now reject a manifest
+  whose `stage` is outside the declarative stage catalog. `migrate --json`
+  gives automation a machine-readable upgrade report.
 - Manifest migration: `inkstone migrate --out <dir>` reports and
   `--apply` rewrites legacy/incomplete `index/*.json` manifests to the
   current schema. Malformed files and key/filename mismatches are reported
