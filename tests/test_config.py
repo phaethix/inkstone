@@ -64,3 +64,16 @@ def test_all_env_vars_covers_every_declared_constant():
     }
     assert declared, "no ENV_* constants found; the registry test would pass vacuously"
     assert set(core.config.ALL_ENV_VARS) == declared
+
+
+def test_harness_enabled_defaults_true_and_can_be_killed(monkeypatch):
+    from core.config import harness_enabled, lessons_enabled
+
+    monkeypatch.delenv("INKSTONE_HARNESS", raising=False)
+    monkeypatch.delenv("INKSTONE_LESSONS", raising=False)
+    assert harness_enabled() is True
+    assert lessons_enabled() is True
+
+    monkeypatch.setenv("INKSTONE_HARNESS", "0")
+    assert harness_enabled() is False
+    assert lessons_enabled() is False

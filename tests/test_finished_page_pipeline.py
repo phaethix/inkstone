@@ -1001,3 +1001,45 @@ def test_a_missing_harness_dir_fails_before_any_provider_call(tmp_path):
         )
     assert chat.calls == 0
     assert image.calls == 0
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_harness_kill_switch_ignores_override_genre_and_lessons(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+    monkeypatch.setenv("INKSTONE_HARNESS", "0")
+    monkeypatch.setenv("INKSTONE_GENRE", "wuxia")
+    monkeypatch.setenv("INKSTONE_DATA_DIR", str(tmp_path / "data"))
+    custom = _custom_harness(tmp_path)
+    monkeypatch.setenv("INKSTONE_HARNESS_DIR", str(custom))
+
+    from core.lessons import LessonStore
+
+    store = LessonStore(tmp_path / "data")
+    store.add(
+        cue="福贵在村口时",
+        lesson="先用远景建立空间",
+        run="demo",
+        decision="redraw",
+        pages=["c0000-p0000"],
+        genre="wuxia",
+    )
+    out = tmp_path / "out"
+    asyncio.run(
+        creative_comic(
+            "第一章\n福贵在村口。",
+            output_dir=str(out),
+            chat=FakeChat(),
+            image=FakeImage(),
+        )
+    )
+    prompt = json.loads(
+        (out / "review" / "prompts" / "page_plan.c0000.json").read_text(encoding="utf-8")
+    )
+    text = prompt["messages"][-1]["content"]
+    assert "CUSTOM HARNESS MARKER" not in text
+    assert "Craft notes from earlier books" not in text
+    assert "Domain notes for this genre (wuxia)" not in text
+    manifest = json.loads((out / "review" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["harness_fallback"] is True
+    assert manifest["genre"] == "general"
+    assert manifest["harness_digest"] == harness_from_dir(DATA_DIR).digest()

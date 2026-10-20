@@ -58,6 +58,7 @@ class ReviewPacket:
         harness_digest: str,
         render_mode: str,
         density: str,
+        harness_fallback: bool = False,
     ) -> None:
         if not self.enabled:
             return
@@ -77,6 +78,7 @@ class ReviewPacket:
             "source_chars": len(source),
             "genre": genre,
             "harness_digest": harness_digest,
+            "harness_fallback": harness_fallback,
             "render_mode": render_mode,
             "density": density,
             "model_snapshot": state.model_snapshot.model_dump(),

@@ -159,6 +159,7 @@ from core.comic.voice import sanitize_plan_voice, voice_timeline_plan_instructio
 from core.config import (
     ImageConfig,
     finished_page_size,
+    harness_enabled,
     l3_enabled,
     lessons_enabled,
     page_script_enabled,
@@ -1891,7 +1892,17 @@ async def _creative_comic(
     page_size = finished_page_size()
     # Fail before the first billable call when the harness or its genre is
     # malformed. A broken component is a startup error, not a mid-book pause.
-    selected_harness_dir = Path(harness_dir) if harness_dir is not None else config_harness_dir()
+    harness_fallback = not harness_enabled()
+    selected_harness_dir = (
+        None
+        if harness_fallback
+        else (Path(harness_dir) if harness_dir is not None else config_harness_dir())
+    )
+    if harness_fallback:
+        logger.warning(
+            "INKSTONE_HARNESS=0: using the builtin harness and general genre; "
+            "custom harness, genre, and craft lessons are disabled"
+        )
     if selected_harness_dir is not None:
         try:
             run_harness = harness_from_dir(selected_harness_dir)
@@ -1903,7 +1914,7 @@ async def _creative_comic(
     else:
         validate_or_raise()
         run_harness = builtin_harness()
-    run_genre = config_genre()
+    run_genre = "general" if harness_fallback else config_genre()
     run_harness.genre_block(run_genre)
 
     perf = PerfCollector()
@@ -2072,6 +2083,7 @@ async def _creative_comic(
         harness_digest=run_harness.digest(),
         render_mode=mode,
         density=density_plan.tier,
+        harness_fallback=harness_fallback,
     )
     lesson_store = LessonStore(config_data_dir()) if lessons_enabled() else None
 
@@ -2583,6 +2595,7 @@ async def _creative_comic(
                     visual_bible=None,
                     key_beats=state.beat_cache.get(key),
                     panel_budget=density_plan.panels_per_chunk,
+                    genre=run_genre,
                     harness=run_harness,
                     model=snapshot.chat,
                 )
@@ -2644,6 +2657,7 @@ async def _creative_comic(
                                 visual_bible=state.visual_bible,
                                 key_beats=beats,
                                 panel_budget=density_plan.panels_per_chunk,
+                                genre=run_genre,
                                 craft_notes=craft_notes,
                                 harness=run_harness,
                                 model=snapshot.chat,
@@ -2700,6 +2714,7 @@ async def _creative_comic(
                         visual_bible=None,
                         key_beats=state.beat_cache.get(key),
                         panel_budget=density_plan.panels_per_chunk,
+                        genre=run_genre,
                         harness=run_harness,
                         model=snapshot.chat,
                     )
@@ -3073,6 +3088,7 @@ async def _creative_comic(
                 planned_elements,
                 key_beats=storyboard_beats,
                 panel_budget=density_plan.panels_per_chunk,
+                genre=run_genre,
                 harness=run_harness,
                 model=snapshot.chat,
             )
@@ -3082,6 +3098,7 @@ async def _creative_comic(
                 StoryElements(),
                 key_beats=storyboard_beats,
                 panel_budget=density_plan.panels_per_chunk,
+                genre=run_genre,
                 harness=run_harness,
                 model=snapshot.chat,
             )

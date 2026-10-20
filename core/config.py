@@ -23,6 +23,7 @@ ENV_GENRE = "INKSTONE_GENRE"
 ENV_LESSONS = "INKSTONE_LESSONS"
 ENV_REVIEW_PACKET = "INKSTONE_REVIEW_PACKET"
 ENV_EXPERIMENTS_DIR = "INKSTONE_EXPERIMENTS_DIR"
+ENV_HARNESS = "INKSTONE_HARNESS"
 ENV_HARNESS_DIR = "INKSTONE_HARNESS_DIR"
 ENV_ERROR_LOG = "INKSTONE_ERROR_LOG"
 ENV_RUN_DEADLINE_HOURS = "INKSTONE_RUN_DEADLINE_HOURS"
@@ -115,9 +116,14 @@ def review_packet_enabled() -> bool:
     return env_bool(ENV_REVIEW_PACKET, default=True)
 
 
+def harness_enabled() -> bool:
+    """One-release fallback switch: ``0`` forces the builtin tree and no lessons."""
+    return env_bool(ENV_HARNESS, default=True)
+
+
 def lessons_enabled() -> bool:
     """Inject approved craft lessons into page planning. On by default."""
-    return env_bool(ENV_LESSONS, default=True)
+    return harness_enabled() and env_bool(ENV_LESSONS, default=True)
 
 
 def experiments_dir() -> Path:

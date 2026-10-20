@@ -38,6 +38,7 @@ from core.config import (
     ENV_EXPERIMENTS_DIR,
     ENV_FONT_PATH,
     ENV_GENRE,
+    ENV_HARNESS,
     ENV_HARNESS_DIR,
     ENV_INKSTONE_DATA_DIR,
     ENV_INKSTONE_IMAGE_CONCURRENCY,
@@ -122,6 +123,9 @@ H_ENV_EXCLUDED: frozenset[str] = frozenset(
         # A harness tree enters the chat request digest, not h_env: it must
         # not invalidate image/export keys.
         ENV_HARNESS_DIR,
+        # The kill switch selects the builtin tree; its content is the same
+        # builtin identity already covered by the chat request digest.
+        ENV_HARNESS,
         ENV_AGNES_API_KEY,
         ENV_OPENAI_COMPAT_API_KEY,
         ENV_OPENAI_COMPAT_CHAT_API_KEY,
