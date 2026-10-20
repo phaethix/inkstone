@@ -17,6 +17,10 @@ Routes:
     GET  /api/job/<job_id>        -> job status + panels + review fields
     GET  /api/projects            -> list projects from comic_out/*/state.json
     GET  /api/experiments         -> list planning-only A/B experiments
+    GET  /api/sequences           -> list sequential-recursion runs
+    GET  /api/sequence/<id>       -> rounds, current candidates, checkpoints
+    POST /api/sequence/<id>/pick  -> {choice, why} -> current round selection
+    POST /api/sequence/<id>/advance -> compose + plan the next round
     GET  /api/experiment/<id>     -> one experiment (labels hidden until picked)
     POST /api/experiment/<id>/pick -> {choice, why} -> selection.json
     POST /api/experiment/<id>/compose -> {merge_from?, components?} -> adopted/
@@ -814,6 +818,154 @@ def pick_experiment_api(experiment_id: str, choice: str, why: str) -> dict:
         raise ValueError(str(exc)) from exc
 
 
+def _sequence_dir(sequence_id: str) -> Path:
+    root = EXPERIMENTS_DIR.resolve()
+    target = (root / validate_experiment_id(sequence_id)).resolve()
+    if target.parent != root:
+        raise ValueError(f"sequence escapes {root}")
+    if not (target / "sequence.json").is_file():
+        raise FileNotFoundError(f"no sequence.json under {target}")
+    return target
+
+
+def _sequence_round_detail(sequence_dir: Path, round_number: int) -> dict | None:
+    round_dir = sequence_dir / "rounds" / str(round_number)
+    experiment_path = round_dir / "experiment.json"
+    if not experiment_path.is_file():
+        return None
+    try:
+        experiment = json.loads(experiment_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    selection = _experiment_selection(round_dir)
+    candidates: dict[str, dict] = {}
+    for anon, record in sorted((experiment.get("candidates") or {}).items()):
+        directory = round_dir / "candidates" / anon
+        plan = None
+        structure = None
+        try:
+            plan = json.loads((directory / "plan.json").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            pass
+        try:
+            structure = json.loads(
+                (directory / "structure_report.json").read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError):
+            pass
+        item = {
+            "id": anon,
+            "harness_digest": record.get("harness_digest"),
+            "chat_calls": record.get("chat_calls"),
+            "plan": plan,
+            "structure": structure,
+        }
+        if selection is not None:
+            item["label"] = record.get("label")
+        candidates[anon] = item
+    checkpoint = round_dir / "checkpoint"
+    composed = None
+    if (round_dir / "compose.json").is_file():
+        try:
+            composed = json.loads((round_dir / "compose.json").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            composed = None
+    return {
+        "round": round_number,
+        "status": "picked" if selection is not None else experiment.get("status"),
+        "candidates": candidates,
+        "selection": selection,
+        "composed": composed,
+        "checkpoint": str(checkpoint) if checkpoint.is_dir() else None,
+    }
+
+
+def _sequence_summary(sequence_dir: Path) -> dict:
+    sequence = json.loads((sequence_dir / "sequence.json").read_text(encoding="utf-8"))
+    return {
+        "id": sequence_dir.name,
+        "status": sequence.get("status"),
+        "rounds": sequence.get("rounds"),
+        "current_round": sequence.get("current_round"),
+        "completed_rounds": sequence.get("completed_rounds", []),
+        "current_checkpoint": sequence.get("current_checkpoint"),
+        "candidates": sequence.get("candidates", []),
+    }
+
+
+def list_sequences() -> list[dict]:
+    if not EXPERIMENTS_DIR.is_dir():
+        return []
+    out: list[dict] = []
+    for entry in sorted(EXPERIMENTS_DIR.iterdir(), reverse=True):
+        if not entry.is_dir() or not (entry / "sequence.json").is_file():
+            continue
+        try:
+            out.append(_sequence_summary(entry))
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+    return out
+
+
+def sequence_detail(sequence_id: str) -> dict:
+    path = _sequence_dir(sequence_id)
+    summary = _sequence_summary(path)
+    sequence = json.loads((path / "sequence.json").read_text(encoding="utf-8"))
+    current = int(sequence.get("current_round", 1))
+    rounds: list[dict] = []
+    for number in range(1, int(sequence.get("rounds", 1)) + 1):
+        detail = _sequence_round_detail(path, number)
+        if detail is not None:
+            rounds.append(
+                {
+                    "round": number,
+                    "status": detail["status"],
+                    "chosen": (detail.get("selection") or {}).get("chosen"),
+                    "checkpoint": detail.get("checkpoint"),
+                }
+            )
+    return {
+        **summary,
+        "round_detail": _sequence_round_detail(path, current),
+        "rounds_detail": rounds,
+    }
+
+
+def pick_sequence_api(sequence_id: str, choice: str, why: str) -> dict:
+    from core.experiment import ExperimentError, pick_experiment
+
+    path = _sequence_dir(sequence_id)
+    sequence = json.loads((path / "sequence.json").read_text(encoding="utf-8"))
+    if sequence.get("status") == "done":
+        raise ValueError("sequence is already done")
+    current = int(sequence.get("current_round", 1))
+    round_dir = path / "rounds" / str(current)
+    try:
+        return pick_experiment(round_dir, choice=choice, why=why)
+    except ExperimentError as exc:
+        raise ValueError(str(exc)) from exc
+
+
+async def advance_sequence_api(
+    sequence_id: str,
+    *,
+    merge_from: list[str] | None = None,
+    components: list[str] | None = None,
+) -> dict:
+    from core.experiment import ExperimentError, advance_sequence_async
+
+    path = _sequence_dir(sequence_id)
+    try:
+        await advance_sequence_async(
+            path,
+            merge_from=merge_from or [],
+            components=components or [],
+        )
+    except ExperimentError as exc:
+        raise ValueError(str(exc)) from exc
+    return sequence_detail(sequence_id)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "InkstoneUI/0.1"
 
@@ -888,6 +1040,21 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/api/experiments":
             self._send_json(list_experiments())
+            return
+        if self.path == "/api/sequences":
+            self._send_json(list_sequences())
+            return
+        if self.path.startswith("/api/sequence/"):
+            sequence_id = self.path[len("/api/sequence/") :]
+            try:
+                payload = sequence_detail(sequence_id)
+            except ValueError as exc:
+                self._send_json({"error": str(exc)}, status=400)
+                return
+            except FileNotFoundError as exc:
+                self._send_json({"error": str(exc)}, status=404)
+                return
+            self._send_json(payload)
             return
         if self.path.startswith("/api/experiment/"):
             experiment_id = self.path[len("/api/experiment/") :]
@@ -973,6 +1140,12 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if self.path.startswith("/api/experiment/") and self.path.endswith("/compose"):
                 self._post_experiment_compose()
+                return
+            if self.path.startswith("/api/sequence/") and self.path.endswith("/pick"):
+                self._post_sequence_pick()
+                return
+            if self.path.startswith("/api/sequence/") and self.path.endswith("/advance"):
+                self._post_sequence_advance()
                 return
             if self.path.startswith("/api/project/") and self.path.endswith("/review"):
                 self._post_review()
@@ -1092,6 +1265,54 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": str(exc)}, status=400)
             return
         self._send_json(record)
+
+    def _post_sequence_pick(self) -> None:
+        sequence_id = self.path[len("/api/sequence/") : -len("/pick")]
+        body = self._read_json()
+        choice = str(body.get("choice", "")).strip()
+        why = str(body.get("why", "")).strip()
+        if not choice or not why:
+            self._send_json({"error": "missing choice/why"}, status=400)
+            return
+        try:
+            selection = pick_sequence_api(sequence_id, choice, why)
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, status=400)
+            return
+        except FileNotFoundError as exc:
+            self._send_json({"error": str(exc)}, status=404)
+            return
+        self._send_json(selection)
+
+    def _post_sequence_advance(self) -> None:
+        sequence_id = self.path[len("/api/sequence/") : -len("/advance")]
+        body = self._read_json()
+        merge_from = body.get("merge_from")
+        components = body.get("components") or []
+        if merge_from is not None and not isinstance(merge_from, str):
+            self._send_json({"error": "merge_from must be a string"}, status=400)
+            return
+        if not isinstance(components, list):
+            self._send_json({"error": "components must be a list"}, status=400)
+            return
+        try:
+            payload = asyncio.run(
+                advance_sequence_api(
+                    sequence_id,
+                    merge_from=[merge_from] if merge_from else [],
+                    components=[str(component) for component in components],
+                )
+            )
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, status=400)
+            return
+        except FileNotFoundError as exc:
+            self._send_json({"error": str(exc)}, status=404)
+            return
+        except Exception as exc:  # noqa: BLE001 - provider failure is a request error
+            self._send_json({"error": f"{type(exc).__name__}: {exc}"}, status=500)
+            return
+        self._send_json(payload)
 
     def _post_experiment_pick(self) -> None:
         experiment_id = self.path[len("/api/experiment/") : -len("/pick")]

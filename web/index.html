@@ -687,6 +687,7 @@
         <h2>Compare planning-only candidates</h2>
         <p>Blind page plans from <code>inkstone experiment plan</code>. Candidate labels stay hidden until you pick.</p>
       </div>
+      <div id="sequenceList" class="exp-list" style="margin-bottom:24px;"></div>
       <div id="experimentList" class="exp-list"></div>
       <div id="experimentDetail" class="hidden"></div>
     </div>
@@ -809,6 +810,7 @@
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
     }[c]));
     let currentExperimentId = null;
+    let currentSequenceId = null;
 
     function expPlanText(plan) {
       const pages = (plan && plan.pages) || [];
@@ -830,27 +832,67 @@
         + " · " + checks.map((check) => check.name + "=" + check.status).join(", ");
     }
 
+    function candidateCards(candidates, selection, pickFn) {
+      return Object.values(candidates || {}).map((candidate) => {
+        const label = candidate.label
+          ? ' <span class="badge live">' + esc(candidate.label) + '</span>'
+          : "";
+        const pick = selection ? "" : `
+          <div class="exp-actions">
+            <button class="btn btn-primary" onclick="${pickFn}('${esc(candidate.id)}')">Pick ${esc(candidate.id)}</button>
+          </div>`;
+        return `
+          <div class="exp-card">
+            <h3>Candidate ${esc(candidate.id)}${label}</h3>
+            <div class="exp-meta">${esc(candidate.harness_digest)} · ${esc(candidate.chat_calls)} chat</div>
+            <pre class="exp-plan">${esc(expPlanText(candidate.plan))}</pre>
+            <div class="exp-meta">${esc(expStructureText(candidate.structure))}</div>
+            ${pick}
+          </div>`;
+      }).join("");
+    }
+
     async function loadExperiments() {
       const list = $("experimentList");
       const detail = $("experimentDetail");
       list.classList.remove("hidden");
+      $("sequenceList").classList.remove("hidden");
+      $("sequenceList").innerHTML = "";
       detail.classList.add("hidden");
       if (mode !== "live") {
         list.innerHTML = '<div class="card"><p class="muted">Start the local backend to list A/B experiments.</p></div>';
         return;
       }
+      const sequenceList = $("sequenceList");
       list.innerHTML = '<div class="card"><p class="muted">Loading experiments…</p></div>';
+      sequenceList.innerHTML = "";
       let rows = [];
+      let sequences = [];
       try {
-        const res = await fetch("/api/experiments");
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        rows = await res.json();
+        const [expRes, seqRes] = await Promise.all([
+          fetch("/api/experiments"),
+          fetch("/api/sequences"),
+        ]);
+        if (!expRes.ok) throw new Error("HTTP " + expRes.status);
+        rows = await expRes.json();
+        if (seqRes.ok) sequences = await seqRes.json();
       } catch (e) {
         list.innerHTML = '<div class="card"><p class="muted">Could not list experiments: ' + esc(e.message) + '</p></div>';
         return;
       }
+      sequenceList.innerHTML = sequences.length
+        ? '<div class="exp-meta" style="margin:4px 0 0;">Sequences</div>' + sequences.map((row) => `
+            <div class="exp-row" onclick="openSequence('${esc(row.id)}')">
+              <div>
+                <h3>${esc(row.id)}</h3>
+                <div class="exp-meta">${esc(row.status)} · round ${esc(row.current_round)}/${esc(row.rounds)} · completed ${esc((row.completed_rounds || []).join(", ") || "none")}</div>
+              </div>
+              <div class="exp-meta">checkpoint →</div>
+            </div>
+          `).join("")
+        : "";
       if (!rows.length) {
-        list.innerHTML = '<div class="card"><p class="muted">No experiments yet. Run <code>inkstone experiment plan</code> first.</p></div>';
+        list.innerHTML = '<div class="card"><p class="muted">No standalone experiments yet. Run <code>inkstone experiment plan</code> first.</p></div>';
         return;
       }
       list.innerHTML = rows.map((row) => `
@@ -862,6 +904,91 @@
           <div class="exp-meta">${row.chosen ? "picked " + esc(row.chosen) : "awaiting pick"} →</div>
         </div>
       `).join("");
+    }
+
+    async function openSequence(id) {
+      currentExperimentId = id;
+      currentSequenceId = id;
+      const list = $("experimentList");
+      const sequenceList = $("sequenceList");
+      const detail = $("experimentDetail");
+      list.classList.add("hidden");
+      sequenceList.classList.add("hidden");
+      detail.classList.remove("hidden");
+      detail.innerHTML = '<div class="card"><p class="muted">Loading sequence ' + esc(id) + '…</p></div>';
+      let data;
+      try {
+        const res = await fetch("/api/sequence/" + encodeURIComponent(id));
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        data = await res.json();
+      } catch (e) {
+        detail.innerHTML = '<div class="card"><p class="muted">Could not open sequence: ' + esc(e.message) + '</p></div>';
+        return;
+      }
+      const round = data.round_detail || {};
+      const selection = round.selection;
+      const cards = candidateCards(round.candidates, selection, "pickSequence");
+      const otherIds = selection
+        ? Object.keys(round.candidates || {}).filter((candidate) => candidate !== selection.chosen)
+        : [];
+      const mergeOptions = '<option value="">Adopt chosen only</option>'
+        + otherIds.map((candidate) => `<option value="${esc(candidate)}">Merge stage.page_plan from ${esc(candidate)}</option>`).join("");
+      const advanceBlock = selection && data.status !== "done"
+        ? `<div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+             <select id="seqMerge" style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:9px 12px;color:var(--text);font:inherit;font-size:13px;">${mergeOptions}</select>
+             <button class="btn btn-primary" onclick="advanceSequence()">Advance sequence</button>
+           </div>`
+        : "";
+      const head = `
+        <div class="card" style="max-width:none;">
+          <div style="display:flex;justify-content:space-between;gap:16px;align-items:center;flex-wrap:wrap;">
+            <div>
+              <h3 style="margin:0 0 6px;">Sequence ${esc(data.id)}</h3>
+              <div class="exp-meta">${esc(data.status)} · round ${esc(data.current_round)}/${esc(data.rounds)} · completed ${esc((data.completed_rounds || []).join(", ") || "none")}</div>
+            </div>
+            <button class="btn btn-secondary" onclick="loadExperiments()">← All experiments</button>
+          </div>
+          <p style="margin:16px 0 0;color:var(--muted);">Current checkpoint: <code>${esc(data.current_checkpoint || "base")}</code></p>
+          ${selection ? `<p style="margin:12px 0 0;color:var(--muted);">Picked ${esc(selection.chosen)} (${esc(selection.chosen_label)}): ${esc(selection.why)}</p>${advanceBlock}` : '<p style="margin:12px 0 0;color:var(--muted);">Read the current round, write why one is better, then pick. Advance composes the pick and plans the next round.</p><textarea id="expWhy" class="exp-why" placeholder="Why does this round read better? Cite a page or a layout choice."></textarea>'}
+        </div>`;
+      detail.innerHTML = head + '<div class="exp-grid">' + cards + '</div>';
+    }
+
+    async function pickSequence(choice) {
+      const why = ($("expWhy")?.value || "").trim();
+      if (!why) {
+        alert("Write why this candidate is better before picking.");
+        return;
+      }
+      try {
+        const res = await fetch("/api/sequence/" + encodeURIComponent(currentSequenceId) + "/pick", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ choice, why }),
+        });
+        const payload = await res.json();
+        if (!res.ok) throw new Error(payload.error || ("HTTP " + res.status));
+        openSequence(currentSequenceId);
+      } catch (e) {
+        alert("Pick failed: " + e.message);
+      }
+    }
+
+    async function advanceSequence() {
+      const merge = ($("seqMerge")?.value || "").trim();
+      const body = merge ? { merge_from: merge, components: ["stage.page_plan"] } : {};
+      try {
+        const res = await fetch("/api/sequence/" + encodeURIComponent(currentSequenceId) + "/advance", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const payload = await res.json();
+        if (!res.ok) throw new Error(payload.error || ("HTTP " + res.status));
+        openSequence(currentSequenceId);
+      } catch (e) {
+        alert("Advance failed: " + e.message);
+      }
     }
 
     async function openExperiment(id) {
@@ -881,21 +1008,7 @@
         return;
       }
       const selection = data.selection;
-      const cards = Object.values(data.candidates || {}).map((candidate) => {
-        const label = candidate.label ? ' <span class="badge live">' + esc(candidate.label) + '</span>' : "";
-        const pick = selection ? "" : `
-          <div class="exp-actions">
-            <button class="btn btn-primary" onclick="pickExperiment('${esc(candidate.id)}')">Pick ${esc(candidate.id)}</button>
-          </div>`;
-        return `
-          <div class="exp-card">
-            <h3>Candidate ${esc(candidate.id)}${label}</h3>
-            <div class="exp-meta">${esc(candidate.harness_digest)} · ${esc(candidate.chat_calls)} chat</div>
-            <pre class="exp-plan">${esc(expPlanText(candidate.plan))}</pre>
-            <div class="exp-meta">${esc(expStructureText(candidate.structure))}</div>
-            ${pick}
-          </div>`;
-      }).join("");
+      const cards = candidateCards(data.candidates, selection, "pickExperiment");
       const otherIds = selection
         ? Object.keys(data.candidates || {}).filter((id) => id !== selection.chosen)
         : [];

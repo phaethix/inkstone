@@ -897,3 +897,77 @@ def test_experiment_compose_can_merge_page_plan_from_other_candidate(tmp_path, m
     assert record["components"] == ["stage.page_plan"]
     adopted_plan = (tmp_path / "exp1" / "adopted" / "stages" / "page_plan.md").read_text()
     assert "WEB MERGE MARKER" in adopted_plan
+
+
+def test_sequence_apis_list_detail_pick_and_advance(tmp_path, monkeypatch):
+    import asyncio
+
+    from core.experiment import plan_sequence_async
+    from core.harness.spec import DATA_DIR
+    from tests.test_finished_page_pipeline import FakeChat
+
+    monkeypatch.setattr(server, "EXPERIMENTS_DIR", tmp_path)
+    candidate = tmp_path / "candidate"
+    shutil.copytree(DATA_DIR, candidate)
+    sequence_dir = tmp_path / "seq"
+    asyncio.run(
+        plan_sequence_async(
+            "第一章\n福贵在村口。",
+            out_dir=sequence_dir,
+            candidates=[str(candidate)],
+            rounds=1,
+            chat=FakeChat(),
+        )
+    )
+
+    with _running_server() as httpd:
+        status, rows = _request(httpd.server_port, "/api/sequences", "GET")
+        detail_status, detail = _request(httpd.server_port, "/api/sequence/seq", "GET")
+        assert status == 200
+        assert rows[0]["id"] == "seq"
+        assert rows[0]["status"] == "awaiting_pick"
+        assert detail_status == 200
+        assert detail["current_round"] == 1
+        assert set(detail["round_detail"]["candidates"]) == {"A", "B"}
+        assert all("label" not in item for item in detail["round_detail"]["candidates"].values())
+
+        pick = json.dumps({"choice": "A", "why": "更清楚的构图"}).encode()
+        pick_status, selection = _request(
+            httpd.server_port, "/api/sequence/seq/pick", "POST", data=pick
+        )
+        assert pick_status == 200
+        assert selection["chosen"] == "A"
+
+        advance_status, after = _request(
+            httpd.server_port, "/api/sequence/seq/advance", "POST", data=b"{}"
+        )
+    assert advance_status == 200
+    assert after["status"] == "done"
+    assert after["round_detail"]["checkpoint"]
+    assert (sequence_dir / "rounds" / "1" / "checkpoint" / "manifest.json").is_file()
+
+
+def test_sequence_pick_requires_why(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "EXPERIMENTS_DIR", tmp_path)
+    sequence = tmp_path / "seq"
+    (sequence / "rounds" / "1").mkdir(parents=True)
+    (sequence / "sequence.json").write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "status": "awaiting_pick",
+                "rounds": 1,
+                "current_round": 1,
+            }
+        ),
+        encoding="utf-8",
+    )
+    with _running_server() as httpd:
+        status, payload = _request(
+            httpd.server_port,
+            "/api/sequence/seq/pick",
+            "POST",
+            data=json.dumps({"choice": "A"}).encode(),
+        )
+    assert status == 400
+    assert "choice/why" in payload["error"]
