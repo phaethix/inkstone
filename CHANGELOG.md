@@ -121,6 +121,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   contain those phrases.
 
 ### Fixed
+- D-08: `migrate_legacy_page_keys` now detects collisions instead of
+  silently overwriting: a canonical positional key wins over a legacy alias,
+  a discarded key is logged, `pages_done` / `stale_pages` / `skipped_pages`
+  are deduplicated, and a duplicate `page_id` in a plan warns and keeps the
+  first position.
+- D-09: `ProjectState.load()` migrates legacy page keys itself, so the
+  supervisor, `_run_structure`, the Web checkpoint fallback, GC, prune, and
+  every CLI reader get positional keys without remembering to call the
+  migration. The now-redundant explicit calls were removed.
 - D-19: `INKSTONE_PDF_BATCH` moved into `core.config` as `ENV_PDF_BATCH` /
   `pdf_batch_size()`, so it is registered in `ALL_ENV_VARS` and visible to
   the registry test. It is excluded from `h_env`: it bounds peak memory and

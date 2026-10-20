@@ -67,6 +67,12 @@ Keep these prototypes only as migration material until they conform to the targe
 
 ### P0 — Make the current state honest and deterministic
 
+- **Local (2026-10-20, `main`):** D-08 + D-09. Legacy page-key migration is now
+  read-time behavior: `ProjectState.load()` migrates before returning, so the
+  supervisor, Web fallback, GC, prune, and CLI readers cannot miss it. Key
+  collisions keep the canonical positional record and log the discarded one;
+  duplicate plan `page_id`s warn and keep the first position; the page lists are
+  deduplicated. Regression: `tests/test_phase0b_legacy_migration.py`.
 - **Local (2026-10-20, `main`):** D-19 + D-22. `INKSTONE_PDF_BATCH` now lives in
   `core.config` (`ENV_PDF_BATCH` / `pdf_batch_size()`), is registered in
   `ALL_ENV_VARS`, and is excluded from `h_env` as a memory-only knob. Scheduler
