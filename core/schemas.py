@@ -18,9 +18,7 @@ Runtime-only fields (populated by the pipeline, not the model) are annotated wit
 import ast
 import json
 import logging
-import os
 import re
-import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -1526,17 +1524,9 @@ _CACHE_FIELDS = ("chunk_cache", "page_cache", "beat_cache", "visual_bible")
 
 def _atomic_write_text(path: Path, payload: str) -> None:
     """Write ``payload`` to ``path`` atomically (temp + fsync + replace)."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent, text=True)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as temp:
-            temp.write(payload)
-            temp.flush()
-            os.fsync(temp.fileno())
-        os.replace(temp_name, path)
-    except Exception:
-        Path(temp_name).unlink(missing_ok=True)
-        raise
+    from core.comic.atomic import atomic_write_text
+
+    atomic_write_text(path, payload)
 
 
 class ProjectCaches(BaseModel):

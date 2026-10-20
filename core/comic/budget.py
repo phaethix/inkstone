@@ -27,7 +27,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -176,17 +175,9 @@ class BudgetFile(BaseModel):
 
 
 def _atomic_write(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent, text=True)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as temp:
-            temp.write(text)
-            temp.flush()
-            os.fsync(temp.fileno())
-        os.replace(temp_name, path)
-    except Exception:
-        Path(temp_name).unlink(missing_ok=True)
-        raise
+    from core.comic.atomic import atomic_write_text
+
+    atomic_write_text(path, text)
 
 
 def _append_jsonl(path: Path, record: dict) -> None:

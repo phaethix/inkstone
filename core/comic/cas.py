@@ -18,9 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -724,13 +722,6 @@ def verify(root: Path) -> list[str]:
 
 
 def _atomic_write(dest: Path, data: bytes) -> None:
-    fd, temp_name = tempfile.mkstemp(prefix=f".{dest.name}.", dir=dest.parent)
-    try:
-        with os.fdopen(fd, "wb") as temp:
-            temp.write(data)
-            temp.flush()
-            os.fsync(temp.fileno())
-        os.replace(temp_name, dest)
-    except Exception:
-        Path(temp_name).unlink(missing_ok=True)
-        raise
+    from core.comic.atomic import atomic_write_bytes
+
+    atomic_write_bytes(dest, data)

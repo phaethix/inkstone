@@ -20,8 +20,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -198,18 +196,9 @@ class ConsistencyLedger(BaseModel):
 
     def save(self, path: str | Path) -> None:
         """Persist atomically, so interruption cannot truncate the ledger."""
-        p = Path(path)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        fd, temp_name = tempfile.mkstemp(prefix=f".{p.name}.", dir=p.parent, text=True)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as temp:
-                temp.write(self.model_dump_json(indent=2))
-                temp.flush()
-                os.fsync(temp.fileno())
-            os.replace(temp_name, p)
-        except Exception:
-            Path(temp_name).unlink(missing_ok=True)
-            raise
+        from core.comic.atomic import atomic_write_text
+
+        atomic_write_text(path, self.model_dump_json(indent=2))
 
     def rebuild_from_state(self, state: ProjectState) -> bool:
         """Refresh every character's ``pages`` and pending set from ``page_cache``.
