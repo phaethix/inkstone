@@ -115,3 +115,82 @@ def test_resume_of_legacy_state_does_not_repaint(tmp_path, monkeypatch):
 
     assert second.calls == 0  # page kept, no repaint
     assert resumed.state.pages_done == ["c0000-p0000"]
+
+
+def test_load_migrates_legacy_keys_without_a_caller(tmp_path):
+    path = tmp_path / "state.json"
+    path.write_text(_legacy_state().model_dump_json(), encoding="utf-8")
+
+    loaded = ProjectState.load(path)
+
+    assert loaded.pages_done == ["c0000-p0000"]
+    assert set(loaded.generated.pages) == {"c0000-p0000"}
+
+
+def test_load_without_caches_uses_the_inline_plan(tmp_path):
+    path = tmp_path / "state.json"
+    path.write_text(_legacy_state().model_dump_json(), encoding="utf-8")
+
+    loaded = ProjectState.load(path, caches=False)
+
+    assert loaded.pages_done == ["c0000-p0000"]
+
+
+def test_supervisor_load_state_migrates_legacy_keys(tmp_path):
+    from core.pipelines.run_until_complete import _load_state
+
+    out = tmp_path / "project"
+    out.mkdir()
+    (out / "state.json").write_text(_legacy_state().model_dump_json(), encoding="utf-8")
+
+    loaded = _load_state(str(out))
+
+    assert loaded is not None
+    assert loaded.pages_done == ["c0000-p0000"]
+
+
+def test_migration_keeps_the_canonical_record_on_collision(tmp_path, caplog):
+    state = _legacy_state()
+    state.generated.pages["c0000-p0000"] = GeneratedPage(
+        local="/tmp/canonical.png", page_id="u1_p0001"
+    )
+    state.pages_done.append("c0000-p0000")
+
+    with caplog.at_level("WARNING"):
+        assert state.migrate_legacy_page_keys() is True
+
+    assert state.generated.pages["c0000-p0000"].local == "/tmp/canonical.png"
+    assert state.pages_done == ["c0000-p0000"]
+    assert any("collision" in record.message for record in caplog.records)
+
+
+def test_migration_deduplicates_page_lists(caplog):
+    state = _legacy_state()
+    state.pages_done.append("c0000:u1_p0001")
+
+    with caplog.at_level("WARNING"):
+        assert state.migrate_legacy_page_keys() is True
+
+    assert state.pages_done == ["c0000-p0000"]
+    assert any("duplicate" in record.message for record in caplog.records)
+
+
+def test_duplicate_page_id_warns_and_uses_the_first_position(caplog):
+    pages = ComicPagePlanSet(
+        unit_id="1",
+        pages=[
+            ComicPagePlan.model_validate({"page_id": "u1_p0001", "panels": []}),
+            ComicPagePlan.model_validate({"page_id": "u1_p0001", "panels": []}),
+        ],
+    )
+    state = ProjectState(
+        project_id="t",
+        page_cache={"0": pages},
+        pages_done=["c0000:u1_p0001"],
+    )
+
+    with caplog.at_level("WARNING"):
+        assert state.migrate_legacy_page_keys() is True
+
+    assert state.pages_done == ["c0000-p0000"]
+    assert any("duplicate page_id" in record.message for record in caplog.records)

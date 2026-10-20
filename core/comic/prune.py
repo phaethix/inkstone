@@ -129,7 +129,6 @@ def plan_prune(output_dir: Path, older_than: timedelta, *, now: float | None = N
     if not state_path.is_file():
         raise FileNotFoundError(state_path)
     state = ProjectState.load(state_path)
-    state.migrate_legacy_page_keys()
     ledger = ConsistencyLedger.load_or_rebuild(output_dir / "consistency.json", state)
     live = collect_live_refs(state, ledger)
 

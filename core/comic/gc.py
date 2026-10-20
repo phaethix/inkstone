@@ -112,7 +112,6 @@ def _gate_ids(root: Path, gate_path: Path) -> set[str]:
         return found
     try:
         state = ProjectState.load(state_path)
-        state.migrate_legacy_page_keys()
     except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
         raise GcError("unreadable state.json") from exc
     for key in keys:

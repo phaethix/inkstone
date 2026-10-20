@@ -1660,14 +1660,17 @@ class ProjectState(BaseModel):
         """
         p = Path(path)
         state = cls.model_validate_json(p.read_text(encoding="utf-8"))
-        if not caches:
-            return state
-        cache_path = p.parent / CACHE_FILE_NAME
-        if not cache_path.is_file():
-            return state
-        merged = ProjectCaches.model_validate_json(cache_path.read_text(encoding="utf-8"))
-        for name in _CACHE_FIELDS:
-            setattr(state, name, getattr(merged, name))
+        if caches:
+            cache_path = p.parent / CACHE_FILE_NAME
+            if cache_path.is_file():
+                merged = ProjectCaches.model_validate_json(cache_path.read_text(encoding="utf-8"))
+                for name in _CACHE_FIELDS:
+                    setattr(state, name, getattr(merged, name))
+        # Phase 0b is a read-time migration, not a caller obligation. Every
+        # reader that loads the checkpoint (CLI, Web, supervisor, GC, prune)
+        # now sees positional page keys; a pre-0b file cannot silently repaint
+        # the book because one call site forgot to migrate.
+        state.migrate_legacy_page_keys()
         return state
 
     def migrate_legacy_page_keys(self) -> bool:
@@ -1681,9 +1684,13 @@ class ProjectState(BaseModel):
         the pipeline enumerated), so the rewrite is deterministic and idempotent.
 
         Keys whose chunk or ``page_id`` is absent from ``page_cache`` are left
-        untouched rather than guessed at.
+        untouched rather than guessed at. ``load()`` calls this automatically.
 
-        Returns ``True`` when any key was rewritten.
+        A collision keeps the canonical positional record over a rewritten
+        legacy one, logs the discarded key, and deduplicates the page lists, so
+        migration never silently loses a record without a trace.
+
+        Returns ``True`` when any key was rewritten or a duplicate was removed.
         """
         # chunk index -> {model page_id: positional index}
         index_by_chunk: dict[int, dict[str, int]] = {}
@@ -1692,9 +1699,21 @@ class ProjectState(BaseModel):
                 chunk_index = int(cache_key)
             except (TypeError, ValueError):
                 continue
-            index_by_chunk[chunk_index] = {
-                plan.page_id: position for position, plan in enumerate(pageset.pages)
-            }
+            positions: dict[str, int] = {}
+            for position, plan in enumerate(pageset.pages):
+                page_id = plan.page_id
+                if not page_id:
+                    continue
+                if page_id in positions:
+                    logger.warning(
+                        "duplicate page_id %r in chunk %d; keeping position %d",
+                        page_id,
+                        chunk_index,
+                        positions[page_id],
+                    )
+                    continue
+                positions[page_id] = position
+            index_by_chunk[chunk_index] = positions
 
         def _rewrite(legacy_key: str) -> str:
             if ":" not in legacy_key:
@@ -1713,28 +1732,60 @@ class ProjectState(BaseModel):
 
         changed = False
 
-        rewritten_pages: dict[str, GeneratedPage] = {}
-        for key, record in self.generated.pages.items():
-            new_key = _rewrite(key)
-            if new_key != key:
-                changed = True
-            rewritten_pages[new_key] = record
-        self.generated.pages = rewritten_pages
+        def _rewrite_map(name: str, current: dict) -> dict:
+            nonlocal changed
+            rewritten: dict = {}
+            sources: dict[str, str] = {}
+            for key in sorted(current):
+                record = current[key]
+                new_key = _rewrite(key)
+                if new_key != key:
+                    changed = True
+                if new_key in rewritten:
+                    existing_source = sources[new_key]
+                    # A key that is already positional is canonical. A legacy
+                    # alias never displaces it.
+                    if new_key == key:
+                        logger.warning(
+                            "%s key collision: %r replaces %r at %r",
+                            name,
+                            key,
+                            existing_source,
+                            new_key,
+                        )
+                        rewritten[new_key] = record
+                        sources[new_key] = key
+                    else:
+                        logger.warning(
+                            "%s key collision: %r discarded at %r (kept %r)",
+                            name,
+                            key,
+                            new_key,
+                            existing_source,
+                        )
+                    continue
+                rewritten[new_key] = record
+                sources[new_key] = key
+            return rewritten
+
+        self.generated.pages = _rewrite_map("generated.pages", self.generated.pages)
+        self.tombstones = _rewrite_map("tombstones", self.tombstones)
 
         for field_name in ("pages_done", "stale_pages", "skipped_pages"):
             current = getattr(self, field_name)
-            updated = [_rewrite(k) for k in current]
-            if updated != current:
-                changed = True
+            updated: list[str] = []
+            seen: set[str] = set()
+            for key in current:
+                new_key = _rewrite(key)
+                if new_key != key:
+                    changed = True
+                if new_key in seen:
+                    logger.warning("%s duplicate %r at %r; keeping one", field_name, key, new_key)
+                    changed = True
+                    continue
+                seen.add(new_key)
+                updated.append(new_key)
             setattr(self, field_name, updated)
-
-        rewritten_tombstones: dict[str, Tombstone] = {}
-        for key, record in self.tombstones.items():
-            new_key = _rewrite(key)
-            if new_key != key:
-                changed = True
-            rewritten_tombstones[new_key] = record
-        self.tombstones = rewritten_tombstones
 
         return changed
 

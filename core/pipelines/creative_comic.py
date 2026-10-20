@@ -2019,9 +2019,6 @@ async def _creative_comic(
     soft_invalidated_this_run = False
     if state_path.exists():
         persisted = ProjectState.load(state_path)
-        # Phase 0b: migrate pre-0b page keys before fingerprints/keys are read,
-        # so a resumed project keeps its recorded pages.
-        persisted.migrate_legacy_page_keys()
         expected_render = _render_for_bible(persisted.visual_bible)
         if not persisted.structure_fingerprint:
             # Pre-split states carry no structure fingerprint. The legacy

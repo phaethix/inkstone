@@ -611,7 +611,6 @@ def _run_coverage(args: argparse.Namespace) -> None:
     if not state_path.exists():
         sys.exit(f"state.json 未找到：{args.out}（请先运行 generate 或指定 --out）")
     state = ProjectState.load(state_path)
-    state.migrate_legacy_page_keys()
     page_scripts = [
         cc.page_script for cc in state.chunk_cache.values() if cc.page_script is not None
     ]
@@ -710,7 +709,6 @@ def _run_identity(args: argparse.Namespace) -> int:
         print(f"state.json 未找到：{args.out}（请先运行 generate 或指定 --out）")
         return 1
     state = ProjectState.load(state_path)
-    state.migrate_legacy_page_keys()
     ledger = ConsistencyLedger.load_or_rebuild(out / "consistency.json", state)
 
     if args.confirm:
@@ -776,7 +774,6 @@ def _run_rebuild(args: argparse.Namespace) -> int:
         return 1
 
     state = ProjectState.load(state_path)
-    state.migrate_legacy_page_keys()
     keys = list(args.key)
     # §7: --stage alone targets the whole stage subtree; --key narrows it.
     if not keys:
@@ -988,7 +985,6 @@ def _load_prompt_context(args: argparse.Namespace):
 
     out = Path(args.from_run)
     state = ProjectState.load(out / "state.json")
-    state.migrate_legacy_page_keys()
     cached = state.chunk_cache.get(str(args.chunk))
     if cached is not None:
         elements = cached.elements or elements
@@ -1198,7 +1194,6 @@ def _run_lesson(args: argparse.Namespace) -> int:
         print(f"no state.json under {run}", file=sys.stderr)
         return 2
     state = ProjectState.load(state_path)
-    state.migrate_legacy_page_keys()
     known = set(state.pages_done) | set(state.stale_pages) | set(state.generated.pages)
     pages = [page for page in args.page if page]
     if args.decision in {"redraw", "accept_and_flag"} and not pages:

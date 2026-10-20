@@ -542,10 +542,6 @@ def _load_project_state(project_id: str) -> tuple[Path, ProjectState]:
     # Full load: merge/dismiss rewrites the heavy caches and its save must
     # persist them, so this reader needs cache.json (a corrupt one raises).
     state = ProjectState.load(state_path)
-    # Phase 0b: bring a pre-0b checkpoint onto positional page keys before any
-    # reader (regen bookkeeping, snapshots) interprets them.
-    if state.migrate_legacy_page_keys():
-        state.save(state_path)
     return out_dir, state
 
 
