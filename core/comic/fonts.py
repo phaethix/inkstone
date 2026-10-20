@@ -56,6 +56,10 @@ _CJK_FONT_CANDIDATES = (
 
 _cache: dict[tuple[str, int], tuple[ImageFont.FreeTypeFont, str]] = {}
 _negative_cache: set[tuple[str, int]] = set()
+# Path + mtime + size -> digest. Re-reading a multi-megabyte CJK font for every
+# page is the hottest avoidable I/O in the render path; a changed font file
+# changes the key, so the cache cannot return a stale digest.
+_digest_cache: dict[tuple[str, int, int], str] = {}
 _warned_no_cjk = False
 _lock = threading.Lock()
 
@@ -182,6 +186,36 @@ def resolve_font(
     return ImageFont.load_default(), "default-no-cjk"
 
 
+def _hash_font_file(source: str) -> str:
+    """Hash one font file's bytes. Split out so tests can count reads."""
+    try:
+        with open(source, "rb") as handle:
+            return hashlib.sha256(handle.read()).hexdigest()
+    except OSError:
+        return "unreadable"
+
+
+def _cached_font_digest(source: str) -> str:
+    """Return the digest for ``source``, re-hashing only when path/mtime/size changes."""
+    try:
+        stat = os.stat(source)
+    except OSError:
+        return "unreadable"
+    key = (source, stat.st_mtime_ns, stat.st_size)
+    with _lock:
+        cached = _digest_cache.get(key)
+    if cached is not None:
+        return cached
+    digest = _hash_font_file(source)
+    with _lock:
+        _digest_cache[key] = digest
+        # Bound the cache: a handful of fonts is plenty for one process.
+        if len(_digest_cache) > 16:
+            _digest_cache.clear()
+            _digest_cache[key] = digest
+    return digest
+
+
 def resolved_font_digest(
     text: str,
     *,
@@ -205,11 +239,7 @@ def resolved_font_digest(
         if source.startswith(prefix):
             source = source[len(prefix) :]
             break
-    try:
-        with open(source, "rb") as handle:
-            return hashlib.sha256(handle.read()).hexdigest()
-    except OSError:
-        return "unreadable"
+    return _cached_font_digest(source)
 
 
 def reset_caches() -> None:
@@ -218,4 +248,5 @@ def reset_caches() -> None:
     with _lock:
         _cache.clear()
         _negative_cache.clear()
+        _digest_cache.clear()
         _warned_no_cjk = False
