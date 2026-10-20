@@ -121,6 +121,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   contain those phrases.
 
 ### Fixed
+- D-21: `clear_tombstones` now removes the released key from `pages_done`
+  as well as `skipped_pages` and `stale_pages`. A page that was both done
+  and stale could otherwise lose its retry marker while remaining marked
+  done, making `rebuild --stage render --key` a silent no-op.
+- D-20: `page_state_key` rejects negative or 10,000+ positions so the
+  four-digit suffix invariant holds; `ensure_character_l1` no longer appends
+  the same evidence/warning suffix on every call; recorded merge chains
+  (A→B, B→C) resolve to the final canonical name; the dead panel-record loop
+  is removed; and a concurrent merge whose kept name disappeared answers 400
+  instead of leaking a `KeyError` as HTTP 500.
 - D-08: `migrate_legacy_page_keys` now detects collisions instead of
   silently overwriting: a canonical positional key wins over a legacy alias,
   a discarded key is logged, `pages_done` / `stale_pages` / `skipped_pages`

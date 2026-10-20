@@ -67,6 +67,14 @@ Keep these prototypes only as migration material until they conform to the targe
 
 ### P0 — Make the current state honest and deterministic
 
+- **Local (2026-10-20, `main`):** D-20 + D-21. `clear_tombstones` now removes
+  the key from `pages_done` too, so a released page is actually retried.
+  `page_state_key` enforces the four-digit range, `ensure_character_l1` is
+  idempotent for evidence/warning suffixes, merge chains resolve to the final
+  canonical, the dead panel loop is gone, and the Web review merge maps a
+  disappeared kept name to 400. Regression: `tests/test_identity.py`,
+  `tests/test_phase0b_page_identity.py`, `tests/test_tombstones.py`,
+  `tests/test_web_server.py`.
 - **Local (2026-10-20, `main`):** D-08 + D-09. Legacy page-key migration is now
   read-time behavior: `ProjectState.load()` migrates before returning, so the
   supervisor, Web fallback, GC, prune, and CLI readers cannot miss it. Key
