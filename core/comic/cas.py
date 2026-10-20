@@ -229,20 +229,29 @@ def render_page_action_key(
     prompt: str,
     resolved_size: str,
     page_key: str,
+    ref_policy: str,
     env: str,
     stage_src: str,
 ) -> str:
-    """Key a finished page from its plan, prompt, and positional identity.
+    """Key a finished page from its plan, prompt, identity, and ref policy.
 
-    The L2 reference image is a soft reference and is not an input. Two chunks
-    that happen to plan the same words still render two pages. A second run of
-    the same page reuses the stored blank.
+    The L2 reference image itself is a soft reference and is not an input; the
+    *selection policy* is (``ref_policy``, see
+    :func:`core.comic.visual_bible.finished_page_ref_policy`). Without it, a
+    reorder of the priority walk or a change to ``max_refs`` would hand a stale
+    page back as a hit while the references actually sent had changed. Two
+    chunks that happen to plan the same words still render two pages. A second
+    run of the same page reuses the stored blank.
     """
     return action_key(
         stage="render.page",
         stage_src=stage_src,
         inputs=render_page_inputs(plan_json, prompt),
-        params={"page_key": page_key, "resolved_size": resolved_size},
+        params={
+            "page_key": page_key,
+            "resolved_size": resolved_size,
+            "ref_policy": ref_policy,
+        },
         env=env,
     )
 

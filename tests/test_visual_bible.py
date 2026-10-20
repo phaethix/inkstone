@@ -5,6 +5,7 @@ from core.comic.visual_bible import (
     collect_finished_page_refs,
     compute_bible_hash,
     ensure_stage_portrait_assets,
+    finished_page_ref_policy,
     l1_from_canon,
     parse_stage_ref,
     refresh_bible_hash,
@@ -386,6 +387,43 @@ def test_collect_refs_uses_panel_characters_and_sheet_first():
     assert "/tmp/r.png" in refs
 
 
+def test_the_previous_blank_is_gated_by_panel_continuity():
+    """§4 tier 3: the adjacent blank applies only when continuity is on.
+
+    The design's priority table makes the third tier conditional: "Only when
+    ``panel_continuity`` is on and the first two tiers have not filled
+    ``max_refs``". Without the gate the switch has no effect on a finished
+    page's references, so a run with continuity off still conditions every page
+    on the previous page's blank.
+    """
+    plan = ComicPagePlan.model_validate(
+        {
+            "page_id": "p1",
+            "purpose": "x",
+            "layout_intent": "y",
+            "panels": [{"panel_id": "1", "characters": [], "action": "sits"}],
+            "reference_characters": [],
+        }
+    )
+    bible = VisualBible(
+        version="bible_v1",
+        style_guide="",
+        color=ColorBible(palette=[], lighting="", forbidden=[]),
+        characters={},
+        sheet_ref_local=None,
+    )
+
+    on = collect_finished_page_refs(
+        plan, {}, bible, prev_blank="/tmp/prev.png", panel_continuity=True
+    )
+    off = collect_finished_page_refs(
+        plan, {}, bible, prev_blank="/tmp/prev.png", panel_continuity=False
+    )
+
+    assert "/tmp/prev.png" in on
+    assert "/tmp/prev.png" not in off
+
+
 def test_ensure_stage_portrait_assets_creates_portrait_key_rows():
     state = ProjectState(
         project_id="p",
@@ -590,3 +628,62 @@ def test_authoritative_ledger_reference_precedes_the_stale_portrait():
     assert refs[0] == "/tmp/sheet.png"
     assert "/tmp/authoritative.png" in refs
     assert "/tmp/stale.png" not in refs
+
+
+def test_the_reference_policy_tracks_the_continuity_switch():
+    """§4 lists "L2 enabled" as a policy input, and tier 3 reads it.
+
+    A digest that ignores the switch claims two runs share a policy when one of
+    them passed the previous blank and the other did not.
+    """
+    base = finished_page_ref_policy(panel_continuity=True)
+
+    assert finished_page_ref_policy(panel_continuity=False) != base
+
+
+def test_the_reference_policy_covers_the_walk_the_roster_and_the_resolution(monkeypatch):
+    """§4: every function that decides "who, and which image" must move the key.
+
+    A deleted ``selector`` field is the failure this pins: with it gone the
+    digest stops depending on the walk, and a page rendered against an old
+    priority order comes back as a hit.
+    """
+    from core.comic import visual_bible as vb
+
+    base = finished_page_ref_policy()
+
+    for name in ("collect_finished_page_refs", "_page_character_names", "_portrait_path_for_name"):
+        original = getattr(vb, name)
+
+        def stand_in(*args, **kwargs):
+            raise AssertionError("the policy digests source, it never calls the walk")
+
+        # Keep the qualified name so the digest can only move on the source text.
+        stand_in.__module__ = original.__module__
+        stand_in.__qualname__ = original.__qualname__
+
+        monkeypatch.setattr(vb, name, stand_in)
+        try:
+            assert finished_page_ref_policy() != base, f"{name} is not an input to the policy"
+        finally:
+            monkeypatch.setattr(vb, name, original)
+
+    assert finished_page_ref_policy() == base
+
+
+def test_the_reference_policy_tracks_the_budget():
+    """The budget is part of the policy, not a number a caller may raise for free."""
+    base = finished_page_ref_policy()
+
+    assert finished_page_ref_policy() == base
+    assert finished_page_ref_policy(max_refs=12) != base
+    assert finished_page_ref_policy(max_refs=12) != finished_page_ref_policy(max_refs=13)
+
+
+def test_the_reference_policy_names_no_image_bytes():
+    """Only the policy enters a key. A path would repaint the book per alias merge."""
+    policy = finished_page_ref_policy()
+
+    assert policy.startswith("sha256:")
+    assert "/tmp" not in policy
+    assert "png" not in policy

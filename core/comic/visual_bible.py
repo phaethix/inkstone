@@ -10,6 +10,7 @@ from collections.abc import Iterable
 from typing import Literal
 
 from core.comic.identity import merge_character_alias, offer_alias_suggestion, suggestion_from_alias
+from core.comic.stage_contract import stage_source_hash
 from core.schemas import (
     CharacterAsset,
     CharacterCanon,
@@ -1685,14 +1686,21 @@ def _portrait_path_for_name(
     return None
 
 
+# The L2 reference budget (§4). The priority order itself is not mirrored in a
+# constant: it lives in the walk below and is captured by that walk's source
+# hash, so a constant here could only ever disagree with it.
+L2_REFERENCE_MAX_REFS = 9
+
+
 def collect_finished_page_refs(
     plan: ComicPagePlan,
     characters_by_name: dict,
     bible: VisualBible,
     *,
     prev_blank: str | None = None,
-    max_refs: int = 9,
+    max_refs: int = L2_REFERENCE_MAX_REFS,
     reference_paths: dict[str, str] | None = None,
+    panel_continuity: bool = True,
 ) -> list[str]:
     """Collect i2i reference paths: sheet, authoritative references, then blank.
 
@@ -1700,6 +1708,10 @@ def collect_finished_page_refs(
     reference image. It takes precedence over a character's ``portrait_local``
     fallback, so a regenerated reference is used even when a stale portrait path
     still exists in the cache.
+
+    ``prev_blank`` is tier 3 of the §4 table: it applies only when
+    ``panel_continuity`` is on and tiers 1-2 left budget. With the switch off
+    the page is not conditioned on the previous page's bytes at all.
     """
     refs: list[str] = []
     seen: set[str] = set()
@@ -1725,7 +1737,45 @@ def collect_finished_page_refs(
             or _portrait_path_for_name(name, characters_by_name, bible)
         )
 
-    if len(refs) < max_refs and prev_blank:
+    if panel_continuity and len(refs) < max_refs and prev_blank:
         _add(prev_blank)
 
     return refs
+
+
+def finished_page_ref_policy(
+    *,
+    max_refs: int = L2_REFERENCE_MAX_REFS,
+    panel_continuity: bool = True,
+) -> str:
+    """Digest the L2 reference *selection policy*, never the referenced bytes.
+
+    §4: the selection policy is a key input because changing it changes which
+    images reach the provider even when the plan and the prompt are unchanged.
+    Two halves enter the digest: the budget, and the declared source of every
+    function that decides the outcome — the walk, which names a page pulls in,
+    and which path a name resolves to. Editing any of them invalidates a stale
+    page instead of silently reusing it.
+
+    There is deliberately no mirrored priority-table constant. A tuple next to
+    the walk could only restate the order, so reordering it would move the
+    digest without moving a single reference, and a real reorder that forgot to
+    update the tuple would move neither. The walk is the single source of truth.
+
+    The continuity switch is tier 3's gate, so it belongs to the selection
+    policy: §4 names "L2 enabled" as a policy input. It also rides in the
+    render-scope ``h_env`` of the same key, so flipping it misses the page
+    either way; recording it here keeps the policy digest self-contained
+    instead of deriving part of the answer from a neighbouring field.
+    """
+    policy = {
+        "max_refs": max_refs,
+        "panel_continuity": panel_continuity,
+        "selector": stage_source_hash(
+            collect_finished_page_refs,
+            _page_character_names,
+            _portrait_path_for_name,
+        ),
+    }
+    canonical = json.dumps(policy, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()

@@ -143,6 +143,7 @@ from core.comic.visual_bible import (
     canonical_portrait_ref,
     canonicalize_page_plan,
     collect_finished_page_refs,
+    finished_page_ref_policy,
     format_color_bible_block,
     l1_from_canon,
     parse_stage_ref,
@@ -2918,6 +2919,7 @@ async def _creative_comic(
                             _state.visual_bible,
                             prev_blank=prev_blank_path,
                             reference_paths=ledger_refs,
+                            panel_continuity=image_config.panel_continuity,
                         )
                     else:
                         refs = [
@@ -2928,12 +2930,16 @@ async def _creative_comic(
                     refs = [
                         ref for ref in refs if _is_within(ref, output_dir) and Path(ref).is_file()
                     ]
+                    ref_policy = finished_page_ref_policy(
+                        panel_continuity=image_config.panel_continuity
+                    )
                     render_env = h_env(text=prompt, resolved_size=page_size, scope="render")
                     render_key = render_page_action_key(
                         plan_json=_plan_json(plan),
                         prompt=prompt,
                         resolved_size=page_size,
                         page_key=state_key,
+                        ref_policy=ref_policy,
                         env=render_env,
                         stage_src=_RENDER_PAGE_STAGE_SRC,
                     )
@@ -3082,6 +3088,7 @@ async def _creative_comic(
                         prompt=prompt,
                         resolved_size=active_size,
                         page_key=state_key,
+                        ref_policy=ref_policy,
                         env=h_env(text=prompt, resolved_size=active_size, scope="render"),
                         stage_src=_RENDER_PAGE_STAGE_SRC,
                     )

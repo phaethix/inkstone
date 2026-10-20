@@ -197,6 +197,7 @@ def test_a_render_key_tracks_the_plan_and_the_prompt():
         prompt="draw the stone",
         resolved_size="1024x1536",
         page_key="c0000-p0000",
+        ref_policy="policy-a",
         env="env-a",
         stage_src="src",
     )
@@ -206,6 +207,7 @@ def test_a_render_key_tracks_the_plan_and_the_prompt():
             prompt="draw the stone",
             resolved_size="1024x1536",
             page_key="c0000-p0000",
+            ref_policy="policy-a",
             env="env-a",
             stage_src="src",
         )
@@ -217,6 +219,7 @@ def test_a_render_key_tracks_the_plan_and_the_prompt():
             prompt="draw the stone",
             resolved_size="1024x1536",
             page_key="c0000-p0000",
+            ref_policy="policy-a",
             env="env-a",
             stage_src="src",
         )
@@ -228,6 +231,7 @@ def test_a_render_key_tracks_the_plan_and_the_prompt():
             prompt="draw the monkey",
             resolved_size="1024x1536",
             page_key="c0000-p0000",
+            ref_policy="policy-a",
             env="env-a",
             stage_src="src",
         )
@@ -239,9 +243,25 @@ def test_a_render_key_tracks_the_plan_and_the_prompt():
             prompt="draw the stone",
             resolved_size="1024x1536",
             page_key="c0001-p0000",
+            ref_policy="policy-a",
+            env="env-a",
+            stage_src="src",
+        )
+        != base
+    )
+    # The policy is what makes a stale page repaint when the reference walk
+    # changes; the referenced bytes themselves still stay out of the key.
+    assert (
+        render_page_action_key(
+            plan_json='{"page":1}',
+            prompt="draw the stone",
+            resolved_size="1024x1536",
+            page_key="c0000-p0000",
+            ref_policy="policy-b",
             env="env-a",
             stage_src="src",
         )
         != base
     )
     assert "l2_reference" not in render_page_action_key.__code__.co_varnames
+    assert "ref_policy" in render_page_action_key.__code__.co_varnames
