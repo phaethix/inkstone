@@ -183,6 +183,7 @@ from core.harness.spec import (
 from core.lessons import LessonStore, format_craft_notes
 from core.perf import PerfCollector
 from core.pipelines.cancel import check_cancel
+from core.pipelines.stage_registry import validate_stage_registry
 from core.pipelines.stage_scheduler import PipelinePhase, StageGraph, WorkKind, WorkNode
 from core.schemas import (
     ChunkCache,
@@ -1919,6 +1920,9 @@ async def _creative_comic(
     panel_key_filter = set(panel_keys) if panel_keys is not None else None
     mode = render_mode or config_render_mode()
     page_size = finished_page_size()
+    registry_problems = validate_stage_registry()
+    if registry_problems:
+        raise ValueError("invalid stage registry: " + "; ".join(registry_problems))
     if budget is not None:
         required = _required_budget_stages(mode, _page_script_enabled())
         missing = budget.missing_stages(required)

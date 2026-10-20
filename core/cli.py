@@ -371,6 +371,27 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Actually delete; omit for a dry-run report",
     )
 
+    p_stages = sub.add_parser(
+        "stages",
+        help="List the declarative stage catalog",
+    )
+    p_stages.add_argument("--json", action="store_true", help="Print JSON")
+
+    p_mig = sub.add_parser(
+        "migrate",
+        help="Check or apply manifest schema upgrades",
+    )
+    p_mig.add_argument(
+        "--out",
+        default="comic_out",
+        help="Project directory that contains index/ (default comic_out)",
+    )
+    p_mig.add_argument(
+        "--apply",
+        action="store_true",
+        help="Rewrite clean manifests; default is a dry run",
+    )
+
     p_verify = sub.add_parser(
         "verify",
         help="Check that index manifests and cas objects agree",
@@ -961,6 +982,65 @@ def _run_gc(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_stages(args: argparse.Namespace) -> int:
+    """stages 子命令：打印声明式阶段目录。"""
+    import json as _json
+
+    from core.pipelines.stage_registry import all_specs, validate_stage_registry
+
+    problems = validate_stage_registry()
+    rows = [
+        {
+            "stage": spec.name,
+            "phase": spec.phase.value,
+            "contract": spec.contract_stage,
+            "manifest_stage": spec.manifest_stage,
+        }
+        for spec in all_specs()
+    ]
+    if args.json:
+        print(_json.dumps({"stages": rows, "problems": problems}, ensure_ascii=False, indent=2))
+    else:
+        print(f"{'stage':<16} {'phase':<8} {'contract':<16} manifest")
+        for row in rows:
+            print(
+                f"{row['stage']:<16} {row['phase']:<8} "
+                f"{row['contract']:<16} {row['manifest_stage']}"
+            )
+        if problems:
+            print("problems:")
+            for problem in problems:
+                print(f"  {problem}")
+    return 1 if problems else 0
+
+
+def _run_migrate(args: argparse.Namespace) -> int:
+    """migrate 子命令：检查或重写 manifest 到当前 schema（§6 升级路径）。"""
+    from core.comic.migrate import apply_migrations, scan_manifests
+
+    root = Path(args.out)
+    report = scan_manifests(root)
+    if not report.manifests:
+        print(f"{args.out}: 没有 manifest。")
+        return 0
+    changed = report.changed
+    problems = report.problems
+    print(
+        f"{args.out}: {len(report.manifests)} manifest，"
+        f"{len(changed)} 个需要升级，{len(problems)} 个有问题。"
+    )
+    for item in changed:
+        print(f"  upgrade {item.path.name}")
+    for item in problems:
+        print(f"  PROBLEM {item.path.name}: {'; '.join(item.problems)}")
+    if args.apply and changed:
+        written = apply_migrations(report)
+        print(f"已重写 {written} 个 manifest。")
+    elif changed:
+        print("dry run：加 --apply 才会重写。")
+    return 1 if problems else 0
+
+
 def _run_verify(args: argparse.Namespace) -> int:
     """Report whether index/ and cas/ describe the same bytes."""
     from core.comic.cas import verify
@@ -1381,6 +1461,8 @@ def main() -> None:
         "prune",
         "gc",
         "verify",
+        "migrate",
+        "stages",
         "prompt",
         "harness",
         "lesson",
@@ -1415,6 +1497,10 @@ def main() -> None:
         sys.exit(_run_gc(args))
     elif args.command == "verify":
         sys.exit(_run_verify(args))
+    elif args.command == "migrate":
+        sys.exit(_run_migrate(args))
+    elif args.command == "stages":
+        sys.exit(_run_stages(args))
     elif args.command == "prompt":
         sys.exit(_run_prompt(args))
     elif args.command == "harness":
