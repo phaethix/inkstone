@@ -27,6 +27,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   you intend to re-plan every stage.
 
 ### Added
+- Sequential recursion: `inkstone experiment sequence plan --book ...
+  --candidate <dir> --rounds N --out <dir>` creates round 1 with the current
+  checkpoint (`base` or `--base`) plus the candidate directories. After a
+  normal `experiment pick`, `experiment sequence advance --run <dir>` composes
+  the pick into `rounds/<n>/checkpoint` and plans the next round from that
+  checkpoint plus the same candidates. `sequence status` reports progress;
+  the final advance marks the sequence `done`. Each round is a normal
+  experiment packet, so the CLI, review files, and selection format are
+  unchanged.
 - Project-level harness override: `inkstone generate --harness-dir <tree>`
   or `INKSTONE_HARNESS_DIR` runs all six chat stages with a validated tree
   (extract, beats, bible, storyboard, page_plan, page_script). The tree is

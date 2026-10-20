@@ -186,6 +186,22 @@ pick plus a required `why`, and can compose the picked harness into
 `<experiment>/adopted/` (optionally merging `stage.page_plan` from the other
 candidate). The server fixes that output path; the browser never chooses it.
 
+To refine across several rounds, use sequential recursion:
+
+```bash
+inkstone experiment sequence plan \
+  --book examples/showcase/journey-west-ch1/source.txt \
+  --out experiments/sequence \
+  --candidate path/to/candidate --rounds 2
+inkstone experiment pick --run experiments/sequence/rounds/1 --choice A --why "..."
+inkstone experiment sequence advance --run experiments/sequence
+inkstone experiment sequence status --run experiments/sequence
+```
+
+Each round probes the current checkpoint plus the same candidates; `advance`
+composes the pick into `rounds/<n>/checkpoint` and plans the next round. The
+last advance marks the sequence `done`.
+
 ## Configuration
 
 Inkstone is configured through environment variables (copy `.env.example` → `.env`):

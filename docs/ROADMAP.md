@@ -67,6 +67,13 @@ Keep these prototypes only as migration material until they conform to the targe
 
 ### P0 — Make the current state honest and deterministic
 
+- **Local (2026-10-20, `main`):** Sequential recursion.
+  `experiment sequence plan|advance|status` carries a composed checkpoint
+  through N rounds: each round probes the current checkpoint plus the same
+  candidate directories, `advance` composes the human pick into
+  `rounds/<n>/checkpoint`, and the next round starts from it. Each round is a
+  normal experiment packet. Regression: `tests/test_experiment.py`. Next:
+  sequence view in the Web A/B tab / `INKSTONE_HARNESS=0` fallback.
 - **Local (2026-10-20, `main`):** Project-level harness override.
   `generate --harness-dir` / `INKSTONE_HARNESS_DIR` runs all six chat stages with
   a validated tree; the digest lands in the review manifest and the request
