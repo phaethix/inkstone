@@ -200,7 +200,9 @@ def test_the_public_excerpt_keeps_the_experience_rate():
     est = estimate(path, density="B")
     assert path.read_text(encoding="utf-8").strip()
     assert est.chunks >= 1
-    assert est.panels == est.chunks * PANELS_PER_CHUNK_B
+    assert est.chunks == 1
+    assert est.panels == PANELS_PER_CHUNK_B
+    assert est.pages == 2
     assert not any("已规划" in warning for warning in est.warnings)
 
 

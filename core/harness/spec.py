@@ -35,6 +35,28 @@ FORBIDDEN_MARKERS = (
     "gate.json",
 )
 
+# Harness components are instructions to the model, so they stay in one
+# language. CJK ideographs and full-width punctuation are rejected: the
+# source-language rule lives in ``system.md`` as an instruction, and quoted
+# source text arrives through slots at render time, never baked into a template.
+CJK_RANGES = (
+    (0x3000, 0x303F),  # CJK punctuation
+    (0x3400, 0x4DBF),  # CJK ext A
+    (0x4E00, 0x9FFF),  # CJK unified ideographs
+    (0xF900, 0xFAFF),  # CJK compatibility ideographs
+    (0xFF00, 0xFFEF),  # half/full-width forms
+)
+
+
+def cjk_characters(text: str) -> list[str]:
+    """Every CJK character in ``text``, in order, de-duplicated."""
+    found: list[str] = []
+    for char in text:
+        code = ord(char)
+        if any(low <= code <= high for low, high in CJK_RANGES) and char not in found:
+            found.append(char)
+    return found
+
 
 class HarnessError(ValueError):
     """A harness component is missing, malformed, or contradicts an invariant."""
@@ -233,6 +255,13 @@ class Harness:
                         f"{component.id}: contains measurement marker {marker!r}; "
                         "a prompt describes the work, not its measurement"
                     )
+            dialect = cjk_characters(body)
+            if dialect:
+                problems.append(
+                    f"{component.id}: contains CJK characters {''.join(dialect)[:20]!r}; "
+                    "harness components are written in English, and source-language "
+                    "text belongs in a slot, not in the template"
+                )
             if component.id.startswith("stage."):
                 used = tuple(dict.fromkeys(_SLOT.findall(body)))
                 if used != component.slots:

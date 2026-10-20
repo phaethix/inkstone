@@ -1,9 +1,9 @@
-# 武侠题材
+# Wuxia (martial arts)
 
-- 动作优先用身体动作与环境关系表达；少用旁白解释招式或内力。
-- 轻功、内力等抽象概念要落到可见的物理效果：衣袂、尘土、水面、碎裂的木石。
-- 门派与江湖空间先用远景或俯视建立；室内戏用梁柱、窗棂、帘幕做前景框。
-- 同一角色的武器与手部要稳定：形制、握法、佩挂位置不随意更换。
-- 速度线克制使用；连续三页不要复用同一种构图或同一个机位。
-- 对白短，招式名可以进 sfx，但不能替代动作本身。
-- 时代质感优先：客栈、渡口、山门、驿道，不用现代物件。
+- Prefer body action and the character's relation to the environment over captions that explain a technique or inner force.
+- Render abstract ideas (lightness skill, inner force) as visible physical effects: cloth hems, dust, water surface, splintering wood and stone.
+- Establish a school or a jianghu space with a wide or high-angle shot first; inside a room, frame the shot with beams, lattice windows, or hanging curtains in the foreground.
+- Keep a character's weapon and hands stable: do not swap its shape, grip, or carry position between panels.
+- Use speed lines sparingly; never repeat the same composition or camera position across three consecutive pages.
+- Keep dialogue short. A technique name may appear in sfx, but it never replaces the action itself.
+- Favour period texture: inns, ferries, mountain gates, post roads; no modern objects.

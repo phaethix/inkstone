@@ -36,8 +36,40 @@ def test_general_genre_adds_nothing():
 
 def test_wuxia_genre_is_injected():
     block = spec.genre_block("wuxia")
-    assert "武侠题材" in block
-    assert "Domain notes for this genre (wuxia)" in block
+    assert block.lstrip().startswith("Domain notes for this genre (wuxia):")
+    assert "Wuxia" in block
+    assert spec.cjk_characters(block) == []
+
+
+def test_no_shipped_component_contains_the_source_language():
+    harness = spec.builtin_harness()
+    for component in harness.components:
+        body = harness.component_text(component.id)
+        assert spec.cjk_characters(body) == [], component.id
+
+
+def test_the_validator_rejects_a_component_written_in_chinese(tmp_path, monkeypatch):
+    bad = tmp_path / "bad.md"
+    bad.write_text("先画全景，再画近景。", encoding="utf-8")
+    monkeypatch.setattr(spec, "DATA_DIR", tmp_path)
+    (tmp_path / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "version": "t",
+                "components": [
+                    {"id": "system", "path": "bad.md", "kind": "invariant", "max_chars": 8000}
+                ],
+                "genres": ["general"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "genres").mkdir()
+    (tmp_path / "genres" / "general.md").write_text("general", encoding="utf-8")
+    spec.clear_harness_cache()
+    problems = spec.validate()
+    assert any("CJK characters" in problem for problem in problems)
 
 
 def test_unknown_genre_is_an_actionable_error():

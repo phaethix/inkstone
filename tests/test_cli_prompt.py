@@ -44,7 +44,7 @@ def test_prompt_genre_adds_domain_notes(capsys):
     assert _run_prompt(args) == 0
     out = capsys.readouterr().out
     assert "Domain notes for this genre (wuxia)" in out
-    assert "武侠题材" in out
+    assert "Wuxia" in out
 
 
 def test_harness_validate_and_list(capsys):

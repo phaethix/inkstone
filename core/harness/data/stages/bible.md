@@ -4,7 +4,7 @@ Known character assets:
 {{characters_json}}
 
 {{current_bible_block}}Reconcile character identities for the visual bible.
-- Prefer merging pronouns/descriptive labels for the same person (男人（被叙述者）, 他（被爱者）, 李先生, R·) into one canonical.
+- Prefer merging pronouns, kinship labels, honorifics, surnames, initials, and short descriptive tags for the same person (e.g. 'the man (as narrated)', 'he (the beloved)', 'Mr. Li', 'R·') into one canonical.
 - Age variants → stages under one canonical, not new root characters.
 - Use confidence=high only when clearly the same person; otherwise low.
 - Never invent English prose character names (no 'man with dark hair, wearing a jacket').
