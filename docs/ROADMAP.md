@@ -67,6 +67,11 @@ Keep these prototypes only as migration material until they conform to the targe
 
 ### P0 — Make the current state honest and deterministic
 
+- **Local (2026-10-20, `main`):** `INKSTONE_HARNESS=0` one-release fallback.
+  It forces the builtin tree, ignores the harness dir, forces `general` genre,
+  and disables craft lessons; the review manifest records
+  `harness_fallback: true`. This closes the prompt-harness roadmap. Regression:
+  `tests/test_finished_page_pipeline.py`, `tests/test_config.py`.
 - **Local (2026-10-20, `main`):** Sequence Web view. The A/B tab lists
   sequences above experiments; opening one shows the current round's anonymous
   plan cards, records a pick, and advances to the next round from the same

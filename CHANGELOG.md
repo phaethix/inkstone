@@ -27,6 +27,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   you intend to re-plan every stage.
 
 ### Added
+- One-release harness fallback: `INKSTONE_HARNESS=0` forces the builtin
+  tree, ignores `INKSTONE_HARNESS_DIR` / `--harness-dir`, forces the `general`
+  genre, and disables craft-lesson injection. `review/manifest.json` records
+  `harness_fallback: true`. The image renderer and export keys are unchanged.
+  Intended for comparing behavior while the harness data layer settles.
 - Sequential recursion in the A/B tab: `/api/sequences` lists sequence
   directories, `/api/sequence/<id>` returns the current round plus its
   candidate plans/structure reports, and `/api/sequence/<id>/pick|advance`
