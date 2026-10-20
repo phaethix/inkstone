@@ -27,6 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   you intend to re-plan every stage.
 
 ### Added
+- Manifest migration: `inkstone migrate --out <dir>` reports and
+  `--apply` rewrites legacy/incomplete `index/*.json` manifests to the
+  current schema. Malformed files and key/filename mismatches are reported
+  and never rewritten.
+- Stage catalog: `core/pipelines/stage_registry.py` declares every stage,
+  its scheduler phase, contract, and manifest stage. `inkstone stages`
+  prints it, and `creative_comic` validates the catalog before the first
+  billable call.
 - Content-addressed planning: beats, page_plan, storyboard, and page_script
   now write `ok` manifests beside their caches. A lost `cache.json` restores
   them from CAS/manifests instead of re-paying the chat call, so those stages

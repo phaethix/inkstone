@@ -67,6 +67,11 @@ Keep these prototypes only as migration material until they conform to the targe
 
 ### P0 — Make the current state honest and deterministic
 
+- **Local (2026-10-20, `main`):** Architecture evolution. Added the declarative
+  stage catalog (`inkstone stages`, startup validation) and a manifest schema
+  migrator (`inkstone migrate`, dry-run by default, refusing key/filename
+  mismatches). These are the seams future per-stage runners and manifest
+  upgrader work can use without another cross-cutting edit.
 - **Local (2026-10-20, `main`):** Content-addressed design close-out.
   beats/page_plan/storyboard/page_script are manifest-backed, so a lost cache
   restores them instead of re-planning; finished-page rendering now prefers the
