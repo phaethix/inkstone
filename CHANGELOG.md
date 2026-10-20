@@ -121,6 +121,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   contain those phrases.
 
 ### Fixed
+- D-16: `h_env` is now scope-aware. Chat keys already used the request
+  digest; the remaining letter/render/layout/webtoon/export scopes no longer
+  share chat/image/font fields they do not read. Changing the chat model no
+  longer invalidates image, letter, or export keys; changing the image model
+  no longer invalidates letter/export keys; changing the font no longer
+  invalidates render/export keys. This is a one-time recompute for the
+  affected letter/render/export/layout keys, not for chat keys.
+- D-18: `BudgetSpec.missing_stages` plus a pipeline startup check reject a
+  spec that omits a stage the selected render mode will charge. An unfunded
+  stage now raises a configuration error before any provider call instead
+  of masquerading as budget exhaustion.
+- D-11: `confirm_review(name, pages=...)` accepts a subset, and `inkstone
+  identity --confirm NAME --page KEY` exposes it. `pending_pages` still
+  reopens for every page when the reference version changes, but a human can
+  now review a large cast in batches; the old confirmed state is backfilled
+  from `reviewed_version` for pre-existing ledgers.
+- D-20: `merge_character_alias` snapshots state and ledger and restores both
+  if a later step fails, so a failed ledger rename can no longer leave
+  `state.characters` and `consistency.json` disagreeing.
+- State split: `source_units` and `adaptation_plans` are derived data and now
+  travel in `cache.json` instead of `state.json`, removing the full-text
+  rewrite from every projection-only save. Old inline states still load and
+  split on the next full save.
+- D-15: `tests/test_stage_contract.py` now locks the chat key argument
+  surface, so a new key parameter (for example a character table) must be a
+  deliberate contract change instead of a silent drift.
 - D-13: the finished-page resume short-circuit no longer requires a visual
   bible. A completed chunk is complete from its page records, the same
   evidence the panel branch uses; a missing best-effort bible no longer

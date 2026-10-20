@@ -67,6 +67,13 @@ Keep these prototypes only as migration material until they conform to the targe
 
 ### P0 — Make the current state honest and deterministic
 
+- **Local (2026-10-20, `main`):** Final review batch. `h_env` is split by stage
+  scope; budget specs must fund every charged stage; partial continuity
+  confirmation is available through `identity --confirm --page`; failed alias
+  merges roll back state and ledger; `source_units`/`adaptation_plans` moved to
+  `cache.json`; and the chat key argument surface is locked by a contract test.
+  D-07 was verified: CLI gate and GC already search the shared and project gate
+  locations, so no code change was needed.
 - **Local (2026-10-20, `main`):** D-13. The finished-page resume branch now
   short-circuits on the same evidence as the panel branch and no longer requires
   `visual_bible`. A best-effort bible failure cannot force a completed chunk
