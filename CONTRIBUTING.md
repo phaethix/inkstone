@@ -91,6 +91,8 @@ need to be perfect, but readable history is appreciated.
 
 - **Language:** all code, comments, docs, and commit messages are in English.
 - **Style:** formatted with `ruff format`; linted with `ruff check`.
+- **Comments:** use a plain `# Section title`; do not use `# --- Section title ---`
+  banners. A full line of dashes is allowed as a separator.
 - **Typing:** prefer type hints on public functions.
 - **Async:** Agnes calls are async (`asyncio.to_thread` for blocking I/O).
 - **No silent failures:** API errors are collected, never swallowed.

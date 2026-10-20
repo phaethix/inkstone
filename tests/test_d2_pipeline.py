@@ -191,8 +191,8 @@ def test_d2_pipeline_extension_block_is_small():
     """
     path = Path(__file__).resolve().parents[1] / "core" / "pipelines" / "creative_comic.py"
     text = path.read_text(encoding="utf-8")
-    start = text.index("# ---- page-script")
-    end = text.index("# ---- panels ----", start)
+    start = text.index("# page-script")
+    end = text.index("# panels", start)
     block = text[start:end]
     added = [ln for ln in block.splitlines() if ln.strip()]
     assert len(added) <= 37

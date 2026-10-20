@@ -28,7 +28,7 @@ def _rows(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
 
 
-# --- D-05: two writers must not lose each other's updates -------------------
+# D-05: two writers must not lose each other's updates
 
 
 def test_exclusive_lock_rejects_a_second_nonblocking_holder(tmp_path):
@@ -67,7 +67,7 @@ def test_two_gate_sessions_keep_both_sample_keys(tmp_path):
     assert loaded.project.sample_keys == ["c0000-p0000", "c0000-p0001"]
 
 
-# --- D-06: a corrupt shared file is quarantined, not fatal -------------------
+# D-06: a corrupt shared file is quarantined, not fatal
 
 
 def test_a_corrupt_budget_is_quarantined_and_rebuilt(tmp_path):
@@ -96,7 +96,7 @@ def test_a_corrupt_gate_is_quarantined_and_rebuilt(tmp_path):
     assert any(row["kind"] == "recover" for row in _rows(out / "runs.jsonl"))
 
 
-# --- D-07: the CLI's shared data dir must find a project-local gate ---------
+# D-07: the CLI's shared data dir must find a project-local gate
 
 
 def test_load_finds_a_project_local_gate_from_the_shared_data_dir(tmp_path):
@@ -110,7 +110,7 @@ def test_load_finds_a_project_local_gate_from_the_shared_data_dir(tmp_path):
     assert loaded.project.sample_keys == ["c0000-p0000"]
 
 
-# --- D-10: a stamp-only cache mutation is persisted immediately -------------
+# D-10: a stamp-only cache mutation is persisted immediately
 
 
 def test_stamping_a_missing_action_key_saves_the_checkpoint(tmp_path):

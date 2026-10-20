@@ -36,7 +36,7 @@ def _entry(pages: list[str], *, version: int, reviewed: int) -> LedgerEntry:
     return entry
 
 
-# --- D-01: a merge must not put reviewed_version ahead of reference.version ---
+# D-01: a merge must not put reviewed_version ahead of reference.version
 
 
 def test_rename_character_never_leaves_reviewed_ahead_of_reference():
@@ -71,7 +71,7 @@ def test_rename_character_keeps_a_recorded_pending_union_at_equal_versions():
     assert led.characters["A"].pending_pages == ["c0000-p0000"]
 
 
-# --- D-02: a character that no longer appears must not block forever ---
+# D-02: a character that no longer appears must not block forever
 
 
 def test_rebuild_clears_stale_pages_but_keeps_the_human_record():
@@ -96,7 +96,7 @@ def test_escalated_ignores_an_entry_with_no_pages_even_if_pending_is_stale():
     assert led.escalated() == {}
 
 
-# --- D-03: a transient read error must not be swallowed and overwritten ---
+# D-03: a transient read error must not be swallowed and overwritten
 
 
 def test_load_or_rebuild_propagates_os_error(tmp_path: Path, monkeypatch):
@@ -121,7 +121,7 @@ def test_load_or_rebuild_still_recovers_from_corruption(tmp_path: Path):
     assert led.characters["A"].pages == ["c0000-p0000"]
 
 
-# --- D-04: the sample size can never grow to zero ---
+# D-04: the sample size can never grow to zero
 
 
 def test_sample_size_growth_has_a_lower_bound():

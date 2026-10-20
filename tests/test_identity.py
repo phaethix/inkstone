@@ -213,7 +213,7 @@ def test_force_regen_panels_clears_done_and_skipped():
     assert "c0000-p0001" in state.panels_done
 
 
-# --- character-consistency-and-source-fidelity regression tests ---
+# character-consistency-and-source-fidelity regression tests
 
 
 def test_verify_evidence_no_source_text_skips():

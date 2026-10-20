@@ -88,7 +88,7 @@ class DensityEstimate:
     cost_label: str
     webtoon_warning: bool
     warnings: list[str]
-    # --- hook fields for D2 (state.density / fingerprint) ---
+    # hook fields for D2 (state.density / fingerprint)
     tier: DensityTier = "B"
     panels_per_chunk: int = PANELS_PER_CHUNK_B
     description: str = ""

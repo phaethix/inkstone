@@ -2232,7 +2232,7 @@ async def _creative_comic(
                     _report("resume", _pct())
                     continue
 
-            # ---- extraction (only when not cached) ----
+            # extraction (only when not cached)
             fresh_extract = False
             if elements is None:
                 elements = _restore_stage_body(output_dir, extract_key, "extract", StoryElements)
@@ -3063,7 +3063,7 @@ async def _creative_comic(
                 _report("pages", _pct())
                 continue
 
-            # ---- storyboard (only when not cached) ----
+            # storyboard (only when not cached)
             storyboard_cast = "\n".join(
                 sorted(character.name for character in planned_elements.characters)
             )
@@ -3144,7 +3144,7 @@ async def _creative_comic(
             script_missing, script_key = _page_script_plan(
                 state.chunk_cache.get(key), chunk, snapshot.chat, harness=run_harness
             )
-            # ---- page-script ----
+            # page-script
             # Optional legacy PageScript metadata (NOT a quality gate). Off by default.
             if _page_script_enabled() and script_missing:
                 page_script_request = build_page_script_request(
@@ -3182,7 +3182,7 @@ async def _creative_comic(
                 state.save(state_path)
                 _report("page_script", _pct())
 
-            # ---- panels ----
+            # panels
             if phase == "plan":
                 continue
             _report("panels", _pct())

@@ -429,7 +429,7 @@ def _experiment_selection(run: Path) -> dict | None:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-# --- sequential recursion -------------------------------------------------
+# sequential recursion
 
 
 def _sequence_path(run: str | Path) -> Path:

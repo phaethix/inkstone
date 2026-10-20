@@ -58,7 +58,7 @@ def _fake_chat_post(status_codes, body):
     return fake_post
 
 
-# --- contract tests ---
+# contract tests
 
 
 def test_agnes_is_chat_provider():
@@ -97,7 +97,7 @@ def test_openai_compat_chat_factory_does_not_send_agnes_key(monkeypatch):
     assert provider.api_key == "compat-secret"
 
 
-# --- forced function calling ---
+# forced function calling
 
 
 def test_agnes_chat_returns_parsed_args(patch_async, monkeypatch):
@@ -164,7 +164,7 @@ def test_agnes_chat_no_tool_calls_raises(patch_async, monkeypatch):
         )
 
 
-# --- retry / backoff behavior ---
+# retry / backoff behavior
 
 
 def test_agnes_chat_retries_on_503(patch_async, monkeypatch):

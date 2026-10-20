@@ -271,7 +271,7 @@ def clear_harness_cache() -> None:
     _HARNESSES.clear()
 
 
-# --- builtin wrappers (kept for the existing pipeline and tests) ------------
+# builtin wrappers (kept for the existing pipeline and tests)
 
 
 @lru_cache(maxsize=1)

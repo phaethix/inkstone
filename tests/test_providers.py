@@ -53,7 +53,7 @@ def _fake_response_class(status_codes):
     return fake_post
 
 
-# --- contract tests (unchanged shape, retained) ---
+# contract tests (unchanged shape, retained)
 
 
 def test_agnes_image_uses_image_bucket(monkeypatch):
@@ -155,7 +155,7 @@ def test_image_output_save_url(tmp_path, monkeypatch):
     assert p.exists()
 
 
-# --- retry / backoff behavior ---
+# retry / backoff behavior
 
 
 def test_compute_backoff_exponential_capped_with_jitter(monkeypatch):
@@ -244,7 +244,7 @@ def test_openai_compat_retries_through_many_busy_503s(patch_async, monkeypatch):
     assert fake_post.calls["n"] == 5
 
 
-# --- both providers collect errors on retryable failures ---
+# both providers collect errors on retryable failures
 
 
 def test_openai_compat_collects_errors(patch_async, monkeypatch):
@@ -263,7 +263,7 @@ def test_openai_compat_collects_errors(patch_async, monkeypatch):
     assert collected["n"] == 2
 
 
-# --- i2i reference resolution into extra_body.image ---
+# i2i reference resolution into extra_body.image
 
 
 def test_openai_compat_i2i_sends_resolved_image(patch_async, monkeypatch, tmp_path):
@@ -295,7 +295,7 @@ def test_openai_compat_i2i_sends_resolved_image(patch_async, monkeypatch, tmp_pa
     assert captured["json"]["extra_body"]["image"][0].startswith("data:image/png;base64,")
 
 
-# --- ImageOutput.b64 save ---
+# ImageOutput.b64 save
 
 
 def test_image_output_save_b64(tmp_path):
@@ -307,7 +307,7 @@ def test_image_output_save_b64(tmp_path):
     assert p.read_bytes() == raw
 
 
-# --- error collector appends a JSONL line ---
+# error collector appends a JSONL line
 
 
 def test_collect_error_appends_jsonl(tmp_path, monkeypatch):

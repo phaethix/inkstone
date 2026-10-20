@@ -390,7 +390,7 @@ def test_unknown_fields_are_ignored():
     assert not hasattr(elements, "unexpected_top_level")
 
 
-# --- character-consistency-and-source-fidelity regression tests ---
+# character-consistency-and-source-fidelity regression tests
 
 
 def test_evidence_quote_default_and_valid():
