@@ -11,10 +11,12 @@ from core.harness.tripwire import assert_no_quality_verdicts
 @pytest.fixture(autouse=True)
 def _clear_harness_cache():
     """A test may point DATA_DIR at a temp tree; never leak that into the next one."""
+    spec.clear_harness_cache()
     spec.load_manifest.cache_clear()
     spec.system_prompt.cache_clear()
     spec.harness_digest.cache_clear()
     yield
+    spec.clear_harness_cache()
     spec.load_manifest.cache_clear()
     spec.system_prompt.cache_clear()
     spec.harness_digest.cache_clear()

@@ -109,8 +109,8 @@ def test_page_plan_key_request_can_pin_accumulated_context():
 def test_changing_a_stage_template_changes_the_request_digest(monkeypatch):
     before = _request().digest()
     monkeypatch.setattr(
-        "core.harness.spec.stage_template",
-        lambda stage: "DIFFERENT STAGE TEMPLATE {{source_chunk}}",
+        "core.screenwriter.render_stage",
+        lambda stage, values: "DIFFERENT STAGE TEMPLATE " + values["source_chunk"],
     )
     after = _request().digest()
     assert before != after

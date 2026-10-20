@@ -14,6 +14,7 @@
 """
 
 import argparse
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -183,7 +184,29 @@ def _build_parser() -> argparse.ArgumentParser:
     p_prompt.add_argument(
         "--genre", default=None, help="Domain profile (general, wuxia); default: env"
     )
+    p_prompt.add_argument(
+        "--harness-dir", default=None, help="Render page_plan with this harness tree"
+    )
     p_prompt.add_argument("--json", dest="as_json", action="store_true", help="Print request JSON")
+
+    p_exp = sub.add_parser("experiment", help="Planning-only blind A/B harness probes")
+    e_sub = p_exp.add_subparsers(dest="experiment_command", required=True)
+    e_plan = e_sub.add_parser("plan", help="Probe base and candidate page plans")
+    e_plan.add_argument("--book", required=True, help="Source text file")
+    e_plan.add_argument("--out", required=True, help="Experiment directory")
+    e_plan.add_argument(
+        "--candidate",
+        action="append",
+        required=True,
+        help="'base' or a harness directory (repeat for 2+)",
+    )
+    e_plan.add_argument("--chunk", type=int, default=0, help="Chunk index (default 0)")
+    e_plan.add_argument("--genre", default=None, help="Domain profile")
+    e_plan.add_argument("--seed", default="", help="Extra anonymisation seed")
+    e_pick = e_sub.add_parser("pick", help="Record the human A/B choice")
+    e_pick.add_argument("--run", required=True, help="Experiment directory")
+    e_pick.add_argument("--choice", required=True, help="Anonymised candidate id (A/B/C)")
+    e_pick.add_argument("--why", required=True, help="Why this candidate read better")
 
     p_lesson = sub.add_parser("lesson", help="Approve, list, or retire craft lessons")
     l_sub = p_lesson.add_subparsers(dest="lesson_command", required=True)
@@ -229,8 +252,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_harness = sub.add_parser("harness", help="Inspect and validate prompt-harness components")
     h_sub = p_harness.add_subparsers(dest="harness_command", required=True)
-    h_sub.add_parser("validate", help="Validate every component in one pass")
-    h_sub.add_parser("list", help="List components and genres")
+    h_validate = h_sub.add_parser("validate", help="Validate every component in one pass")
+    h_validate.add_argument("--dir", default=None, help="Validate this harness tree")
+    h_list = h_sub.add_parser("list", help="List components and genres")
+    h_list.add_argument("--dir", default=None, help="List this harness tree")
 
     p_id = sub.add_parser("identity", help="Identity ledger: view characters and pending pages")
     p_id.add_argument("--view", action="store_true", help="Print the consistency ledger")
@@ -941,18 +966,35 @@ def _run_prompt(args: argparse.Namespace) -> int:
         build_storyboard_request,
     )
 
+    candidate = None
+    if args.harness_dir:
+        from core.harness.spec import HarnessError, harness_from_dir
+
+        try:
+            candidate = harness_from_dir(args.harness_dir)
+        except HarnessError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        problems = candidate.validate()
+        if problems:
+            for problem in problems:
+                print(problem, file=sys.stderr)
+            return 1
     if args.from_run and not (Path(args.from_run) / "state.json").is_file():
         print(f"no state.json under {args.from_run}", file=sys.stderr)
         return 1
     if args.genre:
         from core.harness.spec import available_genres
 
-        if args.genre not in available_genres():
+        genres = candidate.available_genres if candidate is not None else available_genres()
+        if args.genre not in genres:
             print(
-                f"unknown genre {args.genre!r}; available: {', '.join(available_genres())}",
+                f"unknown genre {args.genre!r}; available: {', '.join(genres)}",
                 file=sys.stderr,
             )
             return 1
+    if candidate is not None and args.stage != "page_plan":
+        print("note: --harness-dir currently affects page_plan only", file=sys.stderr)
     chunk, elements, beats, bible, board, characters, recent_layouts = _load_prompt_context(args)
     model = args.model
     if args.stage == "extract":
@@ -995,6 +1037,7 @@ def _run_prompt(args: argparse.Namespace) -> int:
             panel_budget=PANELS_PER_CHUNK_B,
             genre=args.genre,
             craft_notes=craft_notes,
+            harness=candidate,
             model=model,
         )
     elif args.stage == "page_script":
@@ -1029,23 +1072,22 @@ def _run_prompt(args: argparse.Namespace) -> int:
 
 
 def _run_harness(args: argparse.Namespace) -> int:
-    """Validate or list the editable prompt-harness components."""
-    from core.harness.spec import (
-        HarnessError,
-        available_genres,
-        components,
-        harness_digest,
-        validate,
-    )
+    """Validate or list a prompt-harness tree (builtin unless ``--dir``)."""
+    from core.harness.spec import HarnessError, builtin_harness, harness_from_dir
 
+    try:
+        harness = harness_from_dir(args.dir) if args.dir else builtin_harness()
+    except HarnessError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     if args.harness_command == "list":
-        print(f"harness digest: {harness_digest()}")
-        for component in components():
-            print(f"  {component.id:16} {component.kind:9} {component.path}")
-        print(f"genres: {', '.join(available_genres())}")
+        print(f"harness digest: {harness.digest()}")
+        for component in harness.components:
+            print(f"  {component.id:18} {component.kind:9} {component.path}")
+        print(f"genres: {', '.join(harness.available_genres)}")
         return 0
     try:
-        problems = validate()
+        problems = harness.validate()
     except HarnessError as exc:
         print(str(exc), file=sys.stderr)
         return 1
@@ -1053,7 +1095,7 @@ def _run_harness(args: argparse.Namespace) -> int:
         for problem in problems:
             print(problem, file=sys.stderr)
         return 1
-    print(f"ok {harness_digest()}")
+    print(f"ok {harness.digest()}")
     return 0
 
 
@@ -1143,6 +1185,44 @@ def _run_lesson(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_experiment(args: argparse.Namespace) -> int:
+    """Plan a blind A/B probe or record its human choice."""
+    from core.experiment import ExperimentError, pick_experiment, plan_experiment
+
+    try:
+        if args.experiment_command == "pick":
+            selection = pick_experiment(args.run, choice=args.choice, why=args.why)
+            print(
+                f"selected {selection['chosen']} -> {selection['chosen_label']}"
+                f" ({selection['why']})"
+            )
+            return 0
+        source = Path(args.book).read_text(encoding="utf-8")
+        manifest = asyncio.run(
+            plan_experiment(
+                source,
+                out_dir=args.out,
+                candidates=args.candidate,
+                chunk_index=args.chunk,
+                genre=args.genre,
+                seed=args.seed,
+            )
+        )
+    except (ExperimentError, OSError) as exc:
+        print(f"experiment failed: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:  # noqa: BLE001 - a provider failure is a CLI error
+        print(f"experiment failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    ids = ", ".join(sorted(manifest["candidates"]))
+    cost = manifest["cost"]
+    print(f"wrote {args.out}")
+    print(f"candidates: {ids}")
+    print(f"cost: {cost['chat_calls']} chat calls, {cost['image_calls']} image calls")
+    print(f'next: inkstone experiment pick --run {args.out} --choice A --why "..."')
+    return 0
+
+
 def main() -> None:
     """统一 CLI 入口。"""
     # 后向兼容：旧用法 `inkstone <source> ...` 无子命令时默认走 generate，
@@ -1164,6 +1244,7 @@ def main() -> None:
         "prompt",
         "harness",
         "lesson",
+        "experiment",
         "-h",
         "--help",
     ):
@@ -1200,6 +1281,8 @@ def main() -> None:
         sys.exit(_run_harness(args))
     elif args.command == "lesson":
         sys.exit(_run_lesson(args))
+    elif args.command == "experiment":
+        sys.exit(_run_experiment(args))
 
 
 if __name__ == "__main__":

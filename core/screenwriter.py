@@ -23,7 +23,7 @@ from core.comic.lettering_lang import (
 )
 from core.comic.runs import note_chat_attempt, note_chat_failure
 from core.harness.request import ChatRequest
-from core.harness.spec import genre_block, render_stage, system_prompt
+from core.harness.spec import Harness, genre_block, render_stage, system_prompt
 from core.harness.tripwire import assert_no_quality_verdicts
 from core.schemas import (
     ComicPagePlanSet,
@@ -190,14 +190,22 @@ def build_page_plan_request(
     panel_budget: int | None = None,
     genre: str | None = None,
     craft_notes: str = "",
+    harness: Harness | None = None,
     model: str = "",
 ) -> ChatRequest:
-    """The finished-page plan request for one chunk."""
+    """The finished-page plan request for one chunk.
+
+    ``harness`` selects a candidate tree for an A/B probe. ``None`` means the
+    builtin tree, preserving the normal pipeline and its module-level
+    ``SYSTEM_PROMPT`` override used by tests.
+    """
     from core.comic.layout_diversity import layout_diversity_instructions
     from core.comic.voice import voice_timeline_plan_instructions
     from core.config import genre as config_genre
 
-    domain = genre_block(genre if genre is not None else config_genre())
+    name = genre if genre is not None else config_genre()
+    domain = harness.genre_block(name) if harness is not None else genre_block(name)
+    system = harness.system_prompt() if harness is not None else SYSTEM_PROMPT
 
     lang_reminder = (
         "Reminder: caption / dialogue / sfx must match the source language "
@@ -219,25 +227,27 @@ def build_page_plan_request(
         )
     note = f"\n\n{extra_user_note}" if extra_user_note else ""
     craft_block = f"{craft_notes.strip()}\n\n" if craft_notes.strip() else ""
-    user = render_stage(
-        "page_plan",
-        {
-            "source_chunk": sanitize_text(text),
-            "elements_json": elements.model_dump_json(),
-            "beats_blob": beats_blob,
-            "budget_sentence": _budget_sentence(panel_budget),
-            "diversity": diversity,
-            "voice": voice,
-            "lang_reminder": lang_reminder,
-            "note": note,
-            "domain": domain,
-            "craft_notes": craft_block,
-        },
+    values = {
+        "source_chunk": sanitize_text(text),
+        "elements_json": elements.model_dump_json(),
+        "beats_blob": beats_blob,
+        "budget_sentence": _budget_sentence(panel_budget),
+        "diversity": diversity,
+        "voice": voice,
+        "lang_reminder": lang_reminder,
+        "note": note,
+        "domain": domain,
+        "craft_notes": craft_block,
+    }
+    user = (
+        harness.render_stage("page_plan", values)
+        if harness is not None
+        else render_stage("page_plan", values)
     )
     return ChatRequest(
         model=model,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
         tools=[PAGE_PLAN_TOOL],

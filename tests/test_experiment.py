@@ -1,0 +1,171 @@
+"""Planning-only A/B probes and candidate harness loading."""
+
+import asyncio
+import json
+import shutil
+from pathlib import Path
+
+import pytest
+
+from core.cli import _build_parser, _run_experiment, _run_harness, _run_prompt
+from core.experiment import (
+    ExperimentError,
+    pick_experiment,
+    plan_experiment,
+)
+from core.harness.spec import DATA_DIR
+from core.schemas import StoryElements
+from core.screenwriter import build_page_plan_request
+from tests.test_finished_page_pipeline import FakeChat
+
+
+def _candidate(tmp_path: Path, marker: str = "CANDIDATE MARKER") -> Path:
+    target = tmp_path / "candidate"
+    shutil.copytree(DATA_DIR, target)
+    page_plan = target / "stages" / "page_plan.md"
+    page_plan.write_text(page_plan.read_text(encoding="utf-8") + "\n" + marker + "\n")
+    return target
+
+
+def test_a_candidate_harness_changes_the_page_plan_prompt_and_digest(tmp_path):
+    candidate = _candidate(tmp_path)
+    from core.harness.spec import harness_from_dir
+
+    harness = harness_from_dir(candidate)
+    assert harness.validate() == []
+    base = build_page_plan_request("第一回", StoryElements(), model="m")
+    other = build_page_plan_request("第一回", StoryElements(), harness=harness, model="m")
+    assert "CANDIDATE MARKER" in other.messages[-1]["content"]
+    assert "CANDIDATE MARKER" not in base.messages[-1]["content"]
+    assert other.digest() != base.digest()
+
+
+def test_plan_experiment_writes_an_anonymised_packet(tmp_path):
+    candidate = _candidate(tmp_path)
+    out = tmp_path / "experiment"
+    manifest = asyncio.run(
+        plan_experiment(
+            "第一章\n福贵在村口。",
+            out_dir=out,
+            candidates=["base", str(candidate)],
+            chat=FakeChat(),
+        )
+    )
+
+    assert manifest["status"] == "awaiting_selection"
+    assert set(manifest["candidates"]) == {"A", "B"}
+    assert manifest["cost"]["image_calls"] == 0
+    assert manifest["cost"]["chat_calls"] == 4  # extract + beats + two plans
+    assert (out / "task.md").is_file()
+    for anon in ("A", "B"):
+        assert (out / "candidates" / anon / "plan.json").is_file()
+        assert (out / "candidates" / anon / "structure_report.json").is_file()
+        assert (out / "candidates" / anon / "prompt.json").is_file()
+    prompts = {
+        anon: json.loads((out / "candidates" / anon / "prompt.json").read_text(encoding="utf-8"))[
+            "messages"
+        ][-1]["content"]
+        for anon in ("A", "B")
+    }
+    assert sum("CANDIDATE MARKER" in text for text in prompts.values()) == 1
+
+
+def test_pick_records_the_choice_and_reveals_the_label(tmp_path):
+    candidate = _candidate(tmp_path)
+    out = tmp_path / "experiment"
+    asyncio.run(
+        plan_experiment(
+            "第一章\n福贵在村口。",
+            out_dir=out,
+            candidates=["base", str(candidate)],
+            chat=FakeChat(),
+        )
+    )
+    with pytest.raises(ExperimentError, match="needs --why"):
+        pick_experiment(out, choice="A", why="")
+    selection = pick_experiment(out, choice="A", why="更少的对白，先给空间")
+    assert selection["chosen"] == "A"
+    assert selection["human"] is True
+    assert selection["chosen_label"] in {"base", str(candidate)}
+    assert (out / "selection.json").is_file()
+    manifest = json.loads((out / "experiment.json").read_text(encoding="utf-8"))
+    assert manifest["status"] == "selected"
+
+
+def test_a_bad_candidate_is_rejected_before_any_call(tmp_path):
+    with pytest.raises(ExperimentError, match="unknown genre|component|manifest|harness"):
+        asyncio.run(
+            plan_experiment(
+                "第一章",
+                out_dir=tmp_path / "e",
+                candidates=["base", "missing"],
+                chat=FakeChat(),
+            )
+        )
+
+
+def test_cli_plan_and_pick_with_a_fake_provider(tmp_path, monkeypatch, capsys):
+    candidate = _candidate(tmp_path)
+    monkeypatch.setattr("core.experiment.get_chat_provider", lambda: FakeChat())
+    out = tmp_path / "experiment"
+    parser = _build_parser()
+    args = parser.parse_args(
+        [
+            "experiment",
+            "plan",
+            "--book",
+            str(_book(tmp_path)),
+            "--out",
+            str(out),
+            "--candidate",
+            "base",
+            "--candidate",
+            str(candidate),
+        ]
+    )
+    assert _run_experiment(args) == 0
+    assert "candidates: A, B" in capsys.readouterr().out
+
+    pick = parser.parse_args(
+        [
+            "experiment",
+            "pick",
+            "--run",
+            str(out),
+            "--choice",
+            "B",
+            "--why",
+            "候选的构图更清楚",
+        ]
+    )
+    assert _run_experiment(pick) == 0
+    assert "selected B" in capsys.readouterr().out
+
+
+def _book(tmp_path: Path) -> Path:
+    path = tmp_path / "book.txt"
+    path.write_text("第一章\n福贵在村口。", encoding="utf-8")
+    return path
+
+
+def test_cli_harness_dir_validate_and_prompt(tmp_path, capsys):
+    candidate = _candidate(tmp_path)
+    parser = _build_parser()
+
+    args = parser.parse_args(["harness", "validate", "--dir", str(candidate)])
+    assert _run_harness(args) == 0
+    assert capsys.readouterr().out.startswith("ok sha256:")
+
+    args = parser.parse_args(
+        [
+            "prompt",
+            "--stage",
+            "page_plan",
+            "--text",
+            "第一回",
+            "--harness-dir",
+            str(candidate),
+        ]
+    )
+    assert _run_prompt(args) == 0
+    assert "CANDIDATE MARKER" in capsys.readouterr().out
