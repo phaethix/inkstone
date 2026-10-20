@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from core.api import ChatProvider, get_chat_provider
+from core.comic.adaptation import stamp_page_panel_beats
 from core.comic.segmentation import segment_text
 from core.comic.structure_report import structural_report
 from core.density import PANELS_PER_CHUNK_B
@@ -222,6 +223,12 @@ async def plan_experiment(
             request=request,
         )
         candidate.calls = counting.calls - before
+        # The pipeline promotes page-level ``covers_beats`` onto panel-level
+        # ``beat_ids`` before anything reads them. The report reads panel ids
+        # only, so an experiment that skipped this step would fail every
+        # candidate on beats the planner actually staged.
+        if beats is not None:
+            stamp_page_panel_beats(pageset, beats)
         _write_json(directory / "plan.json", pageset.model_dump(mode="json"))
         state = ProjectState(project_id=f"experiment-{candidate.anon}")
         state.page_cache[str(chunk_index)] = pageset

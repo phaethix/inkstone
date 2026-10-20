@@ -18,7 +18,7 @@ from core.experiment import (
     sequence_status,
 )
 from core.harness.spec import DATA_DIR
-from core.schemas import StoryElements
+from core.schemas import ProjectState, StoryElements
 from core.screenwriter import build_page_plan_request
 from tests.test_finished_page_pipeline import FakeChat
 
@@ -399,3 +399,38 @@ def test_cli_sequence_plan_status_and_advance(tmp_path, monkeypatch, capsys):
     advance = parser.parse_args(["experiment", "sequence", "advance", "--run", str(sequence_dir)])
     assert _run_experiment(advance) == 0
     assert "status: done" in capsys.readouterr().out
+
+
+def test_experiment_promotes_covers_beats_before_the_structure_report():
+    """The report reads panel-level ``beat_ids`` only.
+
+    A planner answers with page-level ``covers_beats``, so an experiment that
+    reports before promoting them fails on beats that were actually staged.
+    """
+    from core.comic.adaptation import stamp_page_panel_beats
+    from core.comic.structure_report import structural_report
+    from core.schemas import ComicPagePlan, ComicPagePlanSet, KeyBeat, KeyBeatSet, PagePanelSpec
+
+    pageset = ComicPagePlanSet(
+        unit_id="u1",
+        pages=[
+            ComicPagePlan(
+                page_id="p1",
+                covers_beats=["b1"],
+                panels=[PagePanelSpec(panel_id="p1a")],
+            )
+        ],
+    )
+    beats = KeyBeatSet(beats=[KeyBeat(beat_id="b1", summary="the stone cracks", must_draw=True)])
+
+    state = ProjectState(project_id="experiment-test")
+    state.page_cache["0"] = pageset
+    state.beat_cache["0"] = beats
+    before = structural_report(state, "第一回")
+    assert next(c for c in before.checks if c.name == "beats").status == "fail"
+
+    assert stamp_page_panel_beats(pageset, beats) is True
+    assert pageset.pages[0].panels[0].beat_ids == ["b1"]
+
+    after = structural_report(state, "第一回")
+    assert next(c for c in after.checks if c.name == "beats").status == "pass"
