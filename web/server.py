@@ -19,6 +19,7 @@ Routes:
     GET  /api/experiments         -> list planning-only A/B experiments
     GET  /api/experiment/<id>     -> one experiment (labels hidden until picked)
     POST /api/experiment/<id>/pick -> {choice, why} -> selection.json
+    POST /api/experiment/<id>/compose -> {merge_from?, components?} -> adopted/
     POST /api/job/<job_id>/stop   -> cooperative cancel -> {ok: true} or 404
     POST /api/project/<id>/review -> {action: merge|dismiss, new_name, candidate}
     POST /api/project/<id>/regen  -> {stale?: true, keys?: [...]} -> {job_id, project_id}
@@ -733,6 +734,13 @@ def experiment_detail(experiment_id: str) -> dict:
         if selection is not None:
             item["label"] = record.get("label")
         candidates[anon] = item
+    composed = None
+    compose_path = path / "compose.json"
+    if compose_path.is_file():
+        try:
+            composed = json.loads(compose_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            composed = None
     return {
         "id": experiment_id,
         "status": manifest.get("status", "unknown"),
@@ -742,7 +750,57 @@ def experiment_detail(experiment_id: str) -> dict:
         "cost": manifest.get("cost"),
         "candidates": candidates,
         "selection": selection,
+        "composed": composed,
     }
+
+
+def compose_experiment_api(
+    experiment_id: str,
+    *,
+    merge_from: str | None = None,
+    components: list[str] | None = None,
+) -> dict:
+    """Compose the picked harness into the experiment's own ``adopted/`` tree.
+
+    The Web UI never chooses a filesystem path: the output is fixed under the
+    experiment directory, so a browser cannot write arbitrary harness trees.
+    """
+    from core.experiment import ExperimentError, compose_harness
+
+    path = _experiment_dir(experiment_id)
+    manifest = _experiment_manifest(path)
+    selection = _experiment_selection(path)
+    if selection is None:
+        raise ValueError("pick a candidate before composing")
+    chosen = str(selection.get("chosen") or "")
+    candidates = manifest.get("candidates") or {}
+    merge = (merge_from or "").strip().upper()
+    comps = [str(component) for component in (components or [])]
+    if merge:
+        if merge not in candidates:
+            raise ValueError(f"merge_from {merge!r} is not a candidate")
+        if merge == chosen:
+            raise ValueError("merge_from must be the other candidate")
+        if not comps:
+            comps = ["stage.page_plan"]
+        for component in comps:
+            if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,80}", component):
+                raise ValueError(f"invalid component id: {component!r}")
+    elif comps:
+        raise ValueError("components require merge_from")
+    out = path / "adopted"
+    try:
+        return compose_harness(
+            path,
+            choice=chosen,
+            out_dir=out,
+            merge_from=[merge] if merge else [],
+            components=comps,
+        )
+    except ExperimentError as exc:
+        if "output already exists" in str(exc):
+            raise FileExistsError(str(exc)) from exc
+        raise ValueError(str(exc)) from exc
 
 
 def pick_experiment_api(experiment_id: str, choice: str, why: str) -> dict:
@@ -913,6 +971,9 @@ class Handler(BaseHTTPRequestHandler):
             if self.path.startswith("/api/experiment/") and self.path.endswith("/pick"):
                 self._post_experiment_pick()
                 return
+            if self.path.startswith("/api/experiment/") and self.path.endswith("/compose"):
+                self._post_experiment_compose()
+                return
             if self.path.startswith("/api/project/") and self.path.endswith("/review"):
                 self._post_review()
                 return
@@ -1008,6 +1069,29 @@ class Handler(BaseHTTPRequestHandler):
             )
         else:
             self._send_json({"error": "unknown job"}, status=404)
+
+    def _post_experiment_compose(self) -> None:
+        experiment_id = self.path[len("/api/experiment/") : -len("/compose")]
+        body = self._read_json()
+        merge_from = body.get("merge_from")
+        components = body.get("components") or []
+        if merge_from is not None and not isinstance(merge_from, str):
+            self._send_json({"error": "merge_from must be a string"}, status=400)
+            return
+        if not isinstance(components, list):
+            self._send_json({"error": "components must be a list"}, status=400)
+            return
+        try:
+            record = compose_experiment_api(
+                experiment_id, merge_from=merge_from, components=components
+            )
+        except FileExistsError as exc:
+            self._send_json({"error": str(exc)}, status=409)
+            return
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, status=400)
+            return
+        self._send_json(record)
 
     def _post_experiment_pick(self) -> None:
         experiment_id = self.path[len("/api/experiment/") : -len("/pick")]

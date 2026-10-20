@@ -896,6 +896,17 @@
             ${pick}
           </div>`;
       }).join("");
+      const otherIds = selection
+        ? Object.keys(data.candidates || {}).filter((id) => id !== selection.chosen)
+        : [];
+      const mergeOptions = '<option value="">Adopt chosen only</option>'
+        + otherIds.map((id) => `<option value="${esc(id)}">Merge stage.page_plan from ${esc(id)}</option>`).join("");
+      const composeBlock = data.composed
+        ? `<p style="margin:12px 0 0;color:var(--muted);">Composed: <code>${esc(data.composed.harness_dir)}</code><br>${esc(data.composed.harness_digest)}${data.composed.components && data.composed.components.length ? " · merged " + esc(data.composed.components.join(", ")) : ""}</p>`
+        : `<div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+             <select id="composeMerge" style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:9px 12px;color:var(--text);font:inherit;font-size:13px;">${mergeOptions}</select>
+             <button class="btn btn-primary" onclick="composeExperiment()">Compose picked harness</button>
+           </div>`;
       const head = `
         <div class="card" style="max-width:none;">
           <div style="display:flex;justify-content:space-between;gap:16px;align-items:center;flex-wrap:wrap;">
@@ -905,9 +916,28 @@
             </div>
             <button class="btn btn-secondary" onclick="loadExperiments()">← All experiments</button>
           </div>
-          ${selection ? '<p style="margin:16px 0 0;color:var(--muted);">Picked ' + esc(selection.chosen) + ' (' + esc(selection.chosen_label) + '): ' + esc(selection.why) + '</p>' : '<p style="margin:16px 0 0;color:var(--muted);">Read both plans, write why one is better, then pick. The labels are revealed after the pick.</p><textarea id="expWhy" class="exp-why" placeholder="Why does this plan read better? Cite a page or a layout choice."></textarea>'}
+          ${selection ? `<p style="margin:16px 0 0;color:var(--muted);">Picked ${esc(selection.chosen)} (${esc(selection.chosen_label)}): ${esc(selection.why)}</p>${composeBlock}` : '<p style="margin:16px 0 0;color:var(--muted);">Read both plans, write why one is better, then pick. The labels are revealed after the pick.</p><textarea id="expWhy" class="exp-why" placeholder="Why does this plan read better? Cite a page or a layout choice."></textarea>'}
         </div>`;
       detail.innerHTML = head + '<div class="exp-grid">' + cards + '</div>';
+    }
+
+    async function composeExperiment() {
+      const merge = ($("composeMerge")?.value || "").trim();
+      const body = merge
+        ? { merge_from: merge, components: ["stage.page_plan"] }
+        : {};
+      try {
+        const res = await fetch("/api/experiment/" + encodeURIComponent(currentExperimentId) + "/compose", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const payload = await res.json();
+        if (!res.ok) throw new Error(payload.error || ("HTTP " + res.status));
+        openExperiment(currentExperimentId);
+      } catch (e) {
+        alert("Compose failed: " + e.message);
+      }
     }
 
     async function pickExperiment(choice) {

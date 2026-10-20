@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 import threading
 import time
 import urllib.error
@@ -11,6 +12,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 from core.comic.ledger import ConsistencyLedger, LedgerEntry, ReferenceVersion
+from core.harness.spec import DATA_DIR
 from core.schemas import (
     CharacterAliasSuggestion,
     CharacterAsset,
@@ -843,3 +845,55 @@ def test_experiment_id_traversal_is_rejected(tmp_path, monkeypatch):
     with _running_server() as httpd:
         status, payload = _request(httpd.server_port, "/api/experiment/..%2Fsecret", "GET")
     assert status in (400, 404)
+
+
+def test_experiment_compose_after_pick(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "EXPERIMENTS_DIR", tmp_path)
+    _make_experiment(tmp_path)
+    with _running_server() as httpd:
+        before, payload = _request(
+            httpd.server_port, "/api/experiment/exp1/compose", "POST", data=b"{}"
+        )
+        assert before == 400
+        assert "pick a candidate" in payload["error"]
+
+        pick = json.dumps({"choice": "A", "why": "更清楚的空间"}).encode()
+        _request(httpd.server_port, "/api/experiment/exp1/pick", "POST", data=pick)
+        status, record = _request(
+            httpd.server_port, "/api/experiment/exp1/compose", "POST", data=b"{}"
+        )
+        detail_status, detail = _request(httpd.server_port, "/api/experiment/exp1", "GET")
+        again, payload = _request(
+            httpd.server_port, "/api/experiment/exp1/compose", "POST", data=b"{}"
+        )
+    assert status == 200
+    assert record["harness_digest"].startswith("sha256:")
+    assert (tmp_path / "exp1" / "adopted" / "manifest.json").is_file()
+    assert detail_status == 200
+    assert detail["composed"]["harness_digest"] == record["harness_digest"]
+    assert again == 409
+    assert "already exists" in payload["error"]
+
+
+def test_experiment_compose_can_merge_page_plan_from_other_candidate(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "EXPERIMENTS_DIR", tmp_path)
+    experiment = _make_experiment(tmp_path)
+    candidate = tmp_path / "candidate-harness"
+    shutil.copytree(DATA_DIR, candidate)
+    page_plan = candidate / "stages" / "page_plan.md"
+    page_plan.write_text(page_plan.read_text(encoding="utf-8") + "\nWEB MERGE MARKER\n")
+    manifest = json.loads((experiment / "experiment.json").read_text(encoding="utf-8"))
+    manifest["candidates"]["B"]["label"] = str(candidate)
+    (experiment / "experiment.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    with _running_server() as httpd:
+        pick = json.dumps({"choice": "A", "why": "base is safer"}).encode()
+        _request(httpd.server_port, "/api/experiment/exp1/pick", "POST", data=pick)
+        body = json.dumps({"merge_from": "B"}).encode()
+        status, record = _request(
+            httpd.server_port, "/api/experiment/exp1/compose", "POST", data=body
+        )
+    assert status == 200
+    assert record["components"] == ["stage.page_plan"]
+    adopted_plan = (tmp_path / "exp1" / "adopted" / "stages" / "page_plan.md").read_text()
+    assert "WEB MERGE MARKER" in adopted_plan
