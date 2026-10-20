@@ -131,3 +131,38 @@ def test_render_stage_substitutes_and_rejects_a_mismatch():
         spec.render_stage("extract", {})
     with pytest.raises(spec.HarnessError, match="unused values"):
         spec.render_stage("extract", {"source_chunk": "x", "extra": "y"})
+
+
+def test_page_plan_explains_every_layout_token_it_offers():
+    """The catalog is a vocabulary; a bare token list teaches the model nothing."""
+    body = spec.builtin_harness().component_text("stage.page_plan")
+    from core.comic.layout_diversity import LAYOUT_CATALOG
+
+    for token in sorted(LAYOUT_CATALOG):
+        assert f"`{token}`" in body, token
+
+
+def test_page_plan_names_the_panel_fields_that_reach_the_image_prompt():
+    """role / shape_hint / shot are concatenated verbatim into the render prompt,
+    so the template is the only place their vocabulary is defined."""
+    body = spec.builtin_harness().component_text("stage.page_plan")
+    for field in ("`role`", "`shape_hint`", "`shot`", "`action`"):
+        assert field in body, field
+    for role in ("establishing", "action", "reaction", "dialogue", "detail", "transition"):
+        assert f"`{role}`" in body, role
+
+
+def test_page_plan_says_lettering_is_dropped_unless_it_is_a_verbatim_span():
+    """retain_source_lettering drops invented text, leaving an empty bubble.
+    The planner has to know that before it paraphrases."""
+    body = spec.builtin_harness().component_text("stage.page_plan")
+    assert "contiguous span" in body
+    assert "dropped" in body
+
+
+def test_page_plan_closes_the_role_and_shape_vocabularies():
+    """Both are free-form strings in the schema, so the template is the only
+    thing stopping a planner from answering ``climax`` or ``diagonal_splash``.
+    A run without the sentence produced exactly those values."""
+    body = spec.builtin_harness().component_text("stage.page_plan")
+    assert "take only the values listed" in body
