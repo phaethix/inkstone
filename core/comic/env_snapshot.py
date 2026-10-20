@@ -54,6 +54,7 @@ from core.config import (
     ENV_OPENAI_COMPAT_MODEL_T2I,
     ENV_PAGE_SCRIPT,
     ENV_PAGE_SIZE,
+    ENV_PDF_BATCH,
     ENV_PROVIDER,
     ENV_RENDER_MODE,
     ENV_REVIEW_PACKET,
@@ -126,6 +127,8 @@ H_ENV_EXCLUDED: frozenset[str] = frozenset(
         # The kill switch selects the builtin tree; its content is the same
         # builtin identity already covered by the chat request digest.
         ENV_HARNESS,
+        # Batch size bounds peak memory; it does not change output bytes.
+        ENV_PDF_BATCH,
         ENV_AGNES_API_KEY,
         ENV_OPENAI_COMPAT_API_KEY,
         ENV_OPENAI_COMPAT_CHAT_API_KEY,

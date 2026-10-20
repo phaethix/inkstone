@@ -25,6 +25,7 @@ ENV_REVIEW_PACKET = "INKSTONE_REVIEW_PACKET"
 ENV_EXPERIMENTS_DIR = "INKSTONE_EXPERIMENTS_DIR"
 ENV_HARNESS = "INKSTONE_HARNESS"
 ENV_HARNESS_DIR = "INKSTONE_HARNESS_DIR"
+ENV_PDF_BATCH = "INKSTONE_PDF_BATCH"
 ENV_ERROR_LOG = "INKSTONE_ERROR_LOG"
 ENV_RUN_DEADLINE_HOURS = "INKSTONE_RUN_DEADLINE_HOURS"
 ENV_SUPERVISOR_BACKOFF_BASE = "INKSTONE_SUPERVISOR_BACKOFF_BASE"
@@ -119,6 +120,11 @@ def review_packet_enabled() -> bool:
 def harness_enabled() -> bool:
     """One-release fallback switch: ``0`` forces the builtin tree and no lessons."""
     return env_bool(ENV_HARNESS, default=True)
+
+
+def pdf_batch_size() -> int:
+    """Peak resident RGB pages per Pillow PDF batch; memory only, not bytes."""
+    return env_int(ENV_PDF_BATCH, 8)
 
 
 def lessons_enabled() -> bool:

@@ -77,3 +77,17 @@ def test_harness_enabled_defaults_true_and_can_be_killed(monkeypatch):
     monkeypatch.setenv("INKSTONE_HARNESS", "0")
     assert harness_enabled() is False
     assert lessons_enabled() is False
+
+
+def test_pdf_batch_size_is_registered_and_parsed(monkeypatch):
+    from core.config import ALL_ENV_VARS, ENV_PDF_BATCH, pdf_batch_size
+
+    assert ENV_PDF_BATCH in ALL_ENV_VARS
+    monkeypatch.delenv(ENV_PDF_BATCH, raising=False)
+    assert pdf_batch_size() == 8
+    monkeypatch.setenv(ENV_PDF_BATCH, "3")
+    assert pdf_batch_size() == 3
+    monkeypatch.setenv(ENV_PDF_BATCH, "0")
+    assert pdf_batch_size() == 1
+    monkeypatch.setenv(ENV_PDF_BATCH, "nope")
+    assert pdf_batch_size() == 8

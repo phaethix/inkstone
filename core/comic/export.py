@@ -14,7 +14,6 @@ The vertical webtoon strip is produced by ``LayoutEngine`` (pure PIL), not here.
 from __future__ import annotations
 
 import logging
-import os
 import shutil
 import subprocess
 import tempfile
@@ -29,7 +28,6 @@ except ImportError:  # pragma: no cover — Pillow is a hard dependency
 logger = logging.getLogger(__name__)
 
 # Peak resident RGB pages for the Pillow path (override with INKSTONE_PDF_BATCH).
-_DEFAULT_PDF_BATCH = 8
 # Pixels per inch for the Pillow PDF. 72 would make one pixel one point, so a
 # 1024×1536 page would be about 14 by 21 inches.
 _PDF_DPI = 150
@@ -58,13 +56,9 @@ def _img2pdf_layout(imgwidthpx: float, imgheightpx: float, _ndpi: tuple) -> tupl
 
 
 def _pdf_batch_size() -> int:
-    raw = os.environ.get("INKSTONE_PDF_BATCH", "").strip()
-    if raw:
-        try:
-            return max(1, int(raw))
-        except ValueError:
-            pass
-    return _DEFAULT_PDF_BATCH
+    from core.config import pdf_batch_size
+
+    return pdf_batch_size()
 
 
 class ExportEngine:
