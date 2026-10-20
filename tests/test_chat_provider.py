@@ -59,8 +59,6 @@ def _fake_chat_post(status_codes, body):
 
 
 # contract tests
-
-
 def test_agnes_is_chat_provider():
     api = AgnesChatAPI(api_key="test-key")
     assert isinstance(api, ChatProvider)
@@ -98,8 +96,6 @@ def test_openai_compat_chat_factory_does_not_send_agnes_key(monkeypatch):
 
 
 # forced function calling
-
-
 def test_agnes_chat_returns_parsed_args(patch_async, monkeypatch):
     body = _tool_call_body(json.dumps({"characters": [{"name": "方鸿渐"}]}))
     fake_post = _fake_chat_post([200], body)
@@ -165,8 +161,6 @@ def test_agnes_chat_no_tool_calls_raises(patch_async, monkeypatch):
 
 
 # retry / backoff behavior
-
-
 def test_agnes_chat_retries_on_503(patch_async, monkeypatch):
     body = _tool_call_body(json.dumps({"ok": True}))
     fake_post = _fake_chat_post([503, 503, 200], body)

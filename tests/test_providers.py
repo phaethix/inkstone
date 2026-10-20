@@ -54,8 +54,6 @@ def _fake_response_class(status_codes):
 
 
 # contract tests (unchanged shape, retained)
-
-
 def test_agnes_image_uses_image_bucket(monkeypatch):
     captured = {}
 
@@ -156,8 +154,6 @@ def test_image_output_save_url(tmp_path, monkeypatch):
 
 
 # retry / backoff behavior
-
-
 def test_compute_backoff_exponential_capped_with_jitter(monkeypatch):
     # Pin the jitter factor so the exponential-growth assertion is deterministic:
     # the production code still multiplies by random.uniform, we only fix the value.
@@ -245,8 +241,6 @@ def test_openai_compat_retries_through_many_busy_503s(patch_async, monkeypatch):
 
 
 # both providers collect errors on retryable failures
-
-
 def test_openai_compat_collects_errors(patch_async, monkeypatch):
     collected = {"n": 0}
 
@@ -264,8 +258,6 @@ def test_openai_compat_collects_errors(patch_async, monkeypatch):
 
 
 # i2i reference resolution into extra_body.image
-
-
 def test_openai_compat_i2i_sends_resolved_image(patch_async, monkeypatch, tmp_path):
     ref = tmp_path / "ref.png"
     ref.write_bytes(b"\x89PNG\r\n")
@@ -296,8 +288,6 @@ def test_openai_compat_i2i_sends_resolved_image(patch_async, monkeypatch, tmp_pa
 
 
 # ImageOutput.b64 save
-
-
 def test_image_output_save_b64(tmp_path):
     raw = b"\x89PNG\r\nfake"
     b64 = base64.b64encode(raw).decode()
@@ -308,8 +298,6 @@ def test_image_output_save_b64(tmp_path):
 
 
 # error collector appends a JSONL line
-
-
 def test_collect_error_appends_jsonl(tmp_path, monkeypatch):
     log = tmp_path / "errors.jsonl"
     monkeypatch.setenv("INKSTONE_ERROR_LOG", str(log))

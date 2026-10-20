@@ -430,8 +430,6 @@ def _experiment_selection(run: Path) -> dict | None:
 
 
 # sequential recursion
-
-
 def _sequence_path(run: str | Path) -> Path:
     return Path(run) / "sequence.json"
 

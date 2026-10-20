@@ -103,8 +103,6 @@ def _tool_choice(name: str) -> dict:
 # choice are assembled. The pipeline builds the request once, sends it, and
 # uses ``request.digest()`` as the stage's cache identity — so a prompt or
 # schema edit can never hit a stale plan.
-
-
 def build_extract_request(
     text: str,
     *,

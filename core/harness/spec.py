@@ -272,8 +272,6 @@ def clear_harness_cache() -> None:
 
 
 # builtin wrappers (kept for the existing pipeline and tests)
-
-
 @lru_cache(maxsize=1)
 def load_manifest() -> dict:
     return builtin_harness().manifest

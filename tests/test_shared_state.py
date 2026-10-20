@@ -29,8 +29,6 @@ def _rows(path: Path) -> list[dict]:
 
 
 # D-05: two writers must not lose each other's updates
-
-
 def test_exclusive_lock_rejects_a_second_nonblocking_holder(tmp_path):
     lock = tmp_path / "state.lock"
     with exclusive_lock(lock, blocking=False, busy_message="busy"):
@@ -68,8 +66,6 @@ def test_two_gate_sessions_keep_both_sample_keys(tmp_path):
 
 
 # D-06: a corrupt shared file is quarantined, not fatal
-
-
 def test_a_corrupt_budget_is_quarantined_and_rebuilt(tmp_path):
     data = tmp_path / "data"
     data.mkdir()
@@ -97,8 +93,6 @@ def test_a_corrupt_gate_is_quarantined_and_rebuilt(tmp_path):
 
 
 # D-07: the CLI's shared data dir must find a project-local gate
-
-
 def test_load_finds_a_project_local_gate_from_the_shared_data_dir(tmp_path):
     out = tmp_path / "out"
     gate = GateSession.open(data_dir=None, output_dir=out, project_id="p", sample_size=1)
@@ -111,8 +105,6 @@ def test_load_finds_a_project_local_gate_from_the_shared_data_dir(tmp_path):
 
 
 # D-10: a stamp-only cache mutation is persisted immediately
-
-
 def test_stamping_a_missing_action_key_saves_the_checkpoint(tmp_path):
     state = ProjectState(project_id="p")
     target = KeyBeatSet()
