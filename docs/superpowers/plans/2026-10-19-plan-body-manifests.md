@@ -3,9 +3,10 @@
 Design: `docs/superpowers/specs/2026-10-19-plan-body-manifests-design.md`.
 
 Checkboxes reflect the tree as verified on 2026-10-20, after the clean-tree
-pass. Tasks 1-5 and Task 6 steps 1-3 have landed; Task 5 step 2 (pre-slice
-project) and step 4 (budget) remain open, and so do the task reports (Task 7),
-which this plan no longer tracks as required work: the code and this plan are
+pass. Tasks 1-5 and Task 6 steps 1-3 have landed. Four boxes stay open on
+purpose: Task 4 step 3 (storyboard/page-script restore tests), Task 5 step 2
+(pre-slice project), Task 5 step 4 (budget), and the task reports (Task 7),
+which this plan no longer tracks as required work — the code and this plan are
 the record, and `.superpowers/sdd/2026-10-19-plan-body-manifests/` was never
 created. That supersedes the earlier convention that left every box unchecked
 in favour of that directory.
