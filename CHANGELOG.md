@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   you intend to re-plan every stage.
 
 ### Added
+- Web A/B and sequence views: candidate cards now carry a compact
+  page-level diff (page count plus the first differing layout intents), and
+  a sequence shows a round timeline (done / picked / awaiting pick) above
+  the current round.
 - Web continuity review: each pending character now expands into page chips
   with checkboxes, Select all/Clear, Confirm selected, and Confirm all.
   `POST /api/project/<id>/ledger/confirm` accepts an optional `pages` list,
