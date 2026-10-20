@@ -160,6 +160,7 @@ from core.config import (
     ImageConfig,
     finished_page_size,
     l3_enabled,
+    lessons_enabled,
     page_script_enabled,
     review_packet_enabled,
 )
@@ -172,6 +173,7 @@ from core.config import (
 from core.config import render_mode as config_render_mode
 from core.density import PANELS_PER_CHUNK_B, DensityTier, get_density_plan
 from core.harness.spec import genre_block, harness_digest, validate_or_raise
+from core.lessons import LessonStore, format_craft_notes
 from core.perf import PerfCollector
 from core.pipelines.cancel import check_cancel
 from core.pipelines.stage_scheduler import PipelinePhase, StageGraph, WorkKind, WorkNode
@@ -2040,6 +2042,7 @@ async def _creative_comic(
         render_mode=mode,
         density=density_plan.tier,
     )
+    lesson_store = LessonStore(config_data_dir()) if lessons_enabled() else None
 
     def _pct() -> float:
         return estimate_progress(state, total_chunks)
@@ -2580,6 +2583,20 @@ async def _creative_comic(
                                     )
                                     beats = None
                             _charge("page_plan", f"c{ci:04d}")
+                            craft_notes = ""
+                            if lesson_store is not None:
+                                query = chunk
+                                if beats is not None and beats.beats:
+                                    query += "\n" + "\n".join(
+                                        beat.summary for beat in beats.beats if beat.summary
+                                    )
+                                craft_notes = format_craft_notes(
+                                    lesson_store.retrieve(
+                                        genre=config_genre(),
+                                        query=query,
+                                        applies_to="page_plan",
+                                    )
+                                )
                             plan_request = build_page_plan_request(
                                 chunk,
                                 planned_elements,
@@ -2587,6 +2604,7 @@ async def _creative_comic(
                                 visual_bible=state.visual_bible,
                                 key_beats=beats,
                                 panel_budget=density_plan.panels_per_chunk,
+                                craft_notes=craft_notes,
                                 model=snapshot.chat,
                             )
                             review.record("page_plan", ci, plan_request)
@@ -2654,6 +2672,8 @@ async def _creative_comic(
                     _drop_pages_outside_plan(state, chunk_index=ci, page_count=len(pageset.pages))
                     state.save(state_path)
                     _report("page_plan", _pct())
+                if pageset is not None:
+                    review.record_plan("page_plan", ci, pageset.model_dump(mode="json"))
 
                 cached_beats = state.beat_cache.get(key)
                 if pageset is not None and cached_beats is not None and cached_beats.beats:
@@ -3070,6 +3090,8 @@ async def _creative_comic(
                 cached_board.storyboard_action_key = storyboard_key
                 state.save(state_path)
                 _report("storyboard", _pct())
+            if board is not None:
+                review.record_plan("storyboard", ci, board.model_dump(mode="json"))
 
             known_beats = key_beats_for_chunk(state, key, chunks)
             if board is not None and known_beats is not None:

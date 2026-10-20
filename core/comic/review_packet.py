@@ -103,6 +103,18 @@ class ReviewPacket:
         except OSError as exc:
             logger.warning("review packet prompt not written (%s)", exc)
 
+    def record_plan(self, stage: str, chunk_index: int, payload: dict) -> None:
+        """Record the plan output a human needs to judge a redraw or a lesson."""
+        if not self.enabled:
+            return
+        try:
+            _write_json(
+                self.root / "plans" / f"{stage}.c{chunk_index:04d}.json",
+                payload,
+            )
+        except OSError as exc:
+            logger.warning("review packet plan not written (%s)", exc)
+
     def finish(self, *, state, source: str, pages: list[str]) -> None:
         """Write the structure report and the final manifest. Never raises."""
         if not self.enabled:
@@ -117,6 +129,13 @@ class ReviewPacket:
             payload = report.to_json()
             payload["chapter_validated"] = chapter_validated(report, state)
             _write_json(self.root / "structure_report.json", payload)
+            _write_json(
+                self.root / "pages.json",
+                {
+                    "count": len(pages),
+                    "pages": [str(Path(page).name) for page in pages],
+                },
+            )
             self._manifest.update(
                 {
                     "status": "finished",

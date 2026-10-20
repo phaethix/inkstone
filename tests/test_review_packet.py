@@ -33,6 +33,12 @@ def test_a_run_writes_a_review_packet(tmp_path, monkeypatch):
     assert prompt["digest"].startswith("sha256:")
     assert prompt["messages"][0]["role"] == "system"
 
+    plan = json.loads((root / "plans" / "page_plan.c0000.json").read_text(encoding="utf-8"))
+    assert plan["pages"]
+    pages = json.loads((root / "pages.json").read_text(encoding="utf-8"))
+    assert pages["count"] == len(pages["pages"])
+    assert pages["pages"]
+
     report = json.loads((root / "structure_report.json").read_text(encoding="utf-8"))
     assert "checks" in report
     assert "chapter_validated" in report

@@ -20,6 +20,7 @@ ENV_FONT_PATH = "INKSTONE_FONT_PATH"
 ENV_PAGE_SCRIPT = "INKSTONE_PAGE_SCRIPT"
 ENV_L3 = "INKSTONE_L3"
 ENV_GENRE = "INKSTONE_GENRE"
+ENV_LESSONS = "INKSTONE_LESSONS"
 ENV_REVIEW_PACKET = "INKSTONE_REVIEW_PACKET"
 ENV_ERROR_LOG = "INKSTONE_ERROR_LOG"
 ENV_RUN_DEADLINE_HOURS = "INKSTONE_RUN_DEADLINE_HOURS"
@@ -110,6 +111,11 @@ def genre() -> str:
 def review_packet_enabled() -> bool:
     """Write ``review/`` evidence for a run. Local only; never sent to a model."""
     return env_bool(ENV_REVIEW_PACKET, default=True)
+
+
+def lessons_enabled() -> bool:
+    """Inject approved craft lessons into page planning. On by default."""
+    return env_bool(ENV_LESSONS, default=True)
 
 
 def l3_enabled() -> bool:

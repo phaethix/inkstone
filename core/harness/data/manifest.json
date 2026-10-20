@@ -41,7 +41,7 @@
       "path": "stages/page_plan.md",
       "kind": "stage",
       "max_chars": 6000,
-      "slots": ["source_chunk", "elements_json", "beats_blob", "budget_sentence", "diversity", "voice", "lang_reminder", "note", "domain"]
+      "slots": ["source_chunk", "elements_json", "beats_blob", "craft_notes", "budget_sentence", "diversity", "voice", "lang_reminder", "note", "domain"]
     },
     {
       "id": "stage.page_script",

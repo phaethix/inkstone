@@ -189,6 +189,7 @@ def build_page_plan_request(
     extra_user_note: str = "",
     panel_budget: int | None = None,
     genre: str | None = None,
+    craft_notes: str = "",
     model: str = "",
 ) -> ChatRequest:
     """The finished-page plan request for one chunk."""
@@ -217,6 +218,7 @@ def build_page_plan_request(
             f"{key_beats.model_dump_json()}\n\n"
         )
     note = f"\n\n{extra_user_note}" if extra_user_note else ""
+    craft_block = f"{craft_notes.strip()}\n\n" if craft_notes.strip() else ""
     user = render_stage(
         "page_plan",
         {
@@ -229,6 +231,7 @@ def build_page_plan_request(
             "lang_reminder": lang_reminder,
             "note": note,
             "domain": domain,
+            "craft_notes": craft_block,
         },
     )
     return ChatRequest(

@@ -185,6 +185,48 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_prompt.add_argument("--json", dest="as_json", action="store_true", help="Print request JSON")
 
+    p_lesson = sub.add_parser("lesson", help="Approve, list, or retire craft lessons")
+    l_sub = p_lesson.add_subparsers(dest="lesson_command", required=True)
+
+    p_ladd = l_sub.add_parser("add", help="Record one human-approved lesson")
+    p_ladd.add_argument("--from-run", required=True, help="Project directory with state.json")
+    p_ladd.add_argument(
+        "--page",
+        action="append",
+        default=[],
+        help="Page key evidence, e.g. c0000-p0000 (repeatable)",
+    )
+    p_ladd.add_argument(
+        "--decision",
+        required=True,
+        choices=["redraw", "accept_and_flag", "alias_merge", "alias_dismiss", "continuity_confirm"],
+        help="The human decision this lesson comes from",
+    )
+    p_ladd.add_argument("--reason-tier", default=None, help="Gate reason tier, e.g. layout/bible")
+    p_ladd.add_argument("--cue", required=True, help="The situation shape this lesson applies to")
+    p_ladd.add_argument("--lesson", required=True, help="The transferable craft operation")
+    p_ladd.add_argument("--confidence", default="medium", choices=["low", "medium", "high"])
+    p_ladd.add_argument(
+        "--applies-to",
+        default="page_plan",
+        choices=["page_plan", "storyboard", "bible", "system"],
+    )
+    p_ladd.add_argument("--genre", default=None, help="Defaults to the run's review manifest")
+    p_ladd.add_argument("--id", default=None, help="Override the generated lesson id")
+    p_ladd.add_argument("--proposed", action="store_true", help="Store as proposed, not active")
+    p_ladd.add_argument(
+        "--no-entry",
+        action="store_true",
+        help="Decline to record a lesson (NO_ENTRY); exits 0 without writing",
+    )
+
+    p_llist = l_sub.add_parser("list", help="List lessons")
+    p_llist.add_argument("--genre", default=None)
+    p_llist.add_argument("--all", action="store_true", help="Include proposed and retired")
+
+    p_lret = l_sub.add_parser("retire", help="Retire a lesson by id")
+    p_lret.add_argument("id")
+
     p_harness = sub.add_parser("harness", help="Inspect and validate prompt-harness components")
     h_sub = p_harness.add_subparsers(dest="harness_command", required=True)
     h_sub.add_parser("validate", help="Validate every component in one pass")
@@ -931,6 +973,19 @@ def _run_prompt(args: argparse.Namespace) -> int:
             model=model,
         )
     elif args.stage == "page_plan":
+        from core.config import genre as config_genre
+        from core.config import lessons_enabled
+        from core.lessons import LessonStore, format_craft_notes
+
+        craft_notes = ""
+        if lessons_enabled():
+            craft_notes = format_craft_notes(
+                LessonStore().retrieve(
+                    genre=args.genre or config_genre(),
+                    query=chunk,
+                    applies_to="page_plan",
+                )
+            )
         request = build_page_plan_request(
             chunk,
             elements,
@@ -939,6 +994,7 @@ def _run_prompt(args: argparse.Namespace) -> int:
             key_beats=beats,
             panel_budget=PANELS_PER_CHUNK_B,
             genre=args.genre,
+            craft_notes=craft_notes,
             model=model,
         )
     elif args.stage == "page_script":
@@ -1001,6 +1057,92 @@ def _run_harness(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_lesson(args: argparse.Namespace) -> int:
+    """Approve, list, or retire craft lessons. Only a human writes a lesson."""
+    from core.config import data_dir as config_data_dir
+    from core.config import genre as config_genre
+    from core.harness.spec import harness_digest
+    from core.lessons import LessonError, LessonStore
+
+    store = LessonStore(config_data_dir())
+    if args.lesson_command == "list":
+        try:
+            lessons = store.list(genre=args.genre, include_inactive=args.all)
+        except LessonError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        for lesson in lessons:
+            print(
+                f"{lesson.id}  {lesson.genre:8}  {lesson.status:8}  "
+                f"{lesson.confidence:6}  {lesson.cue}"
+            )
+        if not lessons:
+            print("no lessons")
+        return 0
+    if args.lesson_command == "retire":
+        try:
+            lesson = store.retire(args.id)
+        except LessonError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        print(f"retired {lesson.id} ({lesson.genre})")
+        return 0
+
+    if args.no_entry:
+        print("NO_ENTRY: nothing recorded")
+        return 0
+    run = Path(args.from_run)
+    state_path = run / "state.json"
+    if not state_path.is_file():
+        print(f"no state.json under {run}", file=sys.stderr)
+        return 2
+    state = ProjectState.load(state_path)
+    state.migrate_legacy_page_keys()
+    known = set(state.pages_done) | set(state.stale_pages) | set(state.generated.pages)
+    pages = [page for page in args.page if page]
+    if args.decision in {"redraw", "accept_and_flag"} and not pages:
+        print(f"--decision {args.decision} needs --page", file=sys.stderr)
+        return 2
+    for page in pages:
+        if page not in known:
+            print(f"page {page} is not recorded in {run}", file=sys.stderr)
+            return 2
+        if args.decision == "redraw" and page not in state.stale_pages:
+            print(f"page {page} is not marked stale by a redraw", file=sys.stderr)
+            return 2
+        if args.decision == "accept_and_flag" and page not in state.pages_done:
+            print(f"page {page} was not completed", file=sys.stderr)
+            return 2
+
+    manifest: dict = {}
+    manifest_path = run / "review" / "manifest.json"
+    if manifest_path.is_file():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            manifest = {}
+    try:
+        lesson = store.add(
+            cue=args.cue,
+            lesson=args.lesson,
+            run=state.project_id or run.name,
+            decision=args.decision,
+            pages=pages,
+            reason_tier=args.reason_tier,
+            confidence=args.confidence,
+            applies_to=args.applies_to,
+            genre=args.genre or manifest.get("genre") or config_genre(),
+            harness=manifest.get("harness_digest") or harness_digest(),
+            proposed=args.proposed,
+            lesson_id=args.id,
+        )
+    except (LessonError, ValueError, OSError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    print(f"added {lesson.id} ({lesson.genre}) -> {store.path_for(lesson.genre, lesson.id)}")
+    return 0
+
+
 def main() -> None:
     """统一 CLI 入口。"""
     # 后向兼容：旧用法 `inkstone <source> ...` 无子命令时默认走 generate，
@@ -1021,6 +1163,7 @@ def main() -> None:
         "verify",
         "prompt",
         "harness",
+        "lesson",
         "-h",
         "--help",
     ):
@@ -1055,6 +1198,8 @@ def main() -> None:
         sys.exit(_run_prompt(args))
     elif args.command == "harness":
         sys.exit(_run_harness(args))
+    elif args.command == "lesson":
+        sys.exit(_run_lesson(args))
 
 
 if __name__ == "__main__":
