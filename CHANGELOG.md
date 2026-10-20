@@ -22,11 +22,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or project-style change therefore does not re-reconcile the whole book.
 - **The first run after upgrading re-plans each chat stage once.** Pages repaint
   only when the new plan's bytes differ from the stored plan, because the render
-  key does not include the upstream plan key. `inkstone migrate --check` is not
-  implemented yet; use `--budget` on a long book and delete `cache.json` only if
-  you intend to re-plan every stage.
+  key does not include the upstream plan key. Run `inkstone migrate --check` to
+  see what a re-run would redo before spending anything: it reports billable
+  chat calls, local-only redos, and how many pages stay reusable. Use `--budget`
+  on a long book, and delete `cache.json` only if you intend to re-plan every
+  stage.
 
 ### Added
+- Migration cost forecast: `inkstone migrate --check` reports what a re-run
+  would redo without calling any provider. It compares each manifest's recorded
+  `stage_src` against the hash current code computes, so a prompt or stage-code
+  edit shows up as a provable miss rather than a guess. Billable chat calls,
+  local-only redos, and reusable versus repaintable pages are reported
+  separately, because a chat re-plan does not force a repaint unless the plan
+  bytes change. `--json` gives automation the same numbers.
+- Declared read edges: `core/pipelines/stage_registry.py` now names which stage
+  produces each stage's hard inputs, and the pipeline rejects a registry whose
+  edges are missing, name an unknown producer, or point at a later phase. This
+  makes §5's declared-dependency rule machine-checkable instead of prose.
 - Manifest stage validation: `verify` and `migrate` now reject a manifest
   whose `stage` is outside the declarative stage catalog. `migrate --json`
   gives automation a machine-readable upgrade report.

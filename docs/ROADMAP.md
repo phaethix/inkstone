@@ -293,6 +293,17 @@ Keep these prototypes only as migration material until they conform to the targe
 
 Per the [content-addressed pipeline design](architecture/2026-09-28-content-addressed-pipeline-design.md) §9.
 
+- **Local (2026-10-20, `main`):** Phase 0c declared read edges plus the
+  `migrate --check` forecast. `core/pipelines/stage_registry.py` now names the
+  producer of each stage's hard inputs; the pipeline validates that table before
+  the first billable call and rejects an input with no producer, a producer that
+  is not a stage, and an edge pointing at a later phase. `read_edges()` and
+  `upstream_of()` expose the graph the §9 per-stage runner contract needs.
+  `inkstone migrate --check` compares each manifest's recorded `stage_src`
+  against the hash current code computes, reporting billable chat calls,
+  local-only redos, and reusable pages separately; it re-derives no keys.
+  Contract: [content-addressed design](architecture/2026-09-28-content-addressed-pipeline-design.md) §9.
+
 - **Local (2026-10-19, `main`):** Continuity-review escalation (the 5b
   follow-up 0d deferred). `LEDGER_ESCALATION_THRESHOLD = 30` (same order as the
   sample gate, held by a test) holds the render phase at the plan→render
@@ -320,8 +331,10 @@ Per the [content-addressed pipeline design](architecture/2026-09-28-content-addr
   keeps its recorded human decisions. The one-time invalidation announcement
   and the idempotency-probe verdict (§13 item 27: two identical requests
   returned different bytes, so §8's duplicate-charge window stays open) are
-  recorded in [CHANGELOG.md](../CHANGELOG.md). Plan caches still live in
-  `state.json`; per-stage runners remain later work.
+  recorded in [CHANGELOG.md](../CHANGELOG.md). The plan caches moved to the
+  sibling `cache.json` in the state split above, not left in `state.json`;
+  per-stage runners remain later work and their contract is stated in the
+  [content-addressed design](architecture/2026-09-28-content-addressed-pipeline-design.md) §9.
 
 - **Local (2026-10-19, `main`):** Two-phase ephemeral scheduler foundation.
   `core/pipelines/stage_scheduler.py` validates the in-memory plan/render/export

@@ -391,6 +391,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Rewrite clean manifests; default is a dry run",
     )
+    p_mig.add_argument(
+        "--check",
+        action="store_true",
+        help="Forecast the billable cost of a re-run after a prompt or harness change",
+    )
     p_mig.add_argument("--json", action="store_true", help="Print a JSON report")
 
     p_verify = sub.add_parser(
@@ -1015,12 +1020,77 @@ def _run_stages(args: argparse.Namespace) -> int:
     return 1 if problems else 0
 
 
+def _run_migrate_check(root: Path, *, as_json: bool = False) -> int:
+    """Print what a re-run would re-pay for, without calling any provider.
+
+    This answers the two questions a prompt edit raises, and keeps them apart
+    because they have different costs: a chat stage whose ``stage_src`` changed
+    re-calls once per stored manifest, while page art repaints only when the new
+    plan bytes actually differ (the render key does not carry the plan key).
+    """
+    from core.comic.migrate import check_recompute
+
+    if not (root / "state.json").exists() and not (root / "index").is_dir():
+        if as_json:
+            print(json.dumps({"out": str(root), "error": "no project"}, ensure_ascii=False))
+        else:
+            print(f"{root}: 没有 state.json 也没有 index/，不是项目目录。")
+        return 1
+
+    forecast = check_recompute(root)
+    if as_json:
+        print(
+            json.dumps(
+                {
+                    "out": str(root),
+                    "chat_calls": forecast.chat_calls,
+                    "local_redos": forecast.local_redos,
+                    "repaints": forecast.repaints,
+                    "pages": forecast.pages,
+                    "pages_reusable": forecast.pages_reusable,
+                    "stages": [
+                        {
+                            "stage": check.stage,
+                            "current": check.current,
+                            "stale": check.stale,
+                            "missing": check.missing,
+                        }
+                        for check in forecast.stages
+                        if check.current or check.stale or check.missing
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 0
+
+    print(f"{root}: 重算预言")
+    for check in forecast.stages:
+        if not (check.current or check.stale or check.missing):
+            continue
+        print(
+            f"  {check.stage}: 可复用 {check.current}，失效 {check.stale}，未记录 {check.missing}"
+        )
+    print(f"聊天调用：{forecast.chat_calls} 次")
+    if forecast.local_redos:
+        print(f"本地重做：{forecast.local_redos} 个（不消耗配额）")
+    print(
+        f"页面：{forecast.pages} 页中 {forecast.pages_reusable} 页可直接复用，"
+        f"最多重绘 {forecast.repaints} 页"
+    )
+    print("页面是否重绘取决于新计划的字节是否变化（render key 不含上游 plan key）。")
+    return 0
+
+
 def _run_migrate(args: argparse.Namespace) -> int:
     """migrate 子命令：检查或重写 manifest 到当前 schema（§6 升级路径）。"""
     from core.comic.migrate import apply_migrations, scan_manifests
     from core.pipelines.stage_registry import manifest_stages
 
     root = Path(args.out)
+    if getattr(args, "check", False):
+        return _run_migrate_check(root, as_json=args.json)
     report = scan_manifests(root, allowed_stages=manifest_stages())
     if not report.manifests:
         if args.json:

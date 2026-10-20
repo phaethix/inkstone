@@ -110,3 +110,148 @@ def apply_migrations(report: MigrationReport) -> int:
 def manifest_path_for(root: str | Path, key: str) -> Path:
     """Public helper for callers that need the canonical filename."""
     return manifest_path(Path(root), key)
+
+
+# Chat stages spend a provider call per miss; the remaining stages are local
+# deterministic work, so a stale ``letter`` manifest costs time but no quota.
+# Reporting them under one number would overstate the billable forecast.
+_CHAT_STAGES = frozenset({"extract", "bible", "beats", "page_plan", "storyboard", "page_script"})
+
+
+@dataclass
+class StageKeyCheck:
+    """Stored manifests for one stage, split by whether current code reuses them.
+
+    ``stale`` counts manifests whose recorded ``stage_src`` differs from what
+    current code computes: the key would differ, so the work is redone.
+    ``missing`` counts work that was never keyed at all.
+    """
+
+    stage: str
+    current: int = 0
+    stale: int = 0
+    missing: int = 0
+
+    @property
+    def recalculated(self) -> int:
+        return self.stale + self.missing
+
+    @property
+    def billable(self) -> bool:
+        return self.stage in _CHAT_STAGES
+
+
+@dataclass
+class RecomputeForecast:
+    """What a re-run would redo after a prompt or code change."""
+
+    stages: list[StageKeyCheck] = field(default_factory=list)
+    pages: int = 0
+    pages_reusable: int = 0
+
+    @property
+    def chat_calls(self) -> int:
+        """Billable calls: chat stages only. Local stages cost time, not quota."""
+        return sum(check.recalculated for check in self.stages if check.billable)
+
+    @property
+    def local_redos(self) -> int:
+        """Deterministic stages that redo without spending a provider call."""
+        return sum(check.recalculated for check in self.stages if not check.billable)
+
+    @property
+    def repaints(self) -> int:
+        return self.pages - self.pages_reusable
+
+
+# A manifest records the ``stage_src`` hash its key was built with, so current
+# code can be compared against what the file actually claims. This is a
+# provable comparison, unlike re-deriving a whole key: it needs no harness, no
+# model label, and no declared inputs, so it cannot become a second derivation
+# path. Each entry maps a stage to the module-level source-hash constant the
+# pipeline uses for that stage.
+_STAGE_SRC_CONSTANTS = {
+    "extract": "_EXTRACT_STAGE_SRC",
+    "bible": "_BIBLE_STAGE_SRC",
+    "beats": "_BEATS_STAGE_SRC",
+    "page_plan": "_PAGE_PLAN_STAGE_SRC",
+    "storyboard": "_STORYBOARD_STAGE_SRC",
+    "page_script": "_PAGE_SCRIPT_STAGE_SRC",
+    "render.page": "_RENDER_PAGE_STAGE_SRC",
+    "render.panel": "_RENDER_PANEL_STAGE_SRC",
+    "portrait": "_PORTRAIT_STAGE_SRC",
+    "letter": "_LETTER_STAGE_SRC",
+    "layout": "_LAYOUT_STAGE_SRC",
+    "export": "_EXPORT_STAGE_SRC",
+}
+
+
+def _current_stage_src(stage: str) -> str | None:
+    """The source hash current code would key ``stage`` with, if known."""
+    from core.pipelines import creative_comic
+
+    name = _STAGE_SRC_CONSTANTS.get(stage)
+    if name is None:
+        return None
+    return getattr(creative_comic, name, None)
+
+
+def check_recompute(root: str | Path) -> RecomputeForecast:
+    """Predict a re-run's billable cost from stored manifests, without any provider.
+
+    This is the ``migrate --check`` half of the prompt-harness migration note
+    (T-05). It deliberately does **not** re-derive keys: that would need the
+    harness, the model label, and every declared input, and a second derivation
+    path is the drift this migration exists to remove. It compares two things
+    the stored files can prove on their own:
+
+    * A manifest whose recorded ``stage_src`` differs from the hash current code
+      computes was keyed by different stage code, so it misses by construction.
+    * Stage work with no manifest and no stored key was never keyed, so it will
+      call once.
+
+    Page art is reported separately, because a chat re-plan does not force a
+    repaint unless the plan bytes change: the render key does not include the
+    upstream plan key (§4).
+    """
+    from core.comic.cas import load_manifest
+
+    root = Path(root)
+    forecast = RecomputeForecast()
+    by_stage: dict[str, StageKeyCheck] = {}
+    for stage in _STAGE_SRC_CONSTANTS:
+        check = StageKeyCheck(stage=stage)
+        by_stage[stage] = check
+        forecast.stages.append(check)
+
+    index = root / "index"
+    if index.is_dir():
+        for path in sorted(index.glob("*.json")):
+            try:
+                manifest = load_manifest(root, f"sha256:{path.stem}")
+            except (OSError, ValueError):
+                continue
+            if manifest is None:
+                continue
+            check = by_stage.get(manifest.stage)
+            if check is None:
+                continue
+            current = _current_stage_src(manifest.stage)
+            if current is not None and manifest.stage_src and manifest.stage_src != current:
+                check.stale += 1
+            else:
+                check.current += 1
+
+    state_path = root / "state.json"
+    if state_path.exists():
+        from core.schemas import ProjectState
+
+        state = ProjectState.load(state_path)
+        for pageset in state.page_cache.values():
+            if not pageset.action_key:
+                by_stage["page_plan"].missing += 1
+        for page_key in state.generated.pages:
+            forecast.pages += 1
+            if page_key in state.pages_done:
+                forecast.pages_reusable += 1
+    return forecast
