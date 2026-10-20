@@ -177,8 +177,10 @@ overwrites the builtin tree.
 
 The local Web UI has an **A/B** tab for the same experiments: it lists the
 packets under `INKSTONE_EXPERIMENTS_DIR` (default `comic_out/experiments`),
-shows both plans and structure reports with the labels hidden, and records your
-pick plus a required `why`.
+shows both plans and structure reports with the labels hidden, records your
+pick plus a required `why`, and can compose the picked harness into
+`<experiment>/adopted/` (optionally merging `stage.page_plan` from the other
+candidate). The server fixes that output path; the browser never chooses it.
 
 ## Configuration
 

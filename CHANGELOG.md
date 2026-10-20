@@ -43,7 +43,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   anonymised plans plus their structure reports, keeps candidate labels hidden,
   and records a pick with a required `why` through
   `POST /api/experiment/<id>/pick`. The same `selection.json` writer is used by
-  the CLI. `GET /api/experiments` and `GET /api/experiment/<id>` back the page.
+  the CLI. After a pick, the card also composes the chosen tree into
+  `<experiment>/adopted/` through `POST /api/experiment/<id>/compose`, with an
+  optional `stage.page_plan` merge from the other candidate; the output path is
+  fixed by the server, never chosen by the browser. `GET /api/experiments` and
+  `GET /api/experiment/<id>` back the page.
 - Planning-only blind A/B: `inkstone experiment plan --book ... --candidate base
   --candidate <harness-dir> ...` runs extract + beats once, then only the
   page-plan request under each candidate (no image calls), anonymises the

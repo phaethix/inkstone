@@ -67,6 +67,12 @@ Keep these prototypes only as migration material until they conform to the targe
 
 ### P0 — Make the current state honest and deterministic
 
+- **Local (2026-10-20, `main`):** Web compose button. The A/B card composes the
+  picked tree into `<experiment>/adopted/` via
+  `POST /api/experiment/<id>/compose`, with an optional `stage.page_plan` merge
+  from the other candidate. The browser cannot choose the output path; the
+  server fixes it under the experiment. Regression:
+  `tests/test_web_server.py`.
 - **Local (2026-10-20, `main`):** Candidate-level A/B + compose. The default
   experiment now runs extract/beats/page_plan under each candidate;
   `--shared-evidence` keeps the cheaper page_plan-only probe.
