@@ -1049,30 +1049,31 @@ def _letter_page_from_blank(
         key, env, plan_json = _letter_key(
             blank_path.read_bytes(), plan, source_text, resolved_size=resolved_size
         )
-        recorded = read_manifest_entry(root, key, stage="letter")
-        if recorded is not None and recorded.outcome != "ok":
-            return
-        cached = stored_output(root, key, stage="letter")
-        if cached is not None:
-            local_path.parent.mkdir(parents=True, exist_ok=True)
-            local_path.write_bytes(cached)
-            return
-    with Image.open(blank_path) as blank:
-        lettered = letter_finished_page(blank, plan, source_text=source_text)
-    local_path.parent.mkdir(parents=True, exist_ok=True)
-    lettered.save(local_path)
+
+    def _letter() -> list[tuple[str, bytes]]:
+        with Image.open(blank_path) as blank:
+            lettered = letter_finished_page(blank, plan, source_text=source_text)
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        lettered.save(local_path)
+        return [(local_path.name, local_path.read_bytes())]
+
     if root is None:
+        _letter()
         return
-    record_ok(
+    run = run_stage(
         root,
-        key=key,
-        stage="letter",
+        "letter",
+        key,
+        _letter,
         stage_src=_LETTER_STAGE_SRC,
         env=env,
         inputs=letter_inputs(blank_path.read_bytes(), plan_json),
-        name=local_path.name,
-        data=local_path.read_bytes(),
     )
+    if run.tombstoned or not run.files:
+        return
+    if run.replayed:
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        local_path.write_bytes(run.files[0][1])
 
 
 def _bound_image_size(blobs: list[bytes]) -> str | None:
@@ -1108,25 +1109,25 @@ def _export_pdf_with_manifest(pages_dir: Path, output_dir: Path) -> str:
         env=env,
         stage_src=_EXPORT_STAGE_SRC,
     )
-    recorded = read_manifest_entry(output_dir, key, stage="export")
-    if recorded is not None and recorded.outcome != "ok":
-        return str(out)
-    cached = stored_output(output_dir, key, stage="export")
-    if cached is not None:
-        out.write_bytes(cached)
-        return str(out)
-    pdf = ExportEngine().export_pdf(pages_dir, out=str(out))
-    record_ok(
+
+    def _bind() -> list[tuple[str, bytes]]:
+        pdf = ExportEngine().export_pdf(pages_dir, out=str(out))
+        return [(out.name, Path(pdf).read_bytes())]
+
+    run = run_stage(
         output_dir,
-        key=key,
-        stage="export",
+        "export",
+        key,
+        _bind,
         stage_src=_EXPORT_STAGE_SRC,
         env=env,
         inputs=export_inputs(blobs),
-        name=out.name,
-        data=Path(pdf).read_bytes(),
     )
-    return pdf
+    if run.tombstoned or not run.files:
+        return str(out)
+    if run.replayed:
+        out.write_bytes(run.files[0][1])
+    return str(out)
 
 
 def _export_cbz_with_manifest(pages_dir: Path, output_dir: Path) -> str:
@@ -1144,25 +1145,25 @@ def _export_cbz_with_manifest(pages_dir: Path, output_dir: Path) -> str:
         env=env,
         stage_src=_CBZ_STAGE_SRC,
     )
-    recorded = read_manifest_entry(output_dir, key, stage="export")
-    if recorded is not None and recorded.outcome != "ok":
-        return str(out)
-    cached = stored_output(output_dir, key, stage="export")
-    if cached is not None:
-        out.write_bytes(cached)
-        return str(out)
-    cbz = ExportEngine().export_cbz(pages_dir, out=str(out))
-    record_ok(
+
+    def _bind() -> list[tuple[str, bytes]]:
+        cbz = ExportEngine().export_cbz(pages_dir, out=str(out))
+        return [(out.name, Path(cbz).read_bytes())]
+
+    run = run_stage(
         output_dir,
-        key=key,
-        stage="export",
+        "export",
+        key,
+        _bind,
         stage_src=_CBZ_STAGE_SRC,
         env=env,
         inputs=export_inputs(blobs),
-        name=out.name,
-        data=Path(cbz).read_bytes(),
     )
-    return cbz
+    if run.tombstoned or not run.files:
+        return str(out)
+    if run.replayed:
+        out.write_bytes(run.files[0][1])
+    return str(out)
 
 
 def _panel_png_bytes(panel: PanelImage) -> bytes:
@@ -1220,9 +1221,10 @@ def _export_webtoon_with_manifest(
         return [str(out)]
     if not run.files:
         return []
-    pages_dir.mkdir(parents=True, exist_ok=True)
-    for name, data in run.files:
-        (pages_dir / Path(name).name).write_bytes(data)
+    if run.replayed:
+        pages_dir.mkdir(parents=True, exist_ok=True)
+        for name, data in run.files:
+            (pages_dir / Path(name).name).write_bytes(data)
     return [str(out)]
 
 
@@ -1292,7 +1294,8 @@ def _layout_pages_with_manifest(
     restored: list[str] = []
     for name, data in run.files:
         dest = pages_dir / Path(name).name
-        dest.write_bytes(data)
+        if run.replayed:
+            dest.write_bytes(data)
         restored.append(str(dest))
     _drop_stale_panel_sheets(pages_dir, restored)
     return restored
