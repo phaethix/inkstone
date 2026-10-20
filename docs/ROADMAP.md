@@ -67,13 +67,18 @@ Keep these prototypes only as migration material until they conform to the targe
 
 ### P0 — Make the current state honest and deterministic
 
+- **Local (2026-10-20, `main`):** D-19 + D-22. `INKSTONE_PDF_BATCH` now lives in
+  `core.config` (`ENV_PDF_BATCH` / `pdf_batch_size()`), is registered in
+  `ALL_ENV_VARS`, and is excluded from `h_env` as a memory-only knob. Scheduler
+  docs now state the real split: the plan pass is graph-driven, while render and
+  export are graph-validated and sequentially dispatched. This closes the
+  review's remaining documentation/config items.
 - **Local (2026-10-20, `main`):** D-17 + D-23. The resolved font digest is now
   cached by path + mtime + size, removing the render path's repeated
   multi-megabyte font reads. Atomic writes share `core/comic/atomic.py`: new
   files get the process umask, existing modes are preserved, the parent
   directory is fsynced, and the temp fd cannot leak. Regression:
-  `tests/test_fonts.py`, `tests/test_atomic.py`. Remaining from the review:
-  D-19 / D-22 documentation-and-config cleanup.
+  `tests/test_fonts.py`, `tests/test_atomic.py`.
 - **Local (2026-10-20, `main`):** `INKSTONE_HARNESS=0` one-release fallback.
   It forces the builtin tree, ignores the harness dir, forces `general` genre,
   and disables craft lessons; the review manifest records
@@ -221,10 +226,13 @@ Keep these prototypes only as migration material until they conform to the targe
   fingerprint.
 - [x] Phase 3 scheduler. A run plans every chunk before it draws a page or a
   panel. The page count comes from that plan pass. An ephemeral two-phase work
-  graph now dispatches planning, expands render nodes from the plans (one
-  chained node per finished page; positional panel nodes with continuity, or
-  one bounded-concurrency batch per chunk without it), and schedules export
-  finalization only after every render node completed.
+  graph drives the planning pass; render and export use the same graph as a
+  validation layer (assertions, the export gate, and the final outstanding
+  check) while keeping their existing deterministic dispatch order. Render
+  nodes are expanded from the plans (one chained node per finished page;
+  positional panel nodes with continuity, or one bounded-concurrency batch per
+  chunk without it); export finalization is gated on every render node
+  completing.
 
 ### P0 — Content-addressed pipeline migration (0a-0h)
 
@@ -263,10 +271,11 @@ Per the [content-addressed pipeline design](architecture/2026-09-28-content-addr
 - **Local (2026-10-19, `main`):** Two-phase ephemeral scheduler foundation.
   `core/pipelines/stage_scheduler.py` validates the in-memory plan/render/export
   graph and selects ready nodes in deterministic order. `creative_comic` drives
-  the plan pass, finished-page rendering, both panel-compose modes, and export
-  finalization through that graph. Plan nodes remain composite (one per chunk);
-  plan-cache relocation, per-stage runners, legacy-fingerprint removal, and
-  action-key changes remain incomplete migration work.
+  the plan pass through that graph; finished-page rendering, both panel-compose
+  modes, and export finalization are validated against it but keep their
+  deterministic sequential dispatch. Plan nodes remain composite (one per
+  chunk); plan-cache relocation, per-stage runners, legacy-fingerprint removal,
+  and action-key changes remain incomplete migration work.
 - **Local (2026-10-18, `main`):** Finished-page
   artifact projection now restores page and blank bytes from verified
   `render.page` / `letter` manifests; PDF, CBZ, Webtoon, and layout export

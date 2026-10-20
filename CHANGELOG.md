@@ -121,6 +121,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   contain those phrases.
 
 ### Fixed
+- D-19: `INKSTONE_PDF_BATCH` moved into `core.config` as `ENV_PDF_BATCH` /
+  `pdf_batch_size()`, so it is registered in `ALL_ENV_VARS` and visible to
+  the registry test. It is excluded from `h_env`: it bounds peak memory and
+  does not change output bytes. `core/comic/export.py` delegates to it.
+- D-22: scheduler documentation corrected. The plan pass is graph-driven;
+  render and export use the graph as a validation layer (assertions, export
+  gate, outstanding check) while keeping deterministic sequential dispatch.
 - D-17: `resolved_font_digest` caches by resolved path + `mtime_ns` + size,
   so a page no longer re-reads and SHA-256s a multi-megabyte CJK font 2–4
   times. A changed font file changes the key; `reset_caches()` clears it.

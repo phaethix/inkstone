@@ -1,5 +1,10 @@
 """Ephemeral dependency graph for the comic pipeline stages.
 
+The planning pass is driven by ``ready()``. Render and export use the same
+graph as a validation layer (assertions, the export gate, and the final
+outstanding check) while keeping their deterministic sequential dispatch, so a
+scheduler node id never becomes a persisted key.
+
 This module intentionally has no dependency on pipeline execution, persistence,
 providers, or action-key derivation.
 """
