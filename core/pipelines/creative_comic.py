@@ -30,19 +30,8 @@ from functools import partial
 from pathlib import Path
 from typing import TypeVar
 
-from pydantic import BaseModel
-
-try:
-    import fcntl
-except ImportError:  # pragma: no cover - exercised only on Windows
-    fcntl = None
-
-try:
-    import msvcrt
-except ImportError:  # pragma: no cover - exercised only outside Windows
-    msvcrt = None
-
 from PIL import Image
+from pydantic import BaseModel
 
 from core.api import get_chat_provider, get_image_provider
 from core.comic.adaptation import (
@@ -119,6 +108,7 @@ from core.comic.lettering_lang import (
     strip_pinyin_glosses,
     truncate_lettering,
 )
+from core.comic.locks import exclusive_lock
 from core.comic.page_lettering import (
     LETTERING_VERSION,
     _avoid_overlap,
@@ -949,6 +939,20 @@ def _page_plan_key(
     )
 
 
+def _stamp_action_key(state: ProjectState, state_path: Path, target, key: str) -> bool:
+    """Stamp a cached plan's missing action key and persist it immediately.
+
+    A resume path changes only this stamp. Waiting for the end-of-run save
+    loses it on a budget/continuity pause or a crash, and the next resume
+    re-derives it. Persist at the mutation, as storyboard already does.
+    """
+    if target is None or target.action_key:
+        return False
+    target.action_key = key
+    state.save(state_path)
+    return True
+
+
 def _letter_key(
     blank: bytes,
     plan: ComicPagePlan,
@@ -1289,32 +1293,14 @@ def _asset_path(root: Path, directory: str, identifier: str) -> Path:
 
 @contextmanager
 def _project_lock(output_dir: Path):
-    """Ensure one POSIX process mutates a project's state and assets at a time."""
+    """Ensure one process mutates a project's state and assets at a time."""
     output_dir.mkdir(parents=True, exist_ok=True)
-    lock_path = output_dir / ".inkstone.lock"
-    with lock_path.open("a+") as lock_file:
-        if fcntl is not None:
-            try:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError as exc:
-                raise RuntimeError(f"project is already running: {output_dir}") from exc
-        elif msvcrt is not None:  # pragma: no cover - exercised only on Windows
-            lock_file.seek(0)
-            lock_file.write("0")
-            lock_file.flush()
-            lock_file.seek(0)
-            try:
-                msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
-            except OSError as exc:
-                raise RuntimeError(f"project is already running: {output_dir}") from exc
-        try:
-            yield
-        finally:
-            if fcntl is not None:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-            elif msvcrt is not None:  # pragma: no cover - exercised only on Windows
-                lock_file.seek(0)
-                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+    with exclusive_lock(
+        output_dir / ".inkstone.lock",
+        blocking=False,
+        busy_message=f"project is already running: {output_dir}",
+    ):
+        yield
 
 
 def _setting_of(elements: StoryElements, ref: str | None):
@@ -2543,8 +2529,8 @@ async def _creative_comic(
                     if cached_beats.action_key and cached_beats.action_key != beats_key:
                         state.beat_cache.pop(key, None)
                         pageset = None
-                    elif not cached_beats.action_key:
-                        cached_beats.action_key = beats_key
+                    else:
+                        _stamp_action_key(state, state_path, cached_beats, beats_key)
                 # The recent layout strings and the bible body are accumulated
                 # context: they must not cascade a key through the rest of the
                 # book. The key request pins them out; the sent request keeps them.
@@ -2567,8 +2553,8 @@ async def _creative_comic(
                 if pageset is not None:
                     if pageset.action_key and pageset.action_key != plan_key:
                         pageset = None
-                    elif not pageset.action_key:
-                        pageset.action_key = plan_key
+                    else:
+                        _stamp_action_key(state, state_path, pageset, plan_key)
                 if pageset is None:
                     state.stage = "page_plan"
                     try:

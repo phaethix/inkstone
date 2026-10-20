@@ -25,13 +25,18 @@ a pause at an unchanged boundary key appends no second stop record (§6).
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+from core.comic.locks import exclusive_lock
+
+logger = logging.getLogger(__name__)
 
 # One call, once the budget is large enough to spare it. A one-call budget
 # withholds nothing: there is no later retry to protect.
@@ -193,6 +198,40 @@ def _append_jsonl(path: Path, record: dict) -> None:
         os.fsync(handle.fileno())
 
 
+def _quarantine(path: Path) -> Path:
+    """Move a corrupt shared file aside so it is preserved, not overwritten."""
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+    target = path.with_name(f"{path.name}.corrupt-{stamp}")
+    try:
+        path.replace(target)
+    except OSError:
+        return path
+    return target
+
+
+def _read_budget(path: Path, *, audit_path: Path | None = None) -> BudgetFile:
+    """Read the shared account; a corrupt file is quarantined, not fatal."""
+    if not path.is_file():
+        return BudgetFile()
+    try:
+        return BudgetFile.model_validate_json(path.read_text(encoding="utf-8"))
+    except (ValidationError, json.JSONDecodeError) as exc:
+        quarantined = _quarantine(path)
+        logger.warning("corrupt budget at %s (%s); rebuilding", path, exc)
+        if audit_path is not None:
+            _append_jsonl(
+                audit_path,
+                {
+                    "kind": "recover",
+                    "file": str(path),
+                    "quarantined": str(quarantined),
+                    "error": type(exc).__name__,
+                    "ts": _now_iso(),
+                },
+            )
+        return BudgetFile()
+
+
 class BudgetSession:
     """Checks and commits one run's billable calls against its reservation."""
 
@@ -231,50 +270,52 @@ class BudgetSession:
         out = Path(output_dir)
         day = today or _today()
         path = data / "budget.json"
-        if path.is_file():
-            store = BudgetFile.model_validate_json(path.read_text(encoding="utf-8"))
-        else:
-            store = BudgetFile()
-
-        project = store.projects.get(project_id)
-        if project is None:
-            project = ProjectBudget(
-                total=spec.total,
-                recovery_reserve=spec.recovery_reserve,
-                carry_over=spec.carry_over,
-                day=day,
-                granted=dict(spec.reservations),
+        data.mkdir(parents=True, exist_ok=True)
+        with exclusive_lock(data / ".budget.lock"):
+            store = _read_budget(path, audit_path=out / "runs.jsonl")
+            project = store.projects.get(project_id)
+            if project is None:
+                project = ProjectBudget(
+                    total=spec.total,
+                    recovery_reserve=spec.recovery_reserve,
+                    carry_over=spec.carry_over,
+                    day=day,
+                    granted=dict(spec.reservations),
+                )
+            else:
+                # The switch on *this* invocation decides the new day. Yesterday's
+                # stored flag must not block an explicit --carry-over, and today's
+                # flag must not mint a second allowance before midnight.
+                if day != project.day and spec.carry_over:
+                    project.spent = {}
+                    project.paused_key = None
+                    project.day = day
+                project.total = spec.total
+                project.recovery_reserve = spec.recovery_reserve
+                project.carry_over = spec.carry_over
+                project.granted = dict(spec.reservations)
+            store.projects[project_id] = project
+            session = cls(
+                data_dir=data,
+                output_dir=out,
+                project_id=project_id,
+                store=store,
+                project=project,
             )
-        else:
-            # The switch on *this* invocation decides the new day. Yesterday's
-            # stored flag must not block an explicit --carry-over, and today's
-            # flag must not mint a second allowance before midnight.
-            if day != project.day and spec.carry_over:
-                project.spent = {}
-                project.paused_key = None
-                project.day = day
-            project.total = spec.total
-            project.recovery_reserve = spec.recovery_reserve
-            project.carry_over = spec.carry_over
-            project.granted = dict(spec.reservations)
-        store.projects[project_id] = project
-        session = cls(
-            data_dir=data,
-            output_dir=out,
-            project_id=project_id,
-            store=store,
-            project=project,
-        )
-        session._save()
+            session._save()
         return session
 
     def charge(self, stage: str, item_key: str) -> None:
         """Commit one call, or pause at ``item_key`` without issuing it."""
-        if not self._allowed(stage):
-            self._pause(stage, item_key)
-        self._project.spent[stage] = self._project.spent.get(stage, 0) + 1
-        self._project.paused_key = None
-        self._save()
+        with exclusive_lock(self.data_dir / ".budget.lock"):
+            # Another project may have charged since this session opened. Adopt
+            # its spent/paused view before deciding, so the update is not lost.
+            self._refresh()
+            if not self._allowed(stage):
+                self._pause(stage, item_key)
+            self._project.spent[stage] = self._project.spent.get(stage, 0) + 1
+            self._project.paused_key = None
+            self._save()
         _append_jsonl(
             self.data_dir / "quota.jsonl",
             {
@@ -284,6 +325,18 @@ class BudgetSession:
                 "key": item_key,
             },
         )
+
+    def _refresh(self) -> None:
+        """Re-read the shared file under the lock; keep this run's reservation."""
+        store = _read_budget(
+            self.data_dir / "budget.json",
+            audit_path=self.output_dir / "runs.jsonl",
+        )
+        latest = store.projects.get(self.project_id)
+        if latest is not None:
+            self._project.spent = dict(latest.spent)
+            self._project.paused_key = latest.paused_key
+        self._store = store
 
     def _allowed(self, stage: str) -> bool:
         spent = sum(self._project.spent.values())
@@ -314,6 +367,7 @@ class BudgetSession:
         )
 
     def _save(self) -> None:
+        self._store.projects[self.project_id] = self._project
         _atomic_write(
             self.data_dir / "budget.json",
             self._store.model_dump_json(indent=2),

@@ -20,12 +20,17 @@ appends no second stop record (§6).
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+from core.comic.locks import exclusive_lock
+
+logger = logging.getLogger(__name__)
 
 SAMPLE_GATE_SIZE = 30
 PHI = 1.618
@@ -178,6 +183,40 @@ def _normalize_choice(choice: str) -> str:
     return choice.strip().lower().replace("-", "_")
 
 
+def _quarantine(path: Path) -> Path:
+    """Move a corrupt shared gate aside so it is preserved, not overwritten."""
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+    target = path.with_name(f"{path.name}.corrupt-{stamp}")
+    try:
+        path.replace(target)
+    except OSError:
+        return path
+    return target
+
+
+def _read_gate(path: Path, *, audit_path: Path | None = None) -> GateFile:
+    """Read a gate file; a corrupt file is quarantined, not fatal."""
+    if not path.is_file():
+        return GateFile()
+    try:
+        return GateFile.model_validate_json(path.read_text(encoding="utf-8"))
+    except (ValidationError, json.JSONDecodeError) as exc:
+        quarantined = _quarantine(path)
+        logger.warning("corrupt sample gate at %s (%s); rebuilding", path, exc)
+        if audit_path is not None:
+            _append_jsonl(
+                audit_path,
+                {
+                    "kind": "recover",
+                    "file": str(path),
+                    "quarantined": str(quarantined),
+                    "error": type(exc).__name__,
+                    "ts": _now_iso(),
+                },
+            )
+        return GateFile()
+
+
 class GateSession:
     """Decides which pages may render, and records the human's answer."""
 
@@ -197,6 +236,10 @@ class GateSession:
         self._store = store
         self.project = project
         self._path = path
+        # All writers for this project's data directory share one lock, even
+        # when the gate record itself lives in the project directory.
+        root = data_dir if data_dir is not None else output_dir
+        self._lock_path = root / ".gate.lock"
 
     @staticmethod
     def _path_for(data_dir: Path | None, output_dir: Path) -> Path:
@@ -205,11 +248,55 @@ class GateSession:
         root = data_dir if data_dir is not None else output_dir
         return root / "gate.json"
 
+    @staticmethod
+    def _candidate_paths(data_dir: Path | None, output_dir: Path) -> list[Path]:
+        """Every place a project's gate may live, shared first.
+
+        The pipeline writes a project-local gate when no data dir is supplied;
+        the CLI and GC read the shared file. Searching both keeps the reader
+        and the writer on the same record without changing test isolation.
+        """
+        paths: list[Path] = []
+        if data_dir is not None:
+            paths.append(data_dir / "gate.json")
+        paths.append(output_dir / "gate.json")
+        seen: set[Path] = set()
+        out: list[Path] = []
+        for path in paths:
+            resolved = path.resolve()
+            if resolved not in seen:
+                seen.add(resolved)
+                out.append(path)
+        return out
+
     @classmethod
-    def _read(cls, path: Path) -> GateFile:
-        if path.is_file():
-            return GateFile.model_validate_json(path.read_text(encoding="utf-8"))
-        return GateFile()
+    def _read(cls, path: Path, *, audit_path: Path | None = None) -> GateFile:
+        return _read_gate(path, audit_path=audit_path)
+
+    @classmethod
+    def _load_existing(
+        cls,
+        *,
+        data_dir: Path | None,
+        output_dir: Path,
+        project_id: str,
+    ) -> GateSession | None:
+        for path in cls._candidate_paths(data_dir, output_dir):
+            if not path.is_file():
+                continue
+            store = cls._read(path, audit_path=output_dir / "runs.jsonl")
+            project = store.projects.get(project_id)
+            if project is None:
+                continue
+            return cls(
+                data_dir=data_dir,
+                output_dir=output_dir,
+                project_id=project_id,
+                store=store,
+                project=project,
+                path=path,
+            )
+        return None
 
     @classmethod
     def load(
@@ -222,21 +309,7 @@ class GateSession:
         """Return the stored gate, or ``None`` when this project has none."""
         out = Path(output_dir)
         data = Path(data_dir) if data_dir is not None else None
-        path = cls._path_for(data, out)
-        if not path.is_file():
-            return None
-        store = cls._read(path)
-        project = store.projects.get(project_id)
-        if project is None:
-            return None
-        return cls(
-            data_dir=data,
-            output_dir=out,
-            project_id=project_id,
-            store=store,
-            project=project,
-            path=path,
-        )
+        return cls._load_existing(data_dir=data, output_dir=out, project_id=project_id)
 
     @classmethod
     def open(
@@ -259,31 +332,38 @@ class GateSession:
         out = Path(output_dir)
         data = Path(data_dir) if data_dir is not None else None
         path = cls._path_for(data, out)
-        store = cls._read(path)
-        project = store.projects.get(project_id)
-        if project is None:
-            project = ProjectGate(sample_size=sample_size)
-            store.projects[project_id] = project
-        session = cls(
-            data_dir=data,
-            output_dir=out,
-            project_id=project_id,
-            store=store,
-            project=project,
-            path=path,
-        )
-        if yes and not project.yes:
-            project.yes = True
-            project.paused_key = None
-            session._append(
-                {
-                    "kind": "gate",
-                    "yes": True,
-                    "ts": _now_iso(),
-                }
-            )
-            session._save()
-        return session
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lock_root = data if data is not None else out
+        with exclusive_lock(lock_root / ".gate.lock"):
+            session = cls._load_existing(data_dir=data, output_dir=out, project_id=project_id)
+            if session is None:
+                store = cls._read(path, audit_path=out / "runs.jsonl")
+                project = ProjectGate(sample_size=sample_size)
+                store.projects[project_id] = project
+                session = cls(
+                    data_dir=data,
+                    output_dir=out,
+                    project_id=project_id,
+                    store=store,
+                    project=project,
+                    path=path,
+                )
+                # Persist the new gate immediately: a budget or continuity
+                # pause before the first page must not lose the configured
+                # sample size.
+                session._save()
+            if yes and not session.project.yes:
+                session.project.yes = True
+                session.project.paused_key = None
+                session._append(
+                    {
+                        "kind": "gate",
+                        "yes": True,
+                        "ts": _now_iso(),
+                    }
+                )
+                session._save()
+            return session
 
     @property
     def awaiting(self) -> bool:
@@ -301,25 +381,27 @@ class GateSession:
         the run has finished the sample, so a later chunk can still take the
         reserved seat.
         """
-        if self.project.yes or self.project.released:
+        with exclusive_lock(self._lock_path):
+            self._refresh()
+            if self.project.yes or self.project.released:
+                return True
+            decision = self.project.decisions.get(key)
+            if decision is not None and decision.choice == "redraw":
+                return True
+            if key in self.project.sample_keys:
+                return True
+            beyond = _beyond_sample(
+                self.project.sample_keys,
+                chunk_index,
+                total_chunks,
+                self.project.sample_size,
+            )
+            if beyond:
+                self._hold(key)
+                return False
+            self.project.sample_keys.append(key)
+            self._save()
             return True
-        decision = self.project.decisions.get(key)
-        if decision is not None and decision.choice == "redraw":
-            return True
-        if key in self.project.sample_keys:
-            return True
-        beyond = _beyond_sample(
-            self.project.sample_keys,
-            chunk_index,
-            total_chunks,
-            self.project.sample_size,
-        )
-        if beyond:
-            self._hold(key)
-            return False
-        self.project.sample_keys.append(key)
-        self._save()
-        return True
 
     def record(
         self,
@@ -338,14 +420,16 @@ class GateSession:
         normalized = _normalize_choice(choice)
         if normalized not in _CHOICES:
             raise ValueError(f"unknown gate decision: {choice}")
-        if key not in self.project.sample_keys:
-            raise ValueError(f"{key} is not in the sample")
-        self.project.decisions[key] = PageDecision(choice=normalized, reason_tier=reason_tier)
-        if normalized == "redraw" and state is not None and key not in state.stale_pages:
-            state.stale_pages.append(key)
-        self._close_sample(chapter_pages)
-        self._save()
-        return self.project
+        with exclusive_lock(self._lock_path):
+            self._refresh()
+            if key not in self.project.sample_keys:
+                raise ValueError(f"{key} is not in the sample")
+            self.project.decisions[key] = PageDecision(choice=normalized, reason_tier=reason_tier)
+            if normalized == "redraw" and state is not None and key not in state.stale_pages:
+                state.stale_pages.append(key)
+            self._close_sample(chapter_pages)
+            self._save()
+            return self.project
 
     def _close_sample(self, chapter_pages: int | None) -> None:
         keys = self.project.sample_keys
@@ -385,6 +469,14 @@ class GateSession:
             tier = decision.reason_tier or "page"
             tiers[tier] = tiers.get(tier, 0) + 1
         return tiers
+
+    def _refresh(self) -> None:
+        """Re-read this project's gate under the lock; keep the newest record."""
+        store = _read_gate(self._path, audit_path=self.output_dir / "runs.jsonl")
+        latest = store.projects.get(self.project_id)
+        if latest is not None:
+            self.project = latest
+        self._store = store
 
     def _hold(self, key: str) -> None:
         if self.project.paused_key is None:
