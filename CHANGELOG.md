@@ -121,6 +121,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   contain those phrases.
 
 ### Fixed
+- D-13: the finished-page resume short-circuit no longer requires a visual
+  bible. A completed chunk is complete from its page records, the same
+  evidence the panel branch uses; a missing best-effort bible no longer
+  forces a full no-op traversal before the next chunk.
 - D-12: a new calendar day now advances `project.day` and clears the stored
   `paused_key` even without `--carry-over`; spent counts are reset only when
   carry-over is requested. A stale boundary can no longer suppress a new

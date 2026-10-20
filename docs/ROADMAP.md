@@ -67,6 +67,11 @@ Keep these prototypes only as migration material until they conform to the targe
 
 ### P0 — Make the current state honest and deterministic
 
+- **Local (2026-10-20, `main`):** D-13. The finished-page resume branch now
+  short-circuits on the same evidence as the panel branch and no longer requires
+  `visual_bible`. A best-effort bible failure cannot force a completed chunk
+  through a no-op page traversal. Regression:
+  `tests/test_finished_page_pipeline.py`.
 - **Local (2026-10-20, `main`):** D-12 + D-14. A new day advances the budget's
   stored `day`/`paused_key` even without carry-over (spent counts still reset
   only with carry-over), so a stale boundary cannot suppress the new day's stop
