@@ -627,7 +627,81 @@
         scroll-behavior: auto !important;
       }
     }
+
+    /* light theme + theme toggle */
+    .theme-toggle {
+      width: 34px; height: 34px; border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: rgba(255,255,255,0.04); color: var(--text);
+      border: 1px solid var(--border); cursor: pointer; font-size: 15px;
+      transition: background .2s, border-color .2s, transform .2s;
+    }
+    .theme-toggle:hover {
+      background: rgba(255,255,255,0.09); border-color: var(--border-strong);
+      transform: rotate(-12deg);
+    }
+    html[data-theme="light"] {
+      --bg: #f5f5f9;
+      --surface: #ffffff;
+      --surface-2: #f0f0f6;
+      --surface-hover: #e9e9f1;
+      --border: rgba(18, 18, 30, 0.10);
+      --border-strong: rgba(18, 18, 30, 0.22);
+      --text: #15151d;
+      --muted: #5d5d6b;
+      --dim: #8a8a98;
+      --accent: #5b5fe8;
+      --accent-2: #c44ba8;
+      --ring: 0 0 0 3px rgba(91, 95, 232, 0.25);
+      --shadow-soft: 0 24px 70px -46px rgba(20, 20, 40, 0.28);
+    }
+    html[data-theme="light"] body {
+      background:
+        radial-gradient(ellipse 65% 40% at 50% -8%, rgba(91, 95, 232, 0.14), transparent),
+        radial-gradient(ellipse 45% 30% at 92% 18%, rgba(196, 75, 168, 0.08), transparent),
+        radial-gradient(ellipse 40% 24% at 5% 65%, rgba(91, 95, 232, 0.07), transparent),
+        var(--bg);
+    }
+    html[data-theme="light"] nav { background: rgba(255, 255, 255, 0.78); }
+    html[data-theme="light"] .tab-bar { background: rgba(20, 20, 30, 0.04); }
+    html[data-theme="light"] .tab.active { color: #fff; }
+    html[data-theme="light"] .btn-primary {
+      background: #15151d; color: #fff;
+      box-shadow: 0 10px 30px -12px rgba(20, 20, 40, 0.45);
+    }
+    html[data-theme="light"] .btn-primary:hover {
+      box-shadow: 0 14px 36px -14px rgba(20, 20, 40, 0.55);
+    }
+    html[data-theme="light"] .btn-secondary,
+    html[data-theme="light"] .theme-toggle {
+      background: rgba(20, 20, 30, 0.04);
+    }
+    html[data-theme="light"] .eyebrow,
+    html[data-theme="light"] .exp-diff {
+      background: rgba(91, 95, 232, 0.06);
+    }
+    html[data-theme="light"] .page-chip { background: #fff; }
+    html[data-theme="light"] .toast { background: #fff; }
+    html[data-theme="light"] .badge.live {
+      color: #15803d; border-color: rgba(21, 128, 61, 0.25);
+      background: rgba(21, 128, 61, 0.08);
+    }
+    html[data-theme="light"] .badge.demo {
+      color: #4f46e5; border-color: rgba(79, 70, 229, 0.25);
+      background: rgba(79, 70, 229, 0.08);
+    }
+    html[data-theme="light"] .exp-plan,
+    html[data-theme="light"] .log,
+    html[data-theme="light"] .exp-why {
+      background: #fbfbfd;
+    }
   </style>
+  <script>
+    try {
+      const saved = localStorage.getItem("inkstone-theme");
+      if (saved === "light" || saved === "dark") document.documentElement.dataset.theme = saved;
+    } catch (e) {}
+  </script>
 </head>
 <body>
   <nav>
@@ -644,6 +718,7 @@
         <button class="tab" data-target="experiment">A/B</button>
       </div>
       <div class="nav-extra">
+        <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle light/dark theme" title="Toggle light/dark theme">☾</button>
         <span id="mode" class="badge">…</span>
         <a class="github-link" href="https://github.com/phaethix/inkstone" target="_blank" rel="noreferrer" aria-label="GitHub">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12Z"/></svg>
@@ -865,6 +940,24 @@
   <script>
     const $ = (id) => document.getElementById(id);
 
+    function currentTheme() {
+      return document.documentElement.dataset.theme === "light" ? "light" : "dark";
+    }
+    function applyTheme(theme) {
+      document.documentElement.dataset.theme = theme;
+      try { localStorage.setItem("inkstone-theme", theme); } catch (e) {}
+      const toggle = $("themeToggle");
+      if (toggle) {
+        toggle.textContent = theme === "light" ? "☀" : "☾";
+        toggle.setAttribute("aria-label", "Switch to " + (theme === "light" ? "dark" : "light") + " theme");
+        toggle.title = "Switch to " + (theme === "light" ? "dark" : "light") + " theme";
+      }
+    }
+    applyTheme(currentTheme());
+    $("themeToggle").addEventListener("click", () => {
+      applyTheme(currentTheme() === "light" ? "dark" : "light");
+    });
+
     const DEMO = {
       panels: [
         { id: "P01", url: "assets/samples/P01.png" },
@@ -971,13 +1064,14 @@
     let currentExperimentId = null;
     let currentSequenceId = null;
 
-    function expPlanText(plan) {
+    function expPlanText(plan, diffPages) {
       const pages = (plan && plan.pages) || [];
       if (!pages.length) return "(no pages)";
       return pages.map((page, index) => {
         const panels = page.panels || [];
         const dialogue = panels.reduce((n, panel) => n + ((panel.dialogue || []).length), 0);
-        return `Page ${index + 1}: ${page.purpose || "(no purpose)"}\n`
+        const marker = diffPages && diffPages.has(index) ? "◆ " : "  ";
+        return `${marker}Page ${index + 1}: ${page.purpose || "(no purpose)"}\n`
           + `  layout: ${page.layout_intent || ""}\n`
           + `  panels: ${panels.length}, dialogue: ${dialogue}`;
       }).join("\n\n");
@@ -991,9 +1085,9 @@
         + " · " + checks.map((check) => check.name + "=" + check.status).join(", ");
     }
 
-    function planComparison(candidates) {
+    function planDiffPages(candidates) {
       const ids = Object.keys(candidates || {}).sort();
-      if (ids.length < 2) return "";
+      if (ids.length < 2) return [];
       const left = candidates[ids[0]].plan || {};
       const right = candidates[ids[1]].plan || {};
       const leftPages = left.pages || [];
@@ -1013,6 +1107,15 @@
           });
         }
       }
+      return differences;
+    }
+
+    function planComparison(candidates) {
+      const ids = Object.keys(candidates || {}).sort();
+      if (ids.length < 2) return "";
+      const leftPages = (candidates[ids[0]].plan || {}).pages || [];
+      const rightPages = (candidates[ids[1]].plan || {}).pages || [];
+      const differences = planDiffPages(candidates);
       const details = differences.slice(0, 4).map((row) =>
         `<li>p${row.page}: ${esc(ids[0])} “${esc(row.a)}” · ${esc(ids[1])} “${esc(row.b)}”</li>`
       ).join("");
@@ -1020,6 +1123,7 @@
         <strong>${esc(ids[0])} vs ${esc(ids[1])}</strong> · pages ${leftPages.length}/${rightPages.length}
         · ${differences.length} page-level difference(s)
         ${details ? `<ul>${details}${differences.length > 4 ? "<li>…</li>" : ""}</ul>` : ""}
+        ${differences.length ? "<span style=\"opacity:.75;\">◆ marks a differing page below.</span>" : ""}
       </div>`;
     }
 
@@ -1040,6 +1144,7 @@
     }
 
     function candidateCards(candidates, selection, pickFn) {
+      const diffPages = new Set(planDiffPages(candidates).map((row) => row.page - 1));
       const cards = Object.values(candidates || {}).map((candidate) => {
         const label = candidate.label
           ? ' <span class="badge live">' + esc(candidate.label) + '</span>'
@@ -1052,7 +1157,7 @@
           <div class="exp-card">
             <h3>Candidate ${esc(candidate.id)}${label}</h3>
             <div class="exp-meta">${esc(candidate.harness_digest)} · ${esc(candidate.chat_calls)} chat</div>
-            <pre class="exp-plan">${esc(expPlanText(candidate.plan))}</pre>
+            <pre class="exp-plan">${esc(expPlanText(candidate.plan, diffPages))}</pre>
             <div class="exp-meta">${esc(expStructureText(candidate.structure))}</div>
             ${pick}
           </div>`;

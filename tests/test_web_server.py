@@ -1021,3 +1021,11 @@ def test_post_ledger_confirm_rejects_unknown_pages(tmp_path, monkeypatch):
         )
     assert status == 400
     assert "belong" in payload["error"]
+
+
+def test_index_html_has_theme_toggle_and_plan_diff_hooks():
+    html = (Path(server.__file__).resolve().parent / "index.html").read_text(encoding="utf-8")
+    assert 'id="themeToggle"' in html
+    assert "inkstone-theme" in html
+    assert "planDiffPages" in html
+    assert "◆ marks a differing page" in html
