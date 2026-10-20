@@ -490,6 +490,20 @@
     .page-chip:hover { border-color: var(--border-strong); color: var(--text); }
     .page-chip input { accent-color: var(--accent); margin: 0; }
     .ledger-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .exp-diff {
+      margin-top: 18px; padding: 12px 14px; border: 1px dashed var(--border-strong);
+      border-radius: 14px; background: rgba(124,127,242,0.05); color: var(--muted);
+      font-size: 12px; line-height: 1.6;
+    }
+    .exp-diff strong { color: var(--text); }
+    .exp-diff ul { margin: 6px 0 0 18px; padding: 0; }
+    .seq-timeline { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 0; }
+    .seq-step {
+      padding: 5px 10px; border: 1px solid var(--border); border-radius: 999px;
+      background: var(--bg); color: var(--muted); font-size: 11px;
+    }
+    .seq-step.done { color: #bbf7d0; border-color: rgba(134,239,172,0.35); }
+    .seq-step.current { color: var(--text); border-color: var(--accent); box-shadow: 0 0 0 1px rgba(124,127,242,0.25); }
     .toast {
       position: fixed; left: 50%; bottom: 26px; z-index: 120;
       transform: translate(-50%, 18px); opacity: 0; pointer-events: none;
@@ -868,8 +882,56 @@
         + " · " + checks.map((check) => check.name + "=" + check.status).join(", ");
     }
 
+    function planComparison(candidates) {
+      const ids = Object.keys(candidates || {}).sort();
+      if (ids.length < 2) return "";
+      const left = candidates[ids[0]].plan || {};
+      const right = candidates[ids[1]].plan || {};
+      const leftPages = left.pages || [];
+      const rightPages = right.pages || [];
+      const differences = [];
+      const count = Math.max(leftPages.length, rightPages.length);
+      for (let index = 0; index < count; index += 1) {
+        const a = leftPages[index] || {};
+        const b = rightPages[index] || {};
+        const aLayout = a.layout_intent || "";
+        const bLayout = b.layout_intent || "";
+        if (aLayout !== bLayout || (a.purpose || "") !== (b.purpose || "")) {
+          differences.push({
+            page: index + 1,
+            a: aLayout || "(none)",
+            b: bLayout || "(none)",
+          });
+        }
+      }
+      const details = differences.slice(0, 4).map((row) =>
+        `<li>p${row.page}: ${esc(ids[0])} “${esc(row.a)}” · ${esc(ids[1])} “${esc(row.b)}”</li>`
+      ).join("");
+      return `<div class="exp-diff">
+        <strong>${esc(ids[0])} vs ${esc(ids[1])}</strong> · pages ${leftPages.length}/${rightPages.length}
+        · ${differences.length} page-level difference(s)
+        ${details ? `<ul>${details}${differences.length > 4 ? "<li>…</li>" : ""}</ul>` : ""}
+      </div>`;
+    }
+
+    function sequenceTimeline(data) {
+      const total = Number(data.rounds || 0);
+      if (!total) return "";
+      const detail = new Map((data.rounds_detail || []).map((row) => [row.round, row]));
+      const current = Number(data.current_round || 1);
+      const steps = [];
+      for (let round = 1; round <= total; round += 1) {
+        const row = detail.get(round);
+        const done = (data.completed_rounds || []).includes(round) || data.status === "done";
+        const isCurrent = round === current && data.status !== "done";
+        const label = done ? "done" : (row && row.chosen ? "picked " + row.chosen : "awaiting pick");
+        steps.push(`<span class="seq-step ${done ? "done" : ""} ${isCurrent ? "current" : ""}">Round ${round} · ${esc(label)}</span>`);
+      }
+      return `<div class="seq-timeline">${steps.join("")}</div>`;
+    }
+
     function candidateCards(candidates, selection, pickFn) {
-      return Object.values(candidates || {}).map((candidate) => {
+      const cards = Object.values(candidates || {}).map((candidate) => {
         const label = candidate.label
           ? ' <span class="badge live">' + esc(candidate.label) + '</span>'
           : "";
@@ -886,6 +948,7 @@
             ${pick}
           </div>`;
       }).join("");
+      return cards;
     }
 
     async function loadExperiments() {
@@ -985,9 +1048,10 @@
             <button class="btn btn-secondary" onclick="loadExperiments()">← All experiments</button>
           </div>
           <p style="margin:16px 0 0;color:var(--muted);">Current checkpoint: <code>${esc(data.current_checkpoint || "base")}</code></p>
+          ${sequenceTimeline(data)}
           ${selection ? `<p style="margin:12px 0 0;color:var(--muted);">Picked ${esc(selection.chosen)} (${esc(selection.chosen_label)}): ${esc(selection.why)}</p>${advanceBlock}` : '<p style="margin:12px 0 0;color:var(--muted);">Read the current round, write why one is better, then pick. Advance composes the pick and plans the next round.</p><textarea id="expWhy" class="exp-why" placeholder="Why does this round read better? Cite a page or a layout choice."></textarea>'}
         </div>`;
-      detail.innerHTML = head + '<div class="exp-grid">' + cards + '</div>';
+      detail.innerHTML = head + planComparison(round.candidates) + '<div class="exp-grid">' + cards + '</div>';
     }
 
     async function pickSequence(choice) {
@@ -1067,7 +1131,7 @@
           </div>
           ${selection ? `<p style="margin:16px 0 0;color:var(--muted);">Picked ${esc(selection.chosen)} (${esc(selection.chosen_label)}): ${esc(selection.why)}</p>${composeBlock}` : '<p style="margin:16px 0 0;color:var(--muted);">Read both plans, write why one is better, then pick. The labels are revealed after the pick.</p><textarea id="expWhy" class="exp-why" placeholder="Why does this plan read better? Cite a page or a layout choice."></textarea>'}
         </div>`;
-      detail.innerHTML = head + '<div class="exp-grid">' + cards + '</div>';
+      detail.innerHTML = head + planComparison(data.candidates) + '<div class="exp-grid">' + cards + '</div>';
     }
 
     async function composeExperiment() {
