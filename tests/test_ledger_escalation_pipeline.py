@@ -10,7 +10,7 @@ import pytest
 from core.comic.ledger import ConsistencyLedger, ContinuityReviewPaused
 from core.pipelines.creative_comic import creative_comic
 from core.pipelines.run_until_complete import PausedRun, run_until_complete
-from core.schemas import ProjectState
+from core.schemas import ComicPagePlan, ComicPagePlanSet, ProjectState
 from tests.test_finished_page_pipeline import FakeChat, FakeImage, _fake_export_pdf
 
 SRC = "第一章\n福贵在村口。"
@@ -149,6 +149,92 @@ def test_pending_below_the_threshold_stays_quiet(tmp_path, monkeypatch):
         "福贵": ["c0000-p0000", "c0000-p0001"]
     }
     assert "c0000-p0000" in proj.state.pages_done
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_the_successor_page_is_the_next_in_reading_order():
+    """The redraw flag must land on the page that consumed the old blank.
+
+    ``previous_page_blank`` chains across a chunk boundary, so the successor of
+    a chunk's last page is the next chunk's first page - not "no successor".
+    """
+    from core.pipelines.creative_comic import next_page_in_book
+
+    def pageset(count: int):
+        return ComicPagePlanSet(
+            pages=[
+                ComicPagePlan.model_validate(
+                    {
+                        "page_id": f"u1_p{i:04d}",
+                        "purpose": "x",
+                        "layout_intent": "y",
+                        "panels": [{"panel_id": "1", "characters": ["甲"], "action": "a"}],
+                        "reference_characters": ["甲"],
+                    }
+                )
+                for i in range(count)
+            ]
+        )
+
+    state = ProjectState(project_id="p", page_cache={"0": pageset(2), "1": pageset(2)})
+
+    # In-chunk successor.
+    assert (
+        next_page_in_book(state, state.page_cache["0"], chunk_index=0, page_index=0)
+        == "c0000-p0001"
+    )
+    # Across the chunk boundary: the next chunk's first page.
+    assert (
+        next_page_in_book(state, state.page_cache["0"], chunk_index=0, page_index=1)
+        == "c0001-p0000"
+    )
+    # The book's last page has no successor.
+    assert next_page_in_book(state, state.page_cache["1"], chunk_index=1, page_index=1) is None
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_a_page_redraw_marks_the_next_page_for_continuity_review(tmp_path, monkeypatch):
+    """§4: repainting page 1 leaves page 2 encoded against a vanished blank.
+
+    The successor page is not regenerated and no reference version moved, so
+    nothing else in the ledger notices. The flag must come from the redraw
+    itself, per character, and stay quiet below the escalation threshold.
+    """
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+
+    _run_book(tmp_path)
+    ledger = ConsistencyLedger.load(tmp_path / "consistency.json")
+    assert ledger.pending_pages() == {}
+
+    _mark_page_stale(tmp_path)
+    chat2, img2 = TwoPageChat(), FakeImage()
+    proj = _run_book(tmp_path, chat=chat2, image=img2)
+
+    assert img2.calls == 1  # only the stale page was repainted
+    assert "c0000-p0000" in proj.state.pages_done
+    after = ConsistencyLedger.load(tmp_path / "consistency.json")
+    # The successor page is flagged for the character that appears on it...
+    assert after.pending_pages() == {"福贵": ["c0000-p0001"]}
+    # ...quietly: no stop record, no pause.
+    assert _ledger_stops(tmp_path) == []
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_the_redraw_flag_does_not_repeat_on_resume(tmp_path, monkeypatch):
+    """A resumed run that repaints nothing must not re-flag or duplicate."""
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+
+    _run_book(tmp_path)
+    _mark_page_stale(tmp_path)
+    _run_book(tmp_path, chat=TwoPageChat(), image=FakeImage())
+    first = ConsistencyLedger.load(tmp_path / "consistency.json").pending_pages()
+
+    chat3, img3 = TwoPageChat(), FakeImage()
+    _run_book(tmp_path, chat=chat3, image=img3)
+
+    assert img3.calls == 0  # nothing left to repaint
+    assert chat3.calls == 0
+    assert ConsistencyLedger.load(tmp_path / "consistency.json").pending_pages() == first
 
 
 @patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)

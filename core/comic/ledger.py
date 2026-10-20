@@ -150,6 +150,11 @@ class LedgerEntry(BaseModel):
     # only puts pages that were never reviewed back into pending, so a
     # high-frequency character does not re-escalate on every portrait change.
     reviewed_pages: list[str] = Field(default_factory=list)
+    # Pages flagged because a *neighbouring* page was redrawn (§4). This is a
+    # different cause from a reference bump: the character's own portrait did
+    # not change, but the page's bytes encode a blank that no longer exists.
+    # Kept separate so neither cause can silently clear the other.
+    continuity_pages: list[str] = Field(default_factory=list)
     updated_at: str = Field(default_factory=_now_iso)
 
 
@@ -253,10 +258,17 @@ class ConsistencyLedger(BaseModel):
                     entry.reviewed_pages = list(entry.pages)
                     changed = True
                 reviewed = set(entry.reviewed_pages)
-                pending = [page for page in entry.pages if page not in reviewed]
+                continuity = set(entry.continuity_pages)
+                pending = [
+                    page for page in entry.pages if page not in reviewed or page in continuity
+                ]
                 kept_reviewed = [page for page in entry.pages if page in reviewed]
                 if entry.reviewed_pages != kept_reviewed:
                     entry.reviewed_pages = kept_reviewed
+                    changed = True
+                kept_continuity = [page for page in entry.pages if page in continuity]
+                if entry.continuity_pages != kept_continuity:
+                    entry.continuity_pages = kept_continuity
                     changed = True
             if entry.pending_pages != pending:
                 entry.pending_pages = pending
@@ -315,6 +327,42 @@ class ConsistencyLedger(BaseModel):
             if entry.pages and len(entry.pending_pages) > limit
         }
 
+    def mark_continuity_pending(self, page: str) -> bool:
+        """Flag every character on ``page`` for continuity review (§4).
+
+        Called when the page *before* ``page`` is redrawn: ``page`` was
+        generated against a blank that no longer exists, so its bytes encode a
+        condition no longer on disk. The break is real but not blocking, so the
+        flag is aggregated per character and stays quiet below the escalation
+        threshold (§13 item 18).
+
+        The flag is stored in ``continuity_pages`` and merged into
+        ``pending_pages`` on every rebuild. It is deliberately not written by
+        clearing a ``reviewed_pages`` entry: that would be indistinguishable
+        from an old ledger's "everything was already confirmed", and the next
+        rebuild would silently un-flag it.
+
+        Returns whether anything changed; idempotent, so a resumed run that
+        re-detects the same redraw appends nothing.
+        """
+        changed = False
+        for entry in self.characters.values():
+            if page not in entry.pages:
+                continue
+            if page in entry.continuity_pages:
+                continue
+            entry.continuity_pages = [
+                p for p in entry.pages if p in {*entry.continuity_pages, page}
+            ]
+            entry.pending_pages = [
+                p
+                for p in entry.pages
+                if p not in set(entry.reviewed_pages) or p in set(entry.continuity_pages)
+            ]
+            entry.updated_at = _now_iso()
+            changed = True
+        return changed
+
     def confirm_review(self, name: str, pages: list[str] | None = None) -> bool:
         """Accept some or all of a character's pending pages (§12, phase 5b).
 
@@ -332,15 +380,22 @@ class ConsistencyLedger(BaseModel):
             return False
         reviewed = set(entry.reviewed_pages) | target
         new_reviewed = [page for page in entry.pages if page in reviewed]
-        new_pending = [page for page in entry.pages if page not in reviewed]
+        # Accepting a page also accepts the continuity break that flagged it;
+        # otherwise the flag would resurrect it at the next rebuild.
+        new_continuity = [page for page in entry.continuity_pages if page not in target]
+        new_pending = [
+            page for page in entry.pages if page not in reviewed or page in set(new_continuity)
+        ]
         if (
             entry.reviewed_version >= entry.reference.version
             and entry.reviewed_pages == new_reviewed
+            and entry.continuity_pages == new_continuity
             and entry.pending_pages == new_pending
         ):
             return False
         entry.reviewed_version = entry.reference.version
         entry.reviewed_pages = new_reviewed
+        entry.continuity_pages = new_continuity
         entry.pending_pages = new_pending
         entry.updated_at = _now_iso()
         return True

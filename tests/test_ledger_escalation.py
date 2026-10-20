@@ -13,6 +13,7 @@ from core.comic.ledger import (
     ReferenceVersion,
 )
 from core.comic.runs import append_run
+from core.schemas import ComicPagePlan, ComicPagePlanSet, ProjectState
 
 
 def _entry(pages: int, *, version: int = 2, reviewed: int = 1) -> LedgerEntry:
@@ -37,6 +38,148 @@ def test_escalation_threshold_is_held():
     assert 10 ** int(math.log10(LEDGER_ESCALATION_THRESHOLD)) == 10 ** int(
         math.log10(SAMPLE_GATE_SIZE)
     )
+
+
+def _reviewed(pages: list[str]) -> LedgerEntry:
+    """An entry whose references are current and whose pages are all accepted.
+
+    A brand-new ``LedgerEntry`` leaves ``reviewed_version`` at 0, and pending is
+    then every page the character appears on. Reviewing establishes the quiet
+    baseline an incremental flag has to move from.
+    """
+    entry = LedgerEntry(pages=list(pages))
+    entry.reference = ReferenceVersion(path="p.png", content_hash=None, version=1)
+    entry.reviewed_version = 1
+    entry.reviewed_pages = list(pages)
+    entry.pending_pages = []
+    return entry
+
+
+def test_a_redrawn_page_marks_its_successors_pending():
+    """§4: a redraw breaks the continuity of the page that followed it.
+
+    The page after a redrawn one was generated against a blank that no longer
+    exists, so it is pending review even though no reference version moved.
+    The flag is aggregated per character, and it is quiet: it does not escalate
+    below the threshold and it never pauses the run.
+    """
+    led = ConsistencyLedger()
+    led.characters["甲"] = _reviewed(["c0000-p0001", "c0000-p0002", "c0000-p0003"])
+    led.characters["乙"] = _reviewed(["c0000-p0001", "c0000-p0002"])
+    # Appears only after the broken pair, so it is untouched.
+    led.characters["丙"] = _reviewed(["c0000-p0003"])
+
+    assert led.mark_continuity_pending("c0000-p0002") is True
+
+    # Every character on the successor page carries the flag...
+    assert led.characters["甲"].pending_pages == ["c0000-p0002"]
+    assert led.characters["乙"].pending_pages == ["c0000-p0002"]
+    # ...and no character off that page does.
+    assert led.characters["丙"].pending_pages == []
+    # Quiet: one page is far below the threshold, so nothing escalates.
+    assert led.escalated() == {}
+
+
+def test_the_continuity_flag_survives_a_rebuild():
+    """The flag must be durable, and ``pending`` is derived on every rebuild.
+
+    ``rebuild_from_state`` recomputes pending from ``reviewed_pages``, so a
+    flag that only appended to ``pending_pages`` would be erased at the next
+    render boundary — the very boundary that escalates it.
+    """
+    state = ProjectState(
+        project_id="p",
+        page_cache={
+            "0": ComicPagePlanSet(
+                pages=[
+                    ComicPagePlan.model_validate(
+                        {
+                            "page_id": "u1_p0001",
+                            "purpose": "x",
+                            "layout_intent": "y",
+                            "panels": [{"panel_id": "1", "characters": ["甲"], "action": "a"}],
+                            "reference_characters": ["甲"],
+                        }
+                    ),
+                    ComicPagePlan.model_validate(
+                        {
+                            "page_id": "u1_p0002",
+                            "purpose": "x",
+                            "layout_intent": "y",
+                            "panels": [{"panel_id": "1", "characters": ["甲"], "action": "a"}],
+                            "reference_characters": ["甲"],
+                        }
+                    ),
+                ]
+            )
+        },
+    )
+    led = ConsistencyLedger()
+    led.characters["甲"] = _reviewed(["c0000-p0000", "c0000-p0001"])
+    led.rebuild_from_state(state)
+    assert led.characters["甲"].pending_pages == []
+
+    led.mark_continuity_pending("c0000-p0001")
+    led.rebuild_from_state(state)
+
+    assert led.characters["甲"].pending_pages == ["c0000-p0001"]
+
+
+def test_a_single_page_flag_is_not_mistaken_for_a_legacy_confirmation():
+    """A one-page character is the case where the flag looks like an old ledger.
+
+    ``rebuild_from_state`` treats ``reviewed_version > 0`` with an empty
+    ``reviewed_pages`` as "written before reviewed_pages existed, so everything
+    was confirmed". Flagging a single-page character empties ``reviewed_pages``
+    too, and without a guard the next rebuild silently un-flags it.
+    """
+    state = ProjectState(
+        project_id="p",
+        page_cache={
+            "0": ComicPagePlanSet(
+                pages=[
+                    ComicPagePlan.model_validate(
+                        {
+                            "page_id": "u1_p0001",
+                            "purpose": "x",
+                            "layout_intent": "y",
+                            "panels": [{"panel_id": "1", "characters": ["甲"], "action": "a"}],
+                            "reference_characters": ["甲"],
+                        }
+                    )
+                ]
+            )
+        },
+    )
+    led = ConsistencyLedger()
+    led.characters["甲"] = _reviewed(["c0000-p0000"])
+    led.rebuild_from_state(state)
+    assert led.characters["甲"].pending_pages == []
+
+    led.mark_continuity_pending("c0000-p0000")
+    led.rebuild_from_state(state)
+
+    assert led.characters["甲"].pending_pages == ["c0000-p0000"]
+
+
+def test_marking_continuity_is_idempotent():
+    """A resume re-marking the same break must not duplicate or churn."""
+    led = ConsistencyLedger()
+    entry = _reviewed(["c0000-p0001", "c0000-p0002"])
+    led.characters["甲"] = entry
+
+    assert led.mark_continuity_pending("c0000-p0002") is True
+    assert led.mark_continuity_pending("c0000-p0002") is False
+    assert entry.pending_pages == ["c0000-p0002"]
+
+
+def test_marking_an_unknown_page_changes_nothing():
+    """A page no character appears on cannot carry a flag."""
+    led = ConsistencyLedger()
+    led.characters["甲"] = _reviewed(["c0000-p0001"])
+
+    assert led.mark_continuity_pending("c0000-p9999") is False
+    assert led.characters["甲"].pending_pages == []
 
 
 def test_escalated_is_strict_at_the_boundary():

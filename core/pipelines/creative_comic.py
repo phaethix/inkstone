@@ -1414,6 +1414,33 @@ def previous_page_blank(
     return candidates[-1][2]
 
 
+def next_page_in_book(
+    state: ProjectState,
+    pageset: ComicPagePlanSet,
+    *,
+    chunk_index: int,
+    page_index: int,
+) -> str | None:
+    """The positional key of the page right after this one in reading order.
+
+    ``previous_page_blank`` chains the last page of a chunk to the last page of
+    the previous chunk, so a redraw at the end of a chunk does break the
+    continuity of the next chunk's first page. This mirrors that rule forward:
+    the in-chunk successor first, else the first page of the next planned chunk.
+    """
+    if page_index + 1 < len(pageset.pages):
+        return page_state_key(chunk_index, page_index + 1)
+    for later in sorted(state.page_cache, key=lambda c: int(c) if c.isdigit() else 0):
+        try:
+            later_index = int(later)
+        except (TypeError, ValueError):
+            continue
+        if later_index <= chunk_index or not state.page_cache[later].pages:
+            continue
+        return page_state_key(later_index, 0)
+    return None
+
+
 def _page_reference_names(plan: ComicPagePlan) -> list[str]:
     """Ordered unique character names for a page's portrait refs (L2 only; no L3 here)."""
     names: list[str] = []
@@ -3143,6 +3170,18 @@ async def _creative_comic(
                     )
                     if ledger.rebuild_from_state(_state):
                         ledger.save(ledger_path)
+                    if page_is_stale:
+                        # §4: this page's blank was just replaced, so the page
+                        # that consumed the old one is now inconsistent. Flag
+                        # it per character; quiet below the threshold.
+                        successor = next_page_in_book(
+                            _state,
+                            _pageset,
+                            chunk_index=_chunk_index,
+                            page_index=page_index,
+                        )
+                        if successor and ledger.mark_continuity_pending(successor):
+                            ledger.save(ledger_path)
                     _state.save(state_path, caches=False)
                     _report("pages", _pct())
 
