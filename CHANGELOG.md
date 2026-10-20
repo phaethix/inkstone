@@ -27,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   you intend to re-plan every stage.
 
 ### Added
+- Web A/B card: the local UI lists experiments under
+  `INKSTONE_EXPERIMENTS_DIR` (default `comic_out/experiments`), shows both
+  anonymised plans plus their structure reports, keeps candidate labels hidden,
+  and records a pick with a required `why` through
+  `POST /api/experiment/<id>/pick`. The same `selection.json` writer is used by
+  the CLI. `GET /api/experiments` and `GET /api/experiment/<id>` back the page.
 - Planning-only blind A/B: `inkstone experiment plan --book ... --candidate base
   --candidate <harness-dir> ...` runs extract + beats once, then only the
   page-plan request under each candidate (no image calls), anonymises the

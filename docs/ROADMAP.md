@@ -67,6 +67,12 @@ Keep these prototypes only as migration material until they conform to the targe
 
 ### P0 — Make the current state honest and deterministic
 
+- **Local (2026-10-20, `main`):** Web A/B card. The local UI has an A/B tab that
+  lists `INKSTONE_EXPERIMENTS_DIR`, shows anonymised plans and structure reports,
+  and records a pick + required `why` through the same `selection.json` writer
+  as the CLI. APIs: `GET /api/experiments`, `GET /api/experiment/<id>`,
+  `POST /api/experiment/<id>/pick`. Regression: `tests/test_web_server.py`.
+  Next: auto compose / candidate-level extract+beats.
 - **Local (2026-10-20, `main`):** Planning-only blind A/B + external harness
   loading. `Harness` can load any tree with the builtin layout;
   `inkstone harness validate|list --dir` and `inkstone prompt --harness-dir`

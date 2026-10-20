@@ -170,6 +170,11 @@ The experiment writes an anonymised `candidates/A|B/` packet and a
 `selection.json`. `--candidate` can be repeated; `base` means the builtin tree.
 The MVP probes `page_plan` only and never draws a page.
 
+The local Web UI has an **A/B** tab for the same experiments: it lists the
+packets under `INKSTONE_EXPERIMENTS_DIR` (default `comic_out/experiments`),
+shows both plans and structure reports with the labels hidden, and records your
+pick plus a required `why`.
+
 ## Configuration
 
 Inkstone is configured through environment variables (copy `.env.example` → `.env`):
@@ -190,6 +195,7 @@ Inkstone is configured through environment variables (copy `.env.example` → `.
 | `INKSTONE_GENRE` | | `general` | Domain notes for planning: `general` (none) or `wuxia`. The genre layer only adds craft guidance; it cannot override the invariant rules. |
 | `INKSTONE_REVIEW_PACKET` | | `1` | Write a local `review/` evidence packet (effective prompts, source, plans, structure report, decisions). `0` disables it; it is never sent to a model. |
 | `INKSTONE_LESSONS` | | `1` | Inject active craft lessons from `<INKSTONE_DATA_DIR>/library/` into page planning. `0` disables retrieval; approved lessons stay on disk. |
+| `INKSTONE_EXPERIMENTS_DIR` | | `comic_out/experiments` | Root the Web UI **A/B** tab lists. Set it to the parent of the `--out` directories you created. |
 | `INKSTONE_PAGE_SCRIPT` | | `0` | Write legacy PageScript metadata. Off. Not a quality gate. |
 | `INKSTONE_DATA_DIR` | | `~/.inkstone` | Shared quota, budget, and sample-gate files. |
 | `INKSTONE_RENDER_MODE` | | `finished_page` | Default: one finished comic page per image call. Set `panel_compose` to use the legacy storyboard → panel → layout path (recovery when finished pages fail). |
