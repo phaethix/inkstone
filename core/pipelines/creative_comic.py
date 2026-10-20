@@ -190,6 +190,7 @@ from core.schemas import (
     ComicPagePlanSet,
     GeneratedPage,
     GeneratedPanel,
+    KeyBeatSet,
     ModelSnapshot,
     PageScript,
     ProjectState,
@@ -883,6 +884,7 @@ def _page_script_plan(
     chat_model: str,
     *,
     harness=None,
+    output_dir: Path | None = None,
 ) -> tuple[bool, str]:
     """Return whether a page script is missing, and the key for the one to store.
 
@@ -912,6 +914,12 @@ def _page_script_plan(
         elif not stored:
             cache.page_script_action_key = script_key
     missing = cache is None or cache.page_script is None
+    if missing and cache is not None and output_dir is not None:
+        restored = _restore_stage_body(output_dir, script_key, "page_script", PageScript)
+        if restored is not None:
+            cache.page_script = restored
+            cache.page_script_action_key = script_key
+            missing = False
     return missing, script_key
 
 
@@ -2605,6 +2613,12 @@ async def _creative_comic(
                     request_digest=beats_key_request.digest(),
                 )
                 cached_beats = state.beat_cache.get(key)
+                if cached_beats is None:
+                    restored_beats = _restore_stage_body(output_dir, beats_key, "beats", KeyBeatSet)
+                    if restored_beats is not None:
+                        restored_beats.action_key = beats_key
+                        state.beat_cache[key] = restored_beats
+                        cached_beats = restored_beats
                 if cached_beats is not None:
                     if cached_beats.action_key and cached_beats.action_key != beats_key:
                         state.beat_cache.pop(key, None)
@@ -2638,6 +2652,14 @@ async def _creative_comic(
                     else:
                         _stamp_action_key(state, state_path, pageset, plan_key)
                 if pageset is None:
+                    restored_plan = _restore_stage_body(
+                        output_dir, plan_key, "page_plan", ComicPagePlanSet
+                    )
+                    if restored_plan is not None:
+                        restored_plan.action_key = plan_key
+                        state.page_cache[key] = restored_plan
+                        pageset = restored_plan
+                if pageset is None:
                     state.stage = "page_plan"
                     try:
                         with perf.measure("page_plan"):
@@ -2654,6 +2676,16 @@ async def _creative_comic(
                                     beats.action_key = beats_key
                                     state.beat_cache[key] = beats
                                     sync_adaptation_plans(state, chunks)
+                                    record_ok(
+                                        output_dir,
+                                        key=beats_key,
+                                        stage="beats",
+                                        stage_src=_BEATS_STAGE_SRC,
+                                        env=snapshot.chat,
+                                        inputs=[extract_key],
+                                        name="beats.json",
+                                        data=beats.model_dump_json(indent=2).encode("utf-8"),
+                                    )
                                 except Exception as beat_exc:  # noqa: BLE001
                                     logger.warning(
                                         "chunk %s key-beat extract failed (%s); continuing",
@@ -2752,6 +2784,16 @@ async def _creative_comic(
                         request_digest=stored_plan_key_request.digest(),
                     )
                     state.page_cache[key] = pageset
+                    record_ok(
+                        output_dir,
+                        key=pageset.action_key,
+                        stage="page_plan",
+                        stage_src=_PAGE_PLAN_STAGE_SRC,
+                        env=snapshot.chat,
+                        inputs=[beats_key],
+                        name="page_plan.json",
+                        data=pageset.model_dump_json(indent=2).encode("utf-8"),
+                    )
                     _drop_pages_outside_plan(state, chunk_index=ci, page_count=len(pageset.pages))
                     state.save(state_path)
                     _report("page_plan", _pct())
@@ -2861,11 +2903,17 @@ async def _creative_comic(
                         visual_bible=_state.visual_bible,
                     )
                     if _state.visual_bible is not None:
+                        ledger_refs = {
+                            name: entry.reference.path
+                            for name, entry in ledger.characters.items()
+                            if entry.reference.path and Path(entry.reference.path).is_file()
+                        }
                         refs = collect_finished_page_refs(
                             plan,
                             _state.characters,
                             _state.visual_bible,
                             prev_blank=prev_blank_path,
+                            reference_paths=ledger_refs,
                         )
                     else:
                         refs = [
@@ -3136,6 +3184,15 @@ async def _creative_comic(
                 request_digest=storyboard_key_request.digest(),
             )
             cached_chunk = state.chunk_cache.get(key)
+            if board is None:
+                restored_board = _restore_stage_body(
+                    output_dir, storyboard_key, "storyboard", Storyboard
+                )
+                if restored_board is not None:
+                    board = restored_board
+                    cached_chunk = state.chunk_cache.setdefault(key, ChunkCache())
+                    cached_chunk.storyboard = board
+                    cached_chunk.storyboard_action_key = storyboard_key
             if board is not None and cached_chunk is not None:
                 if (
                     cached_chunk.storyboard_action_key
@@ -3175,6 +3232,16 @@ async def _creative_comic(
                 cached_board = state.chunk_cache.setdefault(key, ChunkCache())
                 cached_board.storyboard = board
                 cached_board.storyboard_action_key = storyboard_key
+                record_ok(
+                    output_dir,
+                    key=storyboard_key,
+                    stage="storyboard",
+                    stage_src=_STORYBOARD_STAGE_SRC,
+                    env=snapshot.chat,
+                    inputs=[],
+                    name="storyboard.json",
+                    data=board.model_dump_json(indent=2).encode("utf-8"),
+                )
                 state.save(state_path)
                 _report("storyboard", _pct())
             if board is not None:
@@ -3185,7 +3252,11 @@ async def _creative_comic(
                 assign_panel_beat_ids(board.panels, known_beats.beats)
 
             script_missing, script_key = _page_script_plan(
-                state.chunk_cache.get(key), chunk, snapshot.chat, harness=run_harness
+                state.chunk_cache.get(key),
+                chunk,
+                snapshot.chat,
+                harness=run_harness,
+                output_dir=output_dir,
             )
             # page-script
             # Optional legacy PageScript metadata (NOT a quality gate). Off by default.
@@ -3222,6 +3293,16 @@ async def _creative_comic(
                     else:
                         raise
                 _store_page_script(state.chunk_cache[key], ps, script_key)
+                record_ok(
+                    output_dir,
+                    key=script_key,
+                    stage="page_script",
+                    stage_src=_PAGE_SCRIPT_STAGE_SRC,
+                    env=snapshot.chat,
+                    inputs=[],
+                    name="page_script.json",
+                    data=ps.model_dump_json(indent=2).encode("utf-8"),
+                )
                 state.save(state_path)
                 _report("page_script", _pct())
 

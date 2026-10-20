@@ -1692,8 +1692,15 @@ def collect_finished_page_refs(
     *,
     prev_blank: str | None = None,
     max_refs: int = 9,
+    reference_paths: dict[str, str] | None = None,
 ) -> list[str]:
-    """Collect i2i reference paths: sheet, portraits, then optional previous blank."""
+    """Collect i2i reference paths: sheet, authoritative references, then blank.
+
+    ``reference_paths`` maps a character name to the ledger's authoritative
+    reference image. It takes precedence over a character's ``portrait_local``
+    fallback, so a regenerated reference is used even when a stale portrait path
+    still exists in the cache.
+    """
     refs: list[str] = []
     seen: set[str] = set()
 
@@ -1707,10 +1714,16 @@ def collect_finished_page_refs(
     if bible.sheet_ref_local:
         _add(bible.sheet_ref_local)
 
+    authoritative = reference_paths or {}
     for name in _page_character_names(plan):
         if len(refs) >= max_refs:
             break
-        _add(_portrait_path_for_name(name, characters_by_name, bible))
+        base = name.split("@", 1)[0]
+        _add(
+            authoritative.get(name)
+            or authoritative.get(base)
+            or _portrait_path_for_name(name, characters_by_name, bible)
+        )
 
     if len(refs) < max_refs and prev_blank:
         _add(prev_blank)

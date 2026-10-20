@@ -559,3 +559,34 @@ def test_upsert_canon_merges_evidence():
     quotes = {(e.field, e.quote) for e in merged.appearance_evidence}
     assert ("hair", "头上永远剃得发亮") in quotes
     assert ("outfit_top", "灰布长衫") in quotes
+
+
+def test_authoritative_ledger_reference_precedes_the_stale_portrait():
+    plan = ComicPagePlan.model_validate(
+        {
+            "page_id": "p",
+            "purpose": "x",
+            "layout_intent": "y",
+            "panels": [{"panel_id": "1", "characters": ["R@adult"], "action": "sits"}],
+            "reference_characters": ["R@adult"],
+        }
+    )
+    chars = {"R": CharacterAsset(name="R", portrait_local="/tmp/stale.png")}
+    bible = VisualBible(
+        version="bible_v1",
+        style_guide="",
+        color=ColorBible(palette=[], lighting="", forbidden=[]),
+        characters={},
+        sheet_ref_local="/tmp/sheet.png",
+    )
+
+    refs = collect_finished_page_refs(
+        plan,
+        chars,
+        bible,
+        reference_paths={"R": "/tmp/authoritative.png"},
+    )
+
+    assert refs[0] == "/tmp/sheet.png"
+    assert "/tmp/authoritative.png" in refs
+    assert "/tmp/stale.png" not in refs

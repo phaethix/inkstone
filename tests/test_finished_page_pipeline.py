@@ -1111,3 +1111,23 @@ def test_a_budget_missing_a_charged_stage_fails_before_any_call(tmp_path, monkey
 
     assert chat.calls == 0
     assert image.calls == 0
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_beats_and_page_plan_manifests_survive_a_lost_cache(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+    source = "第一章\n福贵在村口。"
+    first = FakeChat()
+    asyncio.run(creative_comic(source, output_dir=str(tmp_path), chat=first, image=FakeImage()))
+    assert first.page_plan_calls == 1
+    (tmp_path / "cache.json").unlink()
+
+    second = FakeChat()
+    image = FakeImage()
+    asyncio.run(creative_comic(source, output_dir=str(tmp_path), chat=second, image=image))
+
+    # extract/bible are restored from their manifests; beats/page_plan must not
+    # re-plan either. The visual bible lived in cache.json, so a portrait may be
+    # re-established once; the page plan itself must not be repeated.
+    assert second.page_plan_calls == 0
+    assert any((tmp_path / "pages").glob("page_*.png"))
