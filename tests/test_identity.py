@@ -96,6 +96,49 @@ def test_merge_alias_rewrites_storyboard_and_marks_stale():
     assert state.needs_review == []
 
 
+def test_merge_alias_marks_only_pages_that_contain_the_alias():
+    """Regression for §9's second defect shape: a merge must not redraw the book.
+
+    ``merge_character_alias`` used to be trusted to invalidate precisely; a
+    change that widened it to "every planned page" would still look correct on a
+    single-page project. This pins both halves: the page containing ``鸿渐`` is
+    stale, and a page that never mentions the character stays done.
+    """
+    from core.schemas import ComicPagePlan, ComicPagePlanSet, PagePanelSpec
+
+    def page(page_id: str, names: list[str]) -> ComicPagePlan:
+        return ComicPagePlan(
+            page_id=page_id,
+            panels=[PagePanelSpec(panel_id=f"{page_id}-p1", characters=names)],
+            reference_characters=list(names),
+        )
+
+    state = ProjectState(
+        project_id="p",
+        characters={
+            "方鸿渐": CharacterAsset(name="方鸿渐", l1_prompt="keep"),
+            "鸿渐": CharacterAsset(name="鸿渐", l1_prompt="alias"),
+        },
+        page_cache={
+            "0": ComicPagePlanSet(
+                unit_id="0",
+                pages=[page("p0000", ["方鸿渐"]), page("p0001", ["鸿渐"])],
+            ),
+            "1": ComicPagePlanSet(
+                unit_id="1",
+                pages=[page("p0000", ["苏文纨"])],
+            ),
+        },
+        pages_done=["c0000-p0000", "c0000-p0001", "c0001-p0000"],
+    )
+
+    merge_character_alias(state, "鸿渐", "方鸿渐")
+
+    assert state.stale_pages == ["c0000-p0001"]
+    assert "c0000-p0000" in state.pages_done
+    assert "c0001-p0000" in state.pages_done
+
+
 def test_dismiss_alias_only_clears_review():
     state = ProjectState(
         project_id="p",
