@@ -981,7 +981,11 @@ def _letter_key(
     therefore misses a key that was stored for the configured size.
     """
     plan_json = _plan_json(plan)
-    env = h_env(text=source_text or plan_json, resolved_size=resolved_size or None)
+    env = h_env(
+        text=source_text or plan_json,
+        resolved_size=resolved_size or None,
+        scope="letter",
+    )
     key = letter_action_key(blank=blank, plan_json=plan_json, env=env, stage_src=_LETTER_STAGE_SRC)
     return key, env, plan_json
 
@@ -1087,7 +1091,7 @@ def _export_pdf_with_manifest(pages_dir: Path, output_dir: Path) -> str:
     if not files:
         files = sorted(p for p in pages_dir.glob("*.png") if p.name.lower() != "webtoon.png")
     blobs = [path.read_bytes() for path in files]
-    env = h_env(text="", resolved_size=_bound_image_size(blobs))
+    env = h_env(text="", resolved_size=_bound_image_size(blobs), scope="export")
     key = export_action_key(
         pages=blobs,
         layout="TwoPageRight",
@@ -1123,7 +1127,7 @@ def _export_cbz_with_manifest(pages_dir: Path, output_dir: Path) -> str:
     if not files:
         files = sorted(p for p in pages_dir.glob("*.png") if p.name.lower() != "webtoon.png")
     blobs = [path.read_bytes() for path in files]
-    env = h_env(text="", resolved_size=_bound_image_size(blobs))
+    env = h_env(text="", resolved_size=_bound_image_size(blobs), scope="export")
     key = export_action_key(
         pages=blobs,
         layout="cbz",
@@ -1179,7 +1183,7 @@ def _export_webtoon_with_manifest(
     blobs = [_panel_png_bytes(panel) for panel in panels]
     lettering = _webtoon_lettering(panels)
     text = "\n".join(piece for row in lettering for piece in row.values() if piece)
-    env = h_env(text=text, resolved_size=_bound_image_size(blobs))
+    env = h_env(text=text, resolved_size=_bound_image_size(blobs), scope="webtoon")
     engine = LayoutEngine()
     key = webtoon_action_key(
         pages=blobs,
@@ -1241,7 +1245,7 @@ def _layout_pages_with_manifest(
     blobs = [_panel_png_bytes(panel) for panel in panels]
     lettering = _webtoon_lettering(panels)
     text = "\n".join(piece for row in lettering for piece in row.values() if piece)
-    env = h_env(text=text, resolved_size=_bound_image_size(blobs))
+    env = h_env(text=text, resolved_size=_bound_image_size(blobs), scope="layout")
     engine = LayoutEngine()
     key = layout_action_key(
         pages=blobs,
@@ -1811,6 +1815,23 @@ async def creative_comic(
         )
 
 
+def _required_budget_stages(mode: str, page_script: bool) -> set[str]:
+    """Stages this render mode can actually charge.
+
+    A custom BudgetSpec that omits one of these would otherwise look like
+    exhaustion at the first call for that stage. Keep this in sync with every
+    ``_charge`` site.
+    """
+    required = {"extract", "bible", "portrait", "render"}
+    if mode == "finished_page":
+        required.update({"beats", "page_plan"})
+    else:
+        required.add("storyboard")
+        if page_script:
+            required.add("page_script")
+    return required
+
+
 def _page_script_enabled() -> bool:
     return page_script_enabled()
 
@@ -1890,6 +1911,11 @@ async def _creative_comic(
     panel_key_filter = set(panel_keys) if panel_keys is not None else None
     mode = render_mode or config_render_mode()
     page_size = finished_page_size()
+    if budget is not None:
+        required = _required_budget_stages(mode, _page_script_enabled())
+        missing = budget.missing_stages(required)
+        if missing:
+            raise ValueError(f"budget does not fund required stages: {', '.join(sorted(missing))}")
     # Fail before the first billable call when the harness or its genre is
     # malformed. A broken component is a startup error, not a mid-book pause.
     harness_fallback = not harness_enabled()
@@ -2850,7 +2876,7 @@ async def _creative_comic(
                     refs = [
                         ref for ref in refs if _is_within(ref, output_dir) and Path(ref).is_file()
                     ]
-                    render_env = h_env(text=prompt, resolved_size=page_size)
+                    render_env = h_env(text=prompt, resolved_size=page_size, scope="render")
                     render_key = render_page_action_key(
                         plan_json=_plan_json(plan),
                         prompt=prompt,
@@ -3004,7 +3030,7 @@ async def _creative_comic(
                         prompt=prompt,
                         resolved_size=active_size,
                         page_key=state_key,
-                        env=h_env(text=prompt, resolved_size=active_size),
+                        env=h_env(text=prompt, resolved_size=active_size, scope="render"),
                         stage_src=_RENDER_PAGE_STAGE_SRC,
                     )
                     record_ok(
@@ -3012,7 +3038,7 @@ async def _creative_comic(
                         key=stored_render_key,
                         stage="render.page",
                         stage_src=_RENDER_PAGE_STAGE_SRC,
-                        env=h_env(text=prompt, resolved_size=active_size),
+                        env=h_env(text=prompt, resolved_size=active_size, scope="render"),
                         inputs=render_page_inputs(_plan_json(plan), prompt),
                         name="blank.png",
                         data=blank_path.read_bytes(),

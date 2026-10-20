@@ -301,102 +301,120 @@ def merge_character_alias(
     if new_name == keep_name:
         return []
 
-    keep = state.characters[keep_name]
-    incoming = state.characters.get(new_name)
+    # The merge mutates state and (optionally) the ledger. Snapshot both so a
+    # failure in the later ledger rename cannot leave the authoritative human
+    # state and consistency.json disagreeing.
+    state_snapshot = state.model_copy(deep=True)
+    ledger_snapshot = ledger.model_copy(deep=True) if ledger is not None else None
+    try:
+        keep = state.characters[keep_name]
+        incoming = state.characters.get(new_name)
 
-    if incoming is not None:
-        # Fill empty appearance / prompt fields on keep from the alias row.
-        for field in (
-            "hair",
-            "eyewear",
-            "outfit_top",
-            "outfit_bottom",
-            "shoes",
-            "body_type",
-            "distinguishing",
-        ):
-            if not (getattr(keep.appearance, field) or "").strip():
-                setattr(keep.appearance, field, getattr(incoming.appearance, field))
-        if not (keep.role or "").strip() and (incoming.role or "").strip():
-            keep.role = incoming.role
-        if not (keep.portrait_prompt or "").strip() and (incoming.portrait_prompt or "").strip():
-            keep.portrait_prompt = incoming.portrait_prompt
-        if not keep.portrait_local and incoming.portrait_local:
-            keep.portrait_local = incoming.portrait_local
-            state.generated.portraits[keep_name] = incoming.portrait_local
-        for alias in incoming.aliases:
-            if alias not in keep.aliases and alias != keep_name:
-                keep.aliases.append(alias)
-        del state.characters[new_name]
-        state.generated.portraits.pop(new_name, None)
+        if incoming is not None:
+            # Fill empty appearance / prompt fields on keep from the alias row.
+            for field in (
+                "hair",
+                "eyewear",
+                "outfit_top",
+                "outfit_bottom",
+                "shoes",
+                "body_type",
+                "distinguishing",
+            ):
+                if not (getattr(keep.appearance, field) or "").strip():
+                    setattr(keep.appearance, field, getattr(incoming.appearance, field))
+            if not (keep.role or "").strip() and (incoming.role or "").strip():
+                keep.role = incoming.role
+            if (
+                not (keep.portrait_prompt or "").strip()
+                and (incoming.portrait_prompt or "").strip()
+            ):
+                keep.portrait_prompt = incoming.portrait_prompt
+            if not keep.portrait_local and incoming.portrait_local:
+                keep.portrait_local = incoming.portrait_local
+                state.generated.portraits[keep_name] = incoming.portrait_local
+            for alias in incoming.aliases:
+                if alias not in keep.aliases and alias != keep_name:
+                    keep.aliases.append(alias)
+            del state.characters[new_name]
+            state.generated.portraits.pop(new_name, None)
 
-    if new_name not in keep.aliases:
-        keep.aliases.append(new_name)
-    ensure_character_l1(keep)
+        if new_name not in keep.aliases:
+            keep.aliases.append(new_name)
+        ensure_character_l1(keep)
 
-    stale = _panel_keys_referencing(state, new_name)
-    # §12 consequence 3: prefer the ledger's precise page set for the alias;
-    # fall back to walking page_cache when the ledger has no entry for it, so a
-    # project that has not yet rebuilt its ledger still invalidates correctly.
-    ledger_pages = ledger.pages_for(new_name) if ledger is not None else []
-    stale_pages: list[str] = list(ledger_pages)
-    for cache_key, pageset in state.page_cache.items():
-        try:
-            chunk_index = int(cache_key)
-        except ValueError:
-            continue
-        for page_index, plan in enumerate(pageset.pages):
-            names = set(plan.reference_characters)
-            for panel in plan.panels:
-                names.update(panel.characters)
-            if new_name in names:
-                key = page_state_key(chunk_index, page_index)
-                if key not in stale_pages:
-                    stale_pages.append(key)
-        for plan in pageset.pages:
-            plan.reference_characters = _rewrite_names(
-                plan.reference_characters, new_name, keep_name
+        stale = _panel_keys_referencing(state, new_name)
+        # §12 consequence 3: prefer the ledger's precise page set for the alias;
+        # fall back to walking page_cache when the ledger has no entry for it, so a
+        # project that has not yet rebuilt its ledger still invalidates correctly.
+        ledger_pages = ledger.pages_for(new_name) if ledger is not None else []
+        stale_pages: list[str] = list(ledger_pages)
+        for cache_key, pageset in state.page_cache.items():
+            try:
+                chunk_index = int(cache_key)
+            except ValueError:
+                continue
+            for page_index, plan in enumerate(pageset.pages):
+                names = set(plan.reference_characters)
+                for panel in plan.panels:
+                    names.update(panel.characters)
+                if new_name in names:
+                    key = page_state_key(chunk_index, page_index)
+                    if key not in stale_pages:
+                        stale_pages.append(key)
+            for plan in pageset.pages:
+                plan.reference_characters = _rewrite_names(
+                    plan.reference_characters, new_name, keep_name
+                )
+                for panel in plan.panels:
+                    panel.characters = _rewrite_names(panel.characters, new_name, keep_name)
+        if ledger is not None:
+            ledger.rename_character(new_name, keep_name)
+        # Rewrite cached storyboards after collecting keys.
+        for cache in state.chunk_cache.values():
+            board = cache.storyboard
+            if board is None:
+                continue
+            for panel in board.panels:
+                panel.characters_present = _rewrite_names(
+                    panel.characters_present, new_name, keep_name
+                )
+                panel.reference_characters = _rewrite_names(
+                    panel.reference_characters, new_name, keep_name
+                )
+
+        state.needs_review = [
+            s
+            for s in state.needs_review
+            if not (
+                (s.new_name == new_name and s.candidate == keep_name)
+                or (s.new_name == keep_name and s.candidate == new_name)
             )
-            for panel in plan.panels:
-                panel.characters = _rewrite_names(panel.characters, new_name, keep_name)
-    if ledger is not None:
-        ledger.rename_character(new_name, keep_name)
-    # Rewrite cached storyboards after collecting keys.
-    for cache in state.chunk_cache.values():
-        board = cache.storyboard
-        if board is None:
-            continue
-        for panel in board.panels:
-            panel.characters_present = _rewrite_names(panel.characters_present, new_name, keep_name)
-            panel.reference_characters = _rewrite_names(
-                panel.reference_characters, new_name, keep_name
-            )
+        ]
 
-    state.needs_review = [
-        s
-        for s in state.needs_review
-        if not (
-            (s.new_name == new_name and s.candidate == keep_name)
-            or (s.new_name == keep_name and s.candidate == new_name)
-        )
-    ]
-
-    done = set(state.panels_done)
-    stale_set = set(state.stale_panels)
-    for key in stale:
-        done.discard(key)
-        stale_set.add(key)
-    state.panels_done = [k for k in state.panels_done if k in done]
-    state.stale_panels = sorted(stale_set)
-    if stale_pages:
-        done_pages = set(state.pages_done)
-        stale_page_set = set(state.stale_pages)
-        for key in stale_pages:
-            done_pages.discard(key)
-            stale_page_set.add(key)
-        state.pages_done = [k for k in state.pages_done if k in done_pages]
-        state.stale_pages = sorted(stale_page_set)
-    return list(stale)
+        done = set(state.panels_done)
+        stale_set = set(state.stale_panels)
+        for key in stale:
+            done.discard(key)
+            stale_set.add(key)
+        state.panels_done = [k for k in state.panels_done if k in done]
+        state.stale_panels = sorted(stale_set)
+        if stale_pages:
+            done_pages = set(state.pages_done)
+            stale_page_set = set(state.stale_pages)
+            for key in stale_pages:
+                done_pages.discard(key)
+                stale_page_set.add(key)
+            state.pages_done = [k for k in state.pages_done if k in done_pages]
+            state.stale_pages = sorted(stale_page_set)
+        return list(stale)
+    except Exception:
+        for field_name in type(state).model_fields:
+            setattr(state, field_name, getattr(state_snapshot, field_name))
+        if ledger is not None and ledger_snapshot is not None:
+            for field_name in type(ledger).model_fields:
+                setattr(ledger, field_name, getattr(ledger_snapshot, field_name))
+        raise
 
 
 def _same_alias(suggestion: CharacterAliasSuggestion, new_name: str, candidate: str) -> bool:

@@ -413,3 +413,36 @@ def test_elements_with_recorded_merges_resolves_a_chain():
     planned = elements_with_recorded_merges(elements, state)
 
     assert [character.name for character in planned.characters] == ["C"]
+
+
+def test_merge_rolls_back_state_and_ledger_on_failure(monkeypatch):
+    import pytest
+
+    from core.comic.ledger import ConsistencyLedger, LedgerEntry
+
+    state = ProjectState(
+        project_id="p",
+        characters={
+            "A": CharacterAsset(name="A", l1_prompt="a"),
+            "B": CharacterAsset(name="B", l1_prompt="b"),
+        },
+        pages_done=["c0000-p0000"],
+    )
+    ledger = ConsistencyLedger(
+        characters={
+            "A": LedgerEntry(pages=["c0000-p0000"]),
+            "B": LedgerEntry(pages=["c0000-p0000"]),
+        }
+    )
+    state_before = state.model_dump()
+    ledger_before = ledger.model_dump()
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("ledger write failed")
+
+    monkeypatch.setattr(ConsistencyLedger, "rename_character", explode)
+    with pytest.raises(RuntimeError, match="ledger write failed"):
+        merge_character_alias(state, "A", "B", ledger=ledger)
+
+    assert state.model_dump() == state_before
+    assert ledger.model_dump() == ledger_before

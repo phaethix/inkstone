@@ -198,3 +198,39 @@ def test_render_page_keeps_the_continuity_image_soft():
     contract = stage_contract("render.page")
     assert "l2_reference" in contract.soft_refs
     assert "l2_reference" not in contract.hard_inputs
+
+
+def test_chat_key_argument_surface_is_locked_to_the_contract_table():
+    """A new key argument must be a deliberate contract change, not a silent drift."""
+    import inspect
+
+    from core.comic.cas import (
+        beats_action_key,
+        bible_action_key,
+        extract_action_key,
+        page_plan_action_key,
+        page_script_action_key,
+        storyboard_action_key,
+    )
+
+    expected = {
+        "extract": {"chunk"},
+        "beats": {"chunk", "extract_key"},
+        "bible": {"chunk", "history"},
+        "page_plan": {"chunk", "beats_json", "beats_key", "history"},
+        "storyboard": {"chunk", "cast"},
+        "page_script": {"chunk", "storyboard_json", "elements_json"},
+    }
+    builders = {
+        "extract": extract_action_key,
+        "beats": beats_action_key,
+        "bible": bible_action_key,
+        "page_plan": page_plan_action_key,
+        "storyboard": storyboard_action_key,
+        "page_script": page_script_action_key,
+    }
+    infrastructure = {"env", "stage_src", "request_digest"}
+    for stage, builder in builders.items():
+        surface = set(inspect.signature(builder).parameters) - infrastructure
+        assert surface == expected[stage], f"{stage} key arguments drifted: {surface}"
+        assert "character_table" not in surface

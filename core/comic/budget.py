@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -105,6 +106,10 @@ class BudgetSpec:
             )
         if any(calls < 0 for calls in reservations.values()):
             raise ValueError("a stage reservation must be >= 0")
+
+    def missing_stages(self, required: Iterable[str]) -> set[str]:
+        """Stages the pipeline will charge but this spec does not fund."""
+        return {stage for stage in required if stage not in self.reservations}
 
 
 def allocate(
@@ -332,6 +337,11 @@ class BudgetSession:
         self._store = store
 
     def _allowed(self, stage: str) -> bool:
+        if stage not in self._project.granted:
+            # A missing stage is a configuration error, not exhaustion. The
+            # pipeline validates its required set before the first call; this
+            # guard keeps a future charge from masquerading as a budget pause.
+            raise ValueError(f"budget does not fund stage {stage!r}")
         spent = sum(self._project.spent.values())
         spendable = self._project.total - self._project.recovery_reserve
         if spent >= spendable:

@@ -146,6 +146,10 @@ class LedgerEntry(BaseModel):
     # The reference version a human has already reviewed; pending is the set of
     # pages for versions strictly above this (Phase 5b raises it on acceptance).
     reviewed_version: int = 0
+    # Pages already accepted at ``reviewed_version``. A later reference bump
+    # only puts pages that were never reviewed back into pending, so a
+    # high-frequency character does not re-escalate on every portrait change.
+    reviewed_pages: list[str] = Field(default_factory=list)
     updated_at: str = Field(default_factory=_now_iso)
 
 
@@ -235,7 +239,25 @@ class ConsistencyLedger(BaseModel):
                 entry.pages = list(pages)
                 entry.updated_at = _now_iso()
                 changed = True
-            pending = list(entry.pages) if entry.reference.version > entry.reviewed_version else []
+            if entry.reference.version > entry.reviewed_version:
+                # A new reference invalidates every page review: the portrait
+                # changed, so the whole cast page set is pending again.
+                if entry.reviewed_pages:
+                    entry.reviewed_pages = []
+                    changed = True
+                pending = list(entry.pages)
+            else:
+                if entry.reviewed_version > 0 and not entry.reviewed_pages:
+                    # A ledger written before reviewed_pages existed already
+                    # carries a full confirmation at this version.
+                    entry.reviewed_pages = list(entry.pages)
+                    changed = True
+                reviewed = set(entry.reviewed_pages)
+                pending = [page for page in entry.pages if page not in reviewed]
+                kept_reviewed = [page for page in entry.pages if page in reviewed]
+                if entry.reviewed_pages != kept_reviewed:
+                    entry.reviewed_pages = kept_reviewed
+                    changed = True
             if entry.pending_pages != pending:
                 entry.pending_pages = pending
                 entry.updated_at = _now_iso()
@@ -293,23 +315,33 @@ class ConsistencyLedger(BaseModel):
             if entry.pages and len(entry.pending_pages) > limit
         }
 
-    def confirm_review(self, name: str) -> bool:
-        """Accept a character's pending pages as they are (§12, phase 5b).
+    def confirm_review(self, name: str, pages: list[str] | None = None) -> bool:
+        """Accept some or all of a character's pending pages (§12, phase 5b).
 
-        Raises ``reviewed_version`` to the current reference version and clears
-        ``pending_pages``. Returns whether anything changed; idempotent. This is
-        the write the escalation pause waits on: the pages stay, the review
-        closes.
+        With ``pages=None`` (the CLI default) every current page is accepted.
+        With a subset, those pages are recorded and only the rest stay pending,
+        so a 31-page character can be reviewed in batches. Returns whether
+        anything changed; idempotent.
         """
         entry = self.characters.get(name)
         if entry is None:
             return False
-        caught_up = entry.reviewed_version >= entry.reference.version
-        if caught_up and not entry.pending_pages:
+        target = set(entry.pages if pages is None else pages)
+        target &= set(entry.pages)
+        if not target:
             return False
-        if not caught_up:
-            entry.reviewed_version = entry.reference.version
-        entry.pending_pages = []
+        reviewed = set(entry.reviewed_pages) | target
+        new_reviewed = [page for page in entry.pages if page in reviewed]
+        new_pending = [page for page in entry.pages if page not in reviewed]
+        if (
+            entry.reviewed_version >= entry.reference.version
+            and entry.reviewed_pages == new_reviewed
+            and entry.pending_pages == new_pending
+        ):
+            return False
+        entry.reviewed_version = entry.reference.version
+        entry.reviewed_pages = new_reviewed
+        entry.pending_pages = new_pending
         entry.updated_at = _now_iso()
         return True
 
@@ -369,6 +401,8 @@ class ConsistencyLedger(BaseModel):
         union_pending = list(target.pending_pages)
         if incoming.reference.version > target.reference.version:
             target.reference = incoming.reference
+        merged_reviewed = set(target.reviewed_pages) | set(incoming.reviewed_pages)
+        target.reviewed_pages = [page for page in target.pages if page in merged_reviewed]
         # A merge must never leave reviewed_version ahead of the merged
         # reference. Doing so would make the pending test (reference > reviewed)
         # permanently false and silently close continuity review.
@@ -380,9 +414,11 @@ class ConsistencyLedger(BaseModel):
         # When the merged reference moved ahead of the reviewed version, every
         # merged page is pending. Otherwise keep the recorded pending union: a
         # ledger can mark pages pending before any portrait exists (v0 == v0).
-        target.pending_pages = (
-            list(target.pages)
-            if target.reference.version > target.reviewed_version
-            else union_pending
-        )
+        if target.reference.version > target.reviewed_version:
+            target.pending_pages = list(target.pages)
+        elif target.reviewed_pages:
+            reviewed = set(target.reviewed_pages)
+            target.pending_pages = [page for page in target.pages if page not in reviewed]
+        else:
+            target.pending_pages = union_pending
         target.updated_at = _now_iso()

@@ -24,7 +24,14 @@ from core.schemas import (
     VisualBible,
 )
 
-_CACHE_FIELDS = ("chunk_cache", "page_cache", "beat_cache", "visual_bible")
+_CACHE_FIELDS = (
+    "chunk_cache",
+    "page_cache",
+    "beat_cache",
+    "visual_bible",
+    "source_units",
+    "adaptation_plans",
+)
 
 
 def _state_with_caches() -> ProjectState:

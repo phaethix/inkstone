@@ -343,7 +343,7 @@ def test_binding_records_image_pixels_not_the_configured_page_size(tmp_path, mon
     assert calls["n"] == 1
     stored = next((tmp_path / "index").glob("*.json"))
     manifest = Manifest.model_validate_json(stored.read_text())
-    assert manifest.env == h_env(text="", resolved_size="8x8")
+    assert manifest.env == h_env(text="", resolved_size="8x8", scope="export")
 
     Image.new("RGB", (9, 10), (7, 7, 7)).save(pages / "page_02.png")
     _export_pdf_with_manifest(pages, tmp_path)
@@ -352,7 +352,7 @@ def test_binding_records_image_pixels_not_the_configured_page_size(tmp_path, mon
         Manifest.model_validate_json(path.read_text()).env
         for path in (tmp_path / "index").glob("*.json")
     ]
-    assert h_env(text="", resolved_size="8x8,9x10") in envs
+    assert h_env(text="", resolved_size="8x8,9x10", scope="export") in envs
 
 
 def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:

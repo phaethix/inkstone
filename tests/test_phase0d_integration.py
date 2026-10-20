@@ -233,3 +233,28 @@ def test_ledger_contents_do_not_enter_the_render_fingerprint():
         "manhua", snapshot=snapshot, panel_continuity=True, l3_enabled=False
     )
     assert before == after
+
+
+def test_identity_confirm_can_accept_a_subset_of_pages(tmp_path, capsys):
+    from core import cli
+
+    out = tmp_path / "proj"
+    out.mkdir()
+    ProjectState(project_id="p1").save(out / "state.json")
+    entry = LedgerEntry(pages=["c0000-p0000", "c0000-p0001"])
+    entry.reference = ReferenceVersion(path="p.png", version=2)
+    entry.reviewed_version = 1
+    entry.pending_pages = list(entry.pages)
+    ConsistencyLedger(characters={"福贵": entry}).save(out / "consistency.json")
+
+    code = cli._run_identity(
+        type(
+            "A", (), {"out": str(out), "view": False, "confirm": "福贵", "page": ["c0000-p0000"]}
+        )()
+    )
+
+    assert code == 0
+    assert "部分复核" in capsys.readouterr().out
+    persisted = ConsistencyLedger.load(out / "consistency.json").characters["福贵"]
+    assert persisted.pending_pages == ["c0000-p0001"]
+    assert persisted.reviewed_pages == ["c0000-p0000"]

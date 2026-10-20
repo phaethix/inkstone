@@ -1519,7 +1519,14 @@ class Tombstone(BaseModel):
 # ``state.json`` checkpoint stays small enough to write on the render hot path
 # (two-part state design, 2026-10-19).
 CACHE_FILE_NAME = "cache.json"
-_CACHE_FIELDS = ("chunk_cache", "page_cache", "beat_cache", "visual_bible")
+_CACHE_FIELDS = (
+    "chunk_cache",
+    "page_cache",
+    "beat_cache",
+    "visual_bible",
+    "source_units",
+    "adaptation_plans",
+)
 
 
 def _atomic_write_text(path: Path, payload: str) -> None:
@@ -1530,14 +1537,14 @@ def _atomic_write_text(path: Path, payload: str) -> None:
 
 
 class ProjectCaches(BaseModel):
-    """The four heavy planning caches persisted to the sibling ``cache.json``.
+    """Heavy planning data persisted to the sibling ``cache.json``.
 
-    These are the billable-to-recompute chat-stage outputs. They are caches in
-    the strict sense: losing the file costs a re-plan under the same action
-    keys, and never touches the authoritative human state kept in
-    ``state.json``. A cache file is the steady state from the first full save
-    on; a pre-split ``state.json`` that still carries them inline loads through
-    the same code path.
+    These are the billable-to-recompute chat-stage outputs plus the derived
+    source slices and adaptation plans. They are caches in the strict sense:
+    losing the file costs a re-plan under the same action keys, and never
+    touches the authoritative human state kept in ``state.json``. A cache file
+    is the steady state from the first full save on; a pre-split ``state.json``
+    that still carries them inline loads through the same code path.
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -1546,6 +1553,8 @@ class ProjectCaches(BaseModel):
     page_cache: dict[str, ComicPagePlanSet] = Field(default_factory=dict)
     beat_cache: dict[str, KeyBeatSet] = Field(default_factory=dict)
     visual_bible: VisualBible | None = None
+    source_units: list[SourceUnit] = Field(default_factory=list)
+    adaptation_plans: dict[str, AdaptationPlan] = Field(default_factory=dict)
 
 
 class ProjectState(BaseModel):

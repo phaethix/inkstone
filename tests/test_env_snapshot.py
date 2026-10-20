@@ -94,3 +94,64 @@ def test_resolved_font_digest_is_stable_for_builtin(monkeypatch):
     monkeypatch.setattr(fonts, "_find_cjk_font", lambda size, path: None)
 
     assert resolved_font_digest("plain ascii") == resolved_font_digest("other ascii")
+
+
+def test_scoped_env_ignores_chat_only_changes(monkeypatch):
+    baseline = {scope: h_env(text="plain", scope=scope) for scope in ("render", "letter", "export")}
+    monkeypatch.setenv("AGNES_CHAT_MODEL", "chat-model-b")
+
+    after = {scope: h_env(text="plain", scope=scope) for scope in ("render", "letter", "export")}
+    assert after == baseline
+
+
+def test_image_changes_do_not_reach_letter_or_export(monkeypatch):
+    monkeypatch.setenv("AGNES_IMAGE_I2I_MODEL", "image-model-a")
+    baseline = {scope: h_env(text="plain", scope=scope) for scope in ("render", "letter", "export")}
+    monkeypatch.setenv("AGNES_IMAGE_I2I_MODEL", "image-model-b")
+
+    after = {scope: h_env(text="plain", scope=scope) for scope in ("render", "letter", "export")}
+    assert after["render"] != baseline["render"]
+    assert after["letter"] == baseline["letter"]
+    assert after["export"] == baseline["export"]
+
+
+def test_panel_continuity_is_render_only(monkeypatch):
+    monkeypatch.setenv("INKSTONE_PANEL_CONTINUITY", "1")
+    baseline = {scope: h_env(text="plain", scope=scope) for scope in ("render", "letter", "export")}
+    monkeypatch.setenv("INKSTONE_PANEL_CONTINUITY", "0")
+
+    after = {scope: h_env(text="plain", scope=scope) for scope in ("render", "letter", "export")}
+    assert after["render"] != baseline["render"]
+    assert after["letter"] == baseline["letter"]
+    assert after["export"] == baseline["export"]
+
+
+def test_font_changes_reach_letter_but_not_render_or_export(tmp_path, monkeypatch):
+    first = tmp_path / "first.ttf"
+    second = tmp_path / "second.ttf"
+    first.write_bytes(b"font-a")
+    second.write_bytes(b"font-b")
+
+    def fake_find(size, path):
+        return object(), f"font_path:{path}"
+
+    monkeypatch.setattr(fonts, "_find_cjk_font", fake_find)
+    baseline = {
+        scope: h_env(text="汉", font_path=str(first), scope=scope)
+        for scope in ("render", "letter", "export")
+    }
+    after = {
+        scope: h_env(text="汉", font_path=str(second), scope=scope)
+        for scope in ("render", "letter", "export")
+    }
+
+    assert after["letter"] != baseline["letter"]
+    assert after["render"] == baseline["render"]
+    assert after["export"] == baseline["export"]
+
+
+def test_unknown_env_scope_is_rejected():
+    import pytest
+
+    with pytest.raises(ValueError, match="unknown h_env scope"):
+        h_env(text="plain", scope="nope")

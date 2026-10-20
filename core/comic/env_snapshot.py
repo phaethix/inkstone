@@ -141,41 +141,71 @@ def h_env(
     text: str,
     resolved_size: str | None = None,
     font_path: str | None = None,
+    scope: str = "all",
 ) -> str:
-    """Return the SHA-256 of every byte-affecting value outside the source.
+    """Return the SHA-256 of the byte-affecting values for one stage class.
+
+    Chat stages no longer use this digest: their request body and model label
+    are covered by ``ChatRequest.digest()`` and ``snapshot.chat``. The remaining
+    scopes are:
+
+    - ``render``: the image provider/model, accepted size, render mode,
+      panel continuity, and L3;
+    - ``letter``: the resolved font bytes and accepted size;
+    - ``layout`` / ``webtoon``: the resolved font bytes and accepted size (the
+      page geometry is already a key input);
+    - ``export``: no byte-affecting environment; PDF/CBZ bytes are keyed by the
+      bound pages and binding;
+    - ``all``: the historical union, kept for compatibility with old callers and
+      tests.
 
     Args:
-        text: the text whose font resolution determines the font digest. Callers
-            pass the text that will actually be drawn on the artifact under key.
+        text: the text whose font resolution determines the font digest. Scopes
+            that do not draw text do not read it.
         resolved_size: the size the call will really use. Pass the fallback
             (``1024x1024``) when a size error triggered one, so the key reflects
             the bytes rather than the request (§8 invariant 6b). ``None`` means
             no fallback occurred and the configured size is authoritative.
         font_path: an explicit per-engine font override, mirroring
             ``fonts.resolve_font``.
+        scope: ``render``, ``letter``, ``layout``, ``webtoon``, ``export``, or
+            ``all``.
 
     Returns:
         A 64-character lowercase hex digest. Two calls with equal
         bytes-affecting inputs return the same digest; any difference in the
-        registered set, the resolved font bytes, or the resolved size changes it.
+        selected set or the resolved values changes it.
     """
+    if scope not in {"render", "letter", "layout", "webtoon", "export", "all"}:
+        raise ValueError(f"unknown h_env scope: {scope}")
     image = ImageConfig()
     chat = ChatConfig()
-    payload = {
-        "font_digest": resolved_font_digest(text, font_path=font_path),
-        "resolved_size": resolved_size or finished_page_size(),
-        "render_mode": render_mode(),
-        "provider": image.provider,
-        "image_i2i_model": image.agnes_i2i_model,
-        "chat_model": chat.agnes_chat_model,
-        "openai_base_url": image.openai_compat_base_url,
-        "openai_t2i_model": image.openai_compat_model_t2i,
-        "openai_i2i_model": image.openai_compat_model_i2i,
-        "openai_chat_base_url": chat.openai_compat_chat_base_url,
-        "openai_chat_model": chat.openai_compat_chat_model,
-        "l3_enabled": l3_enabled(),
-        "panel_continuity": image.panel_continuity,
-        "page_script_enabled": page_script_enabled(),
-    }
+    payload: dict[str, object] = {"scope": scope}
+    if scope in {"render", "all"}:
+        payload.update(
+            {
+                "resolved_size": resolved_size or finished_page_size(),
+                "render_mode": render_mode(),
+                "provider": image.provider,
+                "image_i2i_model": image.agnes_i2i_model,
+                "openai_base_url": image.openai_compat_base_url,
+                "openai_t2i_model": image.openai_compat_model_t2i,
+                "openai_i2i_model": image.openai_compat_model_i2i,
+                "panel_continuity": image.panel_continuity,
+                "l3_enabled": l3_enabled(),
+            }
+        )
+    if scope in {"letter", "layout", "webtoon", "all"}:
+        payload["font_digest"] = resolved_font_digest(text, font_path=font_path)
+        payload["resolved_size"] = resolved_size or finished_page_size()
+    if scope == "all":
+        payload.update(
+            {
+                "chat_model": chat.agnes_chat_model,
+                "openai_chat_base_url": chat.openai_compat_chat_base_url,
+                "openai_chat_model": chat.openai_compat_chat_model,
+                "page_script_enabled": page_script_enabled(),
+            }
+        )
     canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()

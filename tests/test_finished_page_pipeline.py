@@ -11,6 +11,7 @@ import pytest
 from PIL import Image
 
 from core.api import ChatProvider, ImageProvider
+from core.comic.budget import BudgetSpec
 from core.comic.cas import beats_action_key
 from core.comic.segmentation import segment_text
 from core.comic.structure_report import structural_report
@@ -315,10 +316,24 @@ def test_finished_page_mode_writes_generated_pages(tmp_path, monkeypatch):
     # Two-part state: the checkpoint holds progress; the heavy plan caches the
     # resumed run needs (chunk/page/beat cache) live in the sibling cache.json.
     raw_state = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
-    for name in ("chunk_cache", "page_cache", "beat_cache", "visual_bible"):
+    for name in (
+        "chunk_cache",
+        "page_cache",
+        "beat_cache",
+        "visual_bible",
+        "source_units",
+        "adaptation_plans",
+    ):
         assert name not in raw_state
     raw_cache = json.loads((tmp_path / "cache.json").read_text(encoding="utf-8"))
-    assert set(raw_cache) == {"chunk_cache", "page_cache", "beat_cache", "visual_bible"}
+    assert set(raw_cache) == {
+        "chunk_cache",
+        "page_cache",
+        "beat_cache",
+        "visual_bible",
+        "source_units",
+        "adaptation_plans",
+    }
 
     # Resume: the page is recorded in state.json and the plan caches round-trip
     # through cache.json, so nothing regenerates.
@@ -1076,3 +1091,23 @@ def test_finished_page_resume_does_not_require_a_visual_bible(tmp_path, monkeypa
     )
 
     assert "resume" in stages
+
+
+def test_a_budget_missing_a_charged_stage_fails_before_any_call(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+    chat, image = FakeChat(), FakeImage()
+    spec = BudgetSpec(total=10, reservations={"render": 10})
+
+    with pytest.raises(ValueError, match="does not fund required stages"):
+        asyncio.run(
+            creative_comic(
+                "第一章\n福贵在村口。",
+                output_dir=str(tmp_path),
+                chat=chat,
+                image=image,
+                budget=spec,
+            )
+        )
+
+    assert chat.calls == 0
+    assert image.calls == 0

@@ -319,6 +319,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Confirm a continuity review: raise a character's reviewed version",
     )
     p_id.add_argument(
+        "--page",
+        action="append",
+        default=None,
+        help="Confirm only these positional page keys (repeatable)",
+    )
+    p_id.add_argument(
         "--out",
         default="comic_out",
         help="Generation output directory (contains consistency.json; default comic_out)",
@@ -716,10 +722,18 @@ def _run_identity(args: argparse.Namespace) -> int:
         if name not in ledger.characters:
             print(f"未找到角色 {name}：无法确认复核。")
             return 1
-        ledger.confirm_review(name)
+        changed = ledger.confirm_review(name, pages=getattr(args, "page", None))
+        if not changed:
+            print(f"没有可确认的页面：{name} 的待复核页已清空或指定页面不在其中。")
+            return 0
         ledger.save(out / "consistency.json")
-        version = ledger.characters[name].reference.version
-        print(f"已确认 {name} 的复核：待复核页已清空（已复核版本升至 v{version}）。")
+        entry = ledger.characters[name]
+        version = entry.reference.version
+        remaining = len(entry.pending_pages)
+        if remaining:
+            print(f"已确认 {name} 的部分复核：仍待复核 {remaining} 页（已复核版本 v{version}）。")
+        else:
+            print(f"已确认 {name} 的复核：待复核页已清空（已复核版本升至 v{version}）。")
         return 0
 
     if not ledger.characters:

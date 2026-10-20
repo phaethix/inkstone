@@ -132,3 +132,69 @@ def test_continuity_review_paused_names_the_characters():
     assert "A (2 pages)" in str(exc)
     assert "B (1 page)" in str(exc)
     assert exc.escalated == {"A": ["p1", "p2"], "B": ["p3"]}
+
+
+def _state_with_character_a(pages: int):
+    from core.schemas import ComicPagePlan, ComicPagePlanSet, PagePanelSpec, ProjectState
+
+    plans = [
+        ComicPagePlan(
+            page_id=f"pg{index}",
+            reference_characters=["A"],
+            panels=[PagePanelSpec(panel_id="p", characters=["A"])],
+        )
+        for index in range(pages)
+    ]
+    state = ProjectState(project_id="t")
+    state.page_cache["0"] = ComicPagePlanSet(unit_id="0", pages=plans)
+    return state
+
+
+def test_partial_confirmation_reduces_pending_below_the_threshold():
+    state = _state_with_character_a(31)
+    led = ConsistencyLedger()
+    led.rebuild_from_state(state)
+    entry = led.characters["A"]
+    entry.reference.version = 1
+    led.rebuild_from_state(state)
+    assert len(entry.pending_pages) == 31
+    assert set(led.escalated()) == {"A"}
+
+    assert led.confirm_review("A", pages=["c0000-p0000"]) is True
+    assert entry.reviewed_pages == ["c0000-p0000"]
+    assert len(entry.pending_pages) == 30
+    assert led.escalated() == {}
+
+    assert led.confirm_review("A") is True
+    assert entry.reviewed_pages == entry.pages
+    assert entry.pending_pages == []
+
+    # A new reference invalidates every page review again.
+    entry.reference.version = 2
+    led.rebuild_from_state(state)
+    assert entry.reviewed_pages == []
+    assert len(entry.pending_pages) == 31
+    assert set(led.escalated()) == {"A"}
+
+
+def test_an_old_confirmed_entry_backfills_reviewed_pages():
+    state = _state_with_character_a(2)
+    led = ConsistencyLedger(
+        characters={
+            "A": LedgerEntry(
+                pages=["c0000-p0000", "c0000-p0001"],
+                reference=ReferenceVersion(path="p.png", version=1),
+                reviewed_version=1,
+            )
+        }
+    )
+
+    led.rebuild_from_state(state)
+    entry = led.characters["A"]
+    assert entry.reviewed_pages == entry.pages
+    assert entry.pending_pages == []
+
+    entry.reference.version = 2
+    led.rebuild_from_state(state)
+    assert entry.reviewed_pages == []
+    assert entry.pending_pages == entry.pages
