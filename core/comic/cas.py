@@ -686,11 +686,17 @@ def release_tombstones(root: Path, *, stage: str, keys: list[str] | None = None)
     return released
 
 
-def verify(root: Path) -> list[str]:
+def verify(
+    root: Path,
+    *,
+    allowed_stages: set[str] | frozenset[str] | None = None,
+) -> list[str]:
     """Report disagreements between ``index/`` and ``cas/``.
 
     An empty index is consistent. A missing blob, a hash mismatch, a key that
-    does not match its filename, or a non-ok outcome without a reason is not.
+    does not match its filename, a non-ok outcome without a reason, or a stage
+    outside ``allowed_stages`` is not. The last argument is optional so the
+    storage layer does not import the pipeline catalog.
     """
     index = root / "index"
     if not index.is_dir():
@@ -705,6 +711,8 @@ def verify(root: Path) -> list[str]:
         expected = f"sha256:{path.stem}"
         if not _manifest_identity_valid(manifest, expected, path.stem):
             problems.append(f"{path.name}: key is {manifest.key}")
+        if allowed_stages is not None and manifest.stage not in allowed_stages:
+            problems.append(f"{path.name}: unknown stage {manifest.stage!r}")
         if manifest.outcome != "ok" and not (manifest.reason or "").strip():
             problems.append(f"{path.name}: outcome {manifest.outcome} has no reason")
         if manifest.outcome != "ok" and manifest.outputs:

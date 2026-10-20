@@ -52,7 +52,11 @@ def _canonical(raw: dict) -> tuple[Manifest, bool]:
     return manifest, before != after
 
 
-def scan_manifests(root: str | Path) -> MigrationReport:
+def scan_manifests(
+    root: str | Path,
+    *,
+    allowed_stages: set[str] | frozenset[str] | None = None,
+) -> MigrationReport:
     """Read ``index/*.json`` and report what a canonical rewrite would change."""
     root = Path(root)
     report = MigrationReport()
@@ -78,6 +82,8 @@ def scan_manifests(root: str | Path) -> MigrationReport:
         problems: list[str] = []
         if manifest.key != expected:
             problems.append(f"key {manifest.key} does not match filename {path.name}")
+        if allowed_stages is not None and manifest.stage not in allowed_stages:
+            problems.append(f"unknown stage {manifest.stage!r}")
         if manifest.outcome not in HIT_OUTCOMES:
             problems.append(f"unknown outcome {manifest.outcome!r}")
         if manifest.outcome != "ok" and not (manifest.reason or "").strip():

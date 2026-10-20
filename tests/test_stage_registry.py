@@ -29,3 +29,20 @@ def test_stages_cli_lists_the_catalog(capsys):
     out = capsys.readouterr().out
     assert "render.page" in out
     assert "manifest" in out
+
+
+def test_verify_and_migrate_reject_unknown_manifest_stages(tmp_path):
+    from core.comic.cas import Manifest, save_manifest, verify
+    from core.comic.migrate import scan_manifests
+    from core.pipelines.stage_registry import manifest_stages
+
+    save_manifest(
+        tmp_path,
+        Manifest(key="sha256:" + "a" * 64, stage="not-a-stage", outcome="ok"),
+    )
+
+    allowed = manifest_stages()
+    assert any("unknown stage" in problem for problem in verify(tmp_path, allowed_stages=allowed))
+    report = scan_manifests(tmp_path, allowed_stages=allowed)
+    assert report.problems
+    assert "unknown stage" in report.problems[0].problems[0]

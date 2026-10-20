@@ -391,6 +391,7 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Rewrite clean manifests; default is a dry run",
     )
+    p_mig.add_argument("--json", action="store_true", help="Print a JSON report")
 
     p_verify = sub.add_parser(
         "verify",
@@ -1017,14 +1018,35 @@ def _run_stages(args: argparse.Namespace) -> int:
 def _run_migrate(args: argparse.Namespace) -> int:
     """migrate 子命令：检查或重写 manifest 到当前 schema（§6 升级路径）。"""
     from core.comic.migrate import apply_migrations, scan_manifests
+    from core.pipelines.stage_registry import manifest_stages
 
     root = Path(args.out)
-    report = scan_manifests(root)
+    report = scan_manifests(root, allowed_stages=manifest_stages())
     if not report.manifests:
-        print(f"{args.out}: 没有 manifest。")
+        if args.json:
+            print(json.dumps({"out": str(root), "manifests": 0, "changed": [], "problems": []}))
+        else:
+            print(f"{args.out}: 没有 manifest。")
         return 0
     changed = report.changed
     problems = report.problems
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "out": str(root),
+                    "manifests": len(report.manifests),
+                    "changed": [item.path.name for item in changed],
+                    "problems": [
+                        {"file": item.path.name, "problems": item.problems} for item in problems
+                    ],
+                    "written": apply_migrations(report) if args.apply and changed else 0,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 1 if problems else 0
     print(
         f"{args.out}: {len(report.manifests)} manifest，"
         f"{len(changed)} 个需要升级，{len(problems)} 个有问题。"
@@ -1044,8 +1066,9 @@ def _run_migrate(args: argparse.Namespace) -> int:
 def _run_verify(args: argparse.Namespace) -> int:
     """Report whether index/ and cas/ describe the same bytes."""
     from core.comic.cas import verify
+    from core.pipelines.stage_registry import manifest_stages
 
-    problems = verify(Path(args.out))
+    problems = verify(Path(args.out), allowed_stages=manifest_stages())
     if problems:
         for problem in problems:
             print(problem, file=sys.stderr)

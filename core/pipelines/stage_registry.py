@@ -50,6 +50,11 @@ def all_specs() -> tuple[StageSpec, ...]:
     return _SPECS
 
 
+def manifest_stages() -> frozenset[str]:
+    """Every ``stage`` string a current manifest may carry."""
+    return frozenset(spec.manifest_stage for spec in _SPECS)
+
+
 def stage_spec(name: str) -> StageSpec:
     for spec in _SPECS:
         if spec.name == name:
