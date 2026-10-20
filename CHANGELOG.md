@@ -121,6 +121,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   contain those phrases.
 
 ### Fixed
+- D-17: `resolved_font_digest` caches by resolved path + `mtime_ns` + size,
+  so a page no longer re-reads and SHA-256s a multi-megabyte CJK font 2–4
+  times. A changed font file changes the key; `reset_caches()` clears it.
+- D-23: all atomic writers now share `core/comic/atomic.py`: a new file gets
+  the process umask (typically `0644`) instead of `mkstemp`'s `0600`, an
+  existing file keeps its mode, the parent directory is fsynced after the
+  rename, and a failed `os.fdopen` cannot leak the temp fd. This replaces the
+  duplicate implementations in `state.json`, `cache.json`, budget, gate,
+  ledger, and CAS.
 - D-01: an alias merge can no longer leave `reviewed_version` ahead of
   `reference.version`, which silently disabled continuity review.
 - D-02: `rebuild_from_state` clears the page set of a character that no longer

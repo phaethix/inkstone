@@ -67,6 +67,13 @@ Keep these prototypes only as migration material until they conform to the targe
 
 ### P0 — Make the current state honest and deterministic
 
+- **Local (2026-10-20, `main`):** D-17 + D-23. The resolved font digest is now
+  cached by path + mtime + size, removing the render path's repeated
+  multi-megabyte font reads. Atomic writes share `core/comic/atomic.py`: new
+  files get the process umask, existing modes are preserved, the parent
+  directory is fsynced, and the temp fd cannot leak. Regression:
+  `tests/test_fonts.py`, `tests/test_atomic.py`. Remaining from the review:
+  D-19 / D-22 documentation-and-config cleanup.
 - **Local (2026-10-20, `main`):** `INKSTONE_HARNESS=0` one-release fallback.
   It forces the builtin tree, ignores the harness dir, forces `general` genre,
   and disables craft lessons; the review manifest records
