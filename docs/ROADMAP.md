@@ -59,7 +59,7 @@ When completing a change:
 
 Do **not** present the current D1/D2 code as a completed quality feature:
 
-- density tiers now set the planning budget and the structure fingerprint; the panel budget `3/8/14` is still an experience value, while the page count is derived through `PANELS_PER_PAGE = 4`, which is held in sync with `LayoutEngine._paginate(per_page=4)` so it cannot drift;
+- density tiers now set the planning budget and the structure fingerprint; the panel budget `3/8/14` is still an experience value. The page count is derived through `PANELS_PER_PAGE = 4`, the engine's `_paginate(per_page=4)` packing limit. That is an upper bound, not the planner's rate: planning splits on narrative beats, so measured pages come out well above `panels / 4` (the Journey excerpt: 14 panels, 8 pages, 1.75 per page). Pages are therefore measured whenever a project has them, and derived only when it does not;
 - PageScript is created after storyboard, so it cannot restore omitted narrative beats;
 - coverage currently checks non-empty fields and substring matches, not reader-visible information;
 - policy-rejected pages must not be excluded from a final completeness denominator.
@@ -259,15 +259,20 @@ Keep these prototypes only as migration material until they conform to the targe
 - [x] Isolate, rename or remove the old PageScript / coverage prototype so it
   cannot be mistaken for a release-quality gate. `coverage` prints a prototype
   banner before any ratio. It stays off unless `INKSTONE_PAGE_SCRIPT=1`.
-- [ ] Calibrate estimates with a public sample; do not promise fixed panels per
-  chunk without evidence. `inkstone plan --out` uses panel and page counts a
-  project has already planned. A local generate of the Journey to the West
-  excerpt planned 14 panels and 8 pages for its one chunk; the experience rate
-  for that text was 8 panels and 2 pages. The constants stay 3/8/14. When a
-  project is passed to `plan --out`, the printed panel and page counts come
-  from that project and the note says the tier constants stay the experience
-  rate. The drawings stay in `comic_out/` and are not committed, so a plan
-  without `--out` stays the experience rate.
+- [ ] Calibrate estimates with a public sample. The rate question is settled in
+  policy, not in numbers: pages are measured when a project has them, derived
+  only when it does not, and a derived page count says so in the output. The
+  constants stay 3/8/14. A local generate of the Journey to the West excerpt
+  planned 14 panels and 8 pages for its one chunk (1.75 panels per page against
+  the planner's own 4-per-page packing limit), while the tier rate for that text
+  is 8 panels and 2 pages. So `panels / PANELS_PER_PAGE` is an upper bound on
+  density, never the planner's rate, and feeding measured panels in without
+  measured pages now derives pages from those panels instead of leaving the
+  stale tier value. `inkstone plan --out` reads panel and page counts a project
+  has already planned; without `--out` the output stays the experience rate and
+  says so. What remains un-calibrated is the budget itself: tier B prompts for
+  "about 8 panels" and only A and C clip the plan, so a B planner can and did
+  produce 14. Deciding whether B should clip too is open.
 - [x] Phase 3 keys. Extract, beats, page plan, and finished-page render use
   action keys. A matching key does not call the provider again. A page plan key
   carries the history window and the summarizer source hashes, not the recent
