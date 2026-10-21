@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Literal
 
 from core.comic.segmentation import segment_text
-from core.config import webtoon_warn_mb
+from core.config import DEFAULT_PANELS_PER_PAGE, webtoon_warn_mb
 
 # --------------------------------------------------------------------------- #
 # Experience constants. Panel budgets stay 3/8/14. The Journey excerpt locks
@@ -53,11 +53,13 @@ PANELS_PER_CHUNK_C = 14  # 近原著
 PANELS_PER_MINUTE = 2
 
 # Panels a page holds when the layout engine packs it. This is an upper bound,
-# not the rate a planner produces: the same engine paginates at ``per_page=4``,
-# but planning splits on narrative beats first. The Journey excerpt planned 14
-# panels onto 8 pages, 1.75 per page. So ``panels / PANELS_PER_PAGE``
+# not the rate a planner produces: the same engine paginates at the shared
+# limit, but planning splits on narrative beats first. The Journey excerpt
+# planned 14 panels onto 8 pages, 1.75 per page. So ``panels / PANELS_PER_PAGE``
 # under-counts real pages, and it is used only when no page count was measured.
-PANELS_PER_PAGE = 4
+# The number itself lives in ``core.config`` so the engine that packs and the
+# estimate that quotes pages cannot drift apart.
+PANELS_PER_PAGE = DEFAULT_PANELS_PER_PAGE
 
 # Webtoon vertical-strip size guard. Estimated MB per page; warn when the
 # projected webtoon exceeds the threshold. Both are experience values and the

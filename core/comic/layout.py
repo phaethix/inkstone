@@ -16,7 +16,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from core.comic.fonts import DEFAULT_CJK_FONT_SIZE, resolve_font, text_requires_cjk
-from core.config import DEFAULT_WEBTOON_MAX_PIXELS, webtoon_max_pixels
+from core.config import DEFAULT_PANELS_PER_PAGE, DEFAULT_WEBTOON_MAX_PIXELS, webtoon_max_pixels
 
 # Re-export for callers/tests that historically imported from this module.
 # Override with INKSTONE_WEBTOON_MAX_PIXELS; set it to 0 to disable the guard.
@@ -94,7 +94,7 @@ class LayoutEngine:
     # Page mode
     # ------------------------------------------------------------------ #
     def _compose_pages(self, panels: list[PanelImage], output_dir: Path) -> list[str]:
-        pages = self._paginate(panels, per_page=4)
+        pages = self._paginate(panels, per_page=DEFAULT_PANELS_PER_PAGE)
         paths: list[str] = []
         for i, page_panels in enumerate(pages, start=1):
             canvas = self._render_page(page_panels)
@@ -104,7 +104,9 @@ class LayoutEngine:
         return paths
 
     @staticmethod
-    def _paginate(panels: list[PanelImage], per_page: int = 4) -> list[list[PanelImage]]:
+    def _paginate(
+        panels: list[PanelImage], per_page: int = DEFAULT_PANELS_PER_PAGE
+    ) -> list[list[PanelImage]]:
         if not panels:
             return []
         return [panels[i : i + per_page] for i in range(0, len(panels), per_page)]

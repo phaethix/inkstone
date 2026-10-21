@@ -171,6 +171,12 @@ def webtoon_warn_mb(*, default: float = 50.0) -> float:
 # giant RGB buffer (3 bytes/px), so an unbounded strip OOMs on long books.
 DEFAULT_WEBTOON_MAX_PIXELS = 200_000_000
 
+# Panels the layout engine packs onto one page. This is one fact with two
+# readers: ``LayoutEngine`` paginates by it and ``core.density`` divides by it to
+# quote pages, cost, and duration before a single token is spent. Written down
+# twice, changing one copy would leave the estimate cheap and quietly wrong.
+DEFAULT_PANELS_PER_PAGE = 4
+
 
 def webtoon_max_pixels(*, default: int = DEFAULT_WEBTOON_MAX_PIXELS) -> int:
     raw = _get(ENV_WEBTOON_MAX_PIXELS, "").strip()

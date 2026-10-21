@@ -320,6 +320,20 @@ Keep these prototypes only as migration material until they conform to the targe
   chunk without it); export finalization is gated on every render node
   completing.
 
+- **Local (2026-10-21, `main`):** One packing limit instead of two copies.
+  `DEFAULT_PANELS_PER_PAGE` in `core/config.py` now answers both questions the
+  number is asked: `LayoutEngine` paginates by it and `core.density` divides by
+  it to quote pages, cost, and duration before any billable call. The engine
+  previously hard-coded `per_page=4` in two places (`_compose_pages` and the
+  `_paginate` default), so changing the constant would have left every quoted
+  page, cost, and duration figure quietly wrong with no failing test.
+  `PANELS_PER_PAGE` in `core.density` is now an alias for the shared value, so
+  existing importers keep working. `tests/test_page_capacity_contract.py` ties
+  the quoted page count to the pages the engine can actually produce, and a
+  mutation check confirms the test fails when the two copies disagree. The
+  layout stage hash changes once, which re-composes local page images on the
+  next run; that stage calls no provider.
+
 ### P0 — Content-addressed pipeline migration (0a-0h)
 
 Per the the content-addressed pipeline design (`docs/architecture/2026-09-28-content-addressed-pipeline-design.md`, local-only) §9.
