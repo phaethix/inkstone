@@ -482,6 +482,14 @@ async def plan_storyboard(
     board = Storyboard.model_validate(args)
     if panel_budget is not None and enforce_budget:
         board = board.model_copy(update={"panels": board.panels[:panel_budget]})
+    elif panel_budget is not None and len(board.panels) > panel_budget:
+        # Tier B keeps whatever came back on purpose, but the size of the overrun
+        # is the one number that says the budget is un-calibrated. Log it.
+        logger.warning(
+            "storyboard planned %d panels against a budget of %d; keeping them",
+            len(board.panels),
+            panel_budget,
+        )
     if key_beats is not None and key_beats.beats:
         assign_panel_beat_ids(board.panels, key_beats.beats)
     else:
@@ -562,7 +570,16 @@ async def plan_comic_pages(
                 "pages": [sanitize_plan_lettering(page, "cjk") for page in pageset.pages],
             }
         )
-    return _clip_page_plan(pageset, panel_budget, enforce=enforce_budget)
+    kept = _clip_page_plan(pageset, panel_budget, enforce=enforce_budget)
+    if panel_budget is not None and not enforce_budget:
+        planned = sum(len(page.panels) for page in kept.pages)
+        if planned > panel_budget:
+            logger.warning(
+                "page plan kept %d panels against a budget of %d; keeping them",
+                planned,
+                panel_budget,
+            )
+    return kept
 
 
 async def reconcile_visual_bible(

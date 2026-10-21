@@ -168,3 +168,60 @@ def test_an_unknown_density_is_rejected(tmp_path):
                 density="D",
             )
         )
+
+
+def test_a_budget_the_planner_exceeded_is_reported(caplog):
+    """Tier B does not clip, so the overrun has to be visible somewhere.
+
+    The tier B sentence is the whole contract there: A and C clip the plan, B
+    keeps whatever the planner returned. Keeping it is deliberate, but a
+    planner that returns 14 against a budget of 8 currently leaves no trace, so
+    the one number that says the budget is un-calibrated is invisible. This
+    asserts the run logs both numbers instead of changing what it keeps.
+    """
+    chat = _BudgetChat(
+        {
+            "chapter_id": "ch",
+            "panels": [{"panel_id": str(i), "action": "walks"} for i in range(5)],
+        }
+    )
+    with caplog.at_level("WARNING"):
+        board = asyncio.run(
+            plan_storyboard(
+                "甲板上。", StoryElements(), chat=chat, panel_budget=2, enforce_budget=False
+            )
+        )
+    assert len(board.panels) == 5
+    assert any(
+        "5" in record.getMessage() and "2" in record.getMessage() for record in caplog.records
+    )
+
+
+def test_a_page_plan_past_the_budget_is_reported_too(caplog):
+    """The page plan is the path B actually takes, so it needs the same signal."""
+    chat = _BudgetChat(
+        {
+            "unit_id": "1",
+            "pages": [
+                {
+                    "page_id": "p1",
+                    "panels": [{"panel_id": f"p{i}", "action": "walks"} for i in range(4)],
+                },
+                {
+                    "page_id": "p2",
+                    "panels": [{"panel_id": f"q{i}", "action": "looks"} for i in range(4)],
+                },
+            ],
+        }
+    )
+    with caplog.at_level("WARNING"):
+        pageset = asyncio.run(
+            plan_comic_pages(
+                "甲板上。", StoryElements(), chat=chat, panel_budget=3, enforce_budget=False
+            )
+        )
+    kept = sum(len(page.panels) for page in pageset.pages)
+    assert kept == 8
+    assert any(
+        "8" in record.getMessage() and "3" in record.getMessage() for record in caplog.records
+    )

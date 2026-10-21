@@ -270,9 +270,13 @@ Keep these prototypes only as migration material until they conform to the targe
   measured pages now derives pages from those panels instead of leaving the
   stale tier value. `inkstone plan --out` reads panel and page counts a project
   has already planned; without `--out` the output stays the experience rate and
-  says so. What remains un-calibrated is the budget itself: tier B prompts for
+  says so. A project that stopped between chunks keeps the pages it measured
+  (the rest are filled from their average) instead of falling back to the rate.
+  What remains un-calibrated is the budget itself: tier B prompts for
   "about 8 panels" and only A and C clip the plan, so a B planner can and did
-  produce 14. Deciding whether B should clip too is open.
+  produce 14. The overrun is no longer silent — both the storyboard and the page
+  plan log the panels kept against the budget when nothing is clipped — but
+  deciding whether B should clip too is still open.
 - [x] Phase 3 keys. Extract, beats, page plan, and finished-page render use
   action keys. A matching key does not call the provider again. A page plan key
   carries the history window and the summarizer source hashes, not the recent
