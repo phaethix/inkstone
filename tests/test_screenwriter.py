@@ -127,3 +127,65 @@ def test_a_budget_nothing_clips_does_not_promise_a_ceiling():
     assert "about 8 panels" in blob
     assert "do not exceed" not in blob
     assert "may exceed" in blob or "target" in blob
+
+
+def _plan_pages(*panel_counts: int):
+    """A page plan with the given panels per page, ids in reading order."""
+    from core.schemas import ComicPagePlanSet
+
+    pages = []
+    index = 0
+    for page_number, count in enumerate(panel_counts, start=1):
+        panels = []
+        for _ in range(count):
+            index += 1
+            panels.append({"panel_id": f"p{index:02d}", "action": f"beat {index}"})
+        pages.append({"page_id": f"pg{page_number}", "panels": panels})
+    return ComicPagePlanSet.model_validate({"pages": pages})
+
+
+def test_a_clipped_plan_keeps_the_chapter_ending():
+    """A budget must not turn a chapter into its opening.
+
+    Tier A asks for three panels. Clipping by position kept the first three, so
+    a ten-panel chapter kept its setup and dropped the turn and the close. A
+    reader gets the beginning of a story with no ending, which is a different
+    story rather than a sparser one.
+    """
+    from core.screenwriter import _clip_page_plan
+
+    clipped = _clip_page_plan(_plan_pages(10), 3, enforce=True)
+    kept = [panel.panel_id for page in clipped.pages for panel in page.panels]
+    assert len(kept) == 3
+    assert "p10" in kept, f"the close was dropped; kept {kept}"
+
+
+def test_a_clipped_plan_keeps_the_first_panel_too():
+    """Keeping the close must not cost the setup. Both ends matter."""
+    from core.screenwriter import _clip_page_plan
+
+    clipped = _clip_page_plan(_plan_pages(10), 3, enforce=True)
+    kept = [panel.panel_id for page in clipped.pages for panel in page.panels]
+    assert "p01" in kept, f"the setup was dropped; kept {kept}"
+
+
+def test_a_clipped_storyboard_keeps_the_chapter_ending():
+    """The storyboard is clipped before the page plan ever sees it.
+
+    Tier A asked for three panels and the storyboard kept its first three, so
+    the close was already gone upstream. Fixing only the page plan leaves the
+    storyboard path with the same missing ending.
+    """
+    payload = {
+        "chapter_id": "ch01",
+        "panels": [{"panel_id": f"p{index:02d}", "action": "walks"} for index in range(1, 11)],
+    }
+    board = asyncio.run(
+        plan_storyboard(
+            "甲板上。", StoryElements(), chat=FakeChat(payload), panel_budget=3, enforce_budget=True
+        )
+    )
+    ids = [panel.panel_id for panel in board.panels]
+    assert len(ids) == 3
+    assert ids[-1] == "p10", f"the close was dropped; kept {ids}"
+    assert ids[0] == "p01", f"the setup was dropped; kept {ids}"

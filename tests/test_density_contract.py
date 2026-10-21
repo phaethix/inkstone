@@ -50,7 +50,9 @@ def test_a_storyboard_keeps_only_the_budgeted_panels():
     board = asyncio.run(
         plan_storyboard("甲板上。", StoryElements(), chat=chat, panel_budget=2, enforce_budget=True)
     )
-    assert [panel.panel_id for panel in board.panels] == ["0", "1"]
+    # Two panels survive, and they are the ends of the chapter rather than its
+    # front: dropping the close turns an overview into an unfinished story.
+    assert [panel.panel_id for panel in board.panels] == ["0", "4"]
     assert "about 2 panels" in chat.user
 
 
@@ -113,12 +115,66 @@ def test_a_page_plan_drops_panels_past_the_budget_and_their_boxes():
             "甲板上。", StoryElements(), chat=chat, panel_budget=3, enforce_budget=True
         )
     )
+    # Three of four panels survive: the opening stays, the middle is thinned, and
+    # the turn on the last page stays. Dropping everything past the budget had
+    # kept a/b/c and thrown away the turn that ends the excerpt.
     assert [[panel.panel_id for panel in page.panels] for page in pageset.pages] == [
-        ["a", "b"],
-        ["c"],
+        ["a"],
+        ["c", "d"],
     ]
-    assert pageset.pages[1].lettering_boxes == []
     assert "about 3 panels" in chat.user
+
+
+def test_a_clipped_plan_drops_the_boxes_of_dropped_panels():
+    """Lettering must follow its panel. A box left on a dropped panel has nothing
+    to sit on, and a box on a kept panel must not be swept away with it.
+
+    Asserted against the clip itself: the plan-level path sanitizes lettering
+    first, so it cannot show what the clip did to the boxes.
+    """
+    from core.schemas import ComicPagePlanSet
+    from core.screenwriter import _clip_page_plan
+
+    plan = ComicPagePlanSet.model_validate(
+        {
+            "pages": [
+                {
+                    "page_id": "p1",
+                    "panels": [{"panel_id": "a"}, {"panel_id": "b"}],
+                    "lettering_boxes": [
+                        {
+                            "kind": "caption",
+                            "panel_id": "a",
+                            "x": 0.1,
+                            "y": 0.1,
+                            "w": 0.2,
+                            "h": 0.1,
+                        },
+                        {
+                            "kind": "caption",
+                            "panel_id": "b",
+                            "x": 0.1,
+                            "y": 0.4,
+                            "w": 0.2,
+                            "h": 0.1,
+                        },
+                    ],
+                },
+                {
+                    "page_id": "p2",
+                    "panels": [{"panel_id": "c"}, {"panel_id": "d"}],
+                    "lettering_boxes": [
+                        {"kind": "caption", "panel_id": "d", "x": 0.1, "y": 0.1, "w": 0.2, "h": 0.1}
+                    ],
+                },
+            ]
+        }
+    )
+    clipped = _clip_page_plan(plan, 3, enforce=True)
+    kept_ids = {panel.panel_id for page in clipped.pages for panel in page.panels}
+    boxed_ids = {box.panel_id for page in clipped.pages for box in page.lettering_boxes}
+    assert boxed_ids <= kept_ids, f"a box outlived its panel: {boxed_ids - kept_ids}"
+    assert "d" in kept_ids and "d" in boxed_ids, "a kept panel lost its box"
 
 
 @patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)

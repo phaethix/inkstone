@@ -445,32 +445,76 @@ def _budget_sentence(panel_budget: int | None, *, enforce: bool) -> str:
     )
 
 
+def _evenly_spaced(count: int, budget: int) -> list[int]:
+    """Indices of ``count`` items to keep when only ``budget`` may survive.
+
+    The first and last are always kept: a chapter without its opening or its
+    close is a different chapter, not a sparser one. The rest are spread across
+    the middle so every stretch of the chapter is represented rather than the
+    front half alone.
+    """
+    if budget <= 0 or count <= 0:
+        return []
+    if budget >= count:
+        return list(range(count))
+    if budget == 1:
+        return [count - 1]
+    step = (count - 1) / (budget - 1)
+    picked = [int(round(index * step)) for index in range(budget)]
+    # Rounding can collide on short chapters; walk forward to keep the order and
+    # the count exact.
+    deduped: list[int] = []
+    for index in picked:
+        index = min(index, count - 1)
+        while index in deduped and index < count - 1:
+            index += 1
+        if index not in deduped:
+            deduped.append(index)
+    while len(deduped) < budget:
+        for index in range(count):
+            if index not in deduped:
+                deduped.append(index)
+                break
+        else:
+            break
+    return sorted(deduped)
+
+
 def _clip_page_plan(
     pageset: ComicPagePlanSet,
     panel_budget: int | None,
     *,
     enforce: bool,
 ) -> ComicPagePlanSet:
-    """Keep the first ``panel_budget`` panels and the boxes that still name one.
+    """Thin the plan to ``panel_budget`` panels without losing either end.
 
     Tier B is the budget every existing book was planned without a cap, so the
     sentence is the whole contract there. A and C are an explicit change, and
     those extra panels are dropped.
+
+    Dropping them from the front kept the setup and threw away the turn and the
+    close, so an overview tier delivered the opening of a story with no ending.
+    The panels are spread instead, and the first and last always survive.
     """
     if panel_budget is None or not enforce:
         return pageset
-    remaining = panel_budget
+    total = sum(len(page.panels) for page in pageset.pages)
+    if total <= panel_budget:
+        return pageset
+    keep = set(_evenly_spaced(total, panel_budget))
     kept = []
+    seen = 0
     for page in pageset.pages:
-        if remaining <= 0:
-            break
-        panels = page.panels[:remaining]
+        panels = []
+        for panel in page.panels:
+            if seen in keep:
+                panels.append(panel)
+            seen += 1
         if not panels:
             continue
         ids = {panel.panel_id for panel in panels}
         boxes = [box for box in page.lettering_boxes if box.panel_id in ids]
         kept.append(page.model_copy(update={"panels": panels, "lettering_boxes": boxes}))
-        remaining -= len(panels)
     if not kept:
         return pageset
     return pageset.model_copy(update={"pages": kept})
@@ -499,7 +543,12 @@ async def plan_storyboard(
     args = await _audited_chat(chat, request.messages, request.tools, request.tool_choice)
     board = Storyboard.model_validate(args)
     if panel_budget is not None and enforce_budget:
-        board = board.model_copy(update={"panels": board.panels[:panel_budget]})
+        # Spread the kept panels instead of taking the front: clipping by
+        # position kept the opening and dropped the turn and the close.
+        keep = set(_evenly_spaced(len(board.panels), panel_budget))
+        board = board.model_copy(
+            update={"panels": [p for i, p in enumerate(board.panels) if i in keep]}
+        )
     elif panel_budget is not None and len(board.panels) > panel_budget:
         # Tier B keeps whatever came back on purpose, but the size of the overrun
         # is the one number that says the budget is un-calibrated. Log it.
