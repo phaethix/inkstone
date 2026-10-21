@@ -354,6 +354,14 @@ def estimate(
         warnings.append(
             "页数由实测格数按排版速率推算，不是实测页数；规划器按叙事节奏拆页，实际页数通常更多。"
         )
+    # Tier B is the one tier nothing clips, so its budget is a floor. Reported
+    # plain, "8 panels / 2 pages" reads as the size of the run, and the public
+    # excerpt planned 14 panels onto 8. Say which of the two it is.
+    if density == "B" and not observed_panels and not observed_pages:
+        warnings.append(
+            f"格数与页数是下限（{panels} 格 / {pages} 页）：B 档保留规划器写下的全部画面，"
+            "章节叙事需要更多时实际产出会更多，页数随之增加。"
+        )
     if capacity_note:
         warnings.append(
             f"实测数据里每页格数超过排版上限 {PANELS_PER_PAGE}，页数已按排版容量抬高，"

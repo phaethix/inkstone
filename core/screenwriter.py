@@ -163,6 +163,7 @@ def build_storyboard_request(
     *,
     key_beats: KeyBeatSet | None = None,
     panel_budget: int | None = None,
+    enforce_budget: bool = False,
     genre: str | None = None,
     harness: Harness | None = None,
     model: str = "",
@@ -183,7 +184,7 @@ def build_storyboard_request(
         "source_chunk": sanitize_text(text),
         "elements_json": elements.model_dump_json(),
         "beats_blob": beats_blob,
-        "budget_sentence": _budget_sentence(panel_budget),
+        "budget_sentence": _budget_sentence(panel_budget, enforce=enforce_budget),
         "domain": domain,
     }
     context = (
@@ -211,6 +212,7 @@ def build_page_plan_request(
     key_beats: KeyBeatSet | None = None,
     extra_user_note: str = "",
     panel_budget: int | None = None,
+    enforce_budget: bool = False,
     genre: str | None = None,
     craft_notes: str = "",
     harness: Harness | None = None,
@@ -254,7 +256,7 @@ def build_page_plan_request(
         "source_chunk": sanitize_text(text),
         "elements_json": elements.model_dump_json(),
         "beats_blob": beats_blob,
-        "budget_sentence": _budget_sentence(panel_budget),
+        "budget_sentence": _budget_sentence(panel_budget, enforce=enforce_budget),
         "diversity": diversity,
         "voice": voice,
         "lang_reminder": lang_reminder,
@@ -419,12 +421,27 @@ async def extract_story_elements(
     return StoryElements.model_validate(args)
 
 
-def _budget_sentence(panel_budget: int | None) -> str:
+def _budget_sentence(panel_budget: int | None, *, enforce: bool) -> str:
+    """The panel budget sentence, worded to match what the pipeline will do.
+
+    ``enforce`` is the whole difference. A and C clip the plan, so the number is
+    a ceiling and the sentence can forbid going over it. Tier B keeps what the
+    planner wrote, so telling it "do not exceed" states a rule nothing applies,
+    and the planner learns its instructions are advisory. There the same number
+    is a target: a thin excerpt still uses fewer, and a chapter that needs more
+    may take more.
+    """
     if panel_budget is None:
         return ""
+    if enforce:
+        return (
+            f"Panel budget for this excerpt: about {panel_budget} panels. "
+            "Use fewer when the excerpt is thin, and do not exceed this budget. "
+        )
     return (
         f"Panel budget for this excerpt: about {panel_budget} panels. "
-        "Use fewer when the excerpt is thin, and do not exceed this budget. "
+        "Use fewer when the excerpt is thin, and let the chapter's beats decide "
+        "when it needs more; this number is a target, not a cap. "
     )
 
 
@@ -476,6 +493,7 @@ async def plan_storyboard(
         elements,
         key_beats=key_beats,
         panel_budget=panel_budget,
+        enforce_budget=enforce_budget,
         model=getattr(chat, "model", ""),
     )
     args = await _audited_chat(chat, request.messages, request.tools, request.tool_choice)
@@ -536,6 +554,7 @@ async def plan_comic_pages(
         key_beats=key_beats,
         extra_user_note=extra_user_note,
         panel_budget=panel_budget,
+        enforce_budget=enforce_budget,
         model=getattr(chat, "model", ""),
     )
     args = await _audited_chat(chat, request.messages, request.tools, request.tool_choice)

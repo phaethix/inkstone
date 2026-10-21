@@ -100,3 +100,30 @@ def test_system_prompt_instructs_no_fabrication():
 
     lower = SYSTEM_PROMPT.lower()
     assert "do not invent" in lower or "do not" in lower
+
+
+def _budget_blob(panel_budget: int, *, enforce: bool) -> str:
+    """The prompt text a chunk sees for one budget, without calling a provider."""
+    from core.screenwriter import _budget_sentence
+
+    return _budget_sentence(panel_budget, enforce=enforce)
+
+
+def test_an_enforced_budget_still_forbids_going_over():
+    """A and C clip, so the sentence is a real constraint they must respect."""
+    blob = _budget_blob(3, enforce=True)
+    assert "about 3 panels" in blob
+    assert "do not exceed" in blob
+
+
+def test_a_budget_nothing_clips_does_not_promise_a_ceiling():
+    """Tier B keeps whatever the planner wrote, so "do not exceed" is a lie.
+
+    A constraint the code never enforces only teaches the planner that its
+    instructions are advisory. Saying the number is a target the plan may
+    exceed is the sentence that matches what the pipeline actually does.
+    """
+    blob = _budget_blob(8, enforce=False)
+    assert "about 8 panels" in blob
+    assert "do not exceed" not in blob
+    assert "may exceed" in blob or "target" in blob

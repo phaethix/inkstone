@@ -284,8 +284,20 @@ Keep these prototypes only as migration material until they conform to the targe
   What remains un-calibrated is the budget itself: tier B prompts for
   "about 8 panels" and only A and C clip the plan, so a B planner can and did
   produce 14. The overrun is no longer silent — both the storyboard and the page
-  plan log the panels kept against the budget when nothing is clipped — but
-  deciding whether B should clip too is still open.
+  plan log the panels kept against the budget when nothing is clipped.
+  B keeps not clipping. `_clip_page_plan` drops panels from the eighth on, which
+  for a chapter-complete tier would cut the turn and the close, and a short book
+  is a worse failure than a long one. So the two sentences that disagreed with
+  the code were fixed instead. The budget sentence now asks for the target and
+  says the chapter's beats may take more, rather than forbidding an overrun
+  nothing prevents; A and C keep the hard "do not exceed" because they clip. The
+  estimate reports tier B's panels and pages as a floor with a note, because 8
+  panels and 2 pages against a measured 14 panels and 8 pages understates a
+  fresh project by most of a factor of four. Both are pinned by
+  `tests/test_screenwriter.py` and `tests/test_density.py`. What is still open is
+  whether tier B and C are actually distinct: the only measured B run produced
+  14 panels, which is C's nominal budget. Calibrating that needs a real C
+  sample, so the tier numbers stay as they are.
 - [x] Phase 3 keys. Extract, beats, page plan, and finished-page render use
   action keys. A matching key does not call the provider again. A page plan key
   carries the history window and the summarizer source hashes, not the recent

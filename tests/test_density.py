@@ -398,3 +398,31 @@ def test_a_gap_between_measured_chunks_does_not_invent_a_capacity_problem(tmp_pa
     assert est.pages * PANELS_PER_PAGE >= est.panels
     assert not any("排版上限" in warning for warning in est.warnings)
     assert any("页数只实测了 1 段" in warning for warning in est.warnings)
+
+
+def test_tier_b_offers_its_panel_count_as_a_floor_not_a_forecast(tmp_path):
+    """Tier B never clips, so its budget cannot be reported as the expected size.
+
+    The planner is told "about 8 panels" and nothing enforces it. The public
+    excerpt came back with 14, and pages follow panels. Reporting 8 and 2 as
+    plain numbers understates a fresh project by most of a factor of four, so
+    the estimate has to say the number is a floor the plan may exceed.
+    """
+    book = _write(tmp_path, "第一段文字内容较长的示例文本用来触发分段。\n" * 800)
+    est = estimate(book, density="B")
+    assert any("下限" in warning for warning in est.warnings)
+
+
+def test_tier_a_and_c_do_not_claim_a_floor(tmp_path):
+    """A and C clip the plan, so their budget is what the run will produce."""
+    book = _write(tmp_path, "第一段文字内容较长的示例文本用来触发分段。\n" * 800)
+    for tier in ("A", "C"):
+        est = estimate(book, density=tier)
+        assert not any("下限" in warning for warning in est.warnings), tier
+
+
+def test_a_measured_tier_b_run_drops_the_floor_caveat(tmp_path):
+    """Once panels are measured, the estimate is no longer guessing from the budget."""
+    book = _write(tmp_path, "第一段文字内容较长的示例文本用来触发分段。\n" * 800)
+    est = estimate(book, density="B", observed_panels=[14] * 3)
+    assert not any("下限" in warning for warning in est.warnings)

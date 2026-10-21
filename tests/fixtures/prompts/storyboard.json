@@ -1,6 +1,6 @@
 {
   "stage": "storyboard",
-  "digest": "sha256:b7c462d19cbc35248d07f4be35e6698029428773170b431c8bca3886b45ff7c9",
+  "digest": "sha256:9dfe70d7aa71a49a6004b09cba8711df3b935da6e048f280393a9b8120199b86",
   "tool": "plan_storyboard",
   "model": "fixture-model",
   "messages": [
@@ -10,7 +10,7 @@
     },
     {
       "role": "user",
-      "content": "第一回\n福贵在村口。\n\nExtracted story elements (reuse these names and descriptions):\n{\"characters\":[{\"name\":\"福贵\",\"role\":\"\",\"appearance\":{\"hair\":\"\",\"eyewear\":\"\",\"outfit_top\":\"\",\"outfit_bottom\":\"\",\"shoes\":\"\",\"body_type\":\"\",\"distinguishing\":\"\",\"appearance_evidence\":[]},\"l1_prompt\":\"middle-aged farmer\",\"portrait_prompt\":\"portrait\",\"aliases\":[],\"portrait_local\":null,\"portrait_action_key\":\"\"}],\"settings\":[{\"name\":\"村口\",\"description\":\"\",\"scene_prompt\":\"village entrance at dusk\"}],\"style_guide\":\"manhua\"}\n\nKey beats to stage (set beat_ids on the panels that show them):\n{\"beats\":[{\"beat_id\":\"b1\",\"summary\":\"福贵回到村口\",\"must_draw\":true,\"characters\":[\"福贵\"],\"setting_hint\":\"\"}],\"action_key\":\"\"}\n\nPanel budget for this excerpt: about 8 panels. Use fewer when the excerpt is thin, and do not exceed this budget. Reminder: caption / dialogue / sfx must match the source language (if the excerpt is Chinese, lettering must be Chinese — never English translation). Split narration into caption, speech into dialogue, and onomatopoeia into sfx."
+      "content": "第一回\n福贵在村口。\n\nExtracted story elements (reuse these names and descriptions):\n{\"characters\":[{\"name\":\"福贵\",\"role\":\"\",\"appearance\":{\"hair\":\"\",\"eyewear\":\"\",\"outfit_top\":\"\",\"outfit_bottom\":\"\",\"shoes\":\"\",\"body_type\":\"\",\"distinguishing\":\"\",\"appearance_evidence\":[]},\"l1_prompt\":\"middle-aged farmer\",\"portrait_prompt\":\"portrait\",\"aliases\":[],\"portrait_local\":null,\"portrait_action_key\":\"\"}],\"settings\":[{\"name\":\"村口\",\"description\":\"\",\"scene_prompt\":\"village entrance at dusk\"}],\"style_guide\":\"manhua\"}\n\nKey beats to stage (set beat_ids on the panels that show them):\n{\"beats\":[{\"beat_id\":\"b1\",\"summary\":\"福贵回到村口\",\"must_draw\":true,\"characters\":[\"福贵\"],\"setting_hint\":\"\"}],\"action_key\":\"\"}\n\nPanel budget for this excerpt: about 8 panels. Use fewer when the excerpt is thin, and let the chapter's beats decide when it needs more; this number is a target, not a cap. Reminder: caption / dialogue / sfx must match the source language (if the excerpt is Chinese, lettering must be Chinese — never English translation). Split narration into caption, speech into dialogue, and onomatopoeia into sfx."
     }
   ]
 }
