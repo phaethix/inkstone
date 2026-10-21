@@ -281,12 +281,23 @@ Keep these prototypes only as migration material until they conform to the targe
   panels, and a page count of zero means "not planned yet" rather than "no
   pages". A chunk with no page plan and no storyboard takes the measured average,
   which is the only thing left to spread.
-  What remains un-calibrated is the budget itself: tier B prompts for
-  "about 8 panels" and only A clips the plan, so a B planner can and did
-  produce 14. The overrun is no longer silent — both the storyboard and the page
-  plan log the panels kept against the budget when nothing is clipped.
-  - The budget does drive the count, measured directly. Fixed excerpt (2,224
-    chars), fixed tier (B), only the number moved: 8 → 22 panels, 14 → 34,
+  What remains un-calibrated is the budget itself, and the reason is now
+  measured rather than suspected: the planner is not deterministic, so no single
+  run can set the number. Tier B on one identical 4,594-character chunk with the
+  same budget of 8 wrote 11, 21, 25 and 38 panels across four runs — a 3.5x
+  spread around a mean of 23.8. Tier C on the same chunk wrote 29, 25 and 33
+  around a mean of 29.0, a 1.3x spread. C is repeatable; B is not. Any
+  calibration that reads one B run would be fitting noise.
+  - The budgets are absolute counts and the planner's output scales with length,
+    which is the structural half of the problem. B's 8 panels is 1.74 per 1,000
+    characters on that chunk while B actually writes 5.17; C's 14 is 3.05 while
+    C writes 6.31. Both tiers miss by roughly the same factor (3.0x and 2.1x),
+    which says the budget is not wrong so much as unscaled: a fixed count cannot
+    describe a rate. This is why the constants were left alone rather than raised
+    to the measured numbers — raising them fixes one chunk length and mis-sets
+    every other.
+  - Escalating the budget escalates the output, measured directly. Fixed excerpt
+    (2,224 chars), fixed tier (B), only the number moved: 8 → 22 panels, 14 → 34,
     24 → 40, 40 → 50. So `3/8/14` is not cosmetic, and an earlier conclusion
     that the number did not matter was wrong: that reading came from comparing
     different lengths, where length was the confound. On a 1,055-char excerpt
@@ -295,9 +306,7 @@ Keep these prototypes only as migration material until they conform to the targe
     fall at the top (2,224 chars: 40 → 40 panels, 1,055 chars: 14 → 32 then
     24 → 29). The planner treats the budget as a floor it can overshoot rather
     than a ceiling it approaches, so a larger number does not reliably buy more
-    panels. This is why the constants should not simply be raised to whatever
-    was measured: at these sizes the planner already writes two to four times
-    the number it is given.
+    panels.
   - Length had to reach the prompt before any of this was interpretable. The
     planner was never told how long the excerpt was, so "about 8 panels" had no
     denominator. On four lengths from 1,055 to 4,594 characters the same tier
@@ -313,6 +322,11 @@ Keep these prototypes only as migration material until they conform to the targe
     not a page. Thin pages are merged into a neighbour, which keeps every
     survivor and changes only the sheet count. Pinned by
     `test_a_clipped_plan_never_leaves_a_one_panel_page`.
+  - A single tier can now be probed repeatedly, which is what the measurement
+    above required. The density loader rejected one `--tier` with "needs at least
+    two entries" and so made repeat measurement impossible without pretending a
+    second tier was part of the question. Only an empty list is an error now.
+    Pinned by `test_a_single_tier_can_be_probed_repeatedly`.
   - Only tier A clips. `clips_plan` in `core/density.py` is the single answer to
     "does this tier refuse an overrun"; the nine pipeline call sites, the two
     prompt-renderer sites, and the estimator's floor warning all read it, so the
@@ -329,13 +343,16 @@ Keep these prototypes only as migration material until they conform to the targe
     `test_tier_c_never_comes_out_thinner_than_tier_b`.
   - That guarantee is about one panel list, not about two runs, and the earlier
     wording here overclaimed. B and C are separate planner calls that each write
-    their own plan, so their totals can still cross. Measured on a
-    4,594-character chunk, B wrote 44 and 40 panels against C's 41 and 37, so C
-    came out thinner twice in three runs. Nothing in the clipping policy
-    prevents it; forcing the order across runs needs a cross-call constraint
-    that does not exist yet. Stating the excerpt length fixed the four-length
-    ladder (C at or above B on all four), but that is one sample, not a
-    guarantee.
+    their own plan, so their totals can still cross. The clean measurement is
+    repeat sampling with the correct tier mapping (an anonymous label is not the
+    tier: a density run stores them in `candidates.<id>.tier`). On one
+    4,594-character chunk, four B runs wrote 11/21/25/38 and three C runs wrote
+    29/25/33. B's own spread is 3.5x, wider than the gap between the tiers, so
+    B above C in one run and below it in the next is expected rather than a bug
+    in the policy. Stating the excerpt length removed the systematic length
+    confound (C at or above B on all four ladder lengths, and on chunks 1 and 2
+    of the chapter), but it cannot remove run-to-run variance. Forcing the order
+    across runs needs a cross-call constraint that does not exist yet.
   - Clipping no longer keeps only the opening. `_clip_page_plan` and
     `plan_storyboard` used to take the first N panels, so tier A kept the setup
     and dropped the turn and the close — the reader got the beginning of a story
@@ -469,6 +486,20 @@ Keep these prototypes only as migration material until they conform to the targe
   stored tier and applies that tier's clipping semantics. Both paths are pinned
   by mutation-checked tests in `tests/test_density_contract.py` and
   `tests/test_cli_prompt.py`.
+- **Open:** the panel budget is an absolute count while the planner's output
+  scales with length. On one 4,594-character chunk, B's budget of 8 is 1.74
+  panels per 1,000 characters and B actually writes 5.17; C's 14 is 3.05 against
+  6.31 measured. Both tiers miss by a similar factor (3.0x and 2.1x), which says
+  the number is unscaled rather than simply too small. Fixing this means making
+  the budget a rate (panels per 1,000 characters) and deriving a per-chunk count
+  from each chunk's own length. That changes `state.panels_per_chunk`, which is
+  part of the structure fingerprint, so a resumed project would replan: it needs
+  a migration that keeps old checkpoints resumable, and the 8 call sites in
+  `core/pipelines/creative_comic.py` read the value rather than the rate. Not
+  started, because raising `3/8/14` to the measured numbers would fix one chunk
+  length and mis-set every other, and because B's own run-to-run spread is 3.5x
+  — wider than the gap between tiers — so a rate still has to be chosen against
+  a variance target rather than a single measurement.
 
 ### P0 — Content-addressed pipeline migration (0a-0h)
 

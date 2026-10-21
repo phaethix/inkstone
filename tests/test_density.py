@@ -89,10 +89,11 @@ def test_tier_c_never_comes_out_thinner_than_tier_b():
     one identical panel list to each tier, so it proves C's policy never keeps
     fewer panels than B's for the same input. It does NOT prove the product
     order at runtime, where B and C are two separate planner calls that each
-    write their own plan. Measured on a 4,594-character chunk, B wrote 44 and 40
-    panels against C's 41 and 37 — C came out thinner twice in three runs, and
-    no assertion here could have caught it. Ordering B and C for real needs a
-    cross-call constraint, which does not exist yet; see ROADMAP.
+    write their own plan. On one 4,594-character chunk, four B runs wrote
+    11/21/25/38 panels and three C runs wrote 29/25/33: B's own spread is 3.5x,
+    wider than the gap between the tiers, so either order can come out of a
+    single run and no assertion here could have caught it. Ordering B and C for
+    real needs a cross-call constraint, which does not exist yet; see ROADMAP.
     """
     from core.density import clips_plan
     from core.schemas import ComicPagePlanSet

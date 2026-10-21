@@ -147,9 +147,16 @@ _DENSITY_TIERS: dict[str, int] = {
 
 
 def _load_density_candidates(tiers: list[str]) -> list[Candidate]:
-    """One candidate per tier, carrying that tier's budget and clipping policy."""
+    """One candidate per tier, carrying that tier's budget and clipping policy.
+
+    A single tier is allowed. Comparing two tiers needs two, but calibrating one
+    tier needs repeated measurements of the *same* tier — the planner is not
+    deterministic, so one number per tier says nothing about its spread. Rejecting
+    a single tier made that impossible without pretending a second tier was part
+    of the question, so repeats are a valid probe and only an empty list is not.
+    """
     if not tiers:
-        raise ExperimentError("a density experiment needs at least two --tier entries")
+        raise ExperimentError("a density experiment needs at least one --tier entry")
     # Validate every entry before complaining about the count: a typo should be
     # reported as the typo it is, not hidden behind "needs two".
     parsed: list[str] = []
@@ -162,8 +169,6 @@ def _load_density_candidates(tiers: list[str]) -> list[Candidate]:
             raise ExperimentError(f"duplicate tier: {tier}")
         seen.add(tier)
         parsed.append(tier)
-    if len(parsed) < 2:
-        raise ExperimentError("a density experiment needs at least two --tier entries")
     return [
         Candidate(
             label=tier,

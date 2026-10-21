@@ -228,6 +228,7 @@ input[type=range]::-webkit-slider-thumb{
 .ds-row span:last-child{text-align:right;color:#d3dee9;flex:1 1 auto;white-space:nowrap}
 .ds-row .nowrap{white-space:nowrap}
 .ds-key{color:#e8b04b;font-weight:500}
+.ds-sub{color:#6f7d8e;font-style:normal;font-size:10px;margin:0 4px}
 .ds-bar{
   height:4px;border-radius:2px;background:rgba(255,255,255,.09);
   margin:7px 0 3px;overflow:hidden;display:flex;
@@ -492,12 +493,15 @@ const S = {
   ba:   { n:'巴',   c:'#cc5a3f', cap:'ba' },
   shu:  { n:'蜀',   c:'#a63f66', cap:'shu' },
   ju:   { n:'莒',   c:'#8aa87a', cap:'ju' },
-  xuzhou:{ n:'泗上诸国', c:'#5f7a72', cap:'xuzhou' },
+  xuzhou:{ n:'泗上', c:'#5f7a72', cap:'xuzhou' },
   teng: { n:'滕',   c:'#7fa7b5', cap:'teng' },
   xue:  { n:'薛',   c:'#a8b06b', cap:'xue' },
   zhu:  { n:'邾',   c:'#c0785f', cap:'zhu' },
   xiaozhu:{ n:'小邾', c:'#8f7fb5', cap:'xiaozhu' },
-  chencai:{ n:'陈蔡', c:'#b58f9e', cap:'chencai' },
+  chen: { n:'陈',   c:'#b06f7e', cap:'chen' },
+  cai:  { n:'蔡',   c:'#8f7fa8', cap:'cai' },
+  cao:  { n:'曹',   c:'#bb8a4e', cap:'cao' },
+  dai:  { n:'代',   c:'#8a9a5b', cap:'daibei' },
   none: { n:'无主', c:'#3b4757', cap:null }
 };
 
@@ -505,37 +509,39 @@ const S = {
 const REGIONS = [
   { k:'longxi',    n:'陇西',    p:[[103.2,37.3],[105.6,37.7],[107.9,36.9],[107.6,35.0],[105.6,34.5],[103.8,35.1],[103.0,36.2]] },
   { k:'guanzhong', n:'关中',    p:[[107.6,35.0],[107.9,36.9],[110.4,36.7],[111.2,34.6],[110.0,33.8],[107.9,33.6],[106.4,34.0],[105.6,34.5]] },
-  { k:'shangjun',  n:'上郡',    p:[[107.9,36.9],[107.8,38.9],[110.2,39.3],[111.0,38.0],[110.4,36.7]] },
+  { k:'shangjun',  n:'上郡',    p:[[107.9,36.9],[107.8,38.9],[110.2,39.3],[110.9,37.2],[110.4,36.7]] },
   { k:'daibei',    n:'代北',    p:[[111.0,41.7],[113.2,42.2],[115.5,41.6],[115.7,39.7],[113.3,39.3],[111.0,39.7],[110.6,40.7]] },
   { k:'taiyuan',   n:'晋阳',    p:[[111.0,39.7],[113.3,39.3],[114.5,38.7],[114.3,36.6],[112.7,35.7],[111.6,35.9],[110.9,37.2],[110.2,39.3]] },
   { k:'zhongshan', n:'中山',    p:[[114.5,38.7],[115.7,39.7],[116.0,38.7],[115.2,38.1],[114.6,38.0]] },
   { k:'yan',       n:'燕蓟',    p:[[115.7,39.7],[115.5,41.6],[117.2,42.2],[119.4,41.4],[120.4,40.2],[119.6,39.0],[117.4,38.8],[116.0,38.7]] },
   { k:'liaodong',  n:'辽东',    p:[[119.6,39.0],[120.4,40.2],[121.8,41.7],[123.2,40.3],[122.4,38.7],[121.0,38.2]] },
-  { k:'hedong',    n:'河东',    p:[[110.9,37.2],[111.6,35.9],[112.7,35.7],[112.6,34.6],[111.4,34.4],[110.4,35.3]] },
-  { k:'shangdang', n:'上党',    p:[[112.7,35.7],[114.3,36.6],[114.9,36.0],[114.2,35.0],[112.6,34.6]] },
-  { k:'wey',       n:'卫',      p:[[114.3,36.6],[115.7,36.9],[116.3,35.8],[115.3,34.9],[114.2,35.0]] },
+  { k:'hedong',    n:'河东',    p:[[110.4,36.7],[111.6,35.9],[112.7,35.7],[112.6,34.6],[111.2,34.6]] },
+  { k:'shangdang', n:'上党',    p:[[112.7,35.7],[114.3,36.6],[114.3,35.25],[112.6,34.6]] },
+  { k:'wey',       n:'卫',      p:[[114.3,36.6],[115.7,36.9],[116.3,35.8],[115.9,35.3],[114.3,35.25]] },
   { k:'qi',        n:'齐',      p:[[117.4,38.8],[119.6,39.0],[120.8,38.0],[122.7,37.2],[121.2,36.1],[119.6,35.8],[118.2,36.4],[117.2,37.2]] },
   { k:'ju',        n:'莒',      p:[[118.2,36.4],[119.6,35.8],[119.2,35.1],[118.0,35.3]] },
   { k:'lu',        n:'鲁',      p:[[117.2,37.2],[118.2,36.4],[118.0,35.3],[116.6,34.6],[115.9,35.3],[116.3,35.8]] },
-  { k:'song',      n:'宋',      p:[[114.2,35.0],[115.3,34.9],[116.3,35.8],[115.9,35.3],[116.6,34.6],[116.9,33.7],[115.6,33.3],[114.4,33.7]] },
-  { k:'zheng',     n:'郑',      p:[[112.6,34.6],[114.2,35.0],[114.4,33.7],[113.6,33.5],[112.9,34.0]] },
+  { k:'cao',       n:'曹',      p:[[114.3,35.25],[115.9,35.3],[116.6,34.6],[115.4,34.55],[114.35,34.62]] },
+  { k:'song',      n:'宋',      p:[[114.35,34.62],[115.4,34.55],[116.6,34.6],[116.9,33.7],[115.6,33.3],[114.4,33.7]] },
+  { k:'zheng',     n:'郑',      p:[[112.6,34.6],[114.3,35.25],[114.35,34.62],[114.4,33.7],[113.6,33.5],[112.9,34.0]] },
   { k:'zhou',      n:'周',      p:[[111.2,34.6],[112.6,34.6],[112.9,34.0],[112.2,33.7],[111.4,34.0]] },
-  { k:'xuzhou',    n:'泗上',    p:[[116.9,34.6],[117.9,35.1],[118.4,34.5],[118.7,33.9],[118.4,33.3],[117.9,33.6],[117.2,34.0]] },
+  { k:'xuzhou',    n:'泗上',    p:[[116.9,34.6],[117.9,35.1],[118.4,34.5],[118.4,33.3],[117.9,33.6],[117.2,34.0]] },
   { k:'teng',      n:'滕',      p:[[117.2,34.0],[117.9,33.6],[117.8,33.1],[117.2,33.3]] },
   { k:'xue',       n:'薛',      p:[[117.2,33.3],[117.8,33.1],[117.7,32.6],[117.0,32.8]] },
-  { k:'zhu',       n:'邾',      p:[[117.9,33.6],[118.4,33.3],[118.3,32.7],[117.7,32.8]] },
-  { k:'xiaozhu',   n:'小邾',    p:[[118.4,33.9],[118.9,33.6],[118.7,33.1],[118.3,33.2]] },
-  { k:'chencai',   n:'陈蔡',    p:[[113.6,33.5],[114.4,33.7],[115.6,33.3],[116.0,32.4],[115.4,31.9],[114.0,32.2],[113.4,32.8]] },
+  { k:'zhu',       n:'邾',      p:[[117.9,33.6],[118.4,33.3],[118.3,32.7],[117.8,32.8]] },
+  { k:'xiaozhu',   n:'小邾',    p:[[118.4,33.9],[118.9,33.6],[118.7,33.1],[118.4,33.3]] },
+  { k:'chen',      n:'陈',      p:[[114.4,33.7],[115.6,33.3],[116.0,32.4],[115.4,31.9],[114.0,32.2]] },
+  { k:'cai',       n:'蔡',      p:[[113.6,33.5],[114.4,33.7],[114.0,32.2],[113.4,32.8]] },
   { k:'nanyang',   n:'南阳',    p:[[110.4,33.4],[111.2,34.6],[111.4,34.0],[112.2,33.7],[112.9,34.0],[113.6,33.5],[113.4,32.8],[112.0,32.4],[110.9,32.6]] },
   { k:'hanzhong',  n:'汉中',    p:[[105.6,33.9],[107.9,33.6],[110.0,33.8],[110.4,33.4],[110.9,32.6],[109.2,32.0],[107.0,32.3],[105.8,32.8]] },
-  { k:'ba',        n:'巴',      p:[[105.8,32.8],[107.0,32.3],[109.2,32.0],[110.0,31.2],[108.6,30.0],[106.6,30.2],[105.4,31.4]] },
+  { k:'ba',        n:'巴',      p:[[105.8,32.8],[107.0,32.3],[109.2,32.0],[109.8,31.6],[109.0,29.8],[106.6,30.2],[105.4,31.4]] },
   { k:'shu',       n:'蜀',      p:[[103.0,32.4],[105.4,32.6],[105.8,32.8],[105.4,31.4],[106.6,30.2],[105.4,28.6],[103.2,28.9],[102.4,30.8]] },
   { k:'chujiang',  n:'江汉',    p:[[110.9,32.6],[112.0,32.4],[112.9,32.0],[113.6,31.2],[114.4,30.4],[113.2,29.2],[111.4,29.4],[110.2,30.6],[109.8,31.6]] },
   { k:'wu',        n:'吴',      p:[[118.9,33.0],[119.4,34.2],[120.4,33.6],[121.6,32.4],[121.4,31.2],[120.2,30.6],[118.9,31.0],[118.4,32.0]] },
   { k:'jiangnan',  n:'江南',    p:[[118.4,32.0],[118.9,31.0],[118.4,29.8],[117.2,28.9],[115.8,29.0],[115.2,30.0],[115.6,31.0],[116.4,31.9],[117.6,32.4]] },
-  { k:'yue',       n:'越',      p:[[119.0,31.0],[120.2,30.6],[121.4,31.2],[121.8,29.8],[121.6,28.4],[120.4,27.6],[119.4,28.4],[119.2,29.6]] },
+  { k:'yue',       n:'越',      p:[[118.9,31.0],[120.2,30.6],[121.4,31.2],[121.8,29.8],[121.6,28.4],[120.4,27.6],[119.4,28.4],[119.2,29.8]] },
   { k:'wuyi',      n:'闽越',    p:[[117.2,28.9],[118.4,29.8],[119.2,29.6],[119.4,28.4],[120.4,27.6],[119.4,26.0],[117.6,25.6],[116.6,26.8]] },
-  { k:'ganpo',     n:'豫章',    p:[[113.6,31.2],[114.4,30.4],[115.2,30.0],[115.8,29.0],[115.4,27.6],[114.0,26.4],[112.8,27.2],[112.6,29.2],[113.0,30.4]] },
+  { k:'ganpo',     n:'豫章',    p:[[113.6,31.2],[115.2,30.0],[115.8,29.0],[115.4,27.6],[114.0,26.4],[112.8,27.2],[113.2,29.2],[114.4,30.4]] },
   { k:'xiang',     n:'黔中',    p:[[109.8,31.6],[110.2,30.6],[111.4,29.4],[113.2,29.2],[112.8,27.2],[111.6,26.2],[110.2,26.6],[109.4,28.0],[109.0,29.8]] },
   { k:'lingnan',   n:'岭南',    p:[[110.0,24.6],[113.0,24.2],[116.0,24.6],[116.4,23.6],[113.6,23.0],[110.4,23.4]] },
   { k:'xinan',     n:'西南夷',  p:[[103.0,28.9],[105.4,28.6],[106.6,27.4],[107.4,25.8],[105.0,24.4],[102.6,25.6],[102.2,27.4]] }
@@ -549,12 +555,13 @@ const RIVERS = [
 
 /* ---------- 初始归属（前 770 年） ---------- */
 const INIT = {
-  longxi:'qin', guanzhong:'zhou', shangjun:'none', daibei:'none',
-  taiyuan:'jin', zhongshan:'none', yan:'yan', liaodong:'none',
+  longxi:'qin', guanzhong:'zhou', shangjun:'none', daibei:'dai',
+  taiyuan:'jin', zhongshan:'zhongshan', yan:'yan', liaodong:'none',
   hedong:'jin', shangdang:'jin', wey:'wey', qi:'qi',
-  ju:'ju', lu:'lu', song:'song', zheng:'zheng',
-  zhou:'zhou', xuzhou:'xuzhou', chencai:'chencai', nanyang:'none',
+  ju:'ju', lu:'lu', cao:'cao', song:'song', zheng:'zheng',
+  zhou:'zhou', xuzhou:'xuzhou', nanyang:'none',
   teng:'teng', xue:'xue', zhu:'zhu', xiaozhu:'xiaozhu',
+  chen:'chen', cai:'cai',
   hanzhong:'none', ba:'ba', shu:'shu', chujiang:'chu',
   wu:'wu', jiangnan:'none', yue:'yue', wuyi:'none',
   ganpo:'none', xiang:'none', lingnan:'none', xinan:'none'
@@ -568,62 +575,68 @@ const EVENTS = [
   { y:-690, t:'merge', s:'楚文王灭申、息，势力伸入南阳盆地。', ch:{ nanyang:'chu' } },
   { y:-684, t:'normal', s:'齐鲁长勺之战，曹刿论战，齐师败绩。' },
   { y:-681, t:'normal', s:'齐桓公北杏之会，始称霸诸侯。' },
-  { y:-672, t:'merge', s:'晋献公灭耿、霍、魏，尽收河东之地。', ch:{ hedong:'jin' } },
+  { y:-672, t:'normal', s:'晋献公灭耿、霍、魏，尽收河东之地。' },
   { y:-663, t:'normal', s:'齐桓公救燕，北伐山戎，至于孤竹。' },
   { y:-656, t:'normal', s:'齐率八国伐楚，召陵之盟，楚暂服。' },
-  { y:-655, t:'merge', s:'晋献公假道伐虢，灭虞、虢，扼守崤函。', ch:{ shangdang:'jin' } },
+  { y:-655, t:'normal', s:'晋献公假道伐虢，灭虞、虢，扼守崤函。' },
+  { y:-648, t:'merge', s:'楚成王灭黄，淮上诸姬震恐，豫章之地渐为楚有。', ch:{ ganpo:'chu' } },
   { y:-643, t:'normal', s:'齐桓公卒，五公子争立，齐霸业骤衰。' },
   { y:-638, t:'normal', s:'宋襄公与楚战于泓水，图霸不成，伤股而卒。' },
   { y:-632, t:'normal', s:'城濮之战，晋文公退避三舍，大破楚军，践土会盟而霸。' },
   { y:-627, t:'normal', s:'秦晋崤之战，秦东进之路被晋所阻，遂专意西向。' },
-  { y:-623, t:'merge', s:'秦穆公伐戎，益国十二，开地千里，遂霸西戎。', ch:{ longxi:'qin', shangjun:'none' } },
+  { y:-623, t:'merge', s:'秦穆公伐戎，益国十二，开地千里，遂霸西戎。', ch:{ longxi:'qin', shangjun:'qin' } },
   { y:-597, t:'normal', s:'邲之战，楚庄王败晋，问鼎中原。' },
   { y:-584, t:'normal', s:'吴王寿梦即位，申公巫臣教吴用兵乘车，吴始通于上国。' },
   { y:-575, t:'normal', s:'鄢陵之战，晋厉公复败楚师。' },
   { y:-546, t:'normal', s:'弭兵之会，晋楚分霸，中原战事稍息。' },
   { y:-506, t:'normal', s:'柏举之战，吴王阖闾用孙武、伍子胥，五战入郢，楚几亡。' },
   { y:-494, t:'normal', s:'夫椒之战，吴王夫差败越，勾践卧薪尝胆。' },
-  { y:-487, t:'merge', s:'宋灭曹，取定陶之地。', ch:{ xuzhou:'song' } },
-  { y:-473, t:'merge', s:'越灭滕，泗上小国震动。', ch:{ teng:'yue' } },
+  { y:-487, t:'merge', s:'宋灭曹，曹伯阳被执，定陶之地入宋。', ch:{ cao:'song' } },
   { y:-484, t:'normal', s:'艾陵之战，吴败齐师，夫差北上争衡。' },
   { y:-482, t:'normal', s:'黄池之会，吴与晋争长，夫差霸业极盛。' },
-  { y:-479, t:'merge', s:'楚灭陈，陈蔡之地尽入于楚。', ch:{ chencai:'chu', ju:'chu' } },
+  { y:-479, t:'merge', s:'楚灭陈，杀陈湣公，陈地为楚县。', ch:{ chen:'chu' } },
+  { y:-475, t:'merge', s:'赵襄子以晋卿之尊北灭代国，代地并入晋。', ch:{ daibei:'jin' } },
   { y:-473, t:'merge', s:'越王勾践灭吴，夫差自杀，越据江淮以东南。', ch:{ wu:'yue', jiangnan:'yue' } },
+  { y:-472, t:'merge', s:'越灭滕，泗上小国震动，纷纷朝越。', ch:{ teng:'yue' } },
   { y:-453, t:'normal', s:'晋阳之战，韩赵魏三家共灭智伯，晋室仅有虚名。' },
-  { y:-447, t:'merge', s:'楚灭蔡，淮上诸姬尽失。', ch:{ chencai:'chu' } },
+  { y:-447, t:'merge', s:'楚灭蔡，蔡侯齐出奔，淮上诸姬尽失。', ch:{ cai:'chu' } },
   { y:-441, t:'merge', s:'楚灭邾、小邾，泗上诸国渐为楚有。', ch:{ zhu:'chu', xiaozhu:'chu' } },
   { y:-431, t:'merge', s:'楚灭莒，齐南境受逼。', ch:{ ju:'chu' } },
-  { y:-418, t:'merge', s:'齐灭薛，薛地入齐。', ch:{ xue:'qi' } },
+  { y:-418, t:'merge', s:'齐灭薛，薛地入齐，田氏以为封邑。', ch:{ xue:'qi' } },
   { y:-408, t:'merge', s:'魏文侯以吴起为将，尽取秦河西之地。', ch:{ shangjun:'wei' } },
+  { y:-406, t:'merge', s:'魏文侯遣乐羊伐中山，三年而拔之，使子击守其地。', ch:{ zhongshan:'wei' } },
   { y:-403, t:'era', s:'周威烈王命韩、赵、魏为诸侯，三家分晋，战国之世始。', ch:{ taiyuan:'zhao', hedong:'wei', shangdang:'han', daibei:'zhao' } },
   { y:-386, t:'normal', s:'田和列为诸侯，田氏代齐，姜齐绝祀。' },
+  { y:-380, t:'merge', s:'中山桓公乘魏衰复国，逐魏守，中山复立于太行东麓。', ch:{ zhongshan:'zhongshan' } },
   { y:-375, t:'merge', s:'韩灭郑，徙都新郑，中原要冲归韩。', ch:{ zheng:'han' } },
   { y:-361, t:'normal', s:'秦孝公下令求贤，卫鞅入秦，变法图强。' },
   { y:-354, t:'normal', s:'桂陵之战，齐以孙膑为军师，围魏救赵，魏师败。' },
   { y:-344, t:'normal', s:'魏惠王逢泽之会，称王，魏势极盛而诸侯侧目。' },
   { y:-341, t:'normal', s:'马陵之战，齐伏弩杀庞涓，魏武卒尽丧，霸权易主。' },
-  { y:-334, t:'merge', s:'楚威王伐越，杀越王无疆，尽取江东故吴之地。', ch:{ yue:'chu', wuyi:'chu' } },
+  { y:-334, t:'normal', s:'楚威王伐越，杀越王无疆；越诸子争立，国分为三，未即亡也。' },
+  { y:-330, t:'merge', s:'楚置黔中郡，拓地至沅水流域，西南屏障粗定。', ch:{ xiang:'chu' } },
   { y:-328, t:'merge', s:'秦取魏上郡，河西尽失，魏西部门户洞开。', ch:{ shangjun:'qin' } },
   { y:-316, t:'merge', s:'秦惠文王遣司马错灭巴、蜀，得天府之资。', ch:{ ba:'qin', shu:'qin' } },
   { y:-314, t:'merge', s:'秦攻楚汉中，取地六百里，置汉中郡。', ch:{ hanzhong:'qin' } },
   { y:-307, t:'normal', s:'赵武灵王胡服骑射，赵骑冠绝天下。' },
-  { y:-306, t:'merge', s:'楚怀王乘越内乱，尽取故吴之地，越君降服，越亡。', ch:{ wu:'chu', jiangnan:'chu', teng:'chu' } },
+  { y:-306, t:'merge', s:'楚怀王乘越内乱，尽取故吴之地与越故土，越君降服，越亡。', ch:{ wu:'chu', jiangnan:'chu', yue:'chu', wuyi:'chu', teng:'chu' } },
+  { y:-299, t:'merge', s:'燕昭王遣秦开破东胡，拓地千里，置辽东郡。', ch:{ liaodong:'yan' } },
   { y:-296, t:'merge', s:'赵灭中山，迁其王于肤施，赵北境连成一片。', ch:{ zhongshan:'zhao' } },
   { y:-293, t:'normal', s:'伊阙之战，白起斩首二十四万，韩魏精锐尽失。' },
-  { y:-286, t:'merge', s:'齐湣王灭宋，宋王偃走死，宋地尽入于齐，齐势达于顶峰。', ch:{ song:'qi', xuzhou:'qi' } },
-  { y:-284, t:'normal', s:'五国合纵伐齐，乐毅下齐七十余城，齐仅存莒、即墨。' },
+  { y:-286, t:'merge', s:'齐湣王灭宋，宋王偃走死，宋地尽入于齐，齐势达于顶峰。', ch:{ song:'qi', cao:'qi', xuzhou:'qi' } },
+  { y:-284, t:'normal', s:'五国合纵伐齐，乐毅下齐七十余城，齐仅存莒、即墨，宋地遂为魏、楚所分。', ch:{ song:'wei', cao:'wei', xuzhou:'chu' } },
   { y:-278, t:'merge', s:'白起拔郢，楚顷襄王东徙于陈，江汉尽归于秦。', ch:{ chujiang:'qin' } },
   { y:-277, t:'merge', s:'秦取楚黔中郡，楚西南屏障尽失。', ch:{ xiang:'qin' } },
+  { y:-272, t:'merge', s:'秦置南阳郡，楚宛、穰之地尽入于秦。', ch:{ nanyang:'qin' } },
   { y:-260, t:'normal', s:'长平之战，赵括纸上谈兵，四十万降卒坑于长平。' },
-  { y:-256, t:'merge', s:'楚灭鲁，鲁顷公迁于莒；同年秦灭西周，周室不祀。', ch:{ lu:'chu', zhou:'qin' } },
-  { y:-249, t:'merge', s:'秦灭东周，洛阳入秦，八百年王畿化为郡县。', ch:{ zhou:'qin' } },
+  { y:-256, t:'merge', s:'楚灭鲁，鲁顷公迁于莒，鲁国不祀。', ch:{ lu:'chu' } },
+  { y:-249, t:'merge', s:'秦灭东周，洛阳入秦，八百年王畿化为郡县，周室遂绝。', ch:{ zhou:'qin' } },
   { y:-230, t:'merge', s:'秦灭韩，虏韩王安，置颍川郡，六国始亡其一。', ch:{ zheng:'qin', shangdang:'qin' } },
-  { y:-228, t:'merge', s:'秦破赵，虏赵王迁；公子嘉自立为代王。', ch:{ taiyuan:'qin', daibei:'none' } },
-  { y:-225, t:'merge', s:'秦引河水灌大梁，魏王假降，魏亡。', ch:{ hedong:'qin' } },
-  { y:-223, t:'merge', s:'王翦六十万众破楚，虏楚王负刍，江东、豫章尽入秦。', ch:{ chujiang:'qin', ganpo:'qin', jiangnan:'qin', yue:'qin', wuyi:'qin', chencai:'qin', nanyang:'qin', ju:'qin', lu:'qin', zhu:'qin', xiaozhu:'qin', teng:'qin', wu:'qin' } },
-  { y:-222, t:'merge', s:'秦攻辽东，虏燕王喜；回师灭代，虏代王嘉。赵、燕皆亡。', ch:{ yan:'qin', liaodong:'qin', daibei:'none', zhongshan:'qin' } },
-  { y:-221, t:'merge', s:'秦灭齐，虏齐王建。六王毕，四海一，天下一统。', ch:{ qi:'qin', ju:'qin', xuzhou:'qin', lu:'qin', song:'qin', wu:'qin', yue:'qin', zhou:'qin', ba:'qin', shu:'qin', teng:'qin', xue:'qin', zhu:'qin', xiaozhu:'qin', chujiang:'qin', ganpo:'qin', jiangnan:'qin', wey:'qin', xinan:'none', lingnan:'none' } },
-
+  { y:-228, t:'merge', s:'秦破邯郸，虏赵王迁；公子嘉率宗族北走，自立为代王。', ch:{ taiyuan:'qin', zhongshan:'qin', daibei:'dai' } },
+  { y:-225, t:'merge', s:'秦引河水灌大梁，魏王假降，魏亡。', ch:{ hedong:'qin', song:'qin', cao:'qin' } },
+  { y:-223, t:'merge', s:'王翦六十万众破楚，虏楚王负刍，江东、豫章、泗上尽入于秦。楚国遂亡。', ch:{ chujiang:'qin', chen:'qin', cai:'qin', ganpo:'qin', jiangnan:'qin', yue:'qin', wuyi:'qin', ju:'qin', lu:'qin', zhu:'qin', xiaozhu:'qin', teng:'qin', wu:'qin', xuzhou:'qin' } },
+  { y:-222, t:'merge', s:'秦攻辽东，虏燕王喜；回师代地，虏代王嘉。赵、燕皆亡。', ch:{ yan:'qin', liaodong:'qin', daibei:'qin' } },
+  { y:-221, t:'merge', s:'秦灭齐，虏齐王建。六王毕，四海一；独卫以附庸仅存，至秦二世乃废。', ch:{ qi:'qin', xue:'qin' } },
 ];
 
 /* 确保年表严格按时间递增，避免状态推导依赖书写顺序 */
@@ -919,8 +932,10 @@ function render(year, opts){
 
     if (capOf[o] === r.k){
       t.textContent = sp.n;
-      t.setAttribute('font-size', sp.n.length > 2 ? 9.5 : 14);
-      t.setAttribute('class', 'slabel' + (sp.n.length > 2 ? ' small' : ''));
+      // 小国字号自适应：面积不足时缩小，避免文字溢出区块
+      const fs = area < 800 ? 8 : area < 1600 ? 10.5 : (sp.n.length > 2 ? 9.5 : 14);
+      t.setAttribute('font-size', fs);
+      t.setAttribute('class', 'slabel' + (fs <= 10.5 ? ' small' : ''));
       t.style.opacity = 1;
     } else if (area > 3000){
       t.textContent = r.n;
@@ -1114,17 +1129,23 @@ function spawnConquest(region, prevOwnerKey, newOwnerKey, aggressorCentroid){
   spawnConquestMulti(region, newOwnerKey, [aggressorCentroid]);
 }
 
-/* 灭国提示：在画面中央浮出「齐 灭 宋」的定格字幕 */
+/* 灭国提示：在画面中央浮出「齐 灭 宋」的定格字幕
+   若同一国家被多国瓜分（如三家分晋），则改为「韩赵魏 分 晋」 */
 function showAnnexBanner(conquerorKey, victimKey, year, detail){
   const box = $('annex');
   if (!box) return;
   const cs = S[conquerorKey], vs = S[victimKey];
   if (!cs || !vs) return;
+  const conqs = Array.isArray(conquerorKey) ? conquerorKey : [conquerorKey];
+  const multi = conqs.length > 1;
   box.innerHTML = `
     <div class="anx-year">前 ${-year} 年</div>
     <div class="anx-line">
-      <span class="anx-con" style="color:${cs.c};border-color:${cs.c}">${cs.n}</span>
-      <span class="anx-verb">灭</span>
+      ${conqs.map(k => {
+        const s = S[k];
+        return s ? `<span class="anx-con" style="color:${s.c};border-color:${s.c}">${s.n}</span>` : '';
+      }).join('')}
+      <span class="anx-verb">${multi ? '分' : '灭'}</span>
       <span class="anx-vic" style="color:${vs.c}">${vs.n}</span>
     </div>
     ${detail ? `<div class="anx-detail">${detail}</div>` : ''}`;
@@ -1170,18 +1191,26 @@ function dossierChanges(year){
 function showDossier(conqKey, victimKey, year, detail, extra){
   const box = $('dossier');
   if (!box) return;
-  const cs = S[conqKey], vs = S[victimKey];
-  if (!cs || !vs) return;
+  // 允许传入数组：多家瓜分时按主力（得地最多者）展示量化数据
+  const conqs = Array.isArray(conqKey) ? conqKey : [conqKey];
+  const vs = S[victimKey];
+  if (!vs) return;
+  const count0 = (own, k) => Object.values(own).filter(v => v === k).length;
+  const _b = ownerAt(year - 1), _a = ownerAt(year);
+  const mainKey = conqs.slice().sort((x, y) => count0(_a, y) - count0(_a, x))[0];
+  const cs = S[mainKey];
+  if (!cs) return;
   const e = extra || {};
   lastDossier = { conqKey, victimKey, year, detail, extra: e };
 
-  const before = ownerAt(year - 1);
-  const after = ownerAt(year);
-  const count = (own, k) => Object.values(own).filter(v => v === k).length;
+  const before = _b;
+  const after = _a;
+  const count = count0;
   const victimBefore = count(before, victimKey);
-  const conqBefore = count(before, conqKey);
-  const conqAfter = count(after, conqKey);
+  const conqBefore = count(before, mainKey);
+  const conqAfter = count(after, mainKey);
   const gained = conqAfter - conqBefore;
+  const multi = conqs.length > 1;
   const total = REGIONS.length;
   const shareBefore = conqBefore / total * 100;
   const shareAfter = conqAfter / total * 100;
@@ -1200,7 +1229,11 @@ function showDossier(conqKey, victimKey, year, detail, extra){
     </div>
     <div class="ds-row">
       <span>归入</span>
-      <span class="nowrap" style="color:${cs.c}">${cs.n}</span>
+      <span class="nowrap">${conqs.map(k => {
+        const sp = S[k];
+        const n = count(after, k) - count(before, k);
+        return `<b style="color:${sp.c}">${sp.n}</b>${multi ? `<i class="ds-sub">+${n}区</i>` : ''}`;
+      }).join('<i class="ds-sub">·</i>')}</span>
     </div>
     <div class="ds-row">
       <span>疆域变化</span>
@@ -1320,17 +1353,26 @@ function detectAnnexations(fromYear, toYear){
     const victims = [...aliveBefore].filter(k => !aliveAfter.has(k) && S[k] && k !== 'none');
     if (!victims.length) continue;
 
-    // 接收者取该事件中这些领土的新归属
-    const gainer = {};
+    // 接收者集合：一家独吞为单个键，多家瓜分为数组
+    const gainers = {};
     for (const r of REGIONS){
-      if (before[r.k] !== after[r.k] && victims.includes(before[r.k])) gainer[before[r.k]] = after[r.k];
+      if (before[r.k] !== after[r.k] && victims.includes(before[r.k])){
+        const to = after[r.k];
+        if (!to || to === 'none') continue;
+        (gainers[before[r.k]] = gainers[before[r.k]] || []).push(to);
+      }
     }
     for (const victim of victims){
-      const conq = gainer[victim];
-      if (!conq || conq === 'none') continue;
+      const list = [...new Set(gainers[victim] || [])];
+      if (!list.length) continue;
+      // 按得地多少降序：得地最多者居首，读起来更符合主次
+      const gcount = {};
+      for (const k of list) gcount[k] = REGIONS.filter(r => before[r.k] === victim && after[r.k] === k).length;
+      list.sort((a, b) => (gcount[b] || 0) - (gcount[a] || 0));
+      const conq = list.length > 1 ? list : list[0];
       showAnnexBanner(conq, victim, ev.y, ev.s);
       // 并入的区数（用于档案卡片量化展示）
-      const merged = REGIONS.filter(r => before[r.k] === victim && after[r.k] === conq).length;
+      const merged = REGIONS.filter(r => before[r.k] === victim && list.includes(after[r.k])).length;
       showDossier(conq, victim, ev.y, ev.s, { merged });
       shown++;
       if (shown >= 2) return true;

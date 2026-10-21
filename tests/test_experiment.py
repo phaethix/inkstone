@@ -133,6 +133,45 @@ def test_cli_density_experiment_runs_from_a_book_and_two_tiers(tmp_path, monkeyp
     assert {record["tier"] for record in manifest["candidates"].values()} == {"B", "C"}
 
 
+def test_a_single_tier_can_be_probed_repeatedly(tmp_path, monkeypatch):
+    """Calibrating one tier needs repeats of that tier, not a second tier.
+
+    The density loader used to reject a single ``--tier`` with "needs at least two
+    entries", which made repeated measurement of one tier impossible. The planner
+    is not deterministic — tier B wrote 24, 34 and 44 panels for chunks of 4,594,
+    5,619 and 5,043 characters — so one number per tier says nothing about its
+    spread. Only an empty list is a real error.
+    """
+    from core.experiment import _load_density_candidates
+
+    single = _load_density_candidates(["B"])
+    assert len(single) == 1
+    assert single[0].tier == "B"
+    assert single[0].panels_per_chunk == PANELS_PER_CHUNK_B
+
+    monkeypatch.setattr("core.experiment.get_chat_provider", lambda: FakeChat())
+    book = tmp_path / "book.txt"
+    book.write_text("第一章\n福贵在村口。", encoding="utf-8")
+    out = tmp_path / "single"
+    manifest = asyncio.run(
+        plan_experiment(
+            book.read_text(encoding="utf-8"),
+            out_dir=out,
+            candidates=[],
+            tiers=["B"],
+        )
+    )
+    assert len(manifest["candidates"]) == 1
+
+
+def test_a_density_experiment_still_rejects_an_empty_tier_list():
+    """Lifting the two-tier minimum must not make "no tiers" valid."""
+    from core.experiment import _load_density_candidates
+
+    with pytest.raises(ExperimentError, match="at least one"):
+        _load_density_candidates([])
+
+
 def test_cli_experiment_with_neither_candidates_nor_tiers_explains_itself(tmp_path, capsys):
     """A bare call should say what is missing instead of probing nothing."""
     book = tmp_path / "book.txt"
