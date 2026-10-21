@@ -9,6 +9,7 @@ near-original), not the old inverted prototype where A was densest.
 Run with: ``python -m pytest tests/test_density.py -q`` (from the repo root).
 """
 
+from math import ceil
 from pathlib import Path
 
 from core.config import ENV_WEBTOON_WARN_MB
@@ -187,6 +188,64 @@ def test_planned_counts_replace_the_experience_rate(tmp_path):
     assert est.panels == 3 * bare.chunks
     assert est.pages == bare.chunks
     assert any("已规划" in warning for warning in est.warnings)
+
+
+def test_observed_panels_move_the_page_count_too(tmp_path):
+    """A project that planned panels but no pages still gets pages from them.
+
+    ``generate`` records a page plan after the storyboard, so a run interrupted
+    between the two has measured panels and nothing measured for pages. The page
+    total must follow those panels; leaving it on the experience rate reported
+    two pages for a chunk that had already planned fourteen panels.
+    """
+    book = _write(tmp_path, "第一章\n石猴出世。")
+    bare = estimate(book, density="B")
+    est = estimate(
+        book,
+        density="B",
+        observed_panels=[14] * bare.chunks,
+    )
+    assert est.panels == 14 * bare.chunks
+    assert est.pages == ceil(14 * bare.chunks / PANELS_PER_PAGE)
+    assert est.pages != ceil(bare.panels / PANELS_PER_PAGE)
+
+
+def test_derived_pages_are_announced_as_derived(tmp_path):
+    """Panels can be measured without pages, and the output must say so.
+
+    The layout rate is not the planning rate: the Journey excerpt planned 14
+    panels onto 8 pages, 1.75 per page against the engine's 4. Deriving pages
+    from panels is therefore an under-count for a planner that splits on beats,
+    so whenever pages are inferred rather than measured the estimate says which
+    of the two numbers a reader is looking at.
+    """
+    book = _write(tmp_path, "第一章\n石猴出世。")
+    est = estimate(book, density="B", observed_panels=[14])
+    assert any("推算" in warning for warning in est.warnings)
+
+    both = estimate(book, density="B", observed_panels=[14], observed_pages=[8])
+    assert not any("推算" in warning for warning in both.warnings)
+
+
+def test_the_measured_run_of_the_public_excerpt_reproduces_exactly():
+    """Feeding the Journey run's own numbers back must return those numbers.
+
+    A local generate of the excerpt planned 14 panels onto 8 pages. That is the
+    only evidence the project has about its own rate, so an estimate handed a
+    project that reached that state reports 14 and 8 rather than the tier rate.
+    """
+    path = Path(__file__).resolve().parents[1] / "examples/showcase/journey-west-ch1/source.txt"
+    rate = estimate(path, density="B")
+    measured = estimate(
+        path,
+        density="B",
+        observed_panels=[14] * rate.chunks,
+        observed_pages=[8] * rate.chunks,
+    )
+    assert rate.panels == PANELS_PER_CHUNK_B and rate.pages == 2
+    assert measured.panels == 14 * rate.chunks
+    assert measured.pages == 8 * rate.chunks
+    assert measured.panels_per_chunk == 14
 
 
 def test_an_unplanned_chunk_uses_the_planned_average():

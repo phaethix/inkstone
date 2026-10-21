@@ -11,10 +11,11 @@ fingerprint so an older project still resumes. Another tier changes that
 fingerprint and the planner sees the new budget.
 
 The panel budgets stay 3/8/14. The public-domain Journey excerpt
-(``examples/showcase/journey-west-ch1``) is one chunk and locks the default
-page estimate: tier B is 8 panels and 2 pages. That is ``ceil(panels / 4)``,
-the same rate the layout engine uses. A finished-page run of that excerpt
-planned more pages than this rate; the estimate keeps the measured 2.
+(``examples/showcase/journey-west-ch1``) locks the default *experience* rate:
+tier B is 8 panels and 2 pages, i.e. ``ceil(panels / 4)``. That is not what the
+planner produced for it — a finished-page run planned 14 panels onto 8 pages —
+so the rate is an upper bound on density, and a project that has measured counts
+overrides it through ``observed_panels`` / ``observed_pages``.
 
 Product brief alignment:
 A 主线概览 (sparser) → B 章级完整 (default) → C 近原著 (denser).
@@ -30,7 +31,8 @@ from core.config import webtoon_warn_mb
 
 # --------------------------------------------------------------------------- #
 # Experience constants. Panel budgets stay 3/8/14. The Journey excerpt locks
-# tier B at 8 panels and 2 pages for one chunk (``ceil(panels / 4)``).
+# tier B at 8 panels and 2 pages as the *experience* rate (``ceil(panels / 4)``);
+# its measured run was 14 panels and 8 pages, so measured counts win.
 # --------------------------------------------------------------------------- #
 
 # A 主线概览 (sparser) → B 章级完整 (default) → C 近原著 (denser).
@@ -43,9 +45,11 @@ PANELS_PER_CHUNK_C = 14  # 近原著
 # per worker). Experience value — real numbers depend on the t2i endpoint.
 PANELS_PER_MINUTE = 2
 
-# Pages produced per PDF page in ``page`` mode. Kept in sync with
-# ``LayoutEngine._paginate(per_page=4)`` so the page estimate matches the real
-# layout engine instead of drifting.
+# Panels a page holds when the layout engine packs it. This is an upper bound,
+# not the rate a planner produces: the same engine paginates at ``per_page=4``,
+# but planning splits on narrative beats first. The Journey excerpt planned 14
+# panels onto 8 pages, 1.75 per page. So ``panels / PANELS_PER_PAGE``
+# under-counts real pages, and it is used only when no page count was measured.
 PANELS_PER_PAGE = 4
 
 # Webtoon vertical-strip size guard. Estimated MB per page; warn when the
@@ -230,6 +234,9 @@ def estimate(
         used = observed_panels[:chunks]
         if used:
             panels_per_chunk = max(1, int(round(sum(used) / len(used))))
+        # Panels were measured, so the pages they imply are measured too: a run
+        # interrupted before its page plan has panels and nothing else.
+        pages = ceil(panels / PANELS_PER_PAGE)
     if observed_pages:
         pages = _scale_observed(chunks, observed_pages)
 
@@ -250,6 +257,10 @@ def estimate(
     if observed_panels or observed_pages:
         planned = min(len(observed_panels or observed_pages or []), chunks)
         warnings.append(f"格数来自已规划的 {planned} 段，不是经验档位。")
+    if observed_panels and not observed_pages:
+        warnings.append(
+            "页数由实测格数按排版速率推算，不是实测页数；规划器按叙事节奏拆页，实际页数通常更多。"
+        )
 
     return DensityEstimate(
         total_chars=total_chars,
