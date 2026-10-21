@@ -17,6 +17,13 @@ planner produced for it — a finished-page run planned 14 panels onto 8 pages �
 so the rate is an upper bound on density, and a project that has measured counts
 overrides it through ``observed_panels`` / ``observed_pages``.
 
+Measured pages are evidence but they are never spread evenly: a chunk that has a
+page plan also reports how many panels those pages carried, so pages are
+projected from that measured rate rather than from the page count alone. The
+layout engine's packing limit is a hard fact, so a projection never packs more
+than ``PANELS_PER_PAGE`` panels onto a page, and the output says when that limit
+raised the number.
+
 Product brief alignment:
 A 主线概览 (sparser) → B 章级完整 (default) → C 近原著 (denser).
 """
@@ -179,6 +186,46 @@ def _scale_observed(chunks: int, observed: list[int]) -> int:
     return sum(used) + int(round(average * missing))
 
 
+def _scale_pages(chunks: int, observed_pages: list[int], observed_panels: list[int]) -> int:
+    """Spread measured page counts across the text's chunks.
+
+    Pages are projected from the measured *rate*, not by averaging page counts.
+    A measured chunk carries a known number of pages and a known number of
+    panels; that pair is the only thing the project knows about how densely its
+    planner packs a page. Averaging pages alone forgets the panels those pages
+    held, so a chapter that planned fourteen panels can inherit the two pages of
+    a chapter that planned eight and land past the engine's packing limit.
+
+    A chunk that has no page plan but does have a storyboard already knows its
+    own panel count, so it is projected from that instead of the average of the
+    measured chunks. The packing limit is a hard fact, so the result never packs
+    more than ``PANELS_PER_PAGE`` panels onto a page.
+    """
+    if chunks <= 0:
+        return 0
+    used = observed_pages[:chunks]
+    if not used:
+        return 0
+    measured_chunks = len(used)
+    measured_pages = sum(used)
+    measured_panels = sum(observed_panels[:measured_chunks])
+    if measured_pages > 0 and measured_panels > 0:
+        panels_per_page = measured_panels / measured_pages
+    else:
+        panels_per_page = PANELS_PER_PAGE
+    average_panels = measured_panels / measured_chunks if measured_chunks else 0
+    projected = measured_pages
+    for index in range(measured_chunks, chunks):
+        own = observed_panels[index] if index < len(observed_panels) else 0
+        panels = own if own > 0 else average_panels
+        if panels > 0:
+            projected += ceil(panels / panels_per_page)
+    # Never report fewer pages than the panels need, whatever the rate said.
+    total_panels = _scale_observed(chunks, observed_panels) if observed_panels else 0
+    floor = ceil(total_panels / PANELS_PER_PAGE) if total_panels else 0
+    return max(projected, floor)
+
+
 def estimate(
     book_path: str | Path,
     density: DensityTier = "B",
@@ -229,6 +276,7 @@ def estimate(
     panels_per_chunk = plan.panels_per_chunk
     panels = chunks * panels_per_chunk
     pages = ceil(panels / PANELS_PER_PAGE)
+    capacity_note = False
     if observed_panels:
         panels = _scale_observed(chunks, observed_panels)
         used = observed_panels[:chunks]
@@ -238,7 +286,12 @@ def estimate(
         # interrupted before its page plan has panels and nothing else.
         pages = ceil(panels / PANELS_PER_PAGE)
     if observed_pages:
-        pages = _scale_observed(chunks, observed_pages)
+        pages = _scale_pages(chunks, observed_pages, observed_panels or [])
+        if observed_panels:
+            measured = observed_pages[:chunks]
+            measured_panels = sum(observed_panels[: len(measured)])
+            if measured and measured_panels > sum(measured) * PANELS_PER_PAGE:
+                capacity_note = True
 
     # Wall-clock estimate. Guard concurrency so a bad input can't divide by zero.
     effective_concurrency = max(1, int(concurrency))
@@ -260,12 +313,20 @@ def estimate(
         if panels_measured:
             warnings.append(f"格数来自已规划的 {panels_measured} 段，不是经验档位。")
         if pages_measured and pages_measured < panels_measured:
-            warnings.append(f"页数只实测了 {pages_measured} 段，其余段按实测页数平均值补齐。")
+            warnings.append(
+                f"页数只实测了 {pages_measured} 段，其余段按实测段的每页格数推算，"
+                "且不低于排版容量下限。"
+            )
         elif pages_measured and not panels_measured:
             warnings.append(f"页数来自已规划的 {pages_measured} 段，不是经验档位。")
     if observed_panels and not observed_pages:
         warnings.append(
             "页数由实测格数按排版速率推算，不是实测页数；规划器按叙事节奏拆页，实际页数通常更多。"
+        )
+    if capacity_note:
+        warnings.append(
+            f"实测数据里每页格数超过排版上限 {PANELS_PER_PAGE}，页数已按排版容量抬高，"
+            "请核对实测格数与页数是否来自同一批页面。"
         )
 
     return DensityEstimate(

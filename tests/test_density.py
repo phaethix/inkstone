@@ -240,8 +240,12 @@ def test_partly_measured_pages_report_how_many_chunks_they_cover(tmp_path):
     assert est.chunks == 3
     assert any("格数来自已规划的 3 段" in warning for warning in est.warnings)
     assert any("页数只实测了 1 段" in warning for warning in est.warnings)
-    # One measured page per its three panels, averaged across three chunks.
-    assert est.pages == 6
+    # The measured chunk planned 3 panels onto 2 pages, so the planner packs 1.5
+    # panels per page. The other two chunks already know they have 4 and 5 panels,
+    # which need 3 and 4 pages at that rate: 2 + 3 + 4 = 9. The earlier expectation
+    # of 6 spread the measured pages evenly and ignored those panel counts, which
+    # put 2 panels on every page against a measured 1.5.
+    assert est.pages == 9
 
 
 def test_the_measured_run_of_the_public_excerpt_reproduces_exactly():
@@ -302,3 +306,62 @@ def test_default_threshold_from_constant(tmp_path, monkeypatch):
     # Only assert the field exists and type is correct; threshold is the default.
     assert isinstance(est.webtoon_warning, bool)
     assert isinstance(est, DensityEstimate)
+
+
+def test_partly_measured_pages_still_fit_the_panels_they_cover(tmp_path):
+    """A page holds at most PANELS_PER_PAGE panels, so the estimate must fit.
+
+    A run stopped between chunks has measured pages for the chunks it finished and
+    only a storyboard for the next. Averaging the *pages* of the measured chunks
+    ignores how many panels those pages were carrying, so two measured pages can
+    be spread across a chapter that planned fourteen panels. The result packs 5.5
+    panels onto a page the engine caps at 4, which cannot be printed.
+
+    Pages have to be projected from the measured rate (panels per measured page),
+    not from the page count on its own, so the projection cannot exceed the cap.
+    """
+    book = _write(tmp_path, "第一段文字内容较长的示例文本用来触发分段。\n" * 400)
+    est = estimate(book, density="B", observed_panels=[8, 14], observed_pages=[2])
+    assert est.chunks == 2
+    assert est.pages * PANELS_PER_PAGE >= est.panels
+    # Chunk one measured 8 panels on 2 pages, so the planner packs 4 per page.
+    # Chunk two already knows it has 14 panels; at that rate it needs 4 pages.
+    assert est.panels == 22
+    assert est.pages == 6
+
+
+def test_a_missing_chunk_projects_from_its_own_panels_not_the_average(tmp_path):
+    """A chunk with a storyboard already knows how many panels it has.
+
+    Using the average panel count of the *measured* chunks throws that away. Here
+    the measured chunk happened to plan 8 panels while the pending one planned 6,
+    so the average overstates what the pending chunk needs. The measured rate is
+    2 panels per page, well under the packing cap, so the cap cannot hide it.
+    """
+    book = _write(tmp_path, "第一段文字内容较长的示例文本用来触发分段。\n" * 400)
+    est = estimate(book, density="B", observed_panels=[8, 6], observed_pages=[4])
+    assert est.chunks == 2
+    # 4 measured pages, plus 6 panels at 2 per page.
+    assert est.pages == 7
+
+
+def test_a_measured_page_count_is_never_shrunk_below_the_panels(tmp_path):
+    """Even a hopeless measured rate must not produce fewer pages than fit.
+
+    The measured rate is evidence, but the packing limit is a hard fact. If the
+    two disagree the estimate has to stay printable, and say why the page count
+    is higher than the measured rate implies.
+    """
+    book = _write(tmp_path, "第一段文字内容较长的示例文本用来触发分段。\n" * 400)
+    est = estimate(book, density="B", observed_panels=[8, 14], observed_pages=[1])
+    assert est.chunks == 2
+    assert est.pages * PANELS_PER_PAGE >= est.panels
+    assert any("排版上限" in warning for warning in est.warnings)
+
+
+def test_an_ordinary_measured_rate_does_not_claim_the_cap_was_hit(tmp_path):
+    """The cap note must mean something, so it stays quiet when nothing was capped."""
+    book = _write(tmp_path, "第一段文字内容较长的示例文本用来触发分段。\n" * 400)
+    est = estimate(book, density="B", observed_panels=[8, 14], observed_pages=[2])
+    assert est.chunks == 2
+    assert not any("排版上限" in warning for warning in est.warnings)

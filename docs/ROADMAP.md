@@ -270,8 +270,12 @@ Keep these prototypes only as migration material until they conform to the targe
   measured pages now derives pages from those panels instead of leaving the
   stale tier value. `inkstone plan --out` reads panel and page counts a project
   has already planned; without `--out` the output stays the experience rate and
-  says so. A project that stopped between chunks keeps the pages it measured
-  (the rest are filled from their average) instead of falling back to the rate.
+  says so. A project that stopped between chunks keeps the pages it measured.
+  Those pages are projected through the measured rate, not spread evenly: a page
+  plan also reports the panels its pages carried, so a pending chunk with a
+  storyboard is projected from its own panel count. The engine packs at most
+  `PANELS_PER_PAGE` panels per page, so no projection is allowed to exceed that,
+  and the output says when the limit raised the number.
   What remains un-calibrated is the budget itself: tier B prompts for
   "about 8 panels" and only A and C clip the plan, so a B planner can and did
   produce 14. The overrun is no longer silent — both the storyboard and the page
