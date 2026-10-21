@@ -16,15 +16,17 @@ Status definitions:
 - **Planned**: approved direction, not yet implemented.
 
 Developer onboarding for the shipped tree is [`docs/ONBOARDING.md`](ONBOARDING.md).
-The **target** architecture is now versioned:
-[`docs/architecture/2026-09-28-content-addressed-pipeline-design.md`](architecture/2026-09-28-content-addressed-pipeline-design.md)
-(Chinese version: [`…-design.zh-CN.md`](architecture/2026-09-28-content-addressed-pipeline-design.zh-CN.md),
-**lagging as of 2026-10-19**: it lacks the dated revisions from 2026-10-20 onward, so the English file governs).
+The **target** architecture lives under `docs/architecture/` in the author's
+working tree only: that directory is gitignored, so a fresh clone does not have
+it and those paths are not links you can follow from here. The governing file is
+`2026-09-28-content-addressed-pipeline-design.md`; its Chinese translation
+(`…-design.zh-CN.md`) **lags as of 2026-10-19**, lacking the dated revisions from
+2026-10-20 onward, so the English file governs.
 Its three original blockers (L2 continuity cascade, dynamic page DAG, missing
 tombstones) and its majors were verified against the shipped tree and have been
 folded into the design (§2, §4, §6, §12); they are now design requirements rather
 than open findings. The separate review document was never committed to this repo,
-so it is not linked here. Treat this roadmap, the onboarding guide, and the released code as
+so it is not referenced here. Treat this roadmap, the onboarding guide, and the released code as
 the source of truth for **current status**; the architecture document is the source
 of truth for **where the design is heading**. Where they disagree, status wins until
 the migration lands. Additional long-form drafts may still live under local
@@ -207,7 +209,7 @@ Keep these prototypes only as migration material until they conform to the targe
   injection. The review packet now records `plans/` and `pages.json`. Regression:
   `tests/test_lessons.py`, `tests/test_review_packet.py`. Next Phase 2 step is
   external harness loading + blind A/B. Scoping doc:
-  [prompt-harness design](architecture/2026-10-19-prompt-harness-design.md).
+  the prompt-harness design (`docs/architecture/2026-10-19-prompt-harness-design.md`, local-only).
 - **Local (2026-10-20, `main`):** Shared-state hardening for Phase 2. A reusable
   data-directory lock serializes `budget.json` / `gate.json` read-modify-write,
   and open sessions refresh the shared spent/sample state before writing; a
@@ -229,7 +231,7 @@ Keep these prototypes only as migration material until they conform to the targe
   rendered through `render_stage()`; the builders only compute slot values.
   Render/letter/export keys remain schema 2. Remaining phase-1 work is the
   static render-lock lines, then the planned A/B / lesson-library loop. Scoping doc:
-  [prompt-harness design](architecture/2026-10-19-prompt-harness-design.md).
+  the prompt-harness design (`docs/architecture/2026-10-19-prompt-harness-design.md`, local-only).
   P0 ledger fixes D-01–D-04 landed with `tests/test_p0_state_integrity.py`.
 
 - [x] Deferred lettering for finished pages: model paints empty chrome; Inkstone overlays caption/dialogue/sfx with CJK-capable fonts. Unlettered art under `pages/blank/` enables resume re-lettering without re-calling the image API. Spec: [`docs/superpowers/specs/2026-07-31-deferred-lettering-design.md`](superpowers/specs/2026-07-31-deferred-lettering-design.md) (local on `feat/deferred-lettering` until merged).
@@ -302,7 +304,7 @@ Keep these prototypes only as migration material until they conform to the targe
 
 ### P0 — Content-addressed pipeline migration (0a-0h)
 
-Per the [content-addressed pipeline design](architecture/2026-09-28-content-addressed-pipeline-design.md) §9.
+Per the the content-addressed pipeline design (`docs/architecture/2026-09-28-content-addressed-pipeline-design.md`, local-only) §9.
 
 - **Local (2026-10-20, `main`):** Phase 0c declared read edges plus the
   `migrate --check` forecast. `core/pipelines/stage_registry.py` now names the
@@ -313,7 +315,7 @@ Per the [content-addressed pipeline design](architecture/2026-09-28-content-addr
   `inkstone migrate --check` compares each manifest's recorded `stage_src`
   against the hash current code computes, reporting billable chat calls,
   local-only redos, and reusable pages separately; it re-derives no keys.
-  Contract: [content-addressed design](architecture/2026-09-28-content-addressed-pipeline-design.md) §9.
+  Contract: the content-addressed design (`docs/architecture/2026-09-28-content-addressed-pipeline-design.md`, local-only) §9.
 
 - **Local (2026-10-19, `main`):** Continuity-review escalation (the 5b
   follow-up 0d deferred). `LEDGER_ESCALATION_THRESHOLD = 30` (same order as the
@@ -345,7 +347,7 @@ Per the [content-addressed pipeline design](architecture/2026-09-28-content-addr
   recorded in [CHANGELOG.md](../CHANGELOG.md). The plan caches moved to the
   sibling `cache.json` in the state split above, not left in `state.json`;
   per-stage runners were later work on this date, and their contract is stated in
-  the [content-addressed design](architecture/2026-09-28-content-addressed-pipeline-design.md) §9
+  the the content-addressed design (`docs/architecture/2026-09-28-content-addressed-pipeline-design.md`, local-only) §9
   (superseded 2026-10-20: the runner landed for `layout` and `webtoon`).
 
 - **Local (2026-10-19, `main`):** Two-phase ephemeral scheduler foundation.
