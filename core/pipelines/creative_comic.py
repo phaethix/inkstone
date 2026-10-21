@@ -59,7 +59,6 @@ from core.comic.cas import (
     portrait_action_key,
     put_bytes,
     read_manifest_entry,
-    record_ok,
     render_page_action_key,
     render_page_inputs,
     render_panel_action_key,
@@ -183,7 +182,7 @@ from core.lessons import LessonStore, format_craft_notes
 from core.perf import PerfCollector
 from core.pipelines.cancel import check_cancel
 from core.pipelines.stage_registry import validate_stage_registry
-from core.pipelines.stage_runner import run_stage
+from core.pipelines.stage_runner import record, run_stage
 from core.pipelines.stage_scheduler import PipelinePhase, StageGraph, WorkKind, WorkNode
 from core.schemas import (
     ChunkCache,
@@ -252,6 +251,33 @@ def _restore_stage_body(
     except (ValueError, UnicodeDecodeError) as exc:
         logger.warning("corrupt manifest body for %s (%s): %s", key, stage, exc)
         return None
+
+
+def _record_stage_body(
+    root: Path,
+    stage: str,
+    key: str,
+    body: BaseModel,
+    *,
+    stage_src: str,
+    env: str,
+    inputs: list[str],
+) -> None:
+    """Store a planning stage's parsed body under its registry manifest stage.
+
+    The output keeps the ``<stage>.json`` name every existing project already
+    has recorded, so this is a change of who writes the manifest, not of what
+    the manifest says.
+    """
+    record(
+        root,
+        stage,
+        key,
+        [(f"{stage}.json", body.model_dump_json(indent=2).encode("utf-8"))],
+        stage_src=stage_src,
+        env=env,
+        inputs=inputs,
+    )
 
 
 def _build_plan_graph(chunk_count: int) -> StageGraph:
@@ -2378,15 +2404,14 @@ async def _creative_comic(
                             _report("skip", _pct())
                             continue
                         raise
-                    record_ok(
+                    _record_stage_body(
                         output_dir,
-                        key=extract_key,
-                        stage="extract",
+                        "extract",
+                        extract_key,
+                        elements,
                         stage_src=_EXTRACT_STAGE_SRC,
                         env=snapshot.chat,
                         inputs=extract_inputs(chunk),
-                        name="extract.json",
-                        data=elements.model_dump_json(indent=2).encode("utf-8"),
                     )
                 # Cache so a later resume does not re-pay for extraction.
                 state.chunk_cache.setdefault(key, ChunkCache()).elements = elements
@@ -2483,15 +2508,14 @@ async def _creative_comic(
                         logger.warning("visual bible reconcile failed (%s); continuing", exc)
                         recon = None
                     if recon is not None:
-                        record_ok(
+                        _record_stage_body(
                             output_dir,
-                            key=bible_key,
-                            stage="bible",
+                            "bible",
+                            bible_key,
+                            recon,
                             stage_src=_BIBLE_STAGE_SRC,
                             env=snapshot.chat,
                             inputs=bible_inputs(chunk),
-                            name="bible.json",
-                            data=recon.model_dump_json(indent=2).encode("utf-8"),
                         )
             if recon is not None:
                 prev_hash = state.visual_bible.content_hash if state.visual_bible else None
@@ -2766,15 +2790,14 @@ async def _creative_comic(
                                     beats.action_key = beats_key
                                     state.beat_cache[key] = beats
                                     sync_adaptation_plans(state, chunks)
-                                    record_ok(
+                                    _record_stage_body(
                                         output_dir,
-                                        key=beats_key,
-                                        stage="beats",
+                                        "beats",
+                                        beats_key,
+                                        beats,
                                         stage_src=_BEATS_STAGE_SRC,
                                         env=snapshot.chat,
                                         inputs=[extract_key],
-                                        name="beats.json",
-                                        data=beats.model_dump_json(indent=2).encode("utf-8"),
                                     )
                                 except Exception as beat_exc:  # noqa: BLE001
                                     logger.warning(
@@ -2874,15 +2897,14 @@ async def _creative_comic(
                         request_digest=stored_plan_key_request.digest(),
                     )
                     state.page_cache[key] = pageset
-                    record_ok(
+                    _record_stage_body(
                         output_dir,
-                        key=pageset.action_key,
-                        stage="page_plan",
+                        "page_plan",
+                        pageset.action_key,
+                        pageset,
                         stage_src=_PAGE_PLAN_STAGE_SRC,
                         env=snapshot.chat,
                         inputs=[beats_key],
-                        name="page_plan.json",
-                        data=pageset.model_dump_json(indent=2).encode("utf-8"),
                     )
                     _drop_pages_outside_plan(state, chunk_index=ci, page_count=len(pageset.pages))
                     state.save(state_path)
@@ -3168,24 +3190,27 @@ async def _creative_comic(
                     blank_dir.mkdir(parents=True, exist_ok=True)
                     blank_path = _page_asset_path(blank_dir, _chunk_index, page_index)
                     await asyncio.to_thread(out.save, str(blank_path))
+                    stored_render_env = h_env(
+                        text=prompt, resolved_size=active_size, scope="render"
+                    )
+                    stored_render_inputs = render_page_inputs(_plan_json(plan), prompt)
                     stored_render_key = render_page_action_key(
                         plan_json=_plan_json(plan),
                         prompt=prompt,
                         resolved_size=active_size,
                         page_key=state_key,
                         ref_policy=ref_policy,
-                        env=h_env(text=prompt, resolved_size=active_size, scope="render"),
+                        env=stored_render_env,
                         stage_src=_RENDER_PAGE_STAGE_SRC,
                     )
-                    record_ok(
+                    record(
                         output_dir,
-                        key=stored_render_key,
-                        stage="render.page",
+                        "render.page",
+                        stored_render_key,
+                        [("blank.png", blank_path.read_bytes())],
                         stage_src=_RENDER_PAGE_STAGE_SRC,
-                        env=h_env(text=prompt, resolved_size=active_size, scope="render"),
-                        inputs=render_page_inputs(_plan_json(plan), prompt),
-                        name="blank.png",
-                        data=blank_path.read_bytes(),
+                        env=stored_render_env,
+                        inputs=stored_render_inputs,
                     )
                     local = _page_asset_path(pages_dir, _chunk_index, page_index)
                     if (
@@ -3340,15 +3365,14 @@ async def _creative_comic(
                 cached_board = state.chunk_cache.setdefault(key, ChunkCache())
                 cached_board.storyboard = board
                 cached_board.storyboard_action_key = storyboard_key
-                record_ok(
+                _record_stage_body(
                     output_dir,
-                    key=storyboard_key,
-                    stage="storyboard",
+                    "storyboard",
+                    storyboard_key,
+                    board,
                     stage_src=_STORYBOARD_STAGE_SRC,
                     env=snapshot.chat,
                     inputs=[],
-                    name="storyboard.json",
-                    data=board.model_dump_json(indent=2).encode("utf-8"),
                 )
                 state.save(state_path)
                 _report("storyboard", _pct())
@@ -3401,15 +3425,14 @@ async def _creative_comic(
                     else:
                         raise
                 _store_page_script(state.chunk_cache[key], ps, script_key)
-                record_ok(
+                _record_stage_body(
                     output_dir,
-                    key=script_key,
-                    stage="page_script",
+                    "page_script",
+                    script_key,
+                    ps,
                     stage_src=_PAGE_SCRIPT_STAGE_SRC,
                     env=snapshot.chat,
                     inputs=[],
-                    name="page_script.json",
-                    data=ps.model_dump_json(indent=2).encode("utf-8"),
                 )
                 state.save(state_path)
                 _report("page_script", _pct())
