@@ -29,11 +29,13 @@ A 主线概览 (sparser) → B 章级完整 (default) → C 近原著 (denser).
 
 Only A clips. Its budget is a ceiling because "overview" means the plan is
 thinned to the main thread. B and C keep what the planner wrote, so their budget
-is a target and the panel count is a floor. That is what keeps the order above
-true for any planner output: B and C can meet at the top but can never cross.
-C used to clip as well, and a planner that wrote more than its 14 then made the
-densest tier the thinnest one. ``clips_plan`` is the single answer both the
-pipeline and the prompt renderer read.
+is a target and the panel count is a floor. That keeps the order above for one
+plan run through both policies: B and C can meet at the top but cannot cross.
+It does not keep it across runs. B and C are separate planner calls, and on a
+4,594-character chunk B wrote 44 and 40 panels against C's 41 and 37, so C came
+out thinner twice in three runs. C used to clip as well, and a planner that
+wrote more than its 14 then made the densest tier the thinnest one. ``clips_plan``
+is the single answer both the pipeline and the prompt renderer read.
 """
 
 from dataclasses import dataclass
@@ -148,8 +150,14 @@ def clips_plan(tier: DensityTier) -> bool:
 
     C used to clip as well, capped at 14 while B was uncapped. A planner that
     wrote more than 14 panels then made the densest tier the thinnest one, and
-    C came out shorter than B. With only A clipping, B and C can meet at the top
-    but can never cross, so the product order holds for any planner output.
+    C came out shorter than B. With only A clipping, one plan run through both
+    policies can meet at the top but cannot cross.
+
+    That is a statement about one panel list, not about two runs. B and C are
+    separate planner calls, each writing its own plan, so their totals can still
+    cross: measured on a 4,594-character chunk, B wrote 44 and 40 panels against
+    C's 41 and 37, putting C under B twice in three runs. Nothing here prevents
+    that; forcing the order across runs needs a cross-call constraint.
 
     This is the single place that answers the question; the pipeline and the
     prompt renderer both read it so they cannot disagree about whether an

@@ -118,9 +118,14 @@ def test_a_page_plan_drops_panels_past_the_budget_and_their_boxes():
     # Three of four panels survive: the opening stays, the middle is thinned, and
     # the turn on the last page stays. Dropping everything past the budget had
     # kept a/b/c and thrown away the turn that ends the excerpt.
+    #
+    # The survivors land on one page rather than two. Spreading them over the
+    # original two pages left page 1 holding only ``a``, and a one-panel page has
+    # no reading path: the eye enters top-left and leaves bottom-right, which a
+    # lone panel cannot do. The merge keeps every surviving panel, so the budget
+    # still holds and only the sheet count changes.
     assert [[panel.panel_id for panel in page.panels] for page in pageset.pages] == [
-        ["a"],
-        ["c", "d"],
+        ["a", "c", "d"],
     ]
     assert "about 3 panels" in chat.user
 

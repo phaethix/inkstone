@@ -282,9 +282,37 @@ Keep these prototypes only as migration material until they conform to the targe
   pages". A chunk with no page plan and no storyboard takes the measured average,
   which is the only thing left to spread.
   What remains un-calibrated is the budget itself: tier B prompts for
-  "about 8 panels" and only A and C clip the plan, so a B planner can and did
+  "about 8 panels" and only A clips the plan, so a B planner can and did
   produce 14. The overrun is no longer silent — both the storyboard and the page
   plan log the panels kept against the budget when nothing is clipped.
+  - The budget does drive the count, measured directly. Fixed excerpt (2,224
+    chars), fixed tier (B), only the number moved: 8 → 22 panels, 14 → 34,
+    24 → 40, 40 → 50. So `3/8/14` is not cosmetic, and an earlier conclusion
+    that the number did not matter was wrong: that reading came from comparing
+    different lengths, where length was the confound. On a 1,055-char excerpt
+    the same sweep gave 3 → 8, 8 → 17, 14 → 32, 24 → 29.
+  - The response is a threshold, not a ratio. Both sweeps rise and then stall or
+    fall at the top (2,224 chars: 40 → 40 panels, 1,055 chars: 14 → 32 then
+    24 → 29). The planner treats the budget as a floor it can overshoot rather
+    than a ceiling it approaches, so a larger number does not reliably buy more
+    panels. This is why the constants should not simply be raised to whatever
+    was measured: at these sizes the planner already writes two to four times
+    the number it is given.
+  - Length had to reach the prompt before any of this was interpretable. The
+    planner was never told how long the excerpt was, so "about 8 panels" had no
+    denominator. On four lengths from 1,055 to 4,594 characters the same tier
+    wrote 28, 15, 25, 24 — not a length response. With the excerpt length stated,
+    the same ladder gave 16, 21, 23, 24 and then 18, 22, 22, 24 on a repeat: two
+    monotonic runs out of two, against zero out of one before. Pinned by
+    `test_the_budget_sentence_states_the_length_it_refers_to` and
+    `test_the_page_plan_request_carries_the_length_of_its_own_excerpt`.
+  - A clipped plan no longer leaves one-panel pages. Spreading survivors across
+    the original pages put a single panel on each: a nine-panel chapter over
+    three pages clipped to 3 panels became 1/1/1. A page is a unit of reading
+    time whose eye enters top-left and leaves bottom-right, so a lone panel is
+    not a page. Thin pages are merged into a neighbour, which keeps every
+    survivor and changes only the sheet count. Pinned by
+    `test_a_clipped_plan_never_leaves_a_one_panel_page`.
   - Only tier A clips. `clips_plan` in `core/density.py` is the single answer to
     "does this tier refuse an overrun"; the nine pipeline call sites, the two
     prompt-renderer sites, and the estimator's floor warning all read it, so the
@@ -295,11 +323,19 @@ Keep these prototypes only as migration material until they conform to the targe
   - C used to clip as well, capped at 14 while B was uncapped. A planner that
     wrote more than 14 panels then made the densest tier the thinnest one: C
     came out shorter than B, inverting the A<B<C order the brief promises. With
-    only A clipping, B and C both keep what the planner wrote, so they can meet
-    at the top but can never cross, and the order holds for any planner output.
-    Verified by mutation: restoring `tier != "B"` inverts the order at 20, 24,
-    and 40 panels. Pinned by `test_only_tier_a_clips_the_plan` and
+    only A clipping, one plan run through both policies can meet at the top but
+    cannot cross. Verified by mutation: restoring `tier != "B"` inverts the order
+    at 20, 24, and 40 panels. Pinned by `test_only_tier_a_clips_the_plan` and
     `test_tier_c_never_comes_out_thinner_than_tier_b`.
+  - That guarantee is about one panel list, not about two runs, and the earlier
+    wording here overclaimed. B and C are separate planner calls that each write
+    their own plan, so their totals can still cross. Measured on a
+    4,594-character chunk, B wrote 44 and 40 panels against C's 41 and 37, so C
+    came out thinner twice in three runs. Nothing in the clipping policy
+    prevents it; forcing the order across runs needs a cross-call constraint
+    that does not exist yet. Stating the excerpt length fixed the four-length
+    ladder (C at or above B on all four), but that is one sample, not a
+    guarantee.
   - Clipping no longer keeps only the opening. `_clip_page_plan` and
     `plan_storyboard` used to take the first N panels, so tier A kept the setup
     and dropped the turn and the close — the reader got the beginning of a story

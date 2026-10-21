@@ -83,11 +83,16 @@ def test_only_tier_a_clips_the_plan():
 
 
 def test_tier_c_never_comes_out_thinner_than_tier_b():
-    """The order the tier names promise, for any planner output.
+    """The order holds for a *single* plan run through both policies.
 
-    This is a property of the policy, not of one sample: with only A clipping,
-    B and C both keep what the planner wrote, so they can meet at the top but
-    can never cross.
+    Careful: this is a property of the clipping policy, and only that. It feeds
+    one identical panel list to each tier, so it proves C's policy never keeps
+    fewer panels than B's for the same input. It does NOT prove the product
+    order at runtime, where B and C are two separate planner calls that each
+    write their own plan. Measured on a 4,594-character chunk, B wrote 44 and 40
+    panels against C's 41 and 37 — C came out thinner twice in three runs, and
+    no assertion here could have caught it. Ordering B and C for real needs a
+    cross-call constraint, which does not exist yet; see ROADMAP.
     """
     from core.density import clips_plan
     from core.schemas import ComicPagePlanSet

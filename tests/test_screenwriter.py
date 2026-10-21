@@ -140,6 +140,57 @@ def test_tier_a_asks_for_the_main_thread():
     assert "main" in a.lower() and "thread" in a.lower()
 
 
+def test_the_budget_sentence_states_the_length_it_refers_to():
+    """A panel count with no denominator measured nothing.
+
+    Four lengths (1,055 to 4,594 chars) with the same tier could not be ordered
+    by length: B wrote 28, 15, 25 and 24 panels, so the number in the sentence
+    was not shaping the answer. The planner never learns how long the excerpt is,
+    so "about 8 panels" has no scale to apply. Stating the length gives the
+    number a denominator, which is the difference between a target and a guess.
+    """
+    from core.screenwriter import _budget_sentence
+
+    short = _budget_sentence(8, enforce=False, tier="B", excerpt_chars=600)
+    long = _budget_sentence(8, enforce=False, tier="B", excerpt_chars=4600)
+
+    assert "600" in short
+    assert "4600" in long
+    assert short != long, "the same budget read the same at ten times the length"
+
+
+def test_the_budget_sentence_omits_the_length_when_it_is_unknown():
+    """Callers without an excerpt keep the old wording rather than a blank."""
+    from core.screenwriter import _budget_sentence
+
+    text = _budget_sentence(8, enforce=False, tier="B")
+    assert "about 8 panels" in text
+    assert "characters" not in text.lower()
+
+
+def test_the_page_plan_request_carries_the_length_of_its_own_excerpt():
+    """The length must come from the chunk being planned, not from a caller.
+
+    A caller passing the wrong length would silently mistune the ratio, and the
+    request already has the excerpt, so it derives the number itself.
+    """
+    from core.schemas import StoryElements
+    from core.screenwriter import build_page_plan_request
+
+    elements = StoryElements()
+    short = build_page_plan_request(
+        "甲板上。", elements, panel_budget=8, enforce_budget=False, tier="B"
+    ).messages[1]["content"]
+    long_text = "甲板上。" * 200
+    long = build_page_plan_request(
+        long_text, elements, panel_budget=8, enforce_budget=False, tier="B"
+    ).messages[1]["content"]
+
+    assert "about 4 characters" in short
+    assert "about 800 characters" in long
+    assert short != long
+
+
 def test_the_page_plan_request_carries_the_tier_not_just_the_number():
     """The sentence has to reach the provider, not only the helper.
 
@@ -207,6 +258,24 @@ def _plan_pages(*panel_counts: int):
             panels.append({"panel_id": f"p{index:02d}", "action": f"beat {index}"})
         pages.append({"page_id": f"pg{page_number}", "panels": panels})
     return ComicPagePlanSet.model_validate({"pages": pages})
+
+
+def test_a_clipped_plan_never_leaves_a_one_panel_page():
+    """A one-panel page is not a page, and clipping three into three pages made three.
+
+    Tier A keeps three panels. Spreading the survivors evenly across a
+    three-page plan put one panel on each page, so the overview tier delivered
+    three sheets holding a single image each. The page template tells the
+    planner a page is a unit of reading time whose eye enters top-left and
+    leaves bottom-right; a lone panel has no path to travel. Measured on a
+    4,594-character chunk, A's nine panels over three pages clipped to 1/1/1.
+    """
+    from core.screenwriter import _clip_page_plan
+
+    clipped = _clip_page_plan(_plan_pages(3, 3, 3), 3, enforce=True)
+    counts = [len(page.panels) for page in clipped.pages]
+    assert sum(counts) == 3
+    assert all(count >= 2 for count in counts), f"one-panel pages: {counts}"
 
 
 def test_a_clipped_plan_keeps_the_chapter_ending():

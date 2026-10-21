@@ -189,7 +189,12 @@ def build_storyboard_request(
         "source_chunk": sanitize_text(text),
         "elements_json": elements.model_dump_json(),
         "beats_blob": beats_blob,
-        "budget_sentence": _budget_sentence(panel_budget, enforce=enforce_budget, tier=tier),
+        "budget_sentence": _budget_sentence(
+            panel_budget,
+            enforce=enforce_budget,
+            tier=tier,
+            excerpt_chars=len(sanitize_text(text)),
+        ),
         "domain": domain,
     }
     context = (
@@ -262,7 +267,12 @@ def build_page_plan_request(
         "source_chunk": sanitize_text(text),
         "elements_json": elements.model_dump_json(),
         "beats_blob": beats_blob,
-        "budget_sentence": _budget_sentence(panel_budget, enforce=enforce_budget, tier=tier),
+        "budget_sentence": _budget_sentence(
+            panel_budget,
+            enforce=enforce_budget,
+            tier=tier,
+            excerpt_chars=len(sanitize_text(text)),
+        ),
         "diversity": diversity,
         "voice": voice,
         "lang_reminder": lang_reminder,
@@ -427,7 +437,13 @@ async def extract_story_elements(
     return StoryElements.model_validate(args)
 
 
-def _budget_sentence(panel_budget: int | None, *, enforce: bool, tier: str | None = None) -> str:
+def _budget_sentence(
+    panel_budget: int | None,
+    *,
+    enforce: bool,
+    tier: str | None = None,
+    excerpt_chars: int | None = None,
+) -> str:
     """The panel budget sentence, worded to match what the tier promises.
 
     ``enforce`` decides whether the number is a ceiling. A clips the plan, so
@@ -447,19 +463,28 @@ def _budget_sentence(panel_budget: int | None, *, enforce: bool, tier: str | Non
     ``enforce`` comes from :func:`core.density.clips_plan` and the tier from
     :func:`core.density.get_density_plan`, so the sentence and the pipeline
     cannot disagree about what the tier will do.
+
+    ``excerpt_chars`` gives the number a denominator. Without it the planner
+    reads "about 8 panels" with no idea whether the excerpt is 600 or 4,600
+    characters, and measurement showed it did not behave proportionally: the
+    same tier on four lengths from 1,055 to 4,594 characters wrote 28, 15, 25
+    and 24 panels, which is not a length response. Saying how long the excerpt
+    is makes the budget a ratio rather than a bare count. ``None`` keeps the old
+    wording for callers that have no excerpt.
     """
     if panel_budget is None:
         return ""
+    scale = f"This excerpt is about {excerpt_chars} characters long. " if excerpt_chars else ""
     if enforce:
         head = f"Panel budget for this excerpt: about {panel_budget} panels. "
         return (
-            head + "This is a main-thread overview: keep the beats that carry the "
+            scale + head + "This is a main-thread overview: keep the beats that carry the "
             "main thread and the turn, and do not exceed this budget. "
         )
     head = f"Panel budget for this excerpt: about {panel_budget} panels. "
     if tier == "C":
         return (
-            head + "This is a near-original adaptation: cover every beat the excerpt "
+            scale + head + "This is a near-original adaptation: cover every beat the excerpt "
             "actually stages, including the connective tissue between them — the "
             "transitions, reactions, and beats of business that a summary would "
             "drop. Use fewer only when the excerpt is genuinely thin; this number "
@@ -467,7 +492,7 @@ def _budget_sentence(panel_budget: int | None, *, enforce: bool, tier: str | Non
         )
     if tier == "B":
         return (
-            head + "This is a chapter-complete plan: cover the chapter's beats and let "
+            scale + head + "This is a chapter-complete plan: cover the chapter's beats and let "
             "them decide when it needs more; this number is a target, not a cap. "
         )
     # No tier: say only what is true for every uncapped tier rather than claiming
@@ -533,6 +558,13 @@ def _clip_page_plan(
     turn and the close, so an overview tier delivered the opening of a story
     with no ending. The panels are spread instead, and the first and last always
     survive.
+
+    Spreading alone can leave a page holding one panel. A page is a unit of
+    reading time whose eye enters top-left and leaves bottom-right, so a lone
+    panel has no path to travel and is not a page. Measured on a
+    4,594-character chunk, A's nine panels over three pages clipped to three
+    one-panel pages. Survivors from a thinned page are merged into a neighbour
+    instead, which keeps the count and restores a readable page.
     """
     if panel_budget is None or not enforce:
         return pageset
@@ -555,7 +587,41 @@ def _clip_page_plan(
         kept.append(page.model_copy(update={"panels": panels, "lettering_boxes": boxes}))
     if not kept:
         return pageset
-    return pageset.model_copy(update={"pages": kept})
+    return pageset.model_copy(update={"pages": _merge_thin_pages(kept)})
+
+
+def _merge_thin_pages(pages: list) -> list:
+    """Fold pages holding a single panel into a neighbour.
+
+    A one-panel page has no reading path, so it is not a page. Merging keeps
+    every surviving panel, so the budget still holds; only the sheet count drops.
+    When the merge would itself create a single-panel page, the panels move to
+    the other side instead.
+    """
+    if len(pages) < 2:
+        return pages
+    merged = list(pages)
+    index = 0
+    while index < len(merged):
+        if len(merged[index].panels) >= 2:
+            index += 1
+            continue
+        if index + 1 < len(merged):
+            target, source = index + 1, index
+        elif index > 0:
+            target, source = index - 1, index
+        else:
+            break
+        donor = merged[target]
+        merged[target] = donor.model_copy(
+            update={
+                "panels": merged[source].panels + donor.panels,
+                "lettering_boxes": merged[source].lettering_boxes + donor.lettering_boxes,
+            }
+        )
+        merged.pop(source)
+        index = max(0, index - 1)
+    return merged
 
 
 async def plan_storyboard(
