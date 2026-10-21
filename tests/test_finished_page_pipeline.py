@@ -885,6 +885,7 @@ def test_a_stored_page_plan_key_includes_the_beats_key(tmp_path, monkeypatch):
         visual_bible=None,
         key_beats=beats,
         panel_budget=PANELS_PER_CHUNK_B,
+        tier="B",
         model=proj.state.model_snapshot.chat,
     )
     expected = _page_plan_key(

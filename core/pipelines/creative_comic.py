@@ -2761,6 +2761,7 @@ async def _creative_comic(
                     key_beats=state.beat_cache.get(key),
                     panel_budget=density_plan.panels_per_chunk,
                     enforce_budget=clips_plan(density_plan.tier),
+                    tier=density_plan.tier,
                     genre=run_genre,
                     harness=run_harness,
                     model=snapshot.chat,
@@ -2841,6 +2842,7 @@ async def _creative_comic(
                                 key_beats=beats,
                                 panel_budget=density_plan.panels_per_chunk,
                                 enforce_budget=clips_plan(density_plan.tier),
+                                tier=density_plan.tier,
                                 genre=run_genre,
                                 craft_notes=craft_notes,
                                 harness=run_harness,
@@ -2856,6 +2858,7 @@ async def _creative_comic(
                                 key_beats=beats,
                                 panel_budget=density_plan.panels_per_chunk,
                                 enforce_budget=clips_plan(density_plan.tier),
+                                tier=density_plan.tier,
                                 request=plan_request,
                             )
                             if beats is not None:
@@ -2877,6 +2880,7 @@ async def _creative_comic(
                                         extra_user_note=beat_coverage_retry_note(missing),
                                         panel_budget=density_plan.panels_per_chunk,
                                         enforce_budget=clips_plan(density_plan.tier),
+                                        tier=density_plan.tier,
                                     )
                     except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
                         if is_content_policy_rejection(exc):
@@ -2899,6 +2903,7 @@ async def _creative_comic(
                         key_beats=state.beat_cache.get(key),
                         panel_budget=density_plan.panels_per_chunk,
                         enforce_budget=clips_plan(density_plan.tier),
+                        tier=density_plan.tier,
                         genre=run_genre,
                         harness=run_harness,
                         model=snapshot.chat,
@@ -3310,6 +3315,7 @@ async def _creative_comic(
                 key_beats=storyboard_beats,
                 panel_budget=density_plan.panels_per_chunk,
                 enforce_budget=clips_plan(density_plan.tier),
+                tier=density_plan.tier,
                 genre=run_genre,
                 harness=run_harness,
                 model=snapshot.chat,
@@ -3321,6 +3327,7 @@ async def _creative_comic(
                 key_beats=storyboard_beats,
                 panel_budget=density_plan.panels_per_chunk,
                 enforce_budget=clips_plan(density_plan.tier),
+                tier=density_plan.tier,
                 genre=run_genre,
                 harness=run_harness,
                 model=snapshot.chat,
@@ -3364,6 +3371,7 @@ async def _creative_comic(
                             chat=chat,
                             panel_budget=density_plan.panels_per_chunk,
                             enforce_budget=clips_plan(density_plan.tier),
+                            tier=density_plan.tier,
                             key_beats=storyboard_beats,
                             request=storyboard_request,
                         )

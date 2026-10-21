@@ -314,6 +314,32 @@ Keep these prototypes only as migration material until they conform to the targe
     asked with. Calibrating that needs a real C sample; the tier numbers stay as
     they are until one exists. Note what this policy does not do: it guarantees
     C is never *shorter* than B, not that C is ever *longer*.
+  - The tier *names* never reached the model. `page_plan.md` and `storyboard.md`
+    interpolate one `{{budget_sentence}}` and nothing else about density, so B
+    and C sent the same words with `8` replaced by `14`. A planner could return
+    the identical panel list for both and satisfy each sentence, which is why the
+    two tiers had no reason to diverge. `_budget_sentence` now takes the tier and
+    names what it promises: A a main-thread overview, B the chapter's beats, C
+    the connective tissue between those beats. Pinned by
+    `test_tier_c_asks_for_more_than_tier_b_beyond_the_number`,
+    `test_tier_a_asks_for_the_main_thread`, and the two request-level tests that
+    prove the tier survives to the provider rather than stopping at the helper.
+  - A `tier` that is omitted says only what is true of every uncapped tier. An
+    earlier draft defaulted to the chapter-complete wording, which would have
+    asserted B for a caller that never passed a tier.
+  - Cost of that fix, stated plainly: the tier enters the request digest, so the
+    page plan key changes and stored page plans replan once. Reproduced with
+    `migrate --check` on the public excerpt: one chat call for its single chunk,
+    no page redrawn (`0` of `8`), `16` lettering rebuilds that are local and
+    billed nothing. A project planned before this change replans its page plans
+    once on the next run.
+  - Editing a docstring invalidates paid caches. `stage_source_hash` hashes
+    `inspect.getsource`, and that includes comments, so a comment-only edit to any
+    function listed in a stage's source tuple changes the key. It is a real trap:
+    it happened during this work and was caught by a probe, not by a test. No
+    stored page plan existed, so nothing was lost. Not fixed here — stripping
+    docstrings before hashing would change every key at once, which is a larger
+    cost event than the trap it removes.
 - [x] Phase 3 keys. Extract, beats, page plan, and finished-page render use
   action keys. A matching key does not call the provider again. A page plan key
   carries the history window and the summarizer source hashes, not the recent

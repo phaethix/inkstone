@@ -84,7 +84,7 @@ def _requests():
             model=MODEL,
         ),
         "storyboard": sw.build_storyboard_request(
-            TEXT, elements, key_beats=beats, panel_budget=8, model=MODEL
+            TEXT, elements, key_beats=beats, panel_budget=8, tier="B", model=MODEL
         ),
         "page_plan": sw.build_page_plan_request(
             TEXT,
@@ -93,6 +93,7 @@ def _requests():
             visual_bible=bible,
             key_beats=beats,
             panel_budget=8,
+            tier="B",
             model=MODEL,
         ),
         "page_script": sw.build_page_script_request(board, elements, TEXT, model=MODEL),

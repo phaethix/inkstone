@@ -109,8 +109,73 @@ def _budget_blob(panel_budget: int, *, enforce: bool) -> str:
     return _budget_sentence(panel_budget, enforce=enforce)
 
 
+def test_tier_c_asks_for_more_than_tier_b_beyond_the_number():
+    """B and C differ only by a number today, so the planner cannot tell them apart.
+
+    Both keep what the planner writes and neither is capped, so the sentence is
+    the whole signal. Told "about 8" and "about 14" with otherwise identical
+    words, a planner has no reason to treat the excerpts differently: it can
+    return the same 14 panels for both and satisfy each sentence. The tier that
+    promises 近原著 has to ask for something the tier that promises 章级完整 did
+    not — keeping the chapters' connective tissue, not only its beats.
+    """
+    from core.screenwriter import _budget_sentence
+
+    b = _budget_sentence(8, enforce=False, tier="B")
+    c = _budget_sentence(14, enforce=False, tier="C")
+
+    assert b.replace("8", "14") != c, "B and C differ only by the number"
+    assert "connective" in c.lower() or "transition" in c.lower()
+    assert "connective" not in b.lower() and "transition" not in b.lower()
+
+
+def test_tier_a_asks_for_the_main_thread():
+    """A promises 主线概览, so its sentence names what to keep."""
+    from core.screenwriter import _budget_sentence
+
+    a = _budget_sentence(3, enforce=True)
+
+    assert "about 3 panels" in a
+    assert "do not exceed" in a
+    assert "main" in a.lower() and "thread" in a.lower()
+
+
+def test_the_page_plan_request_carries_the_tier_not_just_the_number():
+    """The sentence has to reach the provider, not only the helper.
+
+    Wiring it into ``_budget_sentence`` alone would leave the pipeline passing no
+    tier, and B and C would still send the same words.
+    """
+    from core.schemas import StoryElements
+    from core.screenwriter import build_page_plan_request
+
+    elements = StoryElements()
+    b = build_page_plan_request(
+        "甲板上。", elements, panel_budget=8, enforce_budget=False, tier="B"
+    ).messages[1]["content"]
+    c = build_page_plan_request(
+        "甲板上。", elements, panel_budget=14, enforce_budget=False, tier="C"
+    ).messages[1]["content"]
+
+    assert b.replace("8", "14") != c
+    assert "connective" in c.lower() or "transition" in c.lower()
+
+
+def test_the_storyboard_request_carries_the_tier_too():
+    """Both plan stages read the budget, so both have to hear the tier."""
+    from core.schemas import StoryElements
+    from core.screenwriter import build_storyboard_request
+
+    elements = StoryElements()
+    c = build_storyboard_request(
+        "甲板上。", elements, panel_budget=14, enforce_budget=False, tier="C"
+    ).messages[1]["content"]
+
+    assert "connective" in c.lower() or "transition" in c.lower()
+
+
 def test_an_enforced_budget_still_forbids_going_over():
-    """A and C clip, so the sentence is a real constraint they must respect."""
+    """A clips, so the sentence is a real constraint the planner must respect."""
     blob = _budget_blob(3, enforce=True)
     assert "about 3 panels" in blob
     assert "do not exceed" in blob

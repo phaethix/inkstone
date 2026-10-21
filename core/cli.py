@@ -1256,7 +1256,7 @@ def _run_prompt(args: argparse.Namespace) -> int:
         _load_prompt_context(args)
     )
     # Reproduction has to use the tier's real budget and the behaviour the
-    # pipeline applies to it: A and C clip, B does not.
+    # pipeline applies to it: only A clips, B and C keep the plan.
     density_plan = get_density_plan(density)
     model = args.model
     if args.stage == "extract":
@@ -1280,6 +1280,7 @@ def _run_prompt(args: argparse.Namespace) -> int:
             key_beats=beats,
             panel_budget=density_plan.panels_per_chunk,
             enforce_budget=clips_plan(density_plan.tier),
+            tier=density_plan.tier,
             genre=args.genre,
             harness=candidate,
             model=model,
@@ -1306,6 +1307,7 @@ def _run_prompt(args: argparse.Namespace) -> int:
             key_beats=beats,
             panel_budget=density_plan.panels_per_chunk,
             enforce_budget=clips_plan(density_plan.tier),
+            tier=density_plan.tier,
             genre=args.genre,
             craft_notes=craft_notes,
             harness=candidate,

@@ -235,13 +235,14 @@ def test_an_unknown_density_is_rejected(tmp_path):
 
 
 def test_a_budget_the_planner_exceeded_is_reported(caplog):
-    """Tier B does not clip, so the overrun has to be visible somewhere.
+    """B and C do not clip, so the overrun has to be visible somewhere.
 
-    The tier B sentence is the whole contract there: A and C clip the plan, B
-    keeps whatever the planner returned. Keeping it is deliberate, but a
-    planner that returns 14 against a budget of 8 currently leaves no trace, so
-    the one number that says the budget is un-calibrated is invisible. This
-    asserts the run logs both numbers instead of changing what it keeps.
+    The budget sentence is the whole contract for those tiers: only A clips the
+    plan, so B and C keep whatever the planner returned. Keeping it is
+    deliberate, but a planner that returns 14 against a budget of 8 currently
+    leaves no trace, so the one number that says the budget is un-calibrated is
+    invisible. This asserts the run logs both numbers instead of changing what
+    it keeps.
     """
     chat = _BudgetChat(
         {

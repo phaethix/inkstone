@@ -164,11 +164,16 @@ def build_storyboard_request(
     key_beats: KeyBeatSet | None = None,
     panel_budget: int | None = None,
     enforce_budget: bool = False,
+    tier: str | None = None,
     genre: str | None = None,
     harness: Harness | None = None,
     model: str = "",
 ) -> ChatRequest:
-    """The storyboard request for one chunk."""
+    """The storyboard request for one chunk.
+
+    ``tier`` reaches the budget sentence so B and C ask for different things;
+    without it the two tiers send the same words and differ only by a number.
+    """
     from core.config import genre as config_genre
 
     name = genre if genre is not None else config_genre()
@@ -184,7 +189,7 @@ def build_storyboard_request(
         "source_chunk": sanitize_text(text),
         "elements_json": elements.model_dump_json(),
         "beats_blob": beats_blob,
-        "budget_sentence": _budget_sentence(panel_budget, enforce=enforce_budget),
+        "budget_sentence": _budget_sentence(panel_budget, enforce=enforce_budget, tier=tier),
         "domain": domain,
     }
     context = (
@@ -213,6 +218,7 @@ def build_page_plan_request(
     extra_user_note: str = "",
     panel_budget: int | None = None,
     enforce_budget: bool = False,
+    tier: str | None = None,
     genre: str | None = None,
     craft_notes: str = "",
     harness: Harness | None = None,
@@ -256,7 +262,7 @@ def build_page_plan_request(
         "source_chunk": sanitize_text(text),
         "elements_json": elements.model_dump_json(),
         "beats_blob": beats_blob,
-        "budget_sentence": _budget_sentence(panel_budget, enforce=enforce_budget),
+        "budget_sentence": _budget_sentence(panel_budget, enforce=enforce_budget, tier=tier),
         "diversity": diversity,
         "voice": voice,
         "lang_reminder": lang_reminder,
@@ -421,29 +427,53 @@ async def extract_story_elements(
     return StoryElements.model_validate(args)
 
 
-def _budget_sentence(panel_budget: int | None, *, enforce: bool) -> str:
-    """The panel budget sentence, worded to match what the pipeline will do.
+def _budget_sentence(panel_budget: int | None, *, enforce: bool, tier: str | None = None) -> str:
+    """The panel budget sentence, worded to match what the tier promises.
 
-    ``enforce`` is the whole difference. A clips the plan, so the number is a
-    ceiling and the sentence can forbid going over it. B and C keep what the
-    planner wrote, so telling them "do not exceed" states a rule nothing applies,
-    and the planner learns its instructions are advisory. There the same number
-    is a target: a thin excerpt still uses fewer, and a chapter that needs more
-    may take more.
+    ``enforce`` decides whether the number is a ceiling. A clips the plan, so
+    its sentence can forbid going over and mean it. B and C keep what the
+    planner wrote, so "do not exceed" there would state a rule nothing applies
+    and teach the planner that its instructions are advisory.
 
-    ``enforce`` comes from :func:`core.density.clips_plan`, so this sentence and
-    the pipeline cannot disagree about whether an overrun is refused.
+    ``tier`` is what makes B and C say different things. Both are uncapped, so
+    before this the two sentences differed only by ``8`` versus ``14``, and a
+    planner had no reason to treat the excerpts differently: it could return the
+    same panel list for both and satisfy each sentence. B promises 章级完整, so
+    it asks for the chapter's beats. C promises 近原著, so it also asks for the
+    connective tissue between those beats — the transitions, reactions, and
+    beats of business a summary drops. ``None`` keeps the tier-neutral wording,
+    for callers that have no tier (a raw reproduction or a unit test).
+
+    ``enforce`` comes from :func:`core.density.clips_plan` and the tier from
+    :func:`core.density.get_density_plan`, so the sentence and the pipeline
+    cannot disagree about what the tier will do.
     """
     if panel_budget is None:
         return ""
     if enforce:
+        head = f"Panel budget for this excerpt: about {panel_budget} panels. "
         return (
-            f"Panel budget for this excerpt: about {panel_budget} panels. "
-            "Use fewer when the excerpt is thin, and do not exceed this budget. "
+            head + "This is a main-thread overview: keep the beats that carry the "
+            "main thread and the turn, and do not exceed this budget. "
         )
+    head = f"Panel budget for this excerpt: about {panel_budget} panels. "
+    if tier == "C":
+        return (
+            head + "This is a near-original adaptation: cover every beat the excerpt "
+            "actually stages, including the connective tissue between them — the "
+            "transitions, reactions, and beats of business that a summary would "
+            "drop. Use fewer only when the excerpt is genuinely thin; this number "
+            "is a target, not a cap. "
+        )
+    if tier == "B":
+        return (
+            head + "This is a chapter-complete plan: cover the chapter's beats and let "
+            "them decide when it needs more; this number is a target, not a cap. "
+        )
+    # No tier: say only what is true for every uncapped tier rather than claiming
+    # to be the chapter-complete one.
     return (
-        f"Panel budget for this excerpt: about {panel_budget} panels. "
-        "Use fewer when the excerpt is thin, and let the chapter's beats decide "
+        head + "Use fewer when the excerpt is thin, and let the chapter's beats decide "
         "when it needs more; this number is a target, not a cap. "
     )
 
@@ -494,13 +524,15 @@ def _clip_page_plan(
 ) -> ComicPagePlanSet:
     """Thin the plan to ``panel_budget`` panels without losing either end.
 
-    Tier B is the budget every existing book was planned without a cap, so the
-    sentence is the whole contract there. A and C are an explicit change, and
-    those extra panels are dropped.
+    Only tier A clips, and it is the one tier whose budget is a ceiling: the
+    overview it promises is the plan thinned to the main thread. B and C keep
+    what the planner wrote, and ``enforce`` is False for them, so this returns
+    the plan untouched.
 
-    Dropping them from the front kept the setup and threw away the turn and the
-    close, so an overview tier delivered the opening of a story with no ending.
-    The panels are spread instead, and the first and last always survive.
+    Dropping the extra panels from the front kept the setup and threw away the
+    turn and the close, so an overview tier delivered the opening of a story
+    with no ending. The panels are spread instead, and the first and last always
+    survive.
     """
     if panel_budget is None or not enforce:
         return pageset
@@ -533,6 +565,7 @@ async def plan_storyboard(
     chat=None,
     panel_budget: int | None = None,
     enforce_budget: bool = False,
+    tier: str | None = None,
     key_beats: KeyBeatSet | None = None,
     request: ChatRequest | None = None,
 ) -> Storyboard:
@@ -544,6 +577,7 @@ async def plan_storyboard(
         key_beats=key_beats,
         panel_budget=panel_budget,
         enforce_budget=enforce_budget,
+        tier=tier,
         model=getattr(chat, "model", ""),
     )
     args = await _audited_chat(chat, request.messages, request.tools, request.tool_choice)
@@ -596,6 +630,7 @@ async def plan_comic_pages(
     extra_user_note: str = "",
     panel_budget: int | None = None,
     enforce_budget: bool = False,
+    tier: str | None = None,
     request: ChatRequest | None = None,
 ) -> ComicPagePlanSet:
     """Plan finished readable pages for ``text`` given ``elements``."""
@@ -610,6 +645,7 @@ async def plan_comic_pages(
         extra_user_note=extra_user_note,
         panel_budget=panel_budget,
         enforce_budget=enforce_budget,
+        tier=tier,
         model=getattr(chat, "model", ""),
     )
     args = await _audited_chat(chat, request.messages, request.tools, request.tool_choice)
