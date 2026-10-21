@@ -15,8 +15,10 @@ from core.schemas import (
     PagePanelSpec,
     PageScript,
     PageScriptPage,
+    Panel,
     ProjectState,
     SourceSpan,
+    Storyboard,
 )
 
 SOURCE = "方鸿渐在甲板远眺大海。"
@@ -223,3 +225,57 @@ def test_plan_uses_counts_already_stored_on_the_project(tmp_path, capsys):
     assert "counts from the stored project" in out
     assert "tier constants stay the experience rate" in out
     assert "uncalibrated estimate" not in out.lower()
+
+
+def test_a_half_planned_project_keeps_the_pages_it_did_measure(tmp_path, capsys):
+    """One chunk with a page plan and one with only a storyboard still has pages.
+
+    ``_planned_counts`` used to drop every page count when the page list and the
+    panel list ended up different lengths, which is exactly what a run stopped
+    between two chunks looks like. The measured pages of the finished chunk are
+    evidence and must survive; the chunk without a page plan is projected from
+    the average of the ones that have it, the same rule ``_scale_observed``
+    already applies to panels.
+
+    The chunk measured one panel per page, so keeping its pages reports six
+    pages where dropping them would fall back to ``panels / 4`` and report two.
+    """
+    book = tmp_path / "book.txt"
+    book.write_text("第一章\n石猴出世。\n第二章\n方鸿渐在读书。", encoding="utf-8")
+    state = ProjectState(
+        project_id="p",
+        page_cache={
+            "0": ComicPagePlanSet(
+                pages=[
+                    ComicPagePlan(page_id="p1", panels=[PagePanelSpec(panel_id="a")]),
+                    ComicPagePlan(page_id="p2", panels=[PagePanelSpec(panel_id="b")]),
+                    ComicPagePlan(page_id="p3", panels=[PagePanelSpec(panel_id="c")]),
+                ]
+            )
+        },
+        chunk_cache={
+            "1": ChunkCache(
+                storyboard=Storyboard(
+                    chapter_id="1",
+                    panels=[Panel(panel_id=f"x{i}") for i in range(3)],
+                )
+            )
+        },
+    )
+    state.save(tmp_path / "state.json")
+    _run_plan(
+        argparse.Namespace(
+            book=str(book),
+            density="B",
+            format="page",
+            api="agnes",
+            concurrency=4,
+            price_per_panel=None,
+            out=str(tmp_path),
+        )
+    )
+    out = capsys.readouterr().out
+    # 3 measured panels on 3 measured pages, plus 3 storyboarded panels in the
+    # other chunk, gives 6 panels and 6 pages rather than the 2 a rate implies.
+    assert "counts from the stored project" in out
+    assert "6 格 / 6 页" in out

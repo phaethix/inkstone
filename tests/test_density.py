@@ -227,6 +227,23 @@ def test_derived_pages_are_announced_as_derived(tmp_path):
     assert not any("推算" in warning for warning in both.warnings)
 
 
+def test_partly_measured_pages_report_how_many_chunks_they_cover(tmp_path):
+    """Pages measured for fewer chunks than panels must not claim full coverage.
+
+    ``_planned_counts`` keeps the pages of the chunks that have a page plan and
+    leaves the rest to be projected, so the page count can rest on one chunk
+    while the panel count rests on three. A single "N chunks" line would claim
+    the pages were measured everywhere.
+    """
+    book = _write(tmp_path, "第一段文字内容较长的示例文本用来触发分段。\n" * 800)
+    est = estimate(book, density="B", observed_panels=[3, 4, 5], observed_pages=[2])
+    assert est.chunks == 3
+    assert any("格数来自已规划的 3 段" in warning for warning in est.warnings)
+    assert any("页数只实测了 1 段" in warning for warning in est.warnings)
+    # One measured page per its three panels, averaged across three chunks.
+    assert est.pages == 6
+
+
 def test_the_measured_run_of_the_public_excerpt_reproduces_exactly():
     """Feeding the Journey run's own numbers back must return those numbers.
 
@@ -252,6 +269,18 @@ def test_an_unplanned_chunk_uses_the_planned_average():
     assert _scale_observed(3, [2]) == 6
     assert _scale_observed(2, [3, 5]) == 8
     assert _scale_observed(1, [3, 9]) == 3
+
+
+def test_counts_past_the_text_are_ignored():
+    """A stored project can hold more chunks than the text now has.
+
+    Re-segmenting a shorter source, or an edited book, leaves entries past the
+    chunk count. They describe text that is no longer there, so they must not be
+    added to the total: two chunks of five is ten, not the fifteen that summing
+    three stored entries would give.
+    """
+    assert _scale_observed(2, [5, 5, 5]) == 10
+    assert _scale_observed(1, [4, 7]) == 4
 
 
 def test_the_public_excerpt_keeps_the_experience_rate():

@@ -255,8 +255,14 @@ def estimate(
     if webtoon_msg:
         warnings.append(webtoon_msg)
     if observed_panels or observed_pages:
-        planned = min(len(observed_panels or observed_pages or []), chunks)
-        warnings.append(f"格数来自已规划的 {planned} 段，不是经验档位。")
+        panels_measured = min(len(observed_panels or []), chunks) if observed_panels else 0
+        pages_measured = min(len(observed_pages or []), chunks) if observed_pages else 0
+        if panels_measured:
+            warnings.append(f"格数来自已规划的 {panels_measured} 段，不是经验档位。")
+        if pages_measured and pages_measured < panels_measured:
+            warnings.append(f"页数只实测了 {pages_measured} 段，其余段按实测页数平均值补齐。")
+        elif pages_measured and not panels_measured:
+            warnings.append(f"页数来自已规划的 {pages_measured} 段，不是经验档位。")
     if observed_panels and not observed_pages:
         warnings.append(
             "页数由实测格数按排版速率推算，不是实测页数；规划器按叙事节奏拆页，实际页数通常更多。"

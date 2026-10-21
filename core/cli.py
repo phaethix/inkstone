@@ -564,8 +564,10 @@ def _planned_counts(state: ProjectState) -> tuple[list[int], list[int]]:
         cache = state.chunk_cache.get(key)
         if cache is not None and cache.storyboard is not None:
             panels.append(len(cache.storyboard.panels))
-    if len(pages) != len(panels):
-        pages = []
+    # A run stopped between chunks has pages for the chunks it planned and none
+    # for the rest. The measured pages are evidence, so they are kept: the gap is
+    # filled from their average by ``_scale_observed``. Only a project with no
+    # measured page at all falls back to the rate.
     return panels, pages
 
 
