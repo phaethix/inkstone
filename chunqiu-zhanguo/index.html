@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>春秋战国疆域与兼并 · 前770 — 前221</title>
+<style>
+:root{
+  --bg:#0b0f16;
+  --panel:rgba(20,28,40,.78);
+  --panel-solid:#141c28;
+  --line:rgba(255,255,255,.075);
+  --text:#e6edf3;
+  --muted:#8b98a8;
+  --dim:#5d6b7d;
+  --accent:#d4a017;
+  --accent2:#e8c25a;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+  background:
+    radial-gradient(1200px 700px at 18% -12%, #1c2939 0%, transparent 58%),
+    radial-gradient(900px 620px at 92% 112%, #19232f 0%, transparent 55%),
+    var(--bg);
+  color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+header{
+  display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;
+  padding:14px 26px 12px;
+  border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,rgba(20,28,40,.6),rgba(20,28,40,0));
+  flex:0 0 auto;
+}
+header h1{
+  margin:0;font-size:20px;font-weight:600;letter-spacing:.06em;
+  font-family:"Songti SC","STSong","SimSun",serif;
+}
+header h1 span{color:var(--accent2)}
+header .sub{font-size:12px;color:var(--dim);letter-spacing:.04em}
+header .spacer{flex:1}
+header .hint{font-size:11.5px;color:var(--dim)}
+header .hint kbd{
+  display:inline-block;padding:1px 5px;margin:0 2px;border-radius:4px;
+  border:1px solid rgba(255,255,255,.13);background:rgba(255,255,255,.05);
+  font-family:inherit;font-size:10.5px;color:var(--muted);
+}
+.stage{
+  flex:1 1 auto;min-height:0;
+  display:grid;grid-template-columns:minmax(0,1fr) 342px;
+}
+.mapwrap{position:relative;min-width:0;min-height:0}
+#map{width:100%;height:100%;display:block}
+aside{
+  border-left:1px solid var(--line);
+  background:linear-gradient(180deg,rgba(18,25,35,.72),rgba(14,20,28,.9));
+  overflow-y:auto;padding:16px 15px 22px;
+  display:flex;flex-direction:column;gap:13px;
+}
+aside::-webkit-scrollbar{width:7px}
+aside::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:4px}
+.panel{
+  border:1px solid var(--line);border-radius:11px;
+  background:var(--panel);padding:13px 14px;
+}
+.panel h3{
+  margin:0 0 10px;font-size:11.5px;font-weight:600;letter-spacing:.16em;
+  color:var(--dim);text-transform:uppercase;
+}
+.yearpanel{display:flex;align-items:flex-end;justify-content:space-between;gap:10px}
+.era{
+  font-size:11px;letter-spacing:.22em;color:var(--accent);
+  border:1px solid rgba(212,160,23,.42);border-radius:999px;
+  padding:3px 10px;background:rgba(212,160,23,.09);white-space:nowrap;
+}
+.yearbig{
+  font-size:30px;font-weight:600;letter-spacing:.02em;line-height:1;
+  font-family:"Songti SC","STSong",serif;
+  font-variant-numeric:tabular-nums;
+}
+.yearnote{margin-top:7px;font-size:11.5px;color:var(--muted);min-height:15px;line-height:1.5}
+.power{display:flex;flex-direction:column;gap:7px}
+.prow{display:grid;grid-template-columns:14px 44px 1fr 40px;align-items:center;gap:7px;font-size:12px}
+.pdot{width:10px;height:10px;border-radius:3px}
+.pname{color:var(--text);white-space:nowrap}
+.pbar{height:6px;border-radius:3px;background:rgba(255,255,255,.06);overflow:hidden}
+.pbar i{display:block;height:100%;border-radius:3px;transition:width .5s ease}
+.pval{text-align:right;color:var(--dim);font-size:11px;font-variant-numeric:tabular-nums}
+.events{display:flex;flex-direction:column;gap:8px;max-height:none}
+.ev{
+  display:grid;grid-template-columns:46px 1fr;gap:9px;
+  font-size:12px;line-height:1.62;
+  padding:7px 8px;border-radius:8px;
+  border-left:2px solid rgba(255,255,255,.09);
+  animation:evin .38s ease both;
+}
+.ev.new{border-left-color:var(--accent);background:rgba(212,160,23,.09)}
+.ev time{color:var(--accent2);font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap;padding-top:1px}
+.ev p{margin:0;color:#c3ced9}
+.ev.tag-merge{border-left-color:#c0392b}
+.ev.tag-merge.new{background:rgba(192,57,43,.12)}
+.ev.tag-era{border-left-color:#5d8aa8}
+@keyframes evin{from{opacity:0;transform:translateX(8px)}to{opacity:1;transform:none}}
+.empty{font-size:11.5px;color:var(--dim);line-height:1.7}
+.controls{
+  flex:0 0 auto;padding:12px 26px 16px;
+  border-top:1px solid var(--line);
+  background:linear-gradient(0deg,rgba(16,22,31,.96),rgba(16,22,31,.55));
+}
+.crow{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.crow+.crow{margin-top:11px}
+button{
+  font-family:inherit;font-size:12.5px;color:#cfd9e4;
+  background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.11);
+  border-radius:8px;padding:7px 13px;cursor:pointer;
+  transition:background .16s,border-color .16s,color .16s,transform .1s;
+  white-space:nowrap;
+}
+button:hover{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.2);color:#fff}
+button:active{transform:translateY(1px)}
+button.primary{
+  background:linear-gradient(180deg,rgba(212,160,23,.26),rgba(212,160,23,.14));
+  border-color:rgba(212,160,23,.5);color:#f2d891;min-width:96px;font-weight:600;
+}
+button.primary:hover{background:linear-gradient(180deg,rgba(212,160,23,.38),rgba(212,160,23,.2))}
+.speed{display:flex;gap:0;border:1px solid rgba(255,255,255,.11);border-radius:8px;overflow:hidden}
+.speed button{border:0;border-radius:0;padding:6px 10px;font-size:11.5px;background:transparent;color:var(--dim)}
+.speed button+button{border-left:1px solid rgba(255,255,255,.08)}
+.speed button.on{background:rgba(212,160,23,.2);color:var(--accent2);font-weight:600}
+.speed button:hover{background:rgba(255,255,255,.08);color:#fff}
+.speed button.on:hover{background:rgba(212,160,23,.28)}
+.spacer{flex:1}
+.trackwrap{position:relative;width:100%;padding-top:2px}
+input[type=range]{
+  -webkit-appearance:none;appearance:none;width:100%;height:22px;background:transparent;cursor:pointer;margin:0;
+}
+input[type=range]::-webkit-slider-runnable-track{
+  height:5px;border-radius:3px;
+  background:linear-gradient(90deg,#3f6f8f 0%,#3f6f8f 53.5%,#7a4a3a 53.5%,#7a4a3a 100%);
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;appearance:none;width:15px;height:15px;border-radius:50%;
+  background:radial-gradient(circle at 34% 30%,#fff,var(--accent2) 55%,#a8790f);
+  border:1px solid rgba(0,0,0,.45);margin-top:-5px;
+  box-shadow:0 0 10px rgba(212,160,23,.55),0 1px 3px rgba(0,0,0,.6);
+}
+.ticks{position:relative;height:15px;margin-top:1px}
+.ticks span{
+  position:absolute;transform:translateX(-50%);
+  font-size:10px;color:var(--dim);white-space:nowrap;font-variant-numeric:tabular-nums;
+}
+.ticks span.major{color:var(--muted)}
+.ticks span.era-l{color:#6b93ad}
+.ticks span.era-w{color:#a97a63}
+.legend{
+  position:absolute;left:18px;bottom:14px;
+  display:flex;flex-wrap:wrap;gap:4px 11px;max-width:calc(100% - 36px);
+  font-size:11px;color:var(--muted);
+  padding:9px 12px;border-radius:9px;
+  background:rgba(11,15,22,.62);border:1px solid var(--line);
+  backdrop-filter:blur(7px);
+  transition:opacity .3s;
+}
+.legend b{display:flex;align-items:center;gap:5px;font-weight:400;color:#b9c5d2}
+.legend i{width:9px;height:9px;border-radius:2px;display:inline-block}
+.mapmeta{
+  position:absolute;right:18px;top:14px;text-align:right;
+  font-size:11px;color:var(--dim);line-height:1.75;pointer-events:none;
+}
+.mapmeta strong{display:block;font-size:12.5px;color:var(--muted);font-weight:500;letter-spacing:.05em}
+.tip{
+  position:absolute;pointer-events:none;z-index:9;
+  min-width:132px;max-width:220px;
+  padding:9px 11px;border-radius:9px;
+  background:rgba(12,17,25,.94);border:1px solid rgba(255,255,255,.14);
+  box-shadow:0 10px 28px rgba(0,0,0,.55);
+  font-size:11.5px;line-height:1.6;color:#cdd8e3;
+  opacity:0;transform:translateY(4px);transition:opacity .14s,transform .14s;
+}
+.tip.on{opacity:1;transform:none}
+.tip h4{margin:0 0 5px;font-size:13.5px;font-weight:600;letter-spacing:.04em;display:flex;align-items:center;gap:6px}
+.tip h4 i{width:9px;height:9px;border-radius:2px;display:inline-block;flex:0 0 auto}
+.tip .row{color:var(--muted);font-size:11px}
+.tip .row b{color:#c9d4df;font-weight:500}
+.tip .fate{margin-top:5px;padding-top:5px;border-top:1px solid rgba(255,255,255,.09);color:#a9b6c4}
+.region{transition:fill .65s cubic-bezier(.4,0,.2,1),opacity .5s}
+.region.hot{filter:brightness(1.16)}
+.gline{fill:none;stroke:rgba(255,255,255,.22);stroke-width:1.15;stroke-linejoin:round;stroke-linecap:round}
+.region.pulse{animation:pulseA .95s ease-out}
+@keyframes pulseA{
+  0%{stroke:rgba(255,255,255,.95);stroke-width:2.4;filter:drop-shadow(0 0 0 rgba(255,255,255,0))}
+  28%{stroke:rgba(255,255,255,.95);stroke-width:2.4;filter:drop-shadow(0 0 16px rgba(255,255,255,.85))}
+  100%{stroke:rgba(255,255,255,.26);stroke-width:1;filter:drop-shadow(0 0 0 rgba(255,255,255,0))}
+}
+.slabel{
+  fill:#fff;text-anchor:middle;dominant-baseline:central;
+  pointer-events:none;font-family:"Songti SC","STSong",serif;
+  paint-order:stroke;stroke:rgba(0,0,0,.5);stroke-width:2.4px;stroke-linejoin:round;
+  transition:opacity .4s,font-size .4s;
+}
+.slabel.small{font-size:10px;stroke-width:1.8px;opacity:.9}
+@media (max-width:980px){
+  .stage{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto}
+  aside{flex-direction:row;overflow-x:auto;overflow-y:hidden;border-left:0;border-top:1px solid var(--line);max-height:230px}
+  aside>.panel{min-width:236px}
+  header .hint{display:none}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>春秋战国 <span>疆域与兼并</span></h1>
+  <div class="sub">公元前 770 年 — 公元前 221 年 · 五百五十年间百余国的消亡</div>
+  <div class="spacer"></div>
+  <div class="hint"><kbd>空格</kbd>播放/暂停 <kbd>←</kbd><kbd>→</kbd>调整年份 <kbd>点击地图</kbd>查看国家</div>
+</header>
+
+<div class="stage">
+  <div class="mapwrap" id="mapwrap">
+    <svg id="map" viewBox="0 0 1000 720" preserveAspectRatio="xMidYMid meet" aria-label="春秋战国疆域图">
+      <defs>
+        <radialGradient id="landGrad" cx="42%" cy="38%" r="72%">
+          <stop offset="0%" stop-color="#1a2431"/>
+          <stop offset="100%" stop-color="#0e1520"/>
+        </radialGradient>
+        <linearGradient id="seaGrad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#0d1a22"/>
+          <stop offset="100%" stop-color="#0a141b"/>
+        </linearGradient>
+        <pattern id="gridPat" width="50" height="50" patternUnits="userSpaceOnUse">
+          <path d="M50 0 L0 0 0 50" fill="none" stroke="rgba(255,255,255,.028)" stroke-width="1"/>
+        </pattern>
+        <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+          <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000" flood-opacity=".45"/>
+        </filter>
+      </defs>
+      <rect x="0" y="0" width="1000" height="720" fill="url(#landGrad)"/>
+      <rect x="0" y="0" width="1000" height="720" fill="url(#gridPat)"/>
+      <g id="landmass"></g>
+      <g id="terrain"></g>
+      <g id="regions"></g>
+      <g id="rivers"></g>
+      <g id="ripples"></g>
+      <g id="labels"></g>
+    </svg>
+    <div class="mapmeta">
+      <strong id="metaTitle">天下形势</strong>
+      <span id="metaSub">姬姓诸侯 · 百有余国</span>
+    </div>
+    <div class="legend" id="legend"></div>
+    <div class="tip" id="tip"></div>
+  </div>
+
+  <aside>
+    <div class="panel">
+      <div class="yearpanel">
+        <div class="yearbig" id="yearBig">前 770 年</div>
+        <div class="era" id="eraTag">春秋</div>
+      </div>
+      <div class="yearnote" id="yearNote">周平王东迁洛邑，王纲解纽，诸侯并起。</div>
+    </div>
+
+    <div class="panel">
+      <h3>势力版图</h3>
+      <div class="power" id="powerList"></div>
+    </div>
+
+    <div class="panel">
+      <h3>大事记</h3>
+      <div class="events" id="eventList">
+        <div class="empty">尚未发生任何大事。</div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<div class="controls">
+  <div class="crow">
+    <button class="primary" id="btnPlay">播放</button>
+    <button id="btnPrevEvt">上一事件</button>
+    <button id="btnNextEvt">下一事件</button>
+    <button id="btnReset">回到前 770 年</button>
+    <div class="spacer"></div>
+    <span style="font-size:11px;color:var(--dim);letter-spacing:.1em">速度</span>
+    <div class="speed" id="speedBox">
+      <button data-speed="0.5">0.5×</button>
+      <button data-speed="1" class="on">1×</button>
+      <button data-speed="2">2×</button>
+      <button data-speed="4">4×</button>
+    </div>
+  </div>
+  <div class="crow">
+    <div class="trackwrap">
+      <input type="range" id="slider" min="-770" max="-221" step="1" value="-770">
+      <div class="ticks" id="ticks"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+/* ---------- 坐标系：经度 102–124E，纬度 24–43N ---------- */
+const LON0 = 102, LAT0 = 42.9, SX = 44, SY = 34.2, OY = 10;
+const px = (lon, lat) => [ (lon - LON0) * SX + 12, (LAT0 - lat) * SY + OY ];
+const toPath = pts => smoothPath(pts.map(p => px(p[0], p[1])));
+
+/* Catmull-Rom 转三次贝塞尔，让区域边界呈现自然曲线 */
+function smoothPath(P, tension = 0.16){
+  const n = P.length;
+  if (n < 3) return 'M' + P.map(p => p.map(v => v.toFixed(1)).join(',')).join('L') + 'Z';
+  let d = `M${P[0][0].toFixed(1)},${P[0][1].toFixed(1)}`;
+  for (let i = 0; i < n; i++){
+    const p0 = P[(i - 1 + n) % n], p1 = P[i], p2 = P[(i + 1) % n], p3 = P[(i + 2) % n];
+    const c1x = p1[0] + (p2[0] - p0[0]) / 6 * tension * 2;
+    const c1y = p1[1] + (p2[1] - p0[1]) / 6 * tension * 2;
+    const c2x = p2[0] - (p3[0] - p1[0]) / 6 * tension * 2;
+    const c2y = p2[1] - (p3[1] - p1[1]) / 6 * tension * 2;
+    d += `C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
+  }
+  return d + 'Z';
+}
+
+/* ---------- 国家 / 势力 ---------- */
+const S = {
+  qin:  { n:'秦',   c:'#c0392b', cap:'guanzhong' },
+  jin:  { n:'晋',   c:'#2e86ab', cap:'taiyuan' },
+  qi:   { n:'齐',   c:'#e0a92b', cap:'qi' },
+  chu:  { n:'楚',   c:'#6f9a4e', cap:'chujiang' },
+  yan:  { n:'燕',   c:'#6a5ca6', cap:'yan' },
+  zhao: { n:'赵',   c:'#2f9e8a', cap:'taiyuan' },
+  wei:  { n:'魏',   c:'#d9772b', cap:'hedong' },
+  han:  { n:'韩',   c:'#b5ae3a', cap:'shangdang' },
+  song: { n:'宋',   c:'#a1529e', cap:'song' },
+  lu:   { n:'鲁',   c:'#c98a5c', cap:'lu' },
+  wey:  { n:'卫',   c:'#7c8794', cap:'wey' },
+  zheng:{ n:'郑',   c:'#d4d47a', cap:'zheng' },
+  wu:   { n:'吴',   c:'#2fa3c4', cap:'wu' },
+  yue:  { n:'越',   c:'#52b788', cap:'yue' },
+  zhou: { n:'周',   c:'#a9702f', cap:'zhou' },
+  zhongshan:{ n:'中山', c:'#9d6bb5', cap:'zhongshan' },
+  ba:   { n:'巴',   c:'#cc5a3f', cap:'ba' },
+  shu:  { n:'蜀',   c:'#a63f66', cap:'shu' },
+  ju:   { n:'莒',   c:'#8aa87a', cap:'ju' },
+  xuzhou:{ n:'泗上诸国', c:'#5f7a72', cap:'xuzhou' },
+  chencai:{ n:'陈蔡', c:'#b58f9e', cap:'chencai' },
+  none: { n:'无主', c:'#3b4757', cap:null }
+};
+
+/* ---------- 32 个历史区域（经纬度多边形） ---------- */
+const REGIONS = [
+  { k:'longxi',    n:'陇西',    p:[[103.2,37.3],[105.6,37.7],[107.9,36.9],[107.6,35.0],[105.6,34.5],[103.8,35.1],[103.0,36.2]] },
+  { k:'guanzhong', n:'关中',    p:[[107.6,35.0],[107.9,36.9],[110.4,36.7],[111.2,34.6],[110.0,33.8],[107.9,33.6],[106.4,34.0],[105.6,34.5]] },
+  { k:'shangjun',  n:'上郡',    p:[[107.9,36.9],[107.8,38.9],[110.2,39.3],[111.0,38.0],[110.4,36.7]] },
+  { k:'daibei',    n:'代北',    p:[[111.0,41.7],[113.2,42.2],[115.5,41.6],[115.7,39.7],[113.3,39.3],[111.0,39.7],[110.6,40.7]] },
+  { k:'taiyuan',   n:'晋阳',    p:[[111.0,39.7],[113.3,39.3],[114.5,38.7],[114.3,36.6],[112.7,35.7],[111.6,35.9],[110.9,37.2],[110.2,39.3]] },
+  { k:'zhongshan', n:'中山',    p:[[114.5,38.7],[115.7,39.7],[116.0,38.7],[115.2,38.1],[114.6,38.0]] },
+  { k:'yan',       n:'燕蓟',    p:[[115.7,39.7],[115.5,41.6],[117.2,42.2],[119.4,41.4],[120.4,40.2],[119.6,39.0],[117.4,38.8],[116.0,38.7]] },
+  { k:'liaodong',  n:'辽东',    p:[[119.6,39.0],[120.4,40.2],[121.8,41.7],[123.2,40.3],[122.4,38.7],[121.0,38.2]] },
+  { k:'hedong',    n:'河东',    p:[[110.9,37.2],[111.6,35.9],[112.7,35.7],[112.6,34.6],[111.4,34.4],[110.4,35.3]] },
+  { k:'shangdang', n:'上党',    p:[[112.7,35.7],[114.3,36.6],[114.9,36.0],[114.2,35.0],[112.6,34.6]] },
+  { k:'wey',       n:'卫',      p:[[114.3,36.6],[115.7,36.9],[116.3,35.8],[115.3,34.9],[114.2,35.0]] },
+  { k:'qi',        n:'齐',      p:[[117.4,38.8],[119.6,39.0],[120.8,38.0],[122.7,37.2],[121.2,36.1],[119.6,35.8],[118.2,36.4],[117.2,37.2]] },
+  { k:'ju',        n:'莒',      p:[[118.2,36.4],[119.6,35.8],[119.2,35.1],[118.0,35.3]] },
+  { k:'lu',        n:'鲁',      p:[[117.2,37.2],[118.2,36.4],[118.0,35.3],[116.6,34.6],[115.9,35.3],[116.3,35.8]] },
+  { k:'song',      n:'宋',      p:[[114.2,35.0],[115.3,34.9],[116.3,35.8],[115.9,35.3],[116.6,34.6],[116.9,33.7],[115.6,33.3],[114.4,33.7]] },
+  { k:'zheng',     n:'郑',      p:[[112.6,34.6],[114.2,35.0],[114.4,33.7],[113.6,33.5],[112.9,34.0]] },
+  { k:'zhou',      n:'周',      p:[[111.2,34.6],[112.6,34.6],[112.9,34.0],[112.2,33.7],[111.4,34.0]] },
+  { k:'xuzhou',    n:'泗上',    p:[[116.6,34.6],[118.0,35.3],[118.6,34.6],[119.4,34.2],[118.9,33.0],[117.6,32.9],[116.9,33.7]] },
+  { k:'chencai',   n:'陈蔡',    p:[[113.6,33.5],[114.4,33.7],[115.6,33.3],[116.0,32.4],[115.4,31.9],[114.0,32.2],[113.4,32.8]] },
+  { k:'nanyang',   n:'南阳',    p:[[110.4,33.4],[111.2,34.6],[111.4,34.0],[112.2,33.7],[112.9,34.0],[113.6,33.5],[113.4,32.8],[112.0,32.4],[110.9,32.6]] },
+  { k:'hanzhong',  n:'汉中',    p:[[105.6,33.9],[107.9,33.6],[110.0,33.8],[110.4,33.4],[110.9,32.6],[109.2,32.0],[107.0,32.3],[105.8,32.8]] },
+  { k:'ba',        n:'巴',      p:[[105.8,32.8],[107.0,32.3],[109.2,32.0],[110.0,31.2],[108.6,30.0],[106.6,30.2],[105.4,31.4]] },
+  { k:'shu',       n:'蜀',      p:[[103.0,32.4],[105.4,32.6],[105.8,32.8],[105.4,31.4],[106.6,30.2],[105.4,28.6],[103.2,28.9],[102.4,30.8]] },
+  { k:'chujiang',  n:'江汉',    p:[[110.9,32.6],[112.0,32.4],[112.9,32.0],[113.6,31.2],[114.4,30.4],[113.2,29.2],[111.4,29.4],[110.2,30.6],[109.8,31.6]] },
+  { k:'wu',        n:'吴',      p:[[118.9,33.0],[119.4,34.2],[120.4,33.6],[121.6,32.4],[121.4,31.2],[120.2,30.6],[118.9,31.0],[118.4,32.0]] },
+  { k:'jiangnan',  n:'江南',    p:[[118.4,32.0],[118.9,31.0],[118.4,29.8],[117.2,28.9],[115.8,29.0],[115.2,30.0],[115.6,31.0],[116.4,31.9],[117.6,32.4]] },
+  { k:'yue',       n:'越',      p:[[119.0,31.0],[120.2,30.6],[121.4,31.2],[121.8,29.8],[121.6,28.4],[120.4,27.6],[119.4,28.4],[119.2,29.6]] },
+  { k:'wuyi',      n:'闽越',    p:[[117.2,28.9],[118.4,29.8],[119.2,29.6],[119.4,28.4],[120.4,27.6],[119.4,26.0],[117.6,25.6],[116.6,26.8]] },
+  { k:'ganpo',     n:'豫章',    p:[[113.6,31.2],[114.4,30.4],[115.2,30.0],[115.8,29.0],[115.4,27.6],[114.0,26.4],[112.8,27.2],[112.6,29.2],[113.0,30.4]] },
+  { k:'xiang',     n:'黔中',    p:[[109.8,31.6],[110.2,30.6],[111.4,29.4],[113.2,29.2],[112.8,27.2],[111.6,26.2],[110.2,26.6],[109.4,28.0],[109.0,29.8]] },
+  { k:'lingnan',   n:'岭南',    p:[[110.0,24.6],[113.0,24.2],[116.0,24.6],[116.4,23.6],[113.6,23.0],[110.4,23.4]] },
+  { k:'xinan',     n:'西南夷',  p:[[103.0,28.9],[105.4,28.6],[106.6,27.4],[107.4,25.8],[105.0,24.4],[102.6,25.6],[102.2,27.4]] }
+];
+
+/* ---------- 河流（长江、黄河） ---------- */
+const RIVERS = [
+  [[102.6,36.0],[104.0,36.5],[105.8,37.5],[107.5,38.5],[109.6,40.3],[111.0,40.2],[110.5,38.0],[110.5,36.0],[110.4,34.7],[112.5,34.8],[114.5,34.9],[116.0,35.5],[117.8,37.2],[119.0,37.7]],
+  [[104.0,29.6],[106.5,29.6],[108.8,30.7],[110.5,30.6],[112.2,30.4],[114.3,30.6],[116.5,30.2],[118.5,31.2],[120.2,31.9],[121.5,31.6]]
+];
+
+/* ---------- 初始归属（前 770 年） ---------- */
+const INIT = {
+  longxi:'qin', guanzhong:'zhou', shangjun:'none', daibei:'none',
+  taiyuan:'jin', zhongshan:'none', yan:'yan', liaodong:'none',
+  hedong:'jin', shangdang:'jin', wey:'wey', qi:'qi',
+  ju:'ju', lu:'lu', song:'song', zheng:'zheng',
+  zhou:'zhou', xuzhou:'xuzhou', chencai:'chencai', nanyang:'none',
+  hanzhong:'none', ba:'ba', shu:'shu', chujiang:'chu',
+  wu:'wu', jiangnan:'none', yue:'yue', wuyi:'none',
+  ganpo:'none', xiang:'none', lingnan:'none', xinan:'none'
+};
+
+/* ---------- 大事件年表 ---------- */
+const EVENTS = [
+  { y:-770, t:'era', s:'周平王东迁洛邑，秦襄公护送有功，受封诸侯，许以岐西之地。' },
+  { y:-762, t:'merge', s:'秦文公徙居汧渭之间，经营关中。', ch:{ guanzhong:'qin' } },
+  { y:-704, t:'normal', s:'楚武王熊通自立为王，公然与周室分庭抗礼。' },
+  { y:-690, t:'merge', s:'楚文王灭申、息，势力伸入南阳盆地。', ch:{ nanyang:'chu' } },
+  { y:-684, t:'normal', s:'齐鲁长勺之战，曹刿论战，齐师败绩。' },
+  { y:-681, t:'normal', s:'齐桓公北杏之会，始称霸诸侯。' },
+  { y:-672, t:'merge', s:'晋献公灭耿、霍、魏，尽收河东之地。', ch:{ hedong:'jin' } },
+  { y:-663, t:'normal', s:'齐桓公救燕，北伐山戎，至于孤竹。' },
+  { y:-656, t:'normal', s:'齐率八国伐楚，召陵之盟，楚暂服。' },
+  { y:-655, t:'merge', s:'晋献公假道伐虢，灭虞、虢，扼守崤函。', ch:{ shangdang:'jin' } },
+  { y:-643, t:'normal', s:'齐桓公卒，五公子争立，齐霸业骤衰。' },
+  { y:-638, t:'normal', s:'宋襄公与楚战于泓水，图霸不成，伤股而卒。' },
+  { y:-632, t:'normal', s:'城濮之战，晋文公退避三舍，大破楚军，践土会盟而霸。' },
+  { y:-627, t:'normal', s:'秦晋崤之战，秦东进之路被晋所阻，遂专意西向。' },
+  { y:-623, t:'merge', s:'秦穆公伐戎，益国十二，开地千里，遂霸西戎。', ch:{ longxi:'qin', shangjun:'none' } },
+  { y:-597, t:'normal', s:'邲之战，楚庄王败晋，问鼎中原。' },
+  { y:-584, t:'normal', s:'吴王寿梦即位，申公巫臣教吴用兵乘车，吴始通于上国。' },
+  { y:-575, t:'normal', s:'鄢陵之战，晋厉公复败楚师。' },
+  { y:-546, t:'normal', s:'弭兵之会，晋楚分霸，中原战事稍息。' },
+  { y:-506, t:'normal', s:'柏举之战，吴王阖闾用孙武、伍子胥，五战入郢，楚几亡。' },
+  { y:-494, t:'normal', s:'夫椒之战，吴王夫差败越，勾践卧薪尝胆。' },
+  { y:-487, t:'merge', s:'宋灭曹，取定陶之地。', ch:{ xuzhou:'song' } },
+  { y:-484, t:'normal', s:'艾陵之战，吴败齐师，夫差北上争衡。' },
+  { y:-482, t:'normal', s:'黄池之会，吴与晋争长，夫差霸业极盛。' },
+  { y:-479, t:'merge', s:'楚灭陈，陈蔡之地尽入于楚。', ch:{ chencai:'chu', ju:'chu' } },
+  { y:-473, t:'merge', s:'越王勾践灭吴，夫差自杀，越据江淮以东南。', ch:{ wu:'yue', jiangnan:'yue' } },
+  { y:-453, t:'normal', s:'晋阳之战，韩赵魏三家共灭智伯，晋室仅有虚名。' },
+  { y:-447, t:'merge', s:'楚灭蔡，淮上诸姬尽失。', ch:{ chencai:'chu' } },
+  { y:-431, t:'merge', s:'楚灭莒，齐南境受逼。', ch:{ ju:'chu' } },
+  { y:-408, t:'merge', s:'魏文侯以吴起为将，尽取秦河西之地。', ch:{ shangjun:'wei' } },
+  { y:-403, t:'era', s:'周威烈王命韩、赵、魏为诸侯，三家分晋，战国之世始。', ch:{ taiyuan:'zhao', hedong:'wei', shangdang:'han', daibei:'zhao' } },
+  { y:-386, t:'normal', s:'田和列为诸侯，田氏代齐，姜齐绝祀。' },
+  { y:-375, t:'merge', s:'韩灭郑，徙都新郑，中原要冲归韩。', ch:{ zheng:'han' } },
+  { y:-361, t:'normal', s:'秦孝公下令求贤，卫鞅入秦，变法图强。' },
+  { y:-354, t:'normal', s:'桂陵之战，齐以孙膑为军师，围魏救赵，魏师败。' },
+  { y:-344, t:'normal', s:'魏惠王逢泽之会，称王，魏势极盛而诸侯侧目。' },
+  { y:-341, t:'normal', s:'马陵之战，齐伏弩杀庞涓，魏武卒尽丧，霸权易主。' },
+  { y:-334, t:'merge', s:'楚威王伐越，杀越王无疆，尽取江东故吴之地。', ch:{ yue:'chu', wuyi:'chu' } },
+  { y:-328, t:'merge', s:'秦取魏上郡，河西尽失，魏西部门户洞开。', ch:{ shangjun:'qin' } },
+  { y:-316, t:'merge', s:'秦惠文王遣司马错灭巴、蜀，得天府之资。', ch:{ ba:'qin', shu:'qin' } },
+  { y:-314, t:'merge', s:'秦攻楚汉中，取地六百里，置汉中郡。', ch:{ hanzhong:'qin' } },
+  { y:-307, t:'normal', s:'赵武灵王胡服骑射，赵骑冠绝天下。' },
+  { y:-296, t:'merge', s:'赵灭中山，迁其王于肤施，赵北境连成一片。', ch:{ zhongshan:'zhao' } },
+  { y:-293, t:'normal', s:'伊阙之战，白起斩首二十四万，韩魏精锐尽失。' },
+  { y:-286, t:'merge', s:'齐湣王灭宋，宋王偃走死，齐势达于顶峰。', ch:{ song:'qi' } },
+  { y:-284, t:'normal', s:'五国合纵伐齐，乐毅下齐七十余城，齐仅存莒、即墨。' },
+  { y:-278, t:'merge', s:'白起拔郢，楚顷襄王东徙于陈，江汉尽归于秦。', ch:{ chujiang:'qin' } },
+  { y:-277, t:'merge', s:'秦取楚黔中郡，楚西南屏障尽失。', ch:{ xiang:'qin' } },
+  { y:-260, t:'normal', s:'长平之战，赵括纸上谈兵，四十万降卒坑于长平。' },
+  { y:-256, t:'merge', s:'楚灭鲁，鲁顷公迁于莒；同年秦灭西周，周室不祀。', ch:{ lu:'chu', zhou:'qin' } },
+  { y:-249, t:'merge', s:'秦灭东周，洛阳入秦，八百年王畿化为郡县。', ch:{ zhou:'qin' } },
+  { y:-230, t:'merge', s:'秦灭韩，虏韩王安，置颍川郡，六国始亡其一。', ch:{ zheng:'qin', shangdang:'qin' } },
+  { y:-228, t:'merge', s:'秦破赵，虏赵王迁；公子嘉自立为代王。', ch:{ taiyuan:'qin', hedong:'qin' } },
+  { y:-225, t:'merge', s:'秦引河水灌大梁，魏王假降，魏亡。', ch:{ shangdang:'qin', wey:'qin' } },
+  { y:-223, t:'merge', s:'王翦六十万众破楚，虏楚王负刍，江东、豫章尽入秦。', ch:{ ganpo:'qin', jiangnan:'qin', yue:'qin', wuyi:'qin', chencai:'qin', nanyang:'qin' } },
+  { y:-222, t:'merge', s:'秦攻辽东，虏燕王喜；回师灭代，虏代王嘉。赵、燕皆亡。', ch:{ yan:'qin', liaodong:'qin', daibei:'qin', zhongshan:'qin' } },
+  { y:-221, t:'merge', s:'秦灭齐，虏齐王建。六王毕，四海一，天下一统。', ch:{ qi:'qin', ju:'qin', xuzhou:'qin', lu:'qin', song:'qin', chu:'qin', wu:'qin', yue:'qin', zhou:'qin', ba:'qin', shu:'qin', xinan:'none', lingnan:'none' } }
+];
+
+/* 确保年表严格按时间递增，避免状态推导依赖书写顺序 */
+EVENTS.sort((a, b) => a.y - b.y);
+
+/* ---------- 阶段说明 ---------- */
+const ERAS = [
+  { from:-770, to:-403, name:'春秋', note:'王室衰微，霸主迭兴。' },
+  { from:-403, to:-221, name:'战国', note:'七雄并立，兼并酷烈。' }
+];
+
+const NOTES = {
+  '-770':'周平王东迁洛邑，王纲解纽，诸侯并起。',
+  '-403':'三家分晋，田氏代齐，战国序幕拉开。',
+  '-361':'商鞅变法，秦自此转弱为强。',
+  '-341':'魏霸权终结，齐秦对峙之局成形。',
+  '-284':'齐几乎亡国，东方强权崩塌。',
+  '-260':'长平之后，六国再无力抗秦。',
+  '-221':'六王毕，四海一。'
+};
+
+/* ---------- DOM ---------- */
+const $ = id => document.getElementById(id);
+const svg = $('map');
+const gRegions = $('regions'), gLabels = $('labels'), gRivers = $('rivers'), gTerrain = $('terrain'), gRipples = $('ripples');
+const NS = 'http://www.w3.org/2000/svg';
+
+/* ---------- 状态推导 ---------- */
+const ownerAt = year => {
+  const st = Object.assign({}, INIT);
+  for (const e of EVENTS) {
+    if (e.y > year) break;
+    if (e.ch) Object.assign(st, e.ch);
+  }
+  return st;
+};
+const appliedEvents = year => EVENTS.filter(e => e.y <= year);
+
+/* ---------- 构建地图 ---------- */
+const regionEls = {};
+const labelEls = {};
+
+(function buildMap(){
+  // 陆地底色：把所有区域叠一层暖灰色，形成连续大陆，避免各区块悬浮
+  const gLand = $('landmass');
+  for (const r of REGIONS) {
+    const land = document.createElementNS(NS,'path');
+    land.setAttribute('d', toPath(r.p));
+    land.setAttribute('fill', '#1b2430');
+    land.setAttribute('stroke', '#1b2430');
+    land.setAttribute('stroke-width', '4');
+    land.setAttribute('stroke-linejoin', 'round');
+    gLand.appendChild(land);
+  }
+
+  // 河流
+  for (const river of RIVERS) {
+    const d = river.map((p,i) => (i ? 'L' : 'M') + px(p[0],p[1]).map(v=>v.toFixed(1)).join(',')).join('');
+    const path = document.createElementNS(NS,'path');
+    path.setAttribute('d', d);
+    path.setAttribute('fill','none');
+    path.setAttribute('stroke','rgba(94,158,196,.30)');
+    path.setAttribute('stroke-width','2.1');
+    path.setAttribute('stroke-linecap','round');
+    path.setAttribute('stroke-linejoin','round');
+    gRivers.appendChild(path);
+  }
+
+  // 陆块底色（各区域外的柔和填充，靠区域本身即可）
+  // 区域
+  for (const r of REGIONS) {
+    const d = toPath(r.p);
+    const g = document.createElementNS(NS,'g');
+    g.setAttribute('class','rgroup');
+    const area = document.createElementNS(NS,'path');
+    area.setAttribute('d', d);
+    area.setAttribute('class','region');
+    area.setAttribute('stroke','rgba(10,16,24,.35)');
+    area.setAttribute('stroke-width','1.2');
+    area.setAttribute('data-k', r.k);
+    g.appendChild(area);
+    gRegions.appendChild(g);
+    regionEls[r.k] = area;
+  }
+
+  // 标签
+  for (const r of REGIONS) {
+    const [cx,cy] = centroid(r.p);
+    const t = document.createElementNS(NS,'text');
+    t.setAttribute('x', cx.toFixed(1));
+    t.setAttribute('y', cy.toFixed(1));
+    t.setAttribute('class','slabel');
+    t.setAttribute('font-size','13');
+    gLabels.appendChild(t);
+    labelEls[r.k] = t;
+  }
+})();
+
+function centroid(pts){
+  let a=0,cx=0,cy=0;
+  const P = pts.map(p=>px(p[0],p[1]));
+  for (let i=0;i<P.length;i++){
+    const j=(i+1)%P.length;
+    const f = P[i][0]*P[j][1] - P[j][0]*P[i][1];
+    a += f; cx += (P[i][0]+P[j][0])*f; cy += (P[i][1]+P[j][1])*f;
+  }
+  a *= 0.5;
+  if (Math.abs(a) < 1e-6){
+    const s = P.reduce((acc,p)=>[acc[0]+p[0],acc[1]+p[1]],[0,0]);
+    return [s[0]/P.length, s[1]/P.length];
+  }
+  return [cx/(6*a), cy/(6*a)];
+}
+
+/* ---------- 渲染某一年的状态 ---------- */
+let curYear = null;
+let prevOwner = null;
+
+function render(year, opts){
+  year = Math.round(year);
+  if (year === curYear && !(opts && opts.force)) return;
+  const prevYear = curYear;
+  curYear = year;
+  const own = ownerAt(year);
+  const crossedEvent = prevYear === null ? false
+    : EVENTS.some(e => e.y > Math.min(prevYear, year) && e.y <= Math.max(prevYear, year));
+
+  for (const r of REGIONS){
+    const o = own[r.k];
+    const el = regionEls[r.k];
+    const color = (S[o] || S.none).c;
+    const prev = prevOwner ? prevOwner[r.k] : null;
+    const changed = prev !== null && prev !== o && o !== 'none';
+
+    if (changed){
+      // 兼并：先固化为旧色，再于下一帧过渡到新色，避免 CSS 过渡被同步属性刷新吞掉
+      el.style.transition = 'none';
+      el.setAttribute('fill', (S[prev] || S.none).c);
+      void el.getBoundingClientRect().width;
+      el.style.transition = 'fill .85s cubic-bezier(.34,.02,.24,1), fill-opacity .6s ease';
+      requestAnimationFrame(() => {
+        el.setAttribute('fill', color);
+        el.setAttribute('fill-opacity', '.95');
+      });
+      if (crossedEvent) spawnRipple(r, color);
+    } else {
+      el.style.transition = 'fill .5s ease, fill-opacity .4s ease';
+      el.setAttribute('fill', color);
+      el.setAttribute('fill-opacity', o === 'none' ? '.34' : '.95');
+    }
+
+    el.setAttribute('stroke', 'rgba(9,14,21,.62)');
+    el.setAttribute('stroke-width', '1.1');
+    el.setAttribute('stroke-opacity', '1');
+    el.setAttribute('stroke-linejoin', 'round');
+  }
+
+  // 国名标注：优先都城所在区；若都城尚未在手，退而使用该势力当前最大辖区
+  const capOf = {}, bigOf = {}, bigArea = {};
+  for (const r of REGIONS){
+    const o = own[r.k];
+    if (o === 'none') continue;
+    const a = Math.abs(polyArea(r.p));
+    if (!(o in bigArea) || a > bigArea[o]){ bigArea[o] = a; bigOf[o] = r.k; }
+  }
+  for (const k in S){
+    if (!S[k].cap) continue;
+    const capKey = S[k].cap;
+    capOf[k] = own[capKey] === k ? capKey : (bigOf[k] || null);
+  }
+
+  for (const r of REGIONS){
+    const o = own[r.k];
+    const t = labelEls[r.k];
+    const sp = S[o] || S.none;
+    const area = Math.abs(polyArea(r.p));
+
+    if (o === 'none'){
+      // 无主之地：仅在大区域显示地理名
+      if (area > 9000){
+        t.textContent = r.n;
+        t.setAttribute('font-size', 9.5);
+        t.setAttribute('class', 'slabel small');
+        t.style.opacity = 0.42;
+      } else {
+        t.textContent = '';
+        t.style.opacity = 0;
+      }
+      continue;
+    }
+
+    if (capOf[o] === r.k){
+      t.textContent = sp.n;
+      t.setAttribute('font-size', sp.n.length > 2 ? 9.5 : 14);
+      t.setAttribute('class', 'slabel' + (sp.n.length > 2 ? ' small' : ''));
+      t.style.opacity = 1;
+    } else if (area > 3000){
+      t.textContent = r.n;
+      t.setAttribute('font-size', 9.5);
+      t.setAttribute('class', 'slabel small');
+      t.style.opacity = 0.5;
+    } else {
+      t.textContent = '';
+      t.style.opacity = 0;
+    }
+  }
+
+  prevOwner = own;
+  updatePanel(year, own);
+  buildLegend(own);
+}
+
+function polyArea(pts){
+  const P = pts.map(p=>px(p[0],p[1]));
+  let a=0;
+  for (let i=0;i<P.length;i++){
+    const j=(i+1)%P.length;
+    a += P[i][0]*P[j][1] - P[j][0]*P[i][1];
+  }
+  return a/2;
+}
+
+/* 兼并涟漪：在区域中心扩散一圈淡色光环 */
+function spawnRipple(region, color){
+  const [cx, cy] = centroid(region.p);
+  const area = Math.abs(polyArea(region.p));
+  const r0 = Math.sqrt(area / Math.PI) * 0.55;
+  const ring = document.createElementNS(NS, 'circle');
+  ring.setAttribute('cx', cx.toFixed(1));
+  ring.setAttribute('cy', cy.toFixed(1));
+  ring.setAttribute('r', r0.toFixed(1));
+  ring.setAttribute('fill', 'none');
+  ring.setAttribute('stroke', color);
+  ring.setAttribute('stroke-width', '2.2');
+  ring.setAttribute('opacity', '.85');
+  ring.style.pointerEvents = 'none';
+  gRipples.appendChild(ring);
+
+  const start = performance.now();
+  const dur = 900;
+  (function step(t){
+    const k = Math.min(1, (t - start) / dur);
+    const ease = 1 - Math.pow(1 - k, 2.2);
+    ring.setAttribute('r', (r0 * (1 + ease * 0.85)).toFixed(1));
+    ring.setAttribute('opacity', (0.85 * (1 - k)).toFixed(3));
+    ring.setAttribute('stroke-width', (2.2 * (1 - k * 0.7)).toFixed(2));
+    if (k < 1) requestAnimationFrame(step);
+    else ring.remove();
+  })(performance.now());
+}
+
+/* ---------- 侧栏 ---------- */
+function updatePanel(year, own){
+  const abs = -year;
+  $('yearBig').textContent = `前 ${abs} 年`;
+  const era = ERAS.find(e => year >= e.from && year < e.to) || ERAS[ERAS.length-1];
+  $('eraTag').textContent = era.name;
+
+  // 年份说明：找最近一条备注或最近事件
+  let note = NOTES[String(year)];
+  if (!note){
+    const past = EVENTS.filter(e=>e.y<=year);
+    note = past.length ? past[past.length-1].s : era.note;
+  }
+  $('yearNote').textContent = note;
+
+  // 势力占比
+  const totalArea = REGIONS.reduce((s,r)=>s+Math.abs(polyArea(r.p)),0);
+  const stat = {};
+  for (const r of REGIONS){
+    const o = own[r.k];
+    if (o === 'none') continue;
+    const a = Math.abs(polyArea(r.p));
+    stat[o] = (stat[o]||0) + a;
+  }
+  const rows = Object.entries(stat).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  const maxv = rows.length ? rows[0][1] : 1;
+  const alive = Object.keys(stat).length;
+  $('powerList').innerHTML = rows.map(([k,v])=>{
+    const sp = S[k];
+    const pct = (v/totalArea*100);
+    return `<div class="prow">
+      <span class="pdot" style="background:${sp.c}"></span>
+      <span class="pname">${sp.n}</span>
+      <span class="pbar"><i style="width:${(v/maxv*100).toFixed(1)}%;background:${sp.c}"></i></span>
+      <span class="pval">${pct.toFixed(1)}%</span>
+    </div>`;
+  }).join('');
+
+  // 顶部元信息
+  $('metaTitle').textContent = era.name + ' · 前' + abs + '年';
+  $('metaSub').textContent = alive ? `存续势力 ${alive} 家 · 无主之地 ${(Object.values(own).filter(v=>v==='none').length)} 区` : '';
+
+  // 事件列表：最近若干条 + 当前年触发
+  const past = EVENTS.filter(e=>e.y<=year);
+  const recent = past.slice(-6).reverse();
+  const justNow = EVENTS.filter(e=>e.y===year);
+  $('eventList').innerHTML = recent.length ? recent.map(e=>{
+    const cls = ['ev'];
+    if (e.t === 'merge') cls.push('tag-merge');
+    if (e.t === 'era') cls.push('tag-era');
+    if (e.y === year) cls.push('new');
+    return `<div class="${cls.join(' ')}"><time>前${-e.y}</time><p>${e.s}</p></div>`;
+  }).join('') : '<div class="empty">尚未发生任何大事。</div>';
+}
+
+/* ---------- 图例 ---------- */
+function buildLegend(own){
+  const alive = new Set(Object.values(own).filter(v=>v!=='none'));
+  const items = Object.keys(S).filter(k=>k!=='none' && alive.has(k));
+  $('legend').innerHTML = items.map(k=>`<b><i style="background:${S[k].c}"></i>${S[k].n}</b>`).join('')
+    || '<b style="color:#5d6b7d">天下无主</b>';
+}
+
+/* ---------- 播放控制 ---------- */
+const MIN_Y = -770, MAX_Y = -221;
+let playing = false, speed = 1, rafId = null, lastTs = 0;
+let yearFloat = MIN_Y;
+
+function setYear(y, opts){
+  yearFloat = Math.min(MAX_Y, Math.max(MIN_Y, y));
+  $('slider').value = Math.round(yearFloat);
+  render(Math.round(yearFloat), opts);
+}
+
+function togglePlay(){
+  playing = !playing;
+  $('btnPlay').textContent = playing ? '暂停' : '播放';
+  if (playing){
+    if (yearFloat >= MAX_Y) yearFloat = MIN_Y;
+    lastTs = 0;
+    rafId = requestAnimationFrame(tick);
+  } else if (rafId){
+    cancelAnimationFrame(rafId); rafId = null;
+  }
+}
+
+const BASE_RATE = 3.4; // 每秒推进的年数（1×）
+
+function tick(ts){
+  if (!playing) return;
+  if (!lastTs){ lastTs = ts; rafId = requestAnimationFrame(tick); return; }
+  const dt = Math.min(0.07, (ts - lastTs) / 1000);
+  lastTs = ts;
+  yearFloat += dt * BASE_RATE * speed;
+  if (yearFloat >= MAX_Y){
+    yearFloat = MAX_Y;
+    $('slider').value = MAX_Y;
+    render(MAX_Y);
+    playing = false;
+    $('btnPlay').textContent = '播放';
+    return;
+  }
+  const shown = Math.round(yearFloat);
+  $('slider').value = shown;
+  render(shown, { silent:true });
+  rafId = requestAnimationFrame(tick);
+}
+
+function jumpEvent(dir){
+  const y = curYear;
+  const list = EVENTS.map(e=>e.y);
+  if (dir > 0){
+    const n = list.find(v => v > y);
+    if (n !== undefined) { setYear(n); }
+  } else {
+    const p = [...list].reverse().find(v => v < y);
+    if (p !== undefined) { setYear(p); }
+  }
+}
+
+/* ---------- 事件绑定 ---------- */
+$('btnPlay').addEventListener('click', togglePlay);
+$('btnReset').addEventListener('click', ()=>{
+  playing = false; $('btnPlay').textContent = '播放';
+  if (rafId){ cancelAnimationFrame(rafId); rafId = null; }
+  setYear(MIN_Y);
+});
+$('btnPrevEvt').addEventListener('click', ()=>jumpEvent(-1));
+$('btnNextEvt').addEventListener('click', ()=>jumpEvent(1));
+$('slider').addEventListener('input', e=>{
+  playing = false; $('btnPlay').textContent = '播放';
+  if (rafId){ cancelAnimationFrame(rafId); rafId = null; }
+  setYear(Number(e.target.value));
+});
+$('speedBox').addEventListener('click', e=>{
+  const b = e.target.closest('button[data-speed]');
+  if (!b) return;
+  speed = Number(b.dataset.speed);
+  [...$('speedBox').children].forEach(x=>x.classList.toggle('on', x===b));
+});
+document.addEventListener('keydown', e=>{
+  if (e.target.tagName === 'INPUT' && e.key !== ' ') return;
+  if (e.code === 'Space'){ e.preventDefault(); togglePlay(); }
+  else if (e.key === 'ArrowRight'){ e.preventDefault(); setYear(curYear+5); }
+  else if (e.key === 'ArrowLeft'){ e.preventDefault(); setYear(curYear-5); }
+  else if (e.key === 'Home'){ e.preventDefault(); setYear(MIN_Y); }
+  else if (e.key === 'End'){ e.preventDefault(); setYear(MAX_Y); }
+});
+
+/* ---------- 时间轴刻度 ---------- */
+(function buildTicks(){
+  const box = $('ticks');
+  const span = MAX_Y - MIN_Y;
+  const marks = [
+    { y:-770, t:'前770' },
+    { y:-700, t:'前700' },
+    { y:-600, t:'前600' },
+    { y:-500, t:'前500' },
+    { y:-403, t:'前403', era:'w' },
+    { y:-300, t:'前300' },
+    { y:-221, t:'前221' }
+  ];
+  box.innerHTML = marks.map(m=>{
+    const p = (m.y - MIN_Y) / span * 100;
+    const cls = m.era === 'w' ? 'era-w' : '';
+    return `<span class="${cls}" style="left:${p.toFixed(2)}%">${m.t}</span>`;
+  }).join('');
+})();
+
+/* ---------- 悬停提示 ---------- */
+const tip = $('tip'), wrap = $('mapwrap');
+gRegions.addEventListener('mousemove', e=>{
+  const el = e.target.closest('.region');
+  if (!el){ tip.classList.remove('on'); return; }
+  const k = el.dataset.k;
+  const own = ownerAt(curYear);
+  const o = own[k];
+  const region = REGIONS.find(r=>r.k===k);
+  const sp = S[o] || S.none;
+  const fate = o === 'none' ? '此时尚未归属任何诸侯'
+    : (k !== o ? `此地此时属 <b style="color:${sp.c}">${sp.n}</b>` : `本地为 <b style="color:${sp.c}">${sp.n}</b> 核心区`);
+  tip.innerHTML = `<h4><i style="background:${sp.c}"></i>${region.n}</h4>
+    <div class="row">归属：<b style="color:${sp.c}">${sp.n}</b></div>
+    <div class="fate">${fate}</div>`;
+  tip.classList.add('on');
+  const rect = wrap.getBoundingClientRect();
+  let x = e.clientX - rect.left + 16, y = e.clientY - rect.top + 12;
+  if (x + 230 > rect.width) x = e.clientX - rect.left - 236;
+  if (y + 120 > rect.height) y = e.clientY - rect.top - 108;
+  tip.style.left = x + 'px';
+  tip.style.top = y + 'px';
+});
+gRegions.addEventListener('mouseleave', ()=>tip.classList.remove('on'));
+
+/* ---------- 初始化 ---------- */
+(function init(){
+  setYear(MIN_Y);
+})();
+</script>
+</body>
+</html>

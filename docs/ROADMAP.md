@@ -340,6 +340,38 @@ Keep these prototypes only as migration material until they conform to the targe
     stored page plan existed, so nothing was lost. Not fixed here — stripping
     docstrings before hashing would change every key at once, which is a larger
     cost event than the trap it removes.
+  - Measured, not assumed. `experiment plan --tier A --tier B --tier C
+    --shared-evidence` now probes the tiers themselves (the harness axis could
+    not). Three runs on the public excerpt, 5 chat calls each, no images:
+
+    | tier | budget | panels written | mean |
+    |------|--------|----------------|------|
+    | A    | 3      | 7, 7, 7        | 7.0  |
+    | B    | 8      | 19, 22, 18     | 19.7 |
+    | C    | 14     | 21, 25, 42     | 29.3 |
+
+    A < B < C held in all three runs, and A was identical every time. So the
+    ordering the tiers promise is real once the prompt says what each one is.
+    Two things this also shows:
+  - The budgets are not respected. A asks for 3 and gets 7; B asks for 8 and
+    gets 19.7 on average. The prompt sentence is guidance, not a constraint, for
+    B and C by design, and A's "do not exceed" is not obeyed either — A is stable
+    at 7, which looks like the planner's own floor for this excerpt rather than a
+    response to the ceiling. The 3/8/14 numbers remain un-calibrated: they sit
+    well below what the planner actually writes, and calibrating them needs this
+    kind of sample, which now exists.
+  - C has the widest spread (21, 25, 42). One run produced 42 panels against a
+    budget of 14, three times the target. A near-original tier that ranges that
+    far is not yet a stable product experience, and the `42` run is the evidence
+    for that rather than a theoretical concern.
+  - The experiment had to be fixed twice before it said anything. First it tied
+    the prompt wording to `clips=False`, so tier A probed the sentence
+    "a target, not a cap" that production never sends for A; that run reported
+    15/21/20 with A in the middle. Second, each tier re-extracted its own
+    evidence, so prompts differed by 50% in size and the panel count was
+    confounded with what the model had been told. `--shared-evidence` removes
+    that. Both mistakes are pinned by
+    `test_a_density_experiment_prompts_like_production_but_never_clips`.
 - [x] Phase 3 keys. Extract, beats, page plan, and finished-page render use
   action keys. A matching key does not call the provider again. A page plan key
   carries the history window and the summarizer source hashes, not the recent

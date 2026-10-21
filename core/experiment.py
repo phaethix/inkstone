@@ -27,7 +27,12 @@ from core.api import ChatProvider, get_chat_provider
 from core.comic.adaptation import stamp_page_panel_beats
 from core.comic.segmentation import segment_text
 from core.comic.structure_report import structural_report
-from core.density import PANELS_PER_CHUNK_B
+from core.density import (
+    PANELS_PER_CHUNK_A,
+    PANELS_PER_CHUNK_B,
+    PANELS_PER_CHUNK_C,
+    clips_plan,
+)
 from core.harness.spec import Harness, HarnessError, builtin_harness, harness_from_dir
 from core.schemas import ProjectState
 from core.screenwriter import (
@@ -50,6 +55,11 @@ class Candidate:
     harness: Harness | None
     anon: str = ""
     calls: int = 0
+    # Set only by a density experiment: the tier this candidate probes, its
+    # budget, and whether the pipeline would clip the plan.
+    tier: str | None = None
+    panels_per_chunk: int | None = None
+    clips: bool = False
 
 
 class CountingChat(ChatProvider):
@@ -127,11 +137,53 @@ def _assign_anonymized(candidates: list[Candidate], *, seed_text: str) -> None:
         candidate.anon = chr(ord("A") + index)
 
 
+# The tiers a density experiment can probe, with the recipe each one carries.
+# Read from ``core.density`` so an experiment cannot drift from the pipeline.
+_DENSITY_TIERS: dict[str, int] = {
+    "A": PANELS_PER_CHUNK_A,
+    "B": PANELS_PER_CHUNK_B,
+    "C": PANELS_PER_CHUNK_C,
+}
+
+
+def _load_density_candidates(tiers: list[str]) -> list[Candidate]:
+    """One candidate per tier, carrying that tier's budget and clipping policy."""
+    if not tiers:
+        raise ExperimentError("a density experiment needs at least two --tier entries")
+    # Validate every entry before complaining about the count: a typo should be
+    # reported as the typo it is, not hidden behind "needs two".
+    parsed: list[str] = []
+    seen: set[str] = set()
+    for raw in tiers:
+        tier = (raw or "").strip().upper()
+        if tier not in _DENSITY_TIERS:
+            raise ExperimentError(f"unknown tier {raw!r}; choose from {', '.join(_DENSITY_TIERS)}")
+        if tier in seen:
+            raise ExperimentError(f"duplicate tier: {tier}")
+        seen.add(tier)
+        parsed.append(tier)
+    if len(parsed) < 2:
+        raise ExperimentError("a density experiment needs at least two --tier entries")
+    return [
+        Candidate(
+            label=tier,
+            harness=None,
+            tier=tier,
+            panels_per_chunk=_DENSITY_TIERS[tier],
+            # A density probe never clips: the planner's own count is the
+            # measurement, and clipping would overwrite it with the ceiling.
+            clips=False,
+        )
+        for tier in parsed
+    ]
+
+
 async def plan_experiment(
     source_txt: str,
     *,
     out_dir: str | Path,
     candidates: list[str],
+    tiers: list[str] | None = None,
     chunk_index: int = 0,
     genre: str | None = None,
     chat: ChatProvider | None = None,
@@ -143,6 +195,13 @@ async def plan_experiment(
     By default each candidate runs extract, key beats, and page plan under its
     own harness. ``shared_evidence=True`` keeps the cheaper MVP: extract/beats
     run once under the builtin harness and only page_plan is per candidate.
+
+    ``tiers`` switches the axis from harness to density: each tier becomes a
+    candidate that runs its own budget and tier through the same pipeline, so
+    the comparison is what the tier promises, not which prompt bundle ran. A
+    density probe never clips. Clipping would replace the planner's own count
+    with the tier ceiling, and that count is the measurement: a clipped A run
+    cannot show whether the overview tier really wrote fewer panels than B.
     """
     chunks = segment_text(source_txt)
     if not chunks:
@@ -152,7 +211,12 @@ async def plan_experiment(
             f"chunk index {chunk_index} out of range; source has {len(chunks)} chunks"
         )
     chunk = chunks[chunk_index]
-    loading = _load_candidates(candidates)
+    if tiers is None:
+        loading = _load_candidates(candidates)
+        axis = "harness"
+    else:
+        loading = _load_density_candidates(tiers)
+        axis = "density"
     _assign_anonymized(loading, seed_text=f"{source_txt}\n{chunk_index}\n{seed}")
 
     provider = chat or get_chat_provider()
@@ -200,13 +264,22 @@ async def plan_experiment(
             )
             _write_prompt(directory, "beats", beats_request)
             beats = await extract_key_beats(chunk, elements, chat=counting, request=beats_request)
+        budget = candidate.panels_per_chunk or PANELS_PER_CHUNK_B
+        # Two separate questions. What the prompt says must match production, so
+        # the wording is rendered with the tier's real clipping policy — tier A
+        # really does tell the planner "do not exceed". Whether the output gets
+        # clipped must NOT match production, because the planner's own count is
+        # the measurement; clipping it would just return the ceiling.
+        enforce_in_prompt = clips_plan(candidate.tier) if candidate.tier else candidate.clips
         request = build_page_plan_request(
             chunk,
             elements,
             recent_layouts=[],
             visual_bible=None,
             key_beats=beats,
-            panel_budget=PANELS_PER_CHUNK_B,
+            panel_budget=budget,
+            enforce_budget=enforce_in_prompt,
+            tier=candidate.tier,
             genre=genre,
             harness=candidate.harness,
             model=model,
@@ -219,7 +292,9 @@ async def plan_experiment(
             recent_layouts=[],
             visual_bible=None,
             key_beats=beats,
-            panel_budget=PANELS_PER_CHUNK_B,
+            panel_budget=budget,
+            enforce_budget=False,
+            tier=candidate.tier,
             request=request,
         )
         candidate.calls = counting.calls - before
@@ -242,6 +317,11 @@ async def plan_experiment(
             ),
             "chat_calls": candidate.calls,
             "prompt_digest": request.digest(),
+            "tier": candidate.tier,
+            "panels_per_chunk": budget,
+            "clips": candidate.clips,
+            "panels_written": sum(len(page.panels) for page in pageset.pages),
+            "pages": len(pageset.pages),
         }
 
     manifest = {
@@ -259,6 +339,7 @@ async def plan_experiment(
             "image_calls": 0,
             "shared_calls": shared_calls,
         },
+        "axis": axis,
     }
     _write_json(out / "experiment.json", manifest)
     (out / "README.md").write_text(

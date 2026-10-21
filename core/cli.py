@@ -203,8 +203,15 @@ def _build_parser() -> argparse.ArgumentParser:
     e_plan.add_argument(
         "--candidate",
         action="append",
-        required=True,
-        help="'base' or a harness directory (repeat for 2+)",
+        default=[],
+        help="'base' or a harness directory (repeat for 2+); omit when using --tier",
+    )
+    e_plan.add_argument(
+        "--tier",
+        action="append",
+        default=None,
+        help="Density tier to probe (repeat for 2+): A, B, C. Switches the axis "
+        "from harness to density; each tier uses its own budget and never clips",
     )
     e_plan.add_argument("--chunk", type=int, default=0, help="Chunk index (default 0)")
     e_plan.add_argument("--genre", default=None, help="Domain profile")
@@ -1546,6 +1553,7 @@ def _run_experiment(args: argparse.Namespace) -> int:
                 source,
                 out_dir=args.out,
                 candidates=args.candidate,
+                tiers=args.tier,
                 chunk_index=args.chunk,
                 genre=args.genre,
                 seed=args.seed,

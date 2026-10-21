@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from core.cli import _build_parser, _run_experiment, _run_harness, _run_prompt
+from core.density import PANELS_PER_CHUNK_A, PANELS_PER_CHUNK_B
 from core.experiment import (
     ExperimentError,
     advance_sequence_async,
@@ -42,6 +43,150 @@ def test_a_candidate_harness_changes_the_page_plan_prompt_and_digest(tmp_path):
     assert "CANDIDATE MARKER" in other.messages[-1]["content"]
     assert "CANDIDATE MARKER" not in base.messages[-1]["content"]
     assert other.digest() != base.digest()
+
+
+def test_a_density_experiment_uses_each_tiers_own_budget_and_prompt(tmp_path):
+    """Comparing tiers needs the tier to reach the prompt, not just the number.
+
+    ``plan_experiment`` pinned ``PANELS_PER_CHUNK_B`` for every candidate and
+    never passed a tier, so a "tier experiment" would have measured one tier
+    three times. This pins that each candidate's own budget and tier reach the
+    page plan request.
+    """
+    out = tmp_path / "tiers"
+    manifest = asyncio.run(
+        plan_experiment(
+            "第一章\n福贵在村口。",
+            out_dir=out,
+            candidates=["base"],
+            tiers=["A", "B"],
+            chat=FakeChat(),
+        )
+    )
+
+    assert manifest["axis"] == "density"
+    assert manifest["cost"]["image_calls"] == 0
+    budgets = {}
+    prompts = {}
+    for anon in ("A", "B"):
+        record = manifest["candidates"][anon]
+        budgets[anon] = record["panels_per_chunk"]
+        prompts[anon] = json.loads(
+            (out / "candidates" / anon / "prompt.json").read_text(encoding="utf-8")
+        )["messages"][-1]["content"]
+    assert sorted(budgets.values()) == [PANELS_PER_CHUNK_A, PANELS_PER_CHUNK_B]
+    # The two tiers must not send the same words; that was the whole defect.
+    assert prompts["A"].replace(str(PANELS_PER_CHUNK_A), "N") != prompts["B"].replace(
+        str(PANELS_PER_CHUNK_B), "N"
+    )
+
+
+def test_a_density_experiment_never_clips_so_the_tier_stays_measurable(tmp_path):
+    """Clipping would hide what the planner chose, which is the thing measured.
+
+    A clips to its ceiling, so a clipped A run cannot show whether the tier that
+    promised an overview actually wrote fewer panels than B. The experiment has
+    to keep the planner's own output, which is why A is the tier under test
+    here: it is the one the pipeline would otherwise clip.
+    """
+    out = tmp_path / "tiers"
+    manifest = asyncio.run(
+        plan_experiment(
+            "第一章\n福贵在村口。",
+            out_dir=out,
+            candidates=["base"],
+            tiers=["A", "B"],
+            chat=FakeChat(),
+        )
+    )
+
+    record = manifest["candidates"]["A"]
+    assert record["tier"] == "A"
+    assert record["clips"] is False
+    written = json.loads((out / "candidates" / "A" / "plan.json").read_text(encoding="utf-8"))
+    assert record["panels_written"] == sum(len(page["panels"]) for page in written["pages"])
+
+
+def test_cli_density_experiment_runs_from_a_book_and_two_tiers(tmp_path, monkeypatch, capsys):
+    """The tier axis has to be reachable from the command line, not only the API."""
+    monkeypatch.setattr("core.experiment.get_chat_provider", lambda: FakeChat())
+    book = tmp_path / "book.txt"
+    book.write_text("第一章\n福贵在村口。", encoding="utf-8")
+    out = tmp_path / "tiers"
+    args = _build_parser().parse_args(
+        [
+            "experiment",
+            "plan",
+            "--book",
+            str(book),
+            "--out",
+            str(out),
+            "--tier",
+            "B",
+            "--tier",
+            "C",
+        ]
+    )
+    assert _run_experiment(args) == 0
+    manifest = json.loads((out / "experiment.json").read_text(encoding="utf-8"))
+    assert manifest["axis"] == "density"
+    assert {record["tier"] for record in manifest["candidates"].values()} == {"B", "C"}
+
+
+def test_cli_experiment_with_neither_candidates_nor_tiers_explains_itself(tmp_path, capsys):
+    """A bare call should say what is missing instead of probing nothing."""
+    book = tmp_path / "book.txt"
+    book.write_text("第一章\n福贵在村口。", encoding="utf-8")
+    args = _build_parser().parse_args(
+        ["experiment", "plan", "--book", str(book), "--out", str(tmp_path / "none")]
+    )
+    assert _run_experiment(args) == 1
+    err = capsys.readouterr().err
+    assert "--candidate" in err or "--tier" in err
+
+
+def test_a_density_experiment_prompts_like_production_but_never_clips(tmp_path):
+    """Two separate questions, and conflating them made the first run useless.
+
+    The prompt must say what production says: tier A really does tell the planner
+    "do not exceed". The output must not be clipped, because the planner's own
+    count is the measurement. An earlier version tied both to ``clips=False``, so
+    tier A probed a sentence production never sends ("a target, not a cap") and
+    the result said nothing about the real tier A.
+    """
+    out = tmp_path / "tiers"
+    manifest = asyncio.run(
+        plan_experiment(
+            "第一章\n福贵在村口。",
+            out_dir=out,
+            candidates=["base"],
+            tiers=["A", "B"],
+            chat=FakeChat(),
+        )
+    )
+
+    anon_a = next(k for k, v in manifest["candidates"].items() if v["tier"] == "A")
+    prompt = json.loads((out / "candidates" / anon_a / "prompt.json").read_text(encoding="utf-8"))[
+        "messages"
+    ][-1]["content"]
+    assert "main-thread overview" in prompt
+    assert "do not exceed" in prompt
+    # ... but the plan kept whatever the planner wrote, so it stays measurable.
+    assert manifest["candidates"][anon_a]["clips"] is False
+
+
+def test_a_density_experiment_rejects_an_unknown_tier(tmp_path):
+    """A typo would otherwise silently probe the default tier."""
+    with pytest.raises(ExperimentError, match="unknown tier"):
+        asyncio.run(
+            plan_experiment(
+                "第一章\n福贵在村口。",
+                out_dir=tmp_path / "tiers",
+                candidates=["base"],
+                tiers=["D"],
+                chat=FakeChat(),
+            )
+        )
 
 
 def test_plan_experiment_writes_an_anonymised_packet(tmp_path):
