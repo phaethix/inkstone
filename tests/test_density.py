@@ -365,3 +365,36 @@ def test_an_ordinary_measured_rate_does_not_claim_the_cap_was_hit(tmp_path):
     est = estimate(book, density="B", observed_panels=[8, 14], observed_pages=[2])
     assert est.chunks == 2
     assert not any("排版上限" in warning for warning in est.warnings)
+
+
+def test_pages_alone_still_cover_the_chunks_that_have_no_page_plan(tmp_path):
+    """Pages can be measured without panels, and the gap must still be filled.
+
+    A state can carry page plans without storyboards the CLI can count, and then
+    ``observed_pages`` arrives alone. Summing only the measured pages drops every
+    chunk that has no page plan yet: three chunks with two page plans reported 5
+    pages against 24 panels, and the engine packs only 20 into 5 pages.
+    """
+    book = _write(tmp_path, "第一段文字内容较长的示例文本用来触发分段。\n" * 800)
+    rate = estimate(book, density="B")
+    assert rate.chunks == 3
+    est = estimate(book, density="B", observed_pages=[2, 3])
+    assert est.pages * PANELS_PER_PAGE >= est.panels
+    # The measured chunks average 2.5 pages, so the unmeasured one adds that much.
+    assert est.pages == 5 + 3
+
+
+def test_a_gap_between_measured_chunks_does_not_invent_a_capacity_problem(tmp_path):
+    """A zero page count marks a chunk with no page plan, not a page holding none.
+
+    With a gap in the middle, summing every slot counts the gap's panels against
+    the measured chunks' pages, so 8 panels on 3 measured pages looks like 2.7
+    per page and the cap note fires. The measured chunk is ordinary: the gap
+    simply has nothing to pair with, and only one chunk was measured.
+    """
+    book = _write(tmp_path, "第一段文字内容较长的示例文本用来触发分段。\n" * 800)
+    est = estimate(book, density="B", observed_panels=[3, 8, 4], observed_pages=[0, 3, 0])
+    assert est.chunks == 3
+    assert est.pages * PANELS_PER_PAGE >= est.panels
+    assert not any("排版上限" in warning for warning in est.warnings)
+    assert any("页数只实测了 1 段" in warning for warning in est.warnings)

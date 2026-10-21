@@ -275,7 +275,12 @@ Keep these prototypes only as migration material until they conform to the targe
   plan also reports the panels its pages carried, so a pending chunk with a
   storyboard is projected from its own panel count. The engine packs at most
   `PANELS_PER_PAGE` panels per page, so no projection is allowed to exceed that,
-  and the output says when the limit raised the number.
+  and the output says when the limit raised the number. The two lists are
+  aligned by chunk, so a gap in `page_cache` (a chunk whose page plan a content
+  filter rejected) cannot slide a later chunk's pages onto an earlier chunk's
+  panels, and a page count of zero means "not planned yet" rather than "no
+  pages". A chunk with no page plan and no storyboard takes the measured average,
+  which is the only thing left to spread.
   What remains un-calibrated is the budget itself: tier B prompts for
   "about 8 panels" and only A and C clip the plan, so a B planner can and did
   produce 14. The overrun is no longer silent — both the storyboard and the page
@@ -567,10 +572,11 @@ ledger enters no `action_key` or fingerprint (guarded by a test).
 
 ### P2 — Delivery experience and proof
 
-- [ ] Add CBZ export and improve PDF typography, including CJK caption support.
-  - **Local:** `--format cbz` zips the page images in filename order and writes
-    `ComicInfo.xml` with that page count. A second
-    bind copies the stored archive. Pillow writes pages at 150 dpi. img2pdf
+- [ ] Improve PDF typography, including CJK caption support. CBZ export is done:
+  `--format cbz` zips the page images in filename order and writes
+  `ComicInfo.xml` with that page count, and a second bind copies the stored
+  archive. What remains is the typography below.
+  - **Local:** Pillow writes pages at 150 dpi. img2pdf
     uses that same dpi in its page layout, so a PNG without a dpi tag is not
     left at the converter default of 96. A CJK
     caption that wraps past its bar is drawn smaller so the glyphs stay inside

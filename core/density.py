@@ -200,26 +200,45 @@ def _scale_pages(chunks: int, observed_pages: list[int], observed_panels: list[i
     own panel count, so it is projected from that instead of the average of the
     measured chunks. The packing limit is a hard fact, so the result never packs
     more than ``PANELS_PER_PAGE`` panels onto a page.
+
+    Both lists are aligned by chunk: index ``i`` of ``observed_pages`` belongs to
+    the same chunk as index ``i`` of ``observed_panels``. A page count of zero
+    means that chunk has no page plan yet, which is why the rate is computed only
+    from the chunks where both numbers are present. A chunk with neither a page
+    plan nor a storyboard still needs pages, so it takes the measured average.
     """
     if chunks <= 0:
         return 0
     used = observed_pages[:chunks]
     if not used:
         return 0
-    measured_chunks = len(used)
-    measured_pages = sum(used)
-    measured_panels = sum(observed_panels[:measured_chunks])
+    measured_chunks = 0
+    measured_pages = 0
+    measured_panels = 0
+    for index in range(min(len(used), chunks)):
+        if used[index] > 0:
+            measured_chunks += 1
+            measured_pages += used[index]
+            if index < len(observed_panels):
+                measured_panels += observed_panels[index]
     if measured_pages > 0 and measured_panels > 0:
         panels_per_page = measured_panels / measured_pages
     else:
         panels_per_page = PANELS_PER_PAGE
-    average_panels = measured_panels / measured_chunks if measured_chunks else 0
+    average_pages = measured_pages / measured_chunks if measured_chunks else 0
     projected = measured_pages
-    for index in range(measured_chunks, chunks):
+    # Pages can be measured with no panels behind them: a state whose page plans
+    # exist but whose storyboards the CLI cannot count. Without a rate there is
+    # nothing to divide, so the gap is filled from the measured page average —
+    # the same spread ``_scale_observed`` uses for panels.
+    for index in range(chunks):
+        if index < len(used) and used[index] > 0:
+            continue
         own = observed_panels[index] if index < len(observed_panels) else 0
-        panels = own if own > 0 else average_panels
-        if panels > 0:
-            projected += ceil(panels / panels_per_page)
+        if own > 0 and panels_per_page > 0:
+            projected += ceil(own / panels_per_page)
+        elif average_pages > 0:
+            projected += ceil(average_pages)
     # Never report fewer pages than the panels need, whatever the rate said.
     total_panels = _scale_observed(chunks, observed_panels) if observed_panels else 0
     floor = ceil(total_panels / PANELS_PER_PAGE) if total_panels else 0
@@ -251,10 +270,11 @@ def estimate(
         concurrency: parallel panel workers assumed for the duration estimate.
         price_per_panel: ¥ per panel for ``openai-compat``; ``None`` → "按单价".
         asset_dir: reserved hook for D2 (asset/output location); unused now.
-        observed_panels: per-chunk panel counts already planned. When set, the
-            experience rate is not used for the panel total.
-        observed_pages: per-chunk page counts already planned. When set, pages
-            are that total instead of ``panels / 4``.
+        observed_panels: per-chunk panel counts already planned, aligned by chunk
+            index. When set, the experience rate is not used for the panel total.
+        observed_pages: per-chunk page counts already planned, aligned with
+            ``observed_panels``. Zero means that chunk has no page plan yet. When
+            set, pages follow the measured rate instead of ``panels / 4``.
 
     Returns:
         A :class:`DensityEstimate` with all projected counts, the cost string,
@@ -289,8 +309,13 @@ def estimate(
         pages = _scale_pages(chunks, observed_pages, observed_panels or [])
         if observed_panels:
             measured = observed_pages[:chunks]
-            measured_panels = sum(observed_panels[: len(measured)])
-            if measured and measured_panels > sum(measured) * PANELS_PER_PAGE:
+            measured_panels = sum(
+                observed_panels[index]
+                for index in range(len(measured))
+                if measured[index] > 0 and index < len(observed_panels)
+            )
+            measured_page_total = sum(page_count for page_count in measured if page_count > 0)
+            if measured_page_total and measured_panels > measured_page_total * PANELS_PER_PAGE:
                 capacity_note = True
 
     # Wall-clock estimate. Guard concurrency so a bad input can't divide by zero.
@@ -309,7 +334,11 @@ def estimate(
         warnings.append(webtoon_msg)
     if observed_panels or observed_pages:
         panels_measured = min(len(observed_panels or []), chunks) if observed_panels else 0
-        pages_measured = min(len(observed_pages or []), chunks) if observed_pages else 0
+        pages_measured = (
+            sum(1 for count in (observed_pages or [])[:chunks] if count > 0)
+            if observed_pages
+            else 0
+        )
         if panels_measured:
             warnings.append(f"格数来自已规划的 {panels_measured} 段，不是经验档位。")
         if pages_measured and pages_measured < panels_measured:

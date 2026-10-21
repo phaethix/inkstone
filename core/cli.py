@@ -545,7 +545,14 @@ def _print_plan(est: DensityEstimate) -> None:
 
 
 def _planned_counts(state: ProjectState) -> tuple[list[int], list[int]]:
-    """Per-chunk panel and page counts already stored on a project."""
+    """Per-chunk panel and page counts already stored on a project.
+
+    The two lists are aligned by chunk: index ``i`` of each describes the same
+    chunk. A chunk that was skipped keeps its slot rather than being dropped, so
+    a gap in ``page_cache`` cannot slide a later chunk's pages onto an earlier
+    chunk's panels. Callers that only want the measured pairs have to skip the
+    chunks whose page count is zero.
+    """
     keys = set(state.page_cache) | {
         key for key, cache in state.chunk_cache.items() if cache.storyboard is not None
     }
@@ -553,17 +560,23 @@ def _planned_counts(state: ProjectState) -> tuple[list[int], list[int]]:
     def _sort_key(key: str) -> tuple[int, str]:
         return (int(key), "") if str(key).isdigit() else (10**9, str(key))
 
-    panels: list[int] = []
-    pages: list[int] = []
+    # Index by chunk so both lists share a slot for every chunk we know about.
+    by_chunk: dict[str, tuple[int, int]] = {}
     for key in sorted(keys, key=_sort_key):
         pageset = state.page_cache.get(key)
         if pageset is not None and pageset.pages:
-            pages.append(len(pageset.pages))
-            panels.append(sum(len(page.panels) for page in pageset.pages))
+            by_chunk[key] = (
+                sum(len(page.panels) for page in pageset.pages),
+                len(pageset.pages),
+            )
             continue
         cache = state.chunk_cache.get(key)
         if cache is not None and cache.storyboard is not None:
-            panels.append(len(cache.storyboard.panels))
+            by_chunk[key] = (len(cache.storyboard.panels), 0)
+
+    ordered = [by_chunk[key] for key in sorted(by_chunk, key=_sort_key)]
+    panels = [panel_count for panel_count, _ in ordered]
+    pages = [page_count for _, page_count in ordered]
     # A run stopped between chunks has pages for the chunks it planned and none
     # for the rest. The measured pages are evidence, so they are kept: the gap is
     # filled from their average by ``_scale_observed``. Only a project with no

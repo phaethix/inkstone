@@ -279,3 +279,59 @@ def test_a_half_planned_project_keeps_the_pages_it_did_measure(tmp_path, capsys)
     # other chunk, gives 6 panels and 6 pages rather than the 2 a rate implies.
     assert "counts from the stored project" in out
     assert "6 格 / 6 页" in out
+
+
+def test_a_gap_in_the_page_plans_does_not_pair_the_wrong_chunk_counts(tmp_path, capsys):
+    """Chunk 0 skipped its page plan, so its panels must not pair with chunk 1's pages.
+
+    A content-policy rejection skips a chunk's page plan and the run continues, so
+    ``page_cache`` can hold chunk 1 while chunk 0 has only a storyboard. The two
+    lists then describe different chunks, and zipping them by position makes the
+    measured rate nonsense: chunk 0's three panels get divided by chunk 1's four
+    pages, a rate of 0.75 panels per page that then needs 19 pages for chunk 1.
+    The rate has to come from the chunk that has both numbers.
+    """
+    book = tmp_path / "book.txt"
+    book.write_text("第一章\n石猴出世。\n第二章\n方鸿渐在读书。", encoding="utf-8")
+    # 14 panels across four pages stays inside the four-panels-per-page packing
+    # limit, so the estimate is not being carried by the capacity floor.
+    per_page = [4, 4, 3, 3]
+    state = ProjectState(
+        project_id="p",
+        page_cache={
+            "1": ComicPagePlanSet(
+                pages=[
+                    ComicPagePlan(
+                        page_id=f"p{index}",
+                        panels=[PagePanelSpec(panel_id=f"a{index}-{n}") for n in range(count)],
+                    )
+                    for index, count in enumerate(per_page)
+                ]
+            )
+        },
+        chunk_cache={
+            "0": ChunkCache(
+                storyboard=Storyboard(
+                    chapter_id="0",
+                    panels=[Panel(panel_id=f"x{i}") for i in range(3)],
+                )
+            )
+        },
+    )
+    state.save(tmp_path / "state.json")
+    _run_plan(
+        argparse.Namespace(
+            book=str(book),
+            density="B",
+            format="page",
+            api="agnes",
+            concurrency=4,
+            price_per_panel=None,
+            out=str(tmp_path),
+        )
+    )
+    out = capsys.readouterr().out
+    # Chunk 1 measured 14 panels on 4 pages, so the rate is 3.5 panels per page.
+    # Chunk 0's 3 panels need one page at that rate: 4 + 1 = 5 pages. Pairing the
+    # numbers by position instead gave 23 pages.
+    assert "17 格 / 5 页" in out
