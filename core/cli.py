@@ -89,11 +89,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p_gen.add_argument(
         "--density",
         choices=["A", "B", "C"],
-        default="B",
+        default=None,
         help=(
             "Panel budget for planning: A=main plot overview/主线概览, "
-            "B=chapter-complete/章级完整 (default), C=near-original/近原著. "
-            "A change replans the book."
+            "B=chapter-complete/章级完整 (default for a new project), "
+            "C=near-original/近原著. Omit on resume to keep the stored tier; "
+            "an explicit change replans the book."
         ),
     )
 
@@ -1165,8 +1166,9 @@ def _run_verify(args: argparse.Namespace) -> int:
 def _load_prompt_context(args: argparse.Namespace):
     """Load the optional stored context for ``inkstone prompt``.
 
-    Returns ``(chunk, elements, beats, bible, board, characters, recent_layouts)``.
-    Missing state is not an error: the command still renders the stage template.
+    Returns ``(chunk, elements, beats, bible, board, characters, recent_layouts,
+    density)``. Missing state is not an error: the command still renders the
+    stage template, and ``density`` falls back to the tier a new project gets.
     """
     from core.comic.adaptation import key_beats_for_chunk
     from core.comic.identity import page_state_key  # noqa: F401  (kept for parity)
@@ -1182,11 +1184,16 @@ def _load_prompt_context(args: argparse.Namespace):
     board = None
     characters: dict = {}
     recent_layouts: list[str] = []
+    # The budget sentence follows the tier, so the stored tier is part of the
+    # request this command promises to reproduce. Default only when there is no
+    # checkpoint to read one from.
+    density = "B"
     if not args.from_run:
-        return chunk, elements, beats, bible, board, characters, recent_layouts
+        return chunk, elements, beats, bible, board, characters, recent_layouts, density
 
     out = Path(args.from_run)
     state = ProjectState.load(out / "state.json")
+    density = state.density
     cached = state.chunk_cache.get(str(args.chunk))
     if cached is not None:
         elements = cached.elements or elements
@@ -1203,12 +1210,12 @@ def _load_prompt_context(args: argparse.Namespace):
     recent_layouts = _recent_layout_intents(state)
     if beats is None and chunk:
         beats = key_beats_for_chunk(state, str(args.chunk), segment_text(chunk))
-    return chunk, elements, beats, bible, board, characters, recent_layouts
+    return chunk, elements, beats, bible, board, characters, recent_layouts, density
 
 
 def _run_prompt(args: argparse.Namespace) -> int:
     """Print the exact request one stage would send. Never calls a provider."""
-    from core.density import PANELS_PER_CHUNK_B
+    from core.density import get_density_plan
     from core.screenwriter import (
         build_beats_request,
         build_bible_request,
@@ -1245,7 +1252,12 @@ def _run_prompt(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return 1
-    chunk, elements, beats, bible, board, characters, recent_layouts = _load_prompt_context(args)
+    chunk, elements, beats, bible, board, characters, recent_layouts, density = (
+        _load_prompt_context(args)
+    )
+    # Reproduction has to use the tier's real budget and the behaviour the
+    # pipeline applies to it: A and C clip, B does not.
+    density_plan = get_density_plan(density)
     model = args.model
     if args.stage == "extract":
         request = build_extract_request(chunk, harness=candidate, model=model)
@@ -1266,7 +1278,8 @@ def _run_prompt(args: argparse.Namespace) -> int:
             chunk,
             elements,
             key_beats=beats,
-            panel_budget=PANELS_PER_CHUNK_B,
+            panel_budget=density_plan.panels_per_chunk,
+            enforce_budget=density_plan.tier != "B",
             genre=args.genre,
             harness=candidate,
             model=model,
@@ -1291,7 +1304,8 @@ def _run_prompt(args: argparse.Namespace) -> int:
             recent_layouts=recent_layouts,
             visual_bible=bible,
             key_beats=beats,
-            panel_budget=PANELS_PER_CHUNK_B,
+            panel_budget=density_plan.panels_per_chunk,
+            enforce_budget=density_plan.tier != "B",
             genre=args.genre,
             craft_notes=craft_notes,
             harness=candidate,

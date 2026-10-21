@@ -2097,6 +2097,17 @@ async def _creative_comic(
     image = image or get_image_provider()
     snapshot = _model_snapshot(chat, image)
     l3_on = l3_enabled()
+    # An omitted tier inherits the one the project was planned with. The flag
+    # used to default to "B" all the way from argparse, which made "the caller
+    # did not say" indistinguishable from "the caller asked for B": resuming a
+    # tier C project without repeating --density read as a deliberate switch,
+    # the structure fingerprint stopped matching, and every paid page was
+    # redrawn. Only a fresh project falls back to B.
+    if density is None and state_path.exists():
+        try:
+            density = ProjectState.load(state_path).density
+        except Exception:  # noqa: BLE001 — a corrupt checkpoint is handled below
+            logger.warning("could not read the stored tier from %s", state_path)
     density_plan = get_density_plan(_require_density(density))
     struct = _structure_fingerprint(
         source_txt,

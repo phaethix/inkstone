@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from core.cli import _build_parser
-from core.density import PANELS_PER_CHUNK_A, PANELS_PER_CHUNK_B
+from core.density import PANELS_PER_CHUNK_A, PANELS_PER_CHUNK_B, PANELS_PER_CHUNK_C
 from core.pipelines.creative_comic import _structure_fingerprint, creative_comic
 from core.schemas import ProjectState, StoryElements
 from core.screenwriter import plan_comic_pages, plan_storyboard
@@ -150,11 +150,19 @@ def test_a_density_change_replans_and_the_same_tier_does_not(tmp_path):
     )
 
 
-def test_generate_defaults_to_tier_b():
+def test_generate_leaves_the_tier_unspecified_so_resume_can_inherit():
+    """Omitting --density must stay distinguishable from asking for tier B.
+
+    A parser default of ``"B"`` cannot be told apart from an explicit flag, so
+    resuming a tier C project without repeating the flag used to read as a
+    request to switch tiers.
+    """
     args = _build_parser().parse_args(["generate", "book.txt"])
-    assert args.density == "B"
+    assert args.density is None
     chosen = _build_parser().parse_args(["generate", "book.txt", "--density", "C"])
     assert chosen.density == "C"
+    explicit_b = _build_parser().parse_args(["generate", "book.txt", "--density", "B"])
+    assert explicit_b.density == "B"
 
 
 def test_an_unknown_density_is_rejected(tmp_path):
@@ -225,3 +233,56 @@ def test_a_page_plan_past_the_budget_is_reported_too(caplog):
     assert any(
         "8" in record.getMessage() and "3" in record.getMessage() for record in caplog.records
     )
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_resuming_a_tier_c_project_without_the_flag_keeps_tier_c(tmp_path):
+    """Omitting --density on resume must inherit the tier the project was planned with.
+
+    The flag used to default to ``"B"``, so a CLI that did not repeat it read as
+    an explicit request to switch tiers. The structure fingerprint then differed
+    from the stored one, the state was rebuilt, and every paid page was redrawn.
+    """
+    src = "第一章\n方鸿渐在甲板上。"
+    first = asyncio.run(
+        creative_comic(
+            src,
+            output_dir=str(tmp_path),
+            chat=FakeChat(),
+            image=FakeImage(),
+            density="C",
+        )
+    )
+    assert first.state.density == "C"
+
+    chat, img = FakeChat(), FakeImage()
+    resumed = asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=chat, image=img))
+
+    assert resumed.state.density == "C"
+    assert resumed.state.panels_per_chunk == PANELS_PER_CHUNK_C
+    assert chat.calls == 0
+    assert img.calls == 0
+
+
+@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+def test_an_explicit_tier_on_resume_still_replans(tmp_path):
+    """Inheriting must not swallow a deliberate tier change."""
+    src = "第一章\n方鸿渐在甲板上。"
+    asyncio.run(
+        creative_comic(
+            src,
+            output_dir=str(tmp_path),
+            chat=FakeChat(),
+            image=FakeImage(),
+            density="C",
+        )
+    )
+
+    chat, img = FakeChat(), FakeImage()
+    switched = asyncio.run(
+        creative_comic(src, output_dir=str(tmp_path), chat=chat, image=img, density="A")
+    )
+
+    assert switched.state.density == "A"
+    assert switched.state.panels_per_chunk == PANELS_PER_CHUNK_A
+    assert chat.calls > 0

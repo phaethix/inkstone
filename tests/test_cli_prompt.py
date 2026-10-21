@@ -80,3 +80,37 @@ def test_prompt_harness_dir_applies_to_extract(tmp_path, capsys):
     )
     assert _run_prompt(args) == 0
     assert "EXTRACT HARNESS MARKER" in capsys.readouterr().out
+
+
+def test_prompt_reads_the_tier_the_project_was_planned_with(tmp_path, capsys):
+    """The command promises the request a stage *would* send, so the budget it
+    prints has to be the stored one. It used to hard-code tier B, which showed
+    about 8 panels and "a target, not a cap" even for a tier C project."""
+    from core.schemas import ProjectState
+
+    ProjectState(
+        project_id="p1",
+        density="C",
+        panels_per_chunk=14,
+    ).save(tmp_path / "state.json")
+
+    args = _args("--stage", "page_plan", "--from-run", str(tmp_path))
+    assert _run_prompt(args) == 0
+    out = capsys.readouterr().out
+
+    assert "about 14 panels" in out
+    assert "do not exceed this budget" in out
+
+
+def test_prompt_tier_b_keeps_the_target_wording(tmp_path, capsys):
+    """Tier B does not clip, so its sentence must not promise a ceiling."""
+    from core.schemas import ProjectState
+
+    ProjectState(project_id="p1", density="B", panels_per_chunk=8).save(tmp_path / "state.json")
+
+    args = _args("--stage", "page_plan", "--from-run", str(tmp_path))
+    assert _run_prompt(args) == 0
+    out = capsys.readouterr().out
+
+    assert "about 8 panels" in out
+    assert "this number is a target, not a cap" in out

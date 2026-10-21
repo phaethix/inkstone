@@ -274,11 +274,12 @@ def _parse_args(argv=None) -> argparse.Namespace:
     p.add_argument(
         "--density",
         choices=["A", "B", "C"],
-        default="B",
+        default=None,
         help=(
             "Panel budget for planning: A=main plot overview/主线概览, "
-            "B=chapter-complete/章级完整 (default), C=near-original/近原著. "
-            "A change replans the book."
+            "B=chapter-complete/章级完整 (default for a new project), "
+            "C=near-original/近原著. Omit on resume to keep the stored tier; "
+            "an explicit change replans the book."
         ),
     )
     return p.parse_args(argv)

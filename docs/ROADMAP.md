@@ -345,6 +345,20 @@ Keep these prototypes only as migration material until they conform to the targe
   mutation check confirms the test fails when the two copies disagree. The
   layout stage hash changes once, which re-composes local page images on the
   next run; that stage calls no provider.
+- **Local (2026-10-21, `main`):** An omitted tier now means "keep the stored
+  one". `generate --density` defaulted to `"B"` in both parsers, so a resumed
+  tier C project that did not repeat the flag was read as a deliberate switch
+  to B: the structure fingerprint stopped matching, the state was rebuilt, and
+  every paid page was redrawn (measured: one extra chat and one extra image
+  call on a one-chapter project, and the pages already on disk). The flag now
+  defaults to `None` and `creative_comic` inherits `state.density` when nothing
+  is passed; a fresh project still starts at B, and an explicit flag still
+  replans. `inkstone prompt` had the matching gap: it promised "the exact
+  request one stage would send" while hard-coding tier B, printing about 8
+  panels and "a target, not a cap" even for a tier C project. It now reads the
+  stored tier and applies that tier's clipping semantics. Both paths are pinned
+  by mutation-checked tests in `tests/test_density_contract.py` and
+  `tests/test_cli_prompt.py`.
 
 ### P0 — Content-addressed pipeline migration (0a-0h)
 
