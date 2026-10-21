@@ -189,3 +189,36 @@ def test_a_clipped_storyboard_keeps_the_chapter_ending():
     assert len(ids) == 3
     assert ids[-1] == "p10", f"the close was dropped; kept {ids}"
     assert ids[0] == "p01", f"the setup was dropped; kept {ids}"
+
+
+def test_the_spread_keeps_a_floor_panel_even_on_a_two_panel_chapter():
+    """A budget of one on a ten-panel chapter still has to be a real panel.
+
+    Keeping only the last index is defensible (the close survives), but the
+    function is used to thin whole chapters, so it must never invent an index
+    past the end or return more than the budget.
+    """
+    from core.screenwriter import _evenly_spaced
+
+    assert _evenly_spaced(10, 1) == [9]
+    assert _evenly_spaced(2, 1) == [1]
+
+
+def test_the_spread_never_returns_more_than_the_budget_or_an_out_of_range_index():
+    """The invariants the clip relies on, across awkward sizes.
+
+    A budget of one cannot keep both ends; the close is the one that survives,
+    because a missing ending is the failure this whole spread exists to avoid.
+    """
+    from core.screenwriter import _evenly_spaced
+
+    for count in range(1, 30):
+        for budget in range(1, count + 1):
+            picked = _evenly_spaced(count, budget)
+            assert len(picked) == budget, f"count={count} budget={budget} got {picked}"
+            assert picked == sorted(picked), f"out of order: {picked}"
+            assert len(set(picked)) == len(picked), f"duplicates: {picked}"
+            assert min(picked) >= 0 and max(picked) < count, f"out of range: {picked}"
+            assert picked[-1] == count - 1, f"the last was dropped: {picked}"
+            if budget > 1:
+                assert picked[0] == 0, f"the first was dropped: {picked}"

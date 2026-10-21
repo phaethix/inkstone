@@ -298,6 +298,18 @@ Keep these prototypes only as migration material until they conform to the targe
   whether tier B and C are actually distinct: the only measured B run produced
   14 panels, which is C's nominal budget. Calibrating that needs a real C
   sample, so the tier numbers stay as they are.
+  - Clipping no longer keeps only the opening. `_clip_page_plan` and
+    `plan_storyboard` used to take the first N panels, so tier A kept the setup
+    and dropped the turn and the close — the reader got the beginning of a story
+    with no ending. Both now spread the kept panels across the chapter and always
+    keep the first and the last; the count still equals the budget. That removes
+    the only reason tier B stayed uncapped: capping B used to cost its ending,
+    and it no longer does. So "B keeps not clipping" now rests on the product
+    decision alone (chapter-complete should not be shortened), not on a defect.
+    The A<B<C order is still not guaranteed: B has no ceiling, so any planner
+    that writes more than C's budget makes C the shorter tier. Pinned by
+    `test_a_clipped_plan_keeps_the_chapter_ending` and
+    `test_a_clipped_storyboard_keeps_the_chapter_ending`.
 - [x] Phase 3 keys. Extract, beats, page plan, and finished-page render use
   action keys. A matching key does not call the provider again. A page plan key
   carries the history window and the summarizer source hashes, not the recent

@@ -452,6 +452,9 @@ def _evenly_spaced(count: int, budget: int) -> list[int]:
     close is a different chapter, not a sparser one. The rest are spread across
     the middle so every stretch of the chapter is represented rather than the
     front half alone.
+
+    A budget of one cannot keep both ends. The close is what survives, because
+    a missing ending is the failure this spread exists to prevent.
     """
     if budget <= 0 or count <= 0:
         return []
