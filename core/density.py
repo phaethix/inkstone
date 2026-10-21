@@ -26,6 +26,14 @@ raised the number.
 
 Product brief alignment:
 A 主线概览 (sparser) → B 章级完整 (default) → C 近原著 (denser).
+
+Only A clips. Its budget is a ceiling because "overview" means the plan is
+thinned to the main thread. B and C keep what the planner wrote, so their budget
+is a target and the panel count is a floor. That is what keeps the order above
+true for any planner output: B and C can meet at the top but can never cross.
+C used to clip as well, and a planner that wrote more than its 14 then made the
+densest tier the thinnest one. ``clips_plan`` is the single answer both the
+pipeline and the prompt renderer read.
 """
 
 from dataclasses import dataclass
@@ -126,6 +134,28 @@ def get_density_plan(tier: DensityTier) -> DensityPlan:
     }
     description, panels_per_chunk = mapping[tier]
     return DensityPlan(tier=tier, panels_per_chunk=panels_per_chunk, description=description)
+
+
+def clips_plan(tier: DensityTier) -> bool:
+    """Whether ``tier``'s panel budget is a ceiling the pipeline enforces.
+
+    Only A clips. A promises 主线概览 — a main-thread overview — so thinning the
+    plan down to the budget is the feature it is named for.
+
+    B promises 章级完整 and C promises 近原著. Dropping panels in either breaks
+    the promise the tier name makes, so both keep what the planner wrote and
+    their budget is a target rather than a cap.
+
+    C used to clip as well, capped at 14 while B was uncapped. A planner that
+    wrote more than 14 panels then made the densest tier the thinnest one, and
+    C came out shorter than B. With only A clipping, B and C can meet at the top
+    but can never cross, so the product order holds for any planner output.
+
+    This is the single place that answers the question; the pipeline and the
+    prompt renderer both read it so they cannot disagree about whether an
+    overrun is refused.
+    """
+    return tier == "A"
 
 
 def _read_text(book_path: str | Path) -> str:
@@ -354,12 +384,13 @@ def estimate(
         warnings.append(
             "页数由实测格数按排版速率推算，不是实测页数；规划器按叙事节奏拆页，实际页数通常更多。"
         )
-    # Tier B is the one tier nothing clips, so its budget is a floor. Reported
-    # plain, "8 panels / 2 pages" reads as the size of the run, and the public
-    # excerpt planned 14 panels onto 8. Say which of the two it is.
-    if density == "B" and not observed_panels and not observed_pages:
+    # The tiers that do not clip keep whatever the planner wrote, so their
+    # budget is a floor. Reported plain, "8 panels / 2 pages" reads as the size
+    # of the run, and the public excerpt planned 14 panels onto 8. Say which of
+    # the two it is.
+    if not clips_plan(density) and not observed_panels and not observed_pages:
         warnings.append(
-            f"格数与页数是下限（{panels} 格 / {pages} 页）：B 档保留规划器写下的全部画面，"
+            f"格数与页数是下限（{panels} 格 / {pages} 页）：{density} 档保留规划器写下的全部画面，"
             "章节叙事需要更多时实际产出会更多，页数随之增加。"
         )
     if capacity_note:

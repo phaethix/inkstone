@@ -424,12 +424,15 @@ async def extract_story_elements(
 def _budget_sentence(panel_budget: int | None, *, enforce: bool) -> str:
     """The panel budget sentence, worded to match what the pipeline will do.
 
-    ``enforce`` is the whole difference. A and C clip the plan, so the number is
-    a ceiling and the sentence can forbid going over it. Tier B keeps what the
-    planner wrote, so telling it "do not exceed" states a rule nothing applies,
+    ``enforce`` is the whole difference. A clips the plan, so the number is a
+    ceiling and the sentence can forbid going over it. B and C keep what the
+    planner wrote, so telling them "do not exceed" states a rule nothing applies,
     and the planner learns its instructions are advisory. There the same number
     is a target: a thin excerpt still uses fewer, and a chapter that needs more
     may take more.
+
+    ``enforce`` comes from :func:`core.density.clips_plan`, so this sentence and
+    the pipeline cannot disagree about whether an overrun is refused.
     """
     if panel_budget is None:
         return ""

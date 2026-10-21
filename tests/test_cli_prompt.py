@@ -85,7 +85,12 @@ def test_prompt_harness_dir_applies_to_extract(tmp_path, capsys):
 def test_prompt_reads_the_tier_the_project_was_planned_with(tmp_path, capsys):
     """The command promises the request a stage *would* send, so the budget it
     prints has to be the stored one. It used to hard-code tier B, which showed
-    about 8 panels and "a target, not a cap" even for a tier C project."""
+    about 8 panels even for a tier C project.
+
+    C does not clip, so the sentence is a target. The budget itself is still the
+    tier's own, which is what this test is about: reading 14 here proves the
+    stored tier reached the renderer.
+    """
     from core.schemas import ProjectState
 
     ProjectState(
@@ -99,6 +104,21 @@ def test_prompt_reads_the_tier_the_project_was_planned_with(tmp_path, capsys):
     out = capsys.readouterr().out
 
     assert "about 14 panels" in out
+    assert "this number is a target, not a cap" in out
+    assert "do not exceed this budget" not in out
+
+
+def test_prompt_tier_a_keeps_the_ceiling_wording(tmp_path, capsys):
+    """A clips, so its sentence can forbid an overrun and mean it."""
+    from core.schemas import ProjectState
+
+    ProjectState(project_id="p1", density="A", panels_per_chunk=3).save(tmp_path / "state.json")
+
+    args = _args("--stage", "page_plan", "--from-run", str(tmp_path))
+    assert _run_prompt(args) == 0
+    out = capsys.readouterr().out
+
+    assert "about 3 panels" in out
     assert "do not exceed this budget" in out
 
 

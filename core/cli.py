@@ -1215,7 +1215,7 @@ def _load_prompt_context(args: argparse.Namespace):
 
 def _run_prompt(args: argparse.Namespace) -> int:
     """Print the exact request one stage would send. Never calls a provider."""
-    from core.density import get_density_plan
+    from core.density import clips_plan, get_density_plan
     from core.screenwriter import (
         build_beats_request,
         build_bible_request,
@@ -1279,7 +1279,7 @@ def _run_prompt(args: argparse.Namespace) -> int:
             elements,
             key_beats=beats,
             panel_budget=density_plan.panels_per_chunk,
-            enforce_budget=density_plan.tier != "B",
+            enforce_budget=clips_plan(density_plan.tier),
             genre=args.genre,
             harness=candidate,
             model=model,
@@ -1305,7 +1305,7 @@ def _run_prompt(args: argparse.Namespace) -> int:
             visual_bible=bible,
             key_beats=beats,
             panel_budget=density_plan.panels_per_chunk,
-            enforce_budget=density_plan.tier != "B",
+            enforce_budget=clips_plan(density_plan.tier),
             genre=args.genre,
             craft_notes=craft_notes,
             harness=candidate,

@@ -64,6 +64,56 @@ def test_tier_a_b_c_panel_counts(tmp_path):
     assert est_a.panels < est_b.panels < est_c.panels
 
 
+def test_only_tier_a_clips_the_plan():
+    """A is the only tier whose budget is a ceiling.
+
+    A promises a main-thread overview, so thinning it down to the budget is the
+    feature. B promises chapter-complete and C promises near-original, so
+    dropping panels there breaks the promise the tier name makes.
+
+    C used to clip too, capped at 14 while B was uncapped. A planner that wrote
+    more than 14 panels then made the densest tier the thinnest one: C came out
+    shorter than B, inverting the product order.
+    """
+    from core.density import clips_plan
+
+    assert clips_plan("A") is True
+    assert clips_plan("B") is False
+    assert clips_plan("C") is False
+
+
+def test_tier_c_never_comes_out_thinner_than_tier_b():
+    """The order the tier names promise, for any planner output.
+
+    This is a property of the policy, not of one sample: with only A clipping,
+    B and C both keep what the planner wrote, so they can meet at the top but
+    can never cross.
+    """
+    from core.density import clips_plan
+    from core.schemas import ComicPagePlanSet
+    from core.screenwriter import _clip_page_plan
+
+    def kept(total: int, tier: str) -> int:
+        plan = ComicPagePlanSet.model_validate(
+            {
+                "pages": [
+                    {
+                        "page_id": "pg1",
+                        "panels": [{"panel_id": f"p{i:02d}"} for i in range(1, total + 1)],
+                    }
+                ]
+            }
+        )
+        clips = clips_plan(tier)
+        budget = get_density_plan(tier).panels_per_chunk
+        clipped = _clip_page_plan(plan, budget, enforce=clips)
+        return sum(len(page.panels) for page in clipped.pages)
+
+    for wrote in (3, 8, 14, 20, 24, 40):
+        a, b, c = (kept(wrote, tier) for tier in "ABC")
+        assert a <= b <= c, f"planner wrote {wrote}: A={a} B={b} C={c}"
+
+
 def test_pages_follow_panels_per_page(tmp_path):
     book = _write(tmp_path, _BODY)
     est = estimate(book, density="B")
@@ -413,12 +463,16 @@ def test_tier_b_offers_its_panel_count_as_a_floor_not_a_forecast(tmp_path):
     assert any("下限" in warning for warning in est.warnings)
 
 
-def test_tier_a_and_c_do_not_claim_a_floor(tmp_path):
-    """A and C clip the plan, so their budget is what the run will produce."""
+def test_only_the_clipping_tier_avoids_a_floor_warning(tmp_path):
+    """A clips, so its budget is what the run will produce. B and C do not clip,
+    so their budget is a floor: the plan may need more panels than it asks for.
+    """
     book = _write(tmp_path, "第一段文字内容较长的示例文本用来触发分段。\n" * 800)
-    for tier in ("A", "C"):
+    est_a = estimate(book, density="A")
+    assert not any("下限" in warning for warning in est_a.warnings)
+    for tier in ("B", "C"):
         est = estimate(book, density=tier)
-        assert not any("下限" in warning for warning in est.warnings), tier
+        assert any("下限" in warning for warning in est.warnings), tier
 
 
 def test_a_measured_tier_b_run_drops_the_floor_caveat(tmp_path):

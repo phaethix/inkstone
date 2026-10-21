@@ -171,7 +171,7 @@ from core.config import (
 )
 from core.config import harness_dir as config_harness_dir
 from core.config import render_mode as config_render_mode
-from core.density import PANELS_PER_CHUNK_B, DensityTier, get_density_plan
+from core.density import PANELS_PER_CHUNK_B, DensityTier, clips_plan, get_density_plan
 from core.harness.spec import (
     HarnessError,
     builtin_harness,
@@ -2760,7 +2760,7 @@ async def _creative_comic(
                     visual_bible=None,
                     key_beats=state.beat_cache.get(key),
                     panel_budget=density_plan.panels_per_chunk,
-                    enforce_budget=density_plan.tier != "B",
+                    enforce_budget=clips_plan(density_plan.tier),
                     genre=run_genre,
                     harness=run_harness,
                     model=snapshot.chat,
@@ -2840,7 +2840,7 @@ async def _creative_comic(
                                 visual_bible=state.visual_bible,
                                 key_beats=beats,
                                 panel_budget=density_plan.panels_per_chunk,
-                                enforce_budget=density_plan.tier != "B",
+                                enforce_budget=clips_plan(density_plan.tier),
                                 genre=run_genre,
                                 craft_notes=craft_notes,
                                 harness=run_harness,
@@ -2855,7 +2855,7 @@ async def _creative_comic(
                                 visual_bible=state.visual_bible,
                                 key_beats=beats,
                                 panel_budget=density_plan.panels_per_chunk,
-                                enforce_budget=density_plan.tier != "B",
+                                enforce_budget=clips_plan(density_plan.tier),
                                 request=plan_request,
                             )
                             if beats is not None:
@@ -2876,7 +2876,7 @@ async def _creative_comic(
                                         key_beats=beats,
                                         extra_user_note=beat_coverage_retry_note(missing),
                                         panel_budget=density_plan.panels_per_chunk,
-                                        enforce_budget=density_plan.tier != "B",
+                                        enforce_budget=clips_plan(density_plan.tier),
                                     )
                     except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run
                         if is_content_policy_rejection(exc):
@@ -2898,7 +2898,7 @@ async def _creative_comic(
                         visual_bible=None,
                         key_beats=state.beat_cache.get(key),
                         panel_budget=density_plan.panels_per_chunk,
-                        enforce_budget=density_plan.tier != "B",
+                        enforce_budget=clips_plan(density_plan.tier),
                         genre=run_genre,
                         harness=run_harness,
                         model=snapshot.chat,
@@ -3309,7 +3309,7 @@ async def _creative_comic(
                 planned_elements,
                 key_beats=storyboard_beats,
                 panel_budget=density_plan.panels_per_chunk,
-                enforce_budget=density_plan.tier != "B",
+                enforce_budget=clips_plan(density_plan.tier),
                 genre=run_genre,
                 harness=run_harness,
                 model=snapshot.chat,
@@ -3320,7 +3320,7 @@ async def _creative_comic(
                 StoryElements(),
                 key_beats=storyboard_beats,
                 panel_budget=density_plan.panels_per_chunk,
-                enforce_budget=density_plan.tier != "B",
+                enforce_budget=clips_plan(density_plan.tier),
                 genre=run_genre,
                 harness=run_harness,
                 model=snapshot.chat,
@@ -3363,7 +3363,7 @@ async def _creative_comic(
                             planned_elements,
                             chat=chat,
                             panel_budget=density_plan.panels_per_chunk,
-                            enforce_budget=density_plan.tier != "B",
+                            enforce_budget=clips_plan(density_plan.tier),
                             key_beats=storyboard_beats,
                             request=storyboard_request,
                         )
