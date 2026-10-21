@@ -285,31 +285,35 @@ Keep these prototypes only as migration material until they conform to the targe
   "about 8 panels" and only A and C clip the plan, so a B planner can and did
   produce 14. The overrun is no longer silent — both the storyboard and the page
   plan log the panels kept against the budget when nothing is clipped.
-  B keeps not clipping. `_clip_page_plan` drops panels from the eighth on, which
-  for a chapter-complete tier would cut the turn and the close, and a short book
-  is a worse failure than a long one. So the two sentences that disagreed with
-  the code were fixed instead. The budget sentence now asks for the target and
-  says the chapter's beats may take more, rather than forbidding an overrun
-  nothing prevents; A and C keep the hard "do not exceed" because they clip. The
-  estimate reports tier B's panels and pages as a floor with a note, because 8
-  panels and 2 pages against a measured 14 panels and 8 pages understates a
-  fresh project by most of a factor of four. Both are pinned by
-  `tests/test_screenwriter.py` and `tests/test_density.py`. What is still open is
-  whether tier B and C are actually distinct: the only measured B run produced
-  14 panels, which is C's nominal budget. Calibrating that needs a real C
-  sample, so the tier numbers stay as they are.
+  - Only tier A clips. `clips_plan` in `core/density.py` is the single answer to
+    "does this tier refuse an overrun"; the nine pipeline call sites, the two
+    prompt-renderer sites, and the estimator's floor warning all read it, so the
+    code that enforces and the sentence that describes it cannot disagree. A
+    promises 主线概览, so thinning to its budget is the feature it is named for.
+    B promises 章级完整 and C promises 近原著, so dropping panels there breaks the
+    promise the tier name makes.
+  - C used to clip as well, capped at 14 while B was uncapped. A planner that
+    wrote more than 14 panels then made the densest tier the thinnest one: C
+    came out shorter than B, inverting the A<B<C order the brief promises. With
+    only A clipping, B and C both keep what the planner wrote, so they can meet
+    at the top but can never cross, and the order holds for any planner output.
+    Verified by mutation: restoring `tier != "B"` inverts the order at 20, 24,
+    and 40 panels. Pinned by `test_only_tier_a_clips_the_plan` and
+    `test_tier_c_never_comes_out_thinner_than_tier_b`.
   - Clipping no longer keeps only the opening. `_clip_page_plan` and
     `plan_storyboard` used to take the first N panels, so tier A kept the setup
     and dropped the turn and the close — the reader got the beginning of a story
     with no ending. Both now spread the kept panels across the chapter and always
-    keep the first and the last; the count still equals the budget. That removes
-    the only reason tier B stayed uncapped: capping B used to cost its ending,
-    and it no longer does. So "B keeps not clipping" now rests on the product
-    decision alone (chapter-complete should not be shortened), not on a defect.
-    The A<B<C order is still not guaranteed: B has no ceiling, so any planner
-    that writes more than C's budget makes C the shorter tier. Pinned by
+    keep the first and the last; the count still equals the budget. Only A takes
+    that cut, which is what makes the order above hold. Pinned by
     `test_a_clipped_plan_keeps_the_chapter_ending` and
     `test_a_clipped_storyboard_keeps_the_chapter_ending`.
+  - What is still open is whether B and C are *distinct in practice*. Nothing
+    caps either, so if the planner writes the same 14 panels for both, the two
+    tiers produce the same book and the only difference is the sentence they were
+    asked with. Calibrating that needs a real C sample; the tier numbers stay as
+    they are until one exists. Note what this policy does not do: it guarantees
+    C is never *shorter* than B, not that C is ever *longer*.
 - [x] Phase 3 keys. Extract, beats, page plan, and finished-page render use
   action keys. A matching key does not call the provider again. A page plan key
   carries the history window and the summarizer source hashes, not the recent
