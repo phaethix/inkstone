@@ -612,8 +612,19 @@ Keep these prototypes only as migration material until they conform to the targe
   17, 4,594 → 24). Pooled over 13 points, `panels = 14.92 + 0.00214 x chars`
   fits with R² 0.76: a per-chunk base near 15 growing about 2.1 panels per 1,000
   characters. For the 6-chunk book whose four runs wrote 152/182/100/169 it
-  predicts 153 against a mean of 151. Re-measured across all five projects the
-  error is now 2% in total, against 3.1x before.
+  predicts 153 against a mean of 151.
+
+  *Correction (same day).* The line above first claimed "error is now 2% in total
+  across all five projects". That number was wrong, and wrong in an instructive
+  way: ``c36ed35e12b3`` stopped after 4 of its 6 chunks, so summing its 100 panels
+  and dividing by the whole book's prediction makes a partial run look like a 53%
+  miss. Compared per chunk — the only denominator that makes a stopped run
+  comparable — it wrote 25.0 against 25.5 predicted, a 2% miss. Verified per
+  chunk, the five runs land at -1%, +19%, -2%, +10% and -12%: a spread of -12% to
+  +19%, with all five inside the published band (19.8 to 37.8 per chunk). The
+  model is better than the "2%" claim implied, but the claim's method was
+  unsound, which is why ``test_every_stored_run_lands_inside_the_published_band``
+  now compares per chunk and reports how many runs a project actually finished.
 
   The intercept is why this works where a rate did not. A chunk collects ~15
   panels before length contributes anything, so a fixed budget cannot describe it
@@ -635,6 +646,25 @@ Keep these prototypes only as migration material until they conform to the targe
   chunk count), so it describes prediction error rather than a budget gap. It is
   asymmetric because residuals are. Tier A still reports an exact count: it clips,
   so its budget really is its output. Pinned by `tests/test_estimate_model.py`.
+
+  *What the band does not cover, measured.* `PLANNED_PANELS_PER_PAGE` was not the
+  only assumption hiding in the residual. Two stored prompt-thickness experiments
+  (`.agent/experiments/prompt-thickness{,-r2}`) planned the same 620-character
+  excerpt under four prompts and wrote 9, 18, 16 and 10 panels. The model predicts
+  16.2, so the variants straddle it from both sides over a 2x range. The band
+  therefore bounds run-to-run variance under one prompt — the shipped one, which is
+  what the estimate is asked about — and not prompt variance. Quoting it for a
+  different prompt would overclaim, so the user-facing warning now says so and
+  `test_the_band_covers_one_prompt_not_the_prompt_axis` pins the measurement.
+
+  *Still open, and now precisely scoped.* Two gaps remain, both about breadth
+  rather than the model. First, every residual came from tier B, so C borrows B's
+  per-chunk spread while predicting from its own flat rate; C's measured spread was
+  narrower (cv 0.13), so its band is probably wider than it deserves, which errs
+  toward over-preparing. Second, the sample is one book plus one short excerpt, not
+  23 independent books, so a share of the fit's accuracy is within-book. Closing
+  either needs paid runs on other texts (`experiment plan --tier B/C`), which is a
+  deliberate spend decision rather than a code change.
 
 ### P0 — Content-addressed pipeline migration (0a-0h)
 

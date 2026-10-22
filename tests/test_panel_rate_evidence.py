@@ -26,18 +26,28 @@ Measured, 23 chunks:
     panels per 1,000 chars   mean 6.31   cv 0.63
     panels per beat          mean 3.16   cv 0.38
 
-Neither denominator predicts the panel count. Over a 9x range of excerpt length
-and a 2.6x range of beat count, the panels written barely move: they sit between
-13 and 44 whatever the input. Beats is the tighter of the two (cv 0.38 against
-0.63), which is the direction the earlier reasoning guessed, but a correlation of
-0.23 is not a rate anyone can build a budget on.
+Neither denominator predicts the panel count *when read as a rate*. Over a 9x
+range of excerpt length and a 2.6x range of beat count, the panels written barely
+move: they sit between 13 and 44 whatever the input. Beats is the tighter of the
+two (cv 0.38 against 0.63), which is the direction the earlier reasoning guessed,
+but a correlation of 0.23 is not a rate anyone can build a budget on.
 
-That result is the reason this change does not turn the budget into a rate. A
+*Read on its own this section looks like "panels are unpredictable", and that is
+the wrong conclusion.* A near-zero correlation between panels and length is what
+a large additive constant looks like when the slope is small: `panels = 14.92 +
+0.00214 x chars` over the measured 620 to 5,619 characters only moves the
+prediction from 16 to 27, so within this sample the constant dominates and the
+correlation collapses. Pooled over three independent measurement sets that fit is
+R2 0.76 and predicts the stored runs to within their own run-to-run spread. So
+"neither denominator is a rate" was right; "therefore model nothing" was not, and
+the intercept is the thing that resolves it. See `core/density.py` for the model
+and `tests/test_estimate_model.py` for its guards.
+
+That earlier result is why this project does not turn the budget into a rate. A
 rate is a coefficient that multiplies a denominator to predict an output; here
-the output does not follow either denominator, so the coefficient would be fit to
-noise and the per-chunk count would keep being wrong, only more expensively
-derived. Nothing that only rescales the number can fix a planner that returns 13
-to 44 panels regardless of what it is asked for.
+the output does not follow either denominator closely enough, so a pure
+coefficient would be fit to noise. What works instead is a base plus a small
+slope, and that is not a rescaling of the budget — it replaces the anchor.
 
 These figures are pinned as a regression guard on the measurement itself. They
 are not a contract the code must preserve: if the planner later starts honouring
@@ -179,4 +189,167 @@ def test_the_measured_overrun_is_too_wide_to_quote_as_a_single_factor(rows):
     assert statistics.mean(ratios) > 2.0, "the budget is no longer being overrun"
     assert max(ratios) / min(ratios) > 2.5, (
         "the overrun narrowed enough to quote as a single factor"
+    )
+
+
+def _per_chunk_runs(root: Path) -> list[tuple[str, int, int, float, float]]:
+    """(project, chunks finished, chunks total, predicted per chunk, actual per chunk).
+
+    Per chunk is the only denominator that makes a stopped run comparable. A
+    project that finished 4 of 6 chunks wrote a smaller total than one that
+    finished all 6, and dividing that smaller total by the whole book's prediction
+    makes a healthy run look like a large miss.
+    """
+    from core.density import estimate
+
+    out: list[tuple[str, int, int, float, float]] = []
+    for state_file in sorted(root.glob("comic_out/*/state.json")):
+        source_file = state_file.with_name("source.txt")
+        if not source_file.is_file():
+            continue
+        try:
+            state = json.loads(state_file.read_text(encoding="utf-8"))
+            chunks = segment_text(source_file.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        total = 0
+        finished = 0
+        for plan in (state.get("page_cache") or {}).values():
+            plans = plan if isinstance(plan, list) else [plan]
+            written = sum(
+                len(page.get("panels") or [])
+                for one in plans
+                if isinstance(one, dict)
+                for page in (one.get("pages") or [])
+                if isinstance(page, dict)
+            )
+            if written:
+                total += written
+                finished += 1
+        if not finished:
+            continue
+        est = estimate(source_file, density="B")
+        out.append(
+            (
+                state_file.parent.name,
+                finished,
+                len(chunks),
+                est.panels / est.chunks,
+                total / finished,
+            )
+        )
+    return out
+
+
+def test_every_stored_run_lands_inside_the_published_band():
+    """The band is what the estimate promises a user, so check it against runs.
+
+    This is the regression guard for a defect in the measurement, not in the
+    model: the first version of this check summed each project's panels and
+    divided by the whole book's prediction, so ``c36ed35e12b3`` — which stopped
+    after 4 of 6 chunks — looked like a 53% overshoot when per chunk it was a 2%
+    undershoot. Comparing per chunk and reporting how many chunks a project
+    actually finished is what makes the comparison honest.
+    """
+    root = Path(__file__).resolve().parents[1]
+    if not (root / "comic_out").is_dir():
+        pytest.skip("no finished projects on this machine to measure")
+    runs = _per_chunk_runs(root)
+    if not runs:
+        pytest.skip("no project carries a page plan to measure")
+
+    from core.density import PANELS_RESIDUAL_P10, PANELS_RESIDUAL_P90
+
+    worst: list[str] = []
+    for name, finished, total, predicted, actual in runs:
+        if finished < total:
+            # A stopped run still has to land inside the band, but say so: it is
+            # a weaker claim than a complete run's.
+            worst.append(f"{name}: partial {finished}/{total}")
+        assert predicted + PANELS_RESIDUAL_P10 <= actual <= predicted + PANELS_RESIDUAL_P90, (
+            f"{name} wrote {actual:.1f} panels per chunk against a prediction of "
+            f"{predicted:.1f} (band {predicted + PANELS_RESIDUAL_P10:.1f} to "
+            f"{predicted + PANELS_RESIDUAL_P90:.1f}, {finished}/{total} chunks)"
+        )
+    assert runs, worst
+
+
+def test_a_partial_run_is_not_compared_against_the_whole_book():
+    """Guard the specific mistake: one denominator for every project.
+
+    If a project stopped early, dividing its total by the full prediction has to
+    be visibly wrong. This asserts the two differ enough that the mistake would be
+    caught rather than pass silently as a rounding difference.
+    """
+    root = Path(__file__).resolve().parents[1]
+    if not (root / "comic_out").is_dir():
+        pytest.skip("no finished projects on this machine to measure")
+    partial = [r for r in _per_chunk_runs(root) if r[1] < r[2]]
+    if not partial:
+        pytest.skip("every stored project finished all its chunks")
+
+    name, finished, total, predicted, actual = partial[0]
+    whole_book_reading = actual * finished / total
+    assert abs(whole_book_reading / predicted - 1) > abs(actual / predicted - 1) + 0.2, (
+        f"{name}: the two readings should differ clearly ({whole_book_reading:.1f} "
+        f"vs {actual:.1f} per chunk), or this guard is not testing anything"
+    )
+
+
+def test_the_band_covers_one_prompt_not_the_prompt_axis():
+    """The published band's scope, measured, so nobody widens it by mistake.
+
+    The band is the residual spread of runs under the shipped prompt. Two stored
+    prompt-thickness experiments planned the same 620-character excerpt under four
+    prompts and wrote 9, 18, 16 and 10 panels: a 2x spread that surrounds the
+    model's 16.2 prediction from both sides. So the band is not a bound on "how
+    many panels this excerpt could yield" — only on "how many the shipped prompt
+    yields per run". Quoting it for a different prompt would overclaim.
+    """
+    from core.density import PANELS_BASE_B, PANELS_SLOPE_B
+
+    root = Path(__file__).resolve().parents[1]
+    experiments = root / ".agent/experiments"
+    if not experiments.is_dir():
+        pytest.skip("no prompt experiments on this machine")
+
+    panels: list[int] = []
+    chars: set[int] = set()
+    for directory in sorted(experiments.iterdir()):
+        plan_dir = directory / "candidates"
+        if not plan_dir.is_dir():
+            continue
+        meta = directory / "experiment.json"
+        if not meta.is_file():
+            continue
+        try:
+            info = json.loads(meta.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        chars.add(int(info.get("chunk_chars") or 0))
+        for candidate in sorted(plan_dir.iterdir()):
+            plan_file = candidate / "plan.json"
+            if not plan_file.is_file():
+                continue
+            try:
+                plan = json.loads(plan_file.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            pages = plan.get("pages") or []
+            written = sum(len(page.get("panels") or []) for page in pages if isinstance(page, dict))
+            if written:
+                panels.append(written)
+
+    if len(panels) < 4:
+        pytest.skip(f"only {len(panels)} prompt-variant runs stored; need 4 to measure")
+    assert len(chars) == 1, f"the experiments should share one excerpt length, got {chars}"
+
+    length = chars.pop()
+    predicted = PANELS_BASE_B + PANELS_SLOPE_B * length
+    assert max(panels) / min(panels) >= 1.8, (
+        "prompt variance narrowed; the band's stated scope may now be too narrow"
+    )
+    assert min(panels) < predicted < max(panels), (
+        f"prompt variants {sorted(panels)} should straddle the {predicted:.1f} prediction; "
+        "if they do not, the band's scope caveat describes a situation that no longer holds"
     )

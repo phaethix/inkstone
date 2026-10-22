@@ -106,6 +106,14 @@ PANELS_FLAT_C = 31.8
 # flat rate. That is a gap in the evidence, not a modelling choice. C's own spread
 # was narrower where measured (29/25/33 on one chunk, cv 0.13), so this band is
 # probably wider than C deserves, which errs toward over-preparing and not under.
+#
+# Second caveat, measured after the fact: the band assumes the prompt these runs
+# used. ``.agent/experiments/prompt-thickness`` planned the same 620-character
+# excerpt under four prompts and wrote 9, 18, 16 and 10 panels — a 2x spread that
+# straddles this model's 16.2 prediction from below and above. So the band covers
+# run-to-run variance under one prompt, not prompt variance. It is quoted for the
+# shipped prompt, which is what the estimate is asked about; a 2x spread from
+# swapping prompts is outside what any single band here can claim.
 PANELS_RESIDUAL_P10 = -5.6
 PANELS_RESIDUAL_P90 = 12.3
 PANELS_PER_CHUNK_C = 14  # 近原著
@@ -532,6 +540,7 @@ def estimate(
             + f"区间 {panels_low}–{panels_high} 格取自每段残差的第 10 与第 90 百分位"
             f"（{PANELS_RESIDUAL_P10:+g} / {PANELS_RESIDUAL_P90:+g} 格，按段数累加，故不对称），"
             "来自 23 段已存运行；请按区间预留时间与费用。"
+            "该区间衡量的是同一套提示词下多次运行的波动，不含更换提示词带来的差异。"
         )
     if capacity_note:
         warnings.append(
