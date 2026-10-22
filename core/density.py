@@ -32,9 +32,9 @@ thinned to the main thread. B and C keep what the planner wrote, so their budget
 is a target and the panel count is a floor. That keeps the order above for one
 plan run through both policies: B and C can meet at the top but cannot cross.
 It does not keep it across runs. B and C are separate planner calls, and the
-planner is not deterministic: on one 4,594-character chunk, four B runs wrote
-11/21/25/38 panels and three C runs wrote 29/25/33. B's own spread is 3.5x,
-wider than the gap between the tiers, so the two can land either way round in a
+planner is not deterministic: on one 4,594-character chunk, three B runs wrote
+16/19/29 panels and three C runs wrote 39/30/26. B's own spread is 1.8x,
+comparable to the gap between the tiers, so the two can land either way round in a
 single run. C used to clip as well, and a planner that wrote more than its 14
 then made the densest tier the thinnest one. ``clips_plan`` is the single answer
 both the pipeline and the prompt renderer read.
@@ -287,8 +287,8 @@ def clips_plan(tier: DensityTier) -> bool:
     That is a statement about one panel list, not about two runs. B and C are
     separate planner calls, each writing its own plan, and the planner is not
     deterministic, so their totals can still cross: on one 4,594-character chunk,
-    four B runs wrote 11/21/25/38 panels and three C runs wrote 29/25/33. B's own
-    spread is 3.5x, wider than the gap between the tiers, so either order can
+    three B runs wrote 16/19/29 panels and three C runs wrote 39/30/26. B's own
+    spread is 1.8x, comparable to the gap between the tiers, so either order can
     come out of a single run. Nothing here prevents that; forcing the order
     across runs needs a cross-call constraint.
 

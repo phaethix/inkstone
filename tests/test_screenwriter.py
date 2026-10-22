@@ -198,10 +198,12 @@ def test_the_budget_sentence_counts_the_beats_it_tells_the_planner_to_follow():
     where the number is set, and it named no beat count. "Cover the chapter's
     beats and let them decide when it needs more" therefore asks the planner to
     scale against a quantity it was never given, while the length of the excerpt
-    is stated plainly next to it. That asymmetry is the difference between the
-    two tiers' repeatability: on one identical 4,594-character chunk, four B runs
-    (which defers to the beats) wrote 11/21/25/38 panels, a 3.5x spread, while
-    three C runs (which names what to cover) wrote 29/25/33, a 1.3x spread.
+    is stated plainly next to it. That asymmetry is the reason the two tiers'
+    repeatability was compared: on one identical 4,594-character chunk, three B
+    runs (which defers to the beats) wrote 16, 19 and 29 panels, a 1.8x spread,
+    while three C runs (which names what to cover) wrote 39, 30 and 26, a 1.5x
+    spread. B is the less repeatable of the two, but three runs cannot settle a
+    tier's spread and this is recorded as a lead rather than a result.
 
     Counting the beats gives the sentence the denominator its own wording
     promises. It is not a new constraint on the planner, only the number behind

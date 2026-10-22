@@ -540,9 +540,9 @@ def _budget_sentence(
     is "cover the chapter's beats and let them decide when it needs more" — an
     instruction to scale against a quantity the sentence never stated, sitting
     next to an excerpt length that it did state. C never issued that open
-    instruction, and the two tiers' repeatability split along exactly that line:
-    on one identical 4,594-character chunk, four B runs wrote 11/21/25/38 panels
-    (3.5x spread) while three C runs wrote 29/25/33 (1.3x spread). The beat set
+    instruction, and the two tiers' repeatability differed along that line:
+    on one identical 4,594-character chunk, three B runs wrote 16/19/29 panels
+    (1.8x spread) while three C runs wrote 39/30/26 (1.5x spread). The beat set
     already reaches the planner as JSON, so this adds no new constraint — only
     the count behind an instruction the tier already gave. ``None`` omits it, for
     callers that pass no beat set.

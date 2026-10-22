@@ -284,9 +284,10 @@ Keep these prototypes only as migration material until they conform to the targe
   What remains un-calibrated is the budget itself, and the reason is now
   measured rather than suspected: the planner is not deterministic, so no single
   run can set the number. Tier B on one identical 4,594-character chunk with the
-  same budget of 8 wrote 11, 21, 25 and 38 panels across four runs — a 3.5x
-  spread around a mean of 23.8. Tier C on the same chunk wrote 29, 25 and 33
-  around a mean of 29.0, a 1.3x spread. C is repeatable; B is not. Any
+  same budget of 8 wrote 16, 19 and 29 panels across three runs — a 1.8x spread
+  around a mean of 21.3. Tier C on the same chunk wrote 39, 30 and 26 around a
+  mean of 31.7, a 1.5x spread. Neither tier is repeatable enough for one run to
+  set a budget, and three runs per tier is too few to rank them. Any
   calibration that reads one B run would be fitting noise.
   - The budgets are absolute counts and the planner's output scales with length,
     which is the structural half of the problem. B's 8 panels is 1.74 per 1,000
@@ -332,8 +333,10 @@ Keep these prototypes only as migration material until they conform to the targe
     chapter's beats and let them decide when it needs more" — an instruction to
     scale against a quantity the sentence never stated, printed next to an excerpt
     length that it did state. C never issued that open instruction, and the two
-    tiers' repeatability split along exactly that line: four B runs on the same
-    chunk wrote 11/21/25/38 (3.5x) while three C runs wrote 29/25/33 (1.3x). The
+    tiers' repeatability differed along that line: three B runs on the same chunk
+    wrote 16/19/29 (1.8x) while three C runs wrote 39/30/26 (1.5x). Three runs
+    cannot settle a spread, so this was the lead that motivated counting beats,
+    not proof that it fixes the repeatability. The
     beat set already reaches the planner as JSON, so the count adds no new
     constraint, only the number behind an instruction the tier already gave. It is
     derived from the beat object in the same request, so it cannot contradict the
@@ -392,8 +395,10 @@ Keep these prototypes only as migration material until they conform to the targe
     chapter's beats and let them decide when it needs more" — an instruction to
     scale against a quantity the sentence never stated, printed next to an excerpt
     length that it did state. C never issued that open instruction, and the two
-    tiers' repeatability split along exactly that line: four B runs on the same
-    chunk wrote 11/21/25/38 (3.5x) while three C runs wrote 29/25/33 (1.3x). The
+    tiers' repeatability differed along that line: three B runs on the same chunk
+    wrote 16/19/29 (1.8x) while three C runs wrote 39/30/26 (1.5x). Three runs
+    cannot settle a spread, so this was the lead that motivated counting beats,
+    not proof that it fixes the repeatability. The
     beat set already reaches the planner as JSON, so the count adds no new
     constraint, only the number behind an instruction the tier already gave. It is
     derived from the beat object in the same request, so it cannot contradict the
@@ -423,8 +428,8 @@ Keep these prototypes only as migration material until they conform to the targe
     their own plan, so their totals can still cross. The clean measurement is
     repeat sampling with the correct tier mapping (an anonymous label is not the
     tier: a density run stores them in `candidates.<id>.tier`). On one
-    4,594-character chunk, four B runs wrote 11/21/25/38 and three C runs wrote
-    29/25/33. B's own spread is 3.5x, wider than the gap between the tiers, so
+    4,594-character chunk, three B runs wrote 16/19/29 and three C runs wrote
+    39/30/26. B's own spread is 1.8x, comparable to the gap between the tiers, so
     B above C in one run and below it in the next is expected rather than a bug
     in the policy. Stating the excerpt length removed the systematic length
     confound (C at or above B on all four ladder lengths, and on chunks 1 and 2
@@ -708,16 +713,28 @@ Keep these prototypes only as migration material until they conform to the targe
   magnitude was not: 9.4 is the low tail of a distribution whose centre is close to
   what the line already said.
 
-  Second, and more useful: the run-to-run spread is larger than every effect the
-  model tries to capture. Comparing 620 to 4,594 characters moves the prediction by
-  8.5 panels, while a single chunk's own sd is 11.2 (11/21/25/38 on one 2.5 chunk,
-  cv 0.47). Any conclusion drawn from one run at one length against one run at
+  Second, and more useful: the run-to-run spread is of the same order as every
+  effect the model tries to capture. Comparing 620 to 4,594 characters moves the
+  prediction by 8.5 panels, while the pooled within-chunk sd across four stored
+  reruns of one book is 6.7 panels (widest chunk sd 8.5, on 27/37/44 at 4,121
+  characters). Any conclusion drawn from one run at one length against one run at
   another is reading noise, which is exactly what the ladder above was doing on its
-  first pass. `test_run_spread_is_larger_than_the_effect_of_length` now states that
-  ratio so it cannot be re-derived away, and
+  first pass. `test_run_spread_is_comparable_to_the_effect_of_length` now states
+  that ratio so it cannot be re-derived away, and
   `test_the_band_is_wide_enough_for_a_single_run_not_just_the_mean` holds the band
   to a single run's excursion rather than to the error of the mean — a user gets one
   run, so a band that covers only a mean is a false promise.
+
+  A correction to the record: an earlier revision of this section cited
+  "11/21/25/38" as four reruns of the 4,594-character chunk, with sd 11.2 and cv
+  0.47. Those numbers were never measured. They were a hard-coded string inside a
+  diagnostic script that printed them back, and the printed line was read as
+  evidence. The real runs of that chunk are 16, 19 and 29 (sd 6.8). The finding
+  survived — spread is still the same size as the length effect — but the numbers
+  did not, so they are replaced here and pinned by
+  `test_the_rerun_table_reproduces_from_the_stored_runs`, which recomputes the
+  table from the stored runs and fails if any row disagrees. A rerun table in a
+  comment is a claim about data; if it cannot be recomputed it is a rumour.
 
   The version question was checked and dismissed. The 23 stored chunks are 22 rows
   of `agnes-2.5-flash` plus one of `agnes-3.0-flash`, so the fit had pooled two
