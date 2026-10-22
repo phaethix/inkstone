@@ -45,6 +45,9 @@ DEFAULT_RECOVERY_RESERVE = 1
 _FINISHED_PAGE_FLOORS: tuple[tuple[str, int], ...] = (
     ("extract", 1),
     ("bible", 1),
+    # One charge covers the extraction and its one empty-answer retry: the retry
+    # happens inside ``extract_key_beats``, before the pipeline charges again.
+    # Funding two here would starve ``page_plan`` on a five-call budget.
     ("beats", 1),
     ("page_plan", 2),
     ("portrait", 1),
@@ -123,7 +126,9 @@ def allocate(
     """Split ``total`` into a reserve plus per-stage floors, rest to render.
 
     Chat floors are funded before render, so render cannot borrow them.
-    ``page_plan`` keeps two calls because the pipeline may retry it once.
+    ``page_plan`` keeps two calls because the pipeline may retry it once. The
+    beat extraction's empty-answer retry needs no second floor: it happens inside
+    one charge, before the pipeline charges again.
     ``panel_compose`` funds storyboard instead of the finished-page plan
     stages, and funds page_script only when that path is enabled. An unused
     floor would shrink the render allowance for no call.

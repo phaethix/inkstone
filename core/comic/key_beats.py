@@ -5,6 +5,26 @@ from __future__ import annotations
 from core.schemas import ComicPagePlan, ComicPagePlanSet, KeyBeat, KeyBeatSet
 
 
+def cacheable_beats(beats: KeyBeatSet | None) -> KeyBeatSet | None:
+    """The beat set to keep as this chunk's beats, or ``None`` if it is empty.
+
+    An empty set is a valid answer and is returned to the caller, but it must not
+    become this chunk's stored beats. The pipeline writes the set into
+    ``state.beat_cache`` and records it as the stage body on disk, so caching an
+    empty one makes a single bad answer the chunk's fixed truth: every later
+    chunk in the run reuses it, and every later run restores it from the file
+    instead of extracting again. "The model found no beats here once" is a much
+    weaker claim than that, and it is not worth the cost of being wrong for the
+    life of the project.
+
+    Not caching it keeps the stage retryable. The planning call still runs, with
+    no beats, which is the state this chunk was in before the extractor answered.
+    """
+    if beats is None or not beats.beats:
+        return None
+    return beats
+
+
 def uncovered_must_draw_beats(beats: KeyBeatSet, pageset: ComicPagePlanSet) -> list[KeyBeat]:
     """Return must_draw beats not listed in any page's covers_beats."""
     covered: set[str] = set()

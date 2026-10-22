@@ -91,7 +91,11 @@ from core.comic.identity import (
     page_state_key,
     suggestion_from_alias,
 )
-from core.comic.key_beats import beat_coverage_retry_note, uncovered_must_draw_beats
+from core.comic.key_beats import (
+    beat_coverage_retry_note,
+    cacheable_beats,
+    uncovered_must_draw_beats,
+)
 from core.comic.layout import LayoutEngine, PanelImage, _line_height, _webtoon_max_pixels
 from core.comic.layout_diversity import layout_diversity_instructions
 from core.comic.ledger import ConsistencyLedger, ContinuityReviewPaused
@@ -2740,7 +2744,13 @@ async def _creative_comic(
                 cached_beats = state.beat_cache.get(key)
                 if cached_beats is None:
                     restored_beats = _restore_stage_body(output_dir, beats_key, "beats", KeyBeatSet)
-                    if restored_beats is not None:
+                    # An empty set on disk is evidence that one extraction
+                    # answered with nothing, not that this chunk has no beats.
+                    # Older runs recorded it as a stage body, so restoring it
+                    # would make that answer permanent for the project. Leaving
+                    # it out re-extracts, which is what the stage would do on a
+                    # miss.
+                    if cacheable_beats(restored_beats) is not None:
                         restored_beats.action_key = beats_key
                         state.beat_cache[key] = restored_beats
                         cached_beats = restored_beats
@@ -2801,17 +2811,30 @@ async def _creative_comic(
                                         request=beats_request,
                                     )
                                     beats.action_key = beats_key
-                                    state.beat_cache[key] = beats
-                                    sync_adaptation_plans(state, chunks)
-                                    _record_stage_body(
-                                        output_dir,
-                                        "beats",
-                                        beats_key,
-                                        beats,
-                                        stage_src=_BEATS_STAGE_SRC,
-                                        env=snapshot.chat,
-                                        inputs=[extract_key],
-                                    )
+                                    # An empty set is not this chunk's beats.
+                                    # Caching it would make one bad answer the
+                                    # chunk's permanent truth: reused for the rest
+                                    # of the run and restored by every later run.
+                                    # Keeping it out of the cache leaves the stage
+                                    # retryable, which is what it was before.
+                                    if cacheable_beats(beats) is None:
+                                        logger.warning(
+                                            "chunk %s key-beat extract returned no beats; "
+                                            "not caching, so the stage can be retried",
+                                            ci,
+                                        )
+                                    else:
+                                        state.beat_cache[key] = beats
+                                        sync_adaptation_plans(state, chunks)
+                                        _record_stage_body(
+                                            output_dir,
+                                            "beats",
+                                            beats_key,
+                                            beats,
+                                            stage_src=_BEATS_STAGE_SRC,
+                                            env=snapshot.chat,
+                                            inputs=[extract_key],
+                                        )
                                 except Exception as beat_exc:  # noqa: BLE001
                                     logger.warning(
                                         "chunk %s key-beat extract failed (%s); continuing",

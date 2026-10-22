@@ -766,10 +766,33 @@ async def extract_key_beats(
     chat=None,
     request: ChatRequest | None = None,
 ) -> KeyBeatSet:
-    """Extract must-draw dramatizable beats for a text unit."""
+    """Extract must-draw dramatizable beats for a text unit.
+
+    An empty beat set is asked about once more. The prompt in the same request
+    states a band derived from the excerpt's length, so an answer with no beats
+    in it is a missed instruction rather than a considered result: the model
+    returned a shape that validated while ignoring the count the prompt asked
+    for. Retrying says what was missing instead of repeating the same sentence,
+    which is what produced the empty answer.
+
+    The retry is bounded to one extra call. A caller still gets an answer, and
+    the empty set is returned rather than raised: what an empty extraction means
+    is a decision for the caller, which is where the beat cache and the call
+    budget live. On the pipeline side an empty set is not cached, so a chunk is
+    not committed to having no beats for the rest of the run.
+    """
     chat = chat or get_chat_provider()
     request = request or build_beats_request(text, elements, model=getattr(chat, "model", ""))
     args = await _audited_chat(chat, request.messages, request.tools, request.tool_choice)
+    beats = KeyBeatSet.model_validate(args)
+    if beats.beats:
+        return beats
+    logger.warning("key-beat extract returned no beats; asking once more")
+    retry = request.with_user_suffix(
+        "\n\nCRITICAL: the previous answer contained no beats. Stage this excerpt "
+        "as key beats now: 本段必须画出至少一个转折点。"
+    )
+    args = await _audited_chat(chat, retry.messages, retry.tools, retry.tool_choice)
     return KeyBeatSet.model_validate(args)
 
 

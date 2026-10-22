@@ -365,16 +365,29 @@ Keep these prototypes only as migration material until they conform to the targe
     the same chunk: beats 10, 13 and one empty; panels 24, 24, 18. Beats cv fell
     from 0.48 to 0.18 and panels cv from 0.59 to 0.16, with every non-empty count
     inside the requested band. Pinned by `tests/test_beat_count_band.py`.
-  - **Open:** the beat extractor accepts an empty set, and one of the three runs
-    above returned one. `extract_key_beats` validates whatever the model sent with
-    no check that it staged anything, and the pipeline's coverage retry only looks
-    at beats that exist (`uncovered_must_draw_beats` over a real beat set), so an
-    empty extraction produces a plan with no beat coverage and no retry. The band
-    fix does not address it: the run that returned nothing also returned 18 panels,
-    so the failure is silent rather than loud. Not fixed here because deciding what
-    an empty extraction should do — retry once, fall back to a single beat covering
-    the excerpt, or fail the stage — is a policy choice about a stage this change
-    did not otherwise touch.
+  - An empty beat extraction is no longer accepted, cached, or restored. Three
+    runs on the same chunk earlier in this thread returned 15, 7 and 7 beats; the
+    run that returned nothing still planned 18 panels against a beat set with
+    nothing in it, and nothing reported it. Three separate reasons, all closed:
+    `extract_key_beats` asked again (bounded to one extra call) with a sentence
+    naming what was missing; the pipeline no longer writes an empty set into
+    `beat_cache` or records it as the stage body, so the chunk stays retryable;
+    and the disk restore path treats an empty body as a miss rather than as this
+    chunk's beats, so a project that already recorded one re-extracts instead of
+    inheriting it forever. `uncovered_must_draw_beats` could never have caught
+    this: it iterates the beats that exist, and an empty set has no uncovered
+    beats. Pinned by `tests/test_empty_beats.py`.
+    The retry needs no extra budget reservation: `_charge("beats", ...)` runs
+    once, before the extraction is awaited, and the retry is a second model call
+    inside that one charged item. Raising the floor to two was tried and reverted
+    — it reserved a slot nothing spends and starved `page_plan` at `allocate(5)`,
+    which is now pinned by
+    `test_the_beats_retry_costs_no_extra_budget_reservation`.
+  - Two test stand-ins returned `{"beats": []}` as a shorthand, which is exactly
+    the answer the retry exists to reject: `FakeChat` in
+    `tests/test_finished_page_pipeline.py` bought a second extraction call and
+    made four-call assertions read five. It now stages a real beat and its page
+    plan covers it, so the stand-in matches the contract the pipeline enforces.
     that is the denominator the wording was already asking for. B says "cover the
     chapter's beats and let them decide when it needs more" — an instruction to
     scale against a quantity the sentence never stated, printed next to an excerpt

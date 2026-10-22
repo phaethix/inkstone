@@ -111,7 +111,18 @@ class FakeChat(ChatProvider):
                 ],
             }
         if name == "extract_key_beats":
-            return {"beats": []}
+            # A real extraction stages at least one beat: an empty answer is
+            # asked once more, so a stand-in returning none buys a second call.
+            return {
+                "beats": [
+                    {
+                        "beat_id": "village_gate",
+                        "summary": "福贵 walks through the village entrance",
+                        "must_draw": True,
+                        "characters": ["福贵"],
+                    }
+                ]
+            }
         if name == "plan_comic_pages":
             self.page_plan_calls += 1
             return {
@@ -121,6 +132,7 @@ class FakeChat(ChatProvider):
                         "page_id": f"u{self.page_plan_calls}_p0001",
                         "purpose": "establish the village entrance",
                         "layout_intent": "wide establishing top, inset reaction bottom-right",
+                        "covers_beats": ["village_gate"],
                         "panels": [
                             {
                                 "panel_id": "1",
