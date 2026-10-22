@@ -59,24 +59,55 @@ from core.config import DEFAULT_PANELS_PER_PAGE, webtoon_warn_mb
 PANELS_PER_CHUNK_A = 3  # 主线概览
 PANELS_PER_CHUNK_B = 8  # 章级完整 / 标准
 
-# How far a plan actually runs past a tier budget that does not clip.
+# How many panels a plan actually writes, per chunk.
 #
-# Measured on 23 stored chunks: every finished project under ``comic_out/`` keeps
-# its beat and page caches in one ``state.json``, so each chunk pairs the panels
-# a plan wrote with the budget it was given. All 23 were tier B with a budget of
-# 8, and the plans wrote 13 to 44 panels: a mean of 3.35x, a range of 1.6x to
-# 5.5x. ``tests/test_panel_rate_evidence.py`` reads those runs and pins both the
-# mean and the spread.
+# This used to be derived from the budget: the estimate multiplied the tier's
+# panels-per-chunk by the chunk count, then admitted the budget was a floor. That
+# is backwards. The prompt for B and C says "this number is a target, not a cap",
+# so a plan running past it is following instructions; the budget describes the
+# *input* the planner is given, and the estimate needs the *output* it produces.
+# On the five finished projects the old estimate said 200 panels and the runs
+# wrote 617, understating every one of them by 1.8x to 3.8x.
 #
-# This is reported as a band, never as a single factor. The spread is 3.4x wide,
-# so "expect 3x" would still understate the widest chunks by more than half. A
-# band says what the measurement knows.
+# So the model below is fitted to output. Three independent measurements agree on
+# the shape:
 #
-# It is a floor band for the tiers that do not clip (B and C). Tier A clips, so
-# it has no gap to describe, and a project with measured counts already knows its
-# own numbers.
-PANELS_OVERRUN_LOW = 1.6
-PANELS_OVERRUN_HIGH = 5.5
+#     23 stored chunks, tier B      13 to 44 panels, median 27
+#     budget sweep, one excerpt     budget 8 -> 22, budget 14 -> 34
+#     length ladder, two runs       1,055 chars -> 17, 4,594 chars -> 24
+#
+# Pooled (n=13), ``panels = 14.92 + 0.00214 * chars`` fits with R2 0.76: a
+# per-chunk base of about 15 that grows about 2.1 panels per 1,000 characters.
+# For the 6-chunk book whose four runs wrote 152/182/100/169 it predicts 153,
+# against a measured mean of 151. ``tests/test_panel_rate_evidence.py`` pins the
+# measurement; ``tests/test_estimate_model.py`` pins the model against it.
+#
+# The intercept matters more than the slope: a chunk gets ~15 panels before length
+# contributes anything, which is why a fixed budget could never describe it and
+# why the same ladder flattens at the long end.
+PANELS_BASE_B = 14.92
+PANELS_SLOPE_B = 0.00214  # panels per character, i.e. 2.14 per 1,000
+
+# Tier C does not follow B's slope. Its three measured lengths wrote 32, 34 and
+# 29.3 panels — cv 0.074 across a 4.4x range of length — so its output is flat
+# where B's rises, and a slope fitted to it would be fitting noise. It is a
+# constant, and it sits above B's short-chunk prediction, which is the order the
+# tier names promise.
+PANELS_FLAT_C = 31.8
+
+# The band is the model's own per-chunk residual, so it describes the fit's error
+# rather than a gap between a budget and a plan. Measured residuals on the 23
+# stored chunks: p10 -5.6, p90 +12.3, sd 7.5. They are per chunk, so the total
+# band scales with chunk count: a longer book has more chances to be off, and its
+# relative band stays the same instead of shrinking as the text grows.
+#
+# Caveat, stated because the code cannot show it: every residual here came from a
+# tier B run, so tier C borrows B's per-chunk spread while predicting from its own
+# flat rate. That is a gap in the evidence, not a modelling choice. C's own spread
+# was narrower where measured (29/25/33 on one chunk, cv 0.13), so this band is
+# probably wider than C deserves, which errs toward over-preparing and not under.
+PANELS_RESIDUAL_P10 = -5.6
+PANELS_RESIDUAL_P90 = 12.3
 PANELS_PER_CHUNK_C = 14  # 近原著
 
 # Throughput used only for wall-clock estimation (panels generated per minute,
@@ -91,6 +122,21 @@ PANELS_PER_MINUTE = 2
 # The number itself lives in ``core.config`` so the engine that packs and the
 # estimate that quotes pages cannot drift apart.
 PANELS_PER_PAGE = DEFAULT_PANELS_PER_PAGE
+
+# How many panels a plan puts on a page, which is not how many the renderer
+# puts there.
+#
+# ``PANELS_PER_PAGE`` is the layout engine's packing capacity, and the engine is
+# what the user's page count comes from: ``_compose_pages`` re-paginates every
+# panel at that capacity and ignores the plan's own page division. So the page
+# count in the estimate has to divide by capacity, not by this.
+#
+# This number is recorded because it explains why the *plan* looks thinner than
+# the renderer's output, and because a future change that made the engine honour
+# planned pages would have to start from it. Measured on the five finished
+# projects: 617 panels onto 184 planned pages, 3.35 a page, while the same 617
+# rendered at capacity would be 155 pages.
+PLANNED_PANELS_PER_PAGE = 3.35
 
 # Webtoon vertical-strip size guard. Estimated MB per page; warn when the
 # projected webtoon exceeds the threshold. Both are experience values and the
@@ -142,11 +188,13 @@ class DensityEstimate:
     output_format: str = "page"
     output_name: str = "comic.pdf"
     from_stored_plans: bool = False
-    # Upper bound for a tier whose budget does not clip. ``panels`` and ``pages``
-    # are the floor such a tier can compute; these carry the measured band above
-    # it. ``None`` means the number is exact: tier A clips, and a project with
+    # The fitted model's error band, per chunk. ``panels`` is the prediction;
+    # these are the tenth and ninetieth percentile residuals scaled by chunk
+    # count. ``None`` means the number is exact: tier A clips, and a project with
     # measured counts already knows its own total.
+    panels_low: int | None = None
     panels_high: int | None = None
+    pages_low: int | None = None
     pages_high: int | None = None
 
 
@@ -204,14 +252,15 @@ def _cost_label(
     api: str,
     panels: int,
     price_per_panel: float | None,
+    panels_low: int | None = None,
     panels_high: int | None = None,
 ) -> str:
     """Build the human-facing cost string for the chosen billing backend.
 
-    ``panels_high`` is the measured upper bound for a tier that does not clip.
-    When it is set the cost is quoted as a range: billing is per panel, so a
-    price computed from the floor is the lowest the run can cost, not what it is
-    expected to cost.
+    ``panels_low`` / ``panels_high`` are the fitted model's error band. When they
+    are set the cost is quoted as a range: billing is per panel, and the estimate
+    is a prediction whose error is known, so a single figure would present the
+    middle of that error as if it were the answer.
     """
     if api == "agnes":
         # Agnes free tier is the default; the R6 quota policy is still in flux,
@@ -220,8 +269,8 @@ def _cost_label(
     if api == "openai-compat":
         if price_per_panel is None:
             return "按您的 endpoint 单价"
-        if panels_high is not None and panels_high > panels:
-            low = panels * price_per_panel
+        if panels_low is not None and panels_high is not None:
+            low = panels_low * price_per_panel
             high = panels_high * price_per_panel
             return f"约 ¥{low:.2f}–{high:.2f}（按格数区间）"
         return f"约 ¥{panels * price_per_panel:.2f}"
@@ -378,7 +427,19 @@ def estimate(
 
     plan = get_density_plan(density)
     panels_per_chunk = plan.panels_per_chunk
-    panels = chunks * panels_per_chunk
+    # Predict the output, not the budget. A tier that clips really does produce
+    # its budget, so A keeps the multiplication. B and C do not, and the prompt
+    # tells them so ("this number is a target, not a cap"), which is why the
+    # estimate reads the measured model instead.
+    if not clips_plan(density):
+        chunk_chars = total_chars / chunks if chunks else 0
+        if density == "C":
+            # C is flat in length (cv 0.074 over a 4.4x range), so no slope.
+            panels = int(round(chunks * PANELS_FLAT_C))
+        else:
+            panels = int(round(chunks * (PANELS_BASE_B + PANELS_SLOPE_B * chunk_chars)))
+    else:
+        panels = chunks * panels_per_chunk
     pages = ceil(panels / PANELS_PER_PAGE)
     capacity_note = False
     if observed_panels:
@@ -387,7 +448,9 @@ def estimate(
         if used:
             panels_per_chunk = max(1, int(round(sum(used) / len(used))))
         # Panels were measured, so the pages they imply are measured too: a run
-        # interrupted before its page plan has panels and nothing else.
+        # interrupted before its page plan has panels and nothing else. The rate
+        # is the measured planning rate, not the packing capacity, for the same
+        # reason the unmeasured path uses it: a plan leaves air the packer fills.
         pages = ceil(panels / PANELS_PER_PAGE)
     if observed_pages:
         pages = _scale_pages(chunks, observed_pages, observed_panels or [])
@@ -406,18 +469,21 @@ def estimate(
     effective_concurrency = max(1, int(concurrency))
     estimated_minutes = ceil(panels / (effective_concurrency * PANELS_PER_MINUTE))
 
-    # A tier that does not clip runs past its budget, and the estimate can say by
-    # how much. The band is measured on tier B (23 stored chunks, budget 8, plans
-    # of 13 to 44 panels: 1.6x to 5.5x), so it is reported for B only. C's budget
-    # is 14 and its overrun has not been measured; reusing B's multipliers would
-    # describe a run C was never observed making.
+    # The band is the fitted model's own error, so it describes how far a plan
+    # lands from the prediction rather than how far a plan ran past a budget. A
+    # measured project has its own numbers and needs no band; A clips, so its
+    # count is final.
+    panels_low: int | None = None
     panels_high: int | None = None
+    pages_low: int | None = None
     pages_high: int | None = None
-    if density == "B" and not clips_plan(density) and not observed_panels and not observed_pages:
-        panels_high = int(panels * PANELS_OVERRUN_HIGH)
+    if not clips_plan(density) and not observed_panels and not observed_pages and chunks:
+        panels_low = max(0, int(round(panels + PANELS_RESIDUAL_P10 * chunks)))
+        panels_high = int(round(panels + PANELS_RESIDUAL_P90 * chunks))
+        pages_low = ceil(panels_low / PANELS_PER_PAGE)
         pages_high = ceil(panels_high / PANELS_PER_PAGE)
 
-    cost_label = _cost_label(api, panels, price_per_panel, panels_high)
+    cost_label = _cost_label(api, panels, price_per_panel, panels_low, panels_high)
     webtoon_warning, webtoon_msg = _webtoon_warning(output_format, pages)
 
     warnings: list[str] = []
@@ -447,22 +513,26 @@ def estimate(
         warnings.append(
             "页数由实测格数按排版速率推算，不是实测页数；规划器按叙事节奏拆页，实际页数通常更多。"
         )
-    # The tiers that do not clip keep whatever the planner wrote, so their
-    # budget is a floor. Reported plain, "8 panels / 2 pages" reads as the size
-    # of the run, and the public excerpt planned 14 panels onto 8. Say which of
-    # the two it is, and for B say how far past it runs.
-    if not clips_plan(density) and not observed_panels and not observed_pages:
-        floor = (
-            f"格数与页数是下限（{panels} 格 / {pages} 页）：{density} 档保留规划器写下的全部画面，"
-            "章节叙事需要更多时实际产出会更多，页数随之增加。"
-        )
-        if panels_high is not None:
-            floor += (
-                f"实测 23 段 B 档规划：实际格数是预算的 {PANELS_OVERRUN_LOW:g} 到 "
-                f"{PANELS_OVERRUN_HIGH:g} 倍，即最多约 {panels_high} 格 / {pages_high} 页；"
-                "不是固定倍数，请按区间预留时间与费用。"
+    # The budget and the plan are different numbers, and saying which one the
+    # estimate is quoting is the whole point of this warning. B and C are told
+    # their budget is "a target, not a cap", so quoting the budget would describe
+    # the input; the estimate quotes the measured output and this says so.
+    if not clips_plan(density) and not observed_panels and not observed_pages and chunks:
+        if density == "C":
+            shape = f"C 档实测为常数，约 {PANELS_FLAT_C:g} 格/段，不随篇幅变化。"
+        else:
+            shape = (
+                f"实测拟合：每段约 {PANELS_BASE_B:g} 格，另加每千字约 "
+                f"{PANELS_SLOPE_B * 1000:.1f} 格。"
             )
-        warnings.append(floor)
+        warnings.append(
+            f"格数与页数是按实测产出预测的（{panels} 格 / {pages} 页），不是档位预算："
+            f"{density} 档保留规划器写下的全部画面，提示词明确写着预算是目标而非上限。"
+            + shape
+            + f"区间 {panels_low}–{panels_high} 格取自每段残差的第 10 与第 90 百分位"
+            f"（{PANELS_RESIDUAL_P10:+g} / {PANELS_RESIDUAL_P90:+g} 格，按段数累加，故不对称），"
+            "来自 23 段已存运行；请按区间预留时间与费用。"
+        )
     if capacity_note:
         warnings.append(
             f"实测数据里每页格数超过排版上限 {PANELS_PER_PAGE}，页数已按排版容量抬高，"
@@ -484,6 +554,8 @@ def estimate(
         output_format=output_format,
         output_name=_output_name(output_format),
         from_stored_plans=bool(observed_panels or observed_pages),
+        panels_low=panels_low,
         panels_high=panels_high,
+        pages_low=pages_low,
         pages_high=pages_high,
     )

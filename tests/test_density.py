@@ -14,6 +14,7 @@ from pathlib import Path
 
 from core.config import ENV_WEBTOON_WARN_MB
 from core.density import (
+    PANELS_FLAT_C,
     PANELS_PER_CHUNK_A,
     PANELS_PER_CHUNK_B,
     PANELS_PER_CHUNK_C,
@@ -52,14 +53,21 @@ def test_get_density_plan_constants():
 
 
 def test_tier_a_b_c_panel_counts(tmp_path):
+    """A reports its clipped budget; B and C report what a plan is measured to write.
+
+    The budget is the planner's input, and for B and C the prompt calls it "a
+    target, not a cap". So only A's total is the multiplication it used to be.
+    """
     book = _write(tmp_path, _BODY)
     est_a = estimate(book, density="A")
     est_b = estimate(book, density="B")
     est_c = estimate(book, density="C")
     assert est_a.chunks == est_b.chunks == est_c.chunks
     assert est_a.panels == est_a.chunks * PANELS_PER_CHUNK_A
-    assert est_b.panels == est_b.chunks * PANELS_PER_CHUNK_B
-    assert est_c.panels == est_c.chunks * PANELS_PER_CHUNK_C
+    # B follows the fitted model, which sits above the budget it is given.
+    assert est_b.panels > est_b.chunks * PANELS_PER_CHUNK_B
+    # C is a flat measured rate, above B's short-chunk prediction.
+    assert est_c.panels == round(est_c.chunks * PANELS_FLAT_C)
     # Product order: A overview < B chapter-complete < C near-original
     assert est_a.panels < est_b.panels < est_c.panels
 
@@ -121,9 +129,15 @@ def test_tier_c_never_comes_out_thinner_than_tier_b():
 
 
 def test_pages_follow_panels_per_page(tmp_path):
+    """Pages come from the measured planning rate, not the packer's capacity.
+
+    A plan splits pages on narrative beats, so it leaves air the layout engine
+    would fill: 617 panels landed on 184 pages, 3.35 a page. Dividing by the
+    capacity of 4 estimates sheets the planner does not produce.
+    """
     book = _write(tmp_path, _BODY)
     est = estimate(book, density="B")
-    expected_pages = -(-est.panels // PANELS_PER_PAGE)  # ceil
+    expected_pages = ceil(est.panels / PANELS_PER_PAGE)
     assert est.pages == expected_pages
     assert est.output_format == "page"
     assert est.output_name == "comic.pdf"
@@ -178,8 +192,8 @@ def test_openai_cost_with_price(tmp_path):
     book = _write(tmp_path, _BODY)
     est = estimate(book, density="B", api="openai-compat", price_per_panel=0.05)
     assert est.cost_label.startswith("约 ¥")
-    assert est.panels_high is not None
-    expected = f"约 ¥{est.panels * 0.05:.2f}–{est.panels_high * 0.05:.2f}（按格数区间）"
+    assert est.panels_low is not None and est.panels_high is not None
+    expected = f"约 ¥{est.panels_low * 0.05:.2f}–{est.panels_high * 0.05:.2f}（按格数区间）"
     assert est.cost_label == expected
 
 
@@ -274,10 +288,11 @@ def test_observed_panels_move_the_page_count_too(tmp_path):
     est = estimate(
         book,
         density="B",
-        observed_panels=[14] * bare.chunks,
+        observed_panels=[40] * bare.chunks,
     )
-    assert est.panels == 14 * bare.chunks
-    assert est.pages == ceil(14 * bare.chunks / PANELS_PER_PAGE)
+    assert est.panels == 40 * bare.chunks
+    assert est.pages == ceil(40 * bare.chunks / PANELS_PER_PAGE)
+    # Measured panels must move the page count away from the prediction's own.
     assert est.pages != ceil(bare.panels / PANELS_PER_PAGE)
 
 
@@ -324,7 +339,7 @@ def test_the_measured_run_of_the_public_excerpt_reproduces_exactly():
 
     A local generate of the excerpt planned 14 panels onto 8 pages. That is the
     only evidence the project has about its own rate, so an estimate handed a
-    project that reached that state reports 14 and 8 rather than the tier rate.
+    project that reached that state reports 14 and 8 rather than a prediction.
     """
     path = Path(__file__).resolve().parents[1] / "examples/showcase/journey-west-ch1/source.txt"
     rate = estimate(path, density="B")
@@ -334,7 +349,10 @@ def test_the_measured_run_of_the_public_excerpt_reproduces_exactly():
         observed_panels=[14] * rate.chunks,
         observed_pages=[8] * rate.chunks,
     )
-    assert rate.panels == PANELS_PER_CHUNK_B and rate.pages == 2
+    # Unmeasured, the 620-character excerpt is predicted from the model, not from
+    # the budget of 8: the run wrote 14, and the model lands near it.
+    assert rate.panels != PANELS_PER_CHUNK_B
+    assert rate.panels >= 13
     assert measured.panels == 14 * rate.chunks
     assert measured.pages == 8 * rate.chunks
     assert measured.panels_per_chunk == 14
@@ -358,14 +376,20 @@ def test_counts_past_the_text_are_ignored():
     assert _scale_observed(1, [4, 7]) == 4
 
 
-def test_the_public_excerpt_keeps_the_experience_rate():
+def test_the_public_excerpt_is_predicted_from_the_model_not_the_budget():
+    """The 620-character excerpt wrote 14 panels; the model should land near it.
+
+    This used to assert the estimate returned the budget of 8 and 2 pages. That
+    was the defect in miniature: the run it was standing in for wrote 14, so the
+    assertion pinned an answer the pipeline does not produce.
+    """
     path = Path(__file__).resolve().parents[1] / "examples/showcase/journey-west-ch1/source.txt"
     est = estimate(path, density="B")
     assert path.read_text(encoding="utf-8").strip()
     assert est.chunks >= 1
     assert est.chunks == 1
-    assert est.panels == PANELS_PER_CHUNK_B
-    assert est.pages == 2
+    assert 13 <= est.panels <= 22, f"predicted {est.panels}, the run wrote 14"
+    assert est.pages >= 4, "pages follow panels at the measured rate, not the capacity"
     assert not any("已规划" in warning for warning in est.warnings)
 
 
@@ -450,7 +474,6 @@ def test_pages_alone_still_cover_the_chunks_that_have_no_page_plan(tmp_path):
     rate = estimate(book, density="B")
     assert rate.chunks == 3
     est = estimate(book, density="B", observed_pages=[2, 3])
-    assert est.pages * PANELS_PER_PAGE >= est.panels
     # The measured chunks average 2.5 pages, so the unmeasured one adds that much.
     assert est.pages == 5 + 3
 
@@ -471,33 +494,37 @@ def test_a_gap_between_measured_chunks_does_not_invent_a_capacity_problem(tmp_pa
     assert any("页数只实测了 1 段" in warning for warning in est.warnings)
 
 
-def test_tier_b_offers_its_panel_count_as_a_floor_not_a_forecast(tmp_path):
+def test_tier_b_quotes_a_prediction_and_says_where_it_came_from(tmp_path):
     """Tier B never clips, so its budget cannot be reported as the expected size.
 
-    The planner is told "about 8 panels" and nothing enforces it. The public
-    excerpt came back with 14, and pages follow panels. Reporting 8 and 2 as
-    plain numbers understates a fresh project by most of a factor of four, so
-    the estimate has to say the number is a floor the plan may exceed.
+    The planner is told "about 8 panels" and the prompt calls that a target, not
+    a cap. The public excerpt came back with 14. The estimate now predicts from
+    measurement instead, and the warning has to say so, because a reader who
+    takes the number for the budget would expect the plan to be clamped.
     """
     book = _write(tmp_path, "第一段文字内容较长的示例文本用来触发分段。\n" * 800)
     est = estimate(book, density="B")
-    assert any("下限" in warning for warning in est.warnings)
+    assert any("实测" in warning for warning in est.warnings)
+    assert any("不是档位预算" in warning for warning in est.warnings)
 
 
-def test_only_the_clipping_tier_avoids_a_floor_warning(tmp_path):
-    """A clips, so its budget is what the run will produce. B and C do not clip,
-    so their budget is a floor: the plan may need more panels than it asks for.
+def test_only_the_clipping_tier_reports_an_exact_count(tmp_path):
+    """A clips, so its budget is what the run will produce and it needs no band.
+
+    B and C do not clip, so their count is a prediction and carries the fit's
+    error; A's count is final.
     """
     book = _write(tmp_path, "第一段文字内容较长的示例文本用来触发分段。\n" * 800)
     est_a = estimate(book, density="A")
-    assert not any("下限" in warning for warning in est_a.warnings)
+    assert est_a.panels_low is None and est_a.panels_high is None
+    assert not any("实测" in warning for warning in est_a.warnings)
     for tier in ("B", "C"):
         est = estimate(book, density=tier)
-        assert any("下限" in warning for warning in est.warnings), tier
+        assert est.panels_low is not None and est.panels_high is not None, tier
 
 
-def test_a_measured_tier_b_run_drops_the_floor_caveat(tmp_path):
-    """Once panels are measured, the estimate is no longer guessing from the budget."""
+def test_a_measured_tier_b_run_drops_the_prediction_caveat(tmp_path):
+    """Once panels are measured, the estimate is not predicting anything."""
     book = _write(tmp_path, "第一段文字内容较长的示例文本用来触发分段。\n" * 800)
     est = estimate(book, density="B", observed_panels=[14] * 3)
-    assert not any("下限" in warning for warning in est.warnings)
+    assert not any("不是档位预算" in warning for warning in est.warnings)

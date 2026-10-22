@@ -545,12 +545,13 @@ def _print_plan(est: DensityEstimate) -> None:
     if "R6" in cost_line:
         cost_line = f"Agnes 免费档 → {cost_line}"
     print(f"档位 : {est.tier} {est.description}")
-    if est.panels_high is not None:
-        # An uncapped tier runs past its budget, so the floor alone answers the
-        # wrong question. Show the measured band's top next to it.
+    if est.panels_low is not None and est.panels_high is not None:
+        # The estimate is a prediction with a known error, so show the band it
+        # came with rather than the point in the middle of it.
         print(
-            f"预计 : {est.panels}–{est.panels_high} 格 / "
-            f"{est.pages}–{est.pages_high} 页 / {est.output_name}（下限到实测上限）"
+            f"预计 : {est.panels_low}–{est.panels_high} 格 / "
+            f"{est.pages_low}–{est.pages_high} 页 / {est.output_name}"
+            f"（预测 {est.panels} 格 / {est.pages} 页，区间为实测误差）"
         )
     else:
         print(f"预计 : {est.panels} 格 / {est.pages} 页 / {est.output_name}")

@@ -592,31 +592,49 @@ Keep these prototypes only as migration material until they conform to the targe
   planner's response to any budget at all. Pinned by
   `tests/test_panel_rate_evidence.py`, which reads the same stored runs and will
   fail if a future planner starts honouring a denominator.
-- **Decided (2026-10-22, `main`): B and C keep not clipping; the estimate now
-  reports the band instead.** The open question was whether B and C should start
-  clipping so the quoted number becomes true. They should not. Clipping would
-  break the promise the tier names make — 章级完整 and 近原著 both mean "keep what
-  the chapter staged", and dropping panels to hit a number is the 主线概览
-  behaviour that only A promises. A budget the planner ignores is not made
-  trustworthy by threshing the output afterwards; it is made honest by not
-  quoting one number for it.
+- **Fixed (2026-10-22, `main`): the estimate was anchored on the planner's input,
+  not its output.** The open question was whether B and C should clip so the
+  quoted number becomes true. Clipping is still the wrong answer — the tier names
+  promise the chapter's panels — but so was the previous fix, which kept the
+  estimate on the budget and merely widened it into a band around the budget. That
+  treated the symptom: the number was still `budget x chunks`.
 
-  So the estimate answers the question a user is actually asking. `panels` and
-  `pages` stay the floor it can compute from the budget, and `panels_high` /
-  `pages_high` carry the measured top, rendered as `48–264 格 / 12–66 页`. The
-  cost follows, because billing is per panel: at ¥0.05 a panel the same run
-  quotes `约 ¥2.40–13.20` instead of pricing a five-hour run at the two-hour
-  figure. Tier A keeps a single value (it clips, so its count is final), and a
-  project with measured counts keeps its own numbers (there is no gap left to
-  widen).
+  The root cause is one line of prompt. `_budget_sentence` tells tiers B and C
+  "this number is a target, not a cap", so a plan running past the budget is
+  following its instructions, not disobeying them. The budget describes the
+  *input*; the estimate needs the *output*. On the five finished projects the old
+  estimate said 200 panels and the runs wrote 617 — every project understated, by
+  1.8x to 3.8x individually.
 
-  The band is reported for tier B only, and that is a limit of the evidence, not
-  an oversight: all 23 measured chunks ran with a budget of 8, which is B's. C's
-  budget is 14, so the same 1.6x–5.5x multipliers would describe a run C has
-  never been observed making. C keeps the floor caveat it already had and reports
-  no band until its own runs are measured. Pinned by
-  `tests/test_estimate_range.py`, including the test that C does not inherit B's
-  numbers.
+  The estimate now predicts output. Three independent measurement sets agree on
+  the shape: 23 stored chunks (13 to 44 panels, median 27), a budget sweep
+  (budget 8 → 22 panels, 14 → 34), and a length ladder run twice (1,055 chars →
+  17, 4,594 → 24). Pooled over 13 points, `panels = 14.92 + 0.00214 x chars`
+  fits with R² 0.76: a per-chunk base near 15 growing about 2.1 panels per 1,000
+  characters. For the 6-chunk book whose four runs wrote 152/182/100/169 it
+  predicts 153 against a mean of 151. Re-measured across all five projects the
+  error is now 2% in total, against 3.1x before.
+
+  The intercept is why this works where a rate did not. A chunk collects ~15
+  panels before length contributes anything, so a fixed budget cannot describe it
+  and a per-denominator rate cannot either — the earlier measurement showing
+  near-zero correlation with both length and beats was reading a large constant.
+  Tier C does not follow B's slope: its three measured lengths wrote 32/34/29.3
+  (cv 0.074 over a 4.4x range), so it is a flat 31.8 and stays flat.
+
+  Page count is unchanged and deliberately so. `LayoutEngine._compose_pages`
+  re-paginates every panel at its own capacity and ignores the plan's page
+  division, so the user's pages are `ceil(panels / capacity)`. The measured
+  planning rate of 3.35 panels a page is recorded as `PLANNED_PANELS_PER_PAGE`
+  because it explains why a plan looks thinner than its render, but quoting it
+  would promise pages the engine does not produce. Pinned by
+  `test_pages_follow_the_engine_capacity_not_the_planning_rate` and the existing
+  `test_the_estimate_reports_pages_the_engine_could_actually_pack`.
+
+  The band is now the fit's own per-chunk residual (p10 −5.6, p90 +12.3, scaled by
+  chunk count), so it describes prediction error rather than a budget gap. It is
+  asymmetric because residuals are. Tier A still reports an exact count: it clips,
+  so its budget really is its output. Pinned by `tests/test_estimate_model.py`.
 
 ### P0 — Content-addressed pipeline migration (0a-0h)
 
