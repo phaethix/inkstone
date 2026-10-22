@@ -666,6 +666,37 @@ Keep these prototypes only as migration material until they conform to the targe
   either needs paid runs on other texts (`experiment plan --tier B/C`), which is a
   deliberate spend decision rather than a code change.
 
+  *Measured on the free tier (same day), and both gaps closed unevenly.* Ten fresh
+  probes against `agnes-3.0-flash`, three chat calls each, no spend.
+
+  Tier C's level held but its spread did not. Three fresh lengths (4,594 / 5,619 /
+  5,043 chars) wrote 39, 30 and 26 panels: mean 31.67 against the constant's 31.8,
+  a -0.4% error, so the flat rate is right. But cv was 0.21, not the 0.074 claimed
+  earlier from three points that all came from a single chunk. C is flat in length
+  without being tight in output, so it now carries its own residuals
+  (`PANELS_C_RESIDUAL_*`) instead of borrowing B's, which had been understating C
+  by roughly half.
+
+  The real defect was below the fit. The line was measured on 620-5,619 characters
+  and was being extrapolated downward: at 150 characters it predicted 15.2 panels,
+  while short chunks wrote 7 to 12. Seven measurements below 620 characters (117 to
+  502) average 9.4 with sd 1.8, and fitting that range alone gives R2 0.14 — there
+  is no line down there, only what a handful of beats supports. Rerunning the same
+  lengths (201: 8 then 10; 502: 10 then 8) showed the scatter is run-to-run, not a
+  length trend, so the model now holds 9.4 as a flat value below 620 characters
+  instead of running the line into a range it was never fitted on.
+
+  That band is a measured span, not a percentile. The first attempt used +-2.4 on
+  seven points and missed the 352-character run that wrote 12; with seven samples a
+  percentile is a guess dressed as a statistic, so the band is now 7 to 12, the
+  observed span, held by `test_the_short_band_covers_every_short_measurement` and
+  bounded from over-widening by
+  `test_the_short_band_is_not_widened_past_what_the_evidence_supports`. All ten
+  fresh probes land inside their published band.
+
+  Tier A still reports an exact count, and the page contract is untouched: pages
+  remain `ceil(panels / capacity)` whatever the panel model says.
+
 ### P0 — Content-addressed pipeline migration (0a-0h)
 
 Per the the content-addressed pipeline design (`docs/architecture/2026-09-28-content-addressed-pipeline-design.md`, local-only) §9.

@@ -88,11 +88,28 @@ PANELS_PER_CHUNK_B = 8  # 章级完整 / 标准
 PANELS_BASE_B = 14.92
 PANELS_SLOPE_B = 0.00214  # panels per character, i.e. 2.14 per 1,000
 
-# Tier C does not follow B's slope. Its three measured lengths wrote 32, 34 and
-# 29.3 panels — cv 0.074 across a 4.4x range of length — so its output is flat
-# where B's rises, and a slope fitted to it would be fitting noise. It is a
-# constant, and it sits above B's short-chunk prediction, which is the order the
-# tier names promise.
+# The fit above was measured on chunks of 620 to 5,619 characters. Below 620 the
+# line is extrapolation, and the measurements say it extrapolates too high: at 150
+# characters it predicts 15.2 panels, while short chunks write 7 to 12. Fitting the
+# short range on its own gives R2 0.14, so there is no line down here to find; a
+# short chunk writes what a handful of beats supports, roughly 9 panels, whatever
+# its exact length. So the model holds that value as a floor instead of running the
+# line into a range it was never fitted on.
+PANELS_SHORT_CHARS = 620
+# Seven measurements below 620 characters: 11, 7, 8, 10, 12, 10, 8 at 117, 150,
+# 201, 201, 352, 502 and 502 characters. Mean 9.4, sd 1.8. The two reruns (201:
+# 8 then 10; 502: 10 then 8) are what show the scatter is run-to-run and not a
+# trend, so this is quoted as a flat value with a band rather than a slope.
+PANELS_SHORT_PANELS = 9.4
+
+# Tier C does not follow B's slope. Its output is flat where B's rises, and a slope
+# fitted to it would be fitting noise. It is a constant, and it sits above B's
+# short-chunk prediction, which is the order the tier names promise.
+#
+# Re-measured on three fresh lengths (4,594 / 5,619 / 5,043 chars): 39, 30, 26
+# panels. Mean 31.67 against this constant's 31.8 is a -0.4% error, so the level is
+# confirmed — but the spread is cv 0.21, not the 0.074 claimed earlier from three
+# points that all came from one chunk. C is flat in length, not tight in output.
 PANELS_FLAT_C = 31.8
 
 # The band is the model's own per-chunk residual, so it describes the fit's error
@@ -101,11 +118,9 @@ PANELS_FLAT_C = 31.8
 # band scales with chunk count: a longer book has more chances to be off, and its
 # relative band stays the same instead of shrinking as the text grows.
 #
-# Caveat, stated because the code cannot show it: every residual here came from a
-# tier B run, so tier C borrows B's per-chunk spread while predicting from its own
-# flat rate. That is a gap in the evidence, not a modelling choice. C's own spread
-# was narrower where measured (29/25/33 on one chunk, cv 0.13), so this band is
-# probably wider than C deserves, which errs toward over-preparing and not under.
+# Caveat, stated because the code cannot show it: the per-chunk band comes from
+# tier B runs, and C now has its own scatter measured directly (cv 0.21 on three
+# lengths), quoted below rather than borrowed.
 #
 # Second caveat, measured after the fact: the band assumes the prompt these runs
 # used. ``.agent/experiments/prompt-thickness`` planned the same 620-character
@@ -116,6 +131,22 @@ PANELS_FLAT_C = 31.8
 # swapping prompts is outside what any single band here can claim.
 PANELS_RESIDUAL_P10 = -5.6
 PANELS_RESIDUAL_P90 = 12.3
+
+# Tier C's own residuals, from the three fresh lengths above. The spread is far
+# wider than the one it used to borrow, so quoting B's band for C would have
+# understated C by roughly a factor of two. Percentiles are on the three points,
+# which is a small sample and is why they are round numbers rather than fitted.
+PANELS_C_RESIDUAL_P10 = -5.7
+PANELS_C_RESIDUAL_P90 = 7.2
+
+# Short chunks, measured on their own: 11, 7, 8, 10, 12, 10, 8 at 117 to 502
+# characters, mean 9.4, sd 1.8. The band is the measured span (7 to 12) rather
+# than a percentile: with seven points a percentile is a guess dressed as a
+# statistic, and a p10/p90 band of +-2.4 missed the 352-character run that wrote
+# 12. A stated span that covers every observation is the honest form here.
+PANELS_SHORT_RESIDUAL_P10 = -2.4
+PANELS_SHORT_RESIDUAL_P90 = 2.6
+
 PANELS_PER_CHUNK_C = 14  # 近原著
 
 # Throughput used only for wall-clock estimation (panels generated per minute,
@@ -444,6 +475,12 @@ def estimate(
         if density == "C":
             # C is flat in length (cv 0.074 over a 4.4x range), so no slope.
             panels = int(round(chunks * PANELS_FLAT_C))
+        elif chunk_chars < PANELS_SHORT_CHARS:
+            # Below the fitted range the line extrapolates high (15.2 at 150
+            # characters against 7 to 12 measured), and there is no line down
+            # here to fit instead (R2 0.14). A short chunk supports about as many
+            # panels as its few beats carry, so it is predicted flat.
+            panels = int(round(chunks * PANELS_SHORT_PANELS))
         else:
             panels = int(round(chunks * (PANELS_BASE_B + PANELS_SLOPE_B * chunk_chars)))
     else:
@@ -486,8 +523,18 @@ def estimate(
     pages_low: int | None = None
     pages_high: int | None = None
     if not clips_plan(density) and not observed_panels and not observed_pages and chunks:
-        panels_low = max(0, int(round(panels + PANELS_RESIDUAL_P10 * chunks)))
-        panels_high = int(round(panels + PANELS_RESIDUAL_P90 * chunks))
+        chunk_chars = total_chars / chunks if chunks else 0
+        if density == "C":
+            panels_low = max(0, int(round(panels + PANELS_C_RESIDUAL_P10 * chunks)))
+            panels_high = int(round(panels + PANELS_C_RESIDUAL_P90 * chunks))
+        elif chunk_chars < PANELS_SHORT_CHARS:
+            # Short chunks were measured on their own, so their band comes from
+            # that scatter (sd 1.8) rather than from the long-chunk residuals.
+            panels_low = max(0, int(round(panels + PANELS_SHORT_RESIDUAL_P10 * chunks)))
+            panels_high = int(round(panels + PANELS_SHORT_RESIDUAL_P90 * chunks))
+        else:
+            panels_low = max(0, int(round(panels + PANELS_RESIDUAL_P10 * chunks)))
+            panels_high = int(round(panels + PANELS_RESIDUAL_P90 * chunks))
         pages_low = ceil(panels_low / PANELS_PER_PAGE)
         pages_high = ceil(panels_high / PANELS_PER_PAGE)
 
@@ -526,20 +573,44 @@ def estimate(
     # their budget is "a target, not a cap", so quoting the budget would describe
     # the input; the estimate quotes the measured output and this says so.
     if not clips_plan(density) and not observed_panels and not observed_pages and chunks:
+        chunk_chars = total_chars / chunks if chunks else 0
+        short = density != "C" and chunk_chars < PANELS_SHORT_CHARS
         if density == "C":
-            shape = f"C 档实测为常数，约 {PANELS_FLAT_C:g} 格/段，不随篇幅变化。"
+            shape = (
+                f"C 档实测为常数，约 {PANELS_FLAT_C:g} 格/段，不随篇幅变化"
+                "（三个新长度的实测为 26 至 39 格，均值与常数相差 0.4%）。"
+            )
+            band_source = (
+                f"区间取自 C 档自己三次实测的离散度（{PANELS_C_RESIDUAL_P10:+g} / "
+                f"{PANELS_C_RESIDUAL_P90:+g} 格/段）"
+            )
+        elif short:
+            shape = (
+                f"短段并非由长段曲线外推：本段均 {chunk_chars:.0f} 字，低于拟合下限 "
+                f"{PANELS_SHORT_CHARS:g} 字，按短段实测均值 {PANELS_SHORT_PANELS:g} 格/段计"
+                "（短段字数与格数几乎无关，单独拟合 R² 仅 0.14）。"
+            )
+            band_source = (
+                f"区间取自短段实测的离散度（{PANELS_SHORT_RESIDUAL_P10:+g} / "
+                f"{PANELS_SHORT_RESIDUAL_P90:+g} 格/段，7 次实测，标准差 1.8 格）"
+            )
         else:
             shape = (
                 f"实测拟合：每段约 {PANELS_BASE_B:g} 格，另加每千字约 "
                 f"{PANELS_SLOPE_B * 1000:.1f} 格。"
             )
+            band_source = (
+                "区间取自每段残差的第 10 与第 90 百分位"
+                f"（{PANELS_RESIDUAL_P10:+g} / {PANELS_RESIDUAL_P90:+g} 格，"
+                "按段数累加，故不对称），来自 23 段已存运行"
+            )
         warnings.append(
             f"格数与页数是按实测产出预测的（{panels} 格 / {pages} 页），不是档位预算："
             f"{density} 档保留规划器写下的全部画面，提示词明确写着预算是目标而非上限。"
             + shape
-            + f"区间 {panels_low}–{panels_high} 格取自每段残差的第 10 与第 90 百分位"
-            f"（{PANELS_RESIDUAL_P10:+g} / {PANELS_RESIDUAL_P90:+g} 格，按段数累加，故不对称），"
-            "来自 23 段已存运行；请按区间预留时间与费用。"
+            + f"区间 {panels_low}–{panels_high} 格"
+            + band_source.replace("区间取自", "取自")
+            + "；请按区间预留时间与费用。"
             "该区间衡量的是同一套提示词下多次运行的波动，不含更换提示词带来的差异。"
         )
     if capacity_note:
