@@ -1,6 +1,6 @@
 {
   "stage": "beats",
-  "digest": "sha256:a0694dda2e7decb96f5575ec0f721e7fbb9d79d0e3270a06c957c46467fa81e4",
+  "digest": "sha256:0f1b14958cd3a9a12b55f5f155843d8d77e5574a2436f5f49e3160fa4fd3d38d",
   "tool": "extract_key_beats",
   "model": "fixture-model",
   "messages": [
@@ -10,7 +10,7 @@
     },
     {
       "role": "user",
-      "content": "第一回\n福贵在村口。\n\nKnown elements:\n{\"characters\":[{\"name\":\"福贵\",\"role\":\"\",\"appearance\":{\"hair\":\"\",\"eyewear\":\"\",\"outfit_top\":\"\",\"outfit_bottom\":\"\",\"shoes\":\"\",\"body_type\":\"\",\"distinguishing\":\"\",\"appearance_evidence\":[]},\"l1_prompt\":\"middle-aged farmer\",\"portrait_prompt\":\"portrait\",\"aliases\":[],\"portrait_local\":null,\"portrait_action_key\":\"\"}],\"settings\":[{\"name\":\"村口\",\"description\":\"\",\"scene_prompt\":\"village entrance at dusk\"}],\"style_guide\":\"manhua\"}\n\nExtract key beats: dramatizable turning points that a comic must SHOW (environment + body action), not only narrate in captions. Prefer 4–12 beats. Each beat needs beat_id (short slug), summary, must_draw=true for critical ones, optional characters and setting_hint. Do not invent novel-specific fixed lists — derive from this excerpt only."
+      "content": "第一回\n福贵在村口。\n\nKnown elements:\n{\"characters\":[{\"name\":\"福贵\",\"role\":\"\",\"appearance\":{\"hair\":\"\",\"eyewear\":\"\",\"outfit_top\":\"\",\"outfit_bottom\":\"\",\"shoes\":\"\",\"body_type\":\"\",\"distinguishing\":\"\",\"appearance_evidence\":[]},\"l1_prompt\":\"middle-aged farmer\",\"portrait_prompt\":\"portrait\",\"aliases\":[],\"portrait_local\":null,\"portrait_action_key\":\"\"}],\"settings\":[{\"name\":\"村口\",\"description\":\"\",\"scene_prompt\":\"village entrance at dusk\"}],\"style_guide\":\"manhua\"}\n\nThis excerpt is about 10 characters long, so aim for 1–2 beats. Extract key beats: dramatizable turning points that a comic must SHOW (environment + body action), not only narrate in captions. Each beat needs beat_id (short slug), summary, must_draw=true for critical ones, optional characters and setting_hint. Do not invent novel-specific fixed lists — derive from this excerpt only."
     }
   ]
 }

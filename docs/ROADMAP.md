@@ -327,6 +327,70 @@ Keep these prototypes only as migration material until they conform to the targe
     two entries" and so made repeat measurement impossible without pretending a
     second tier was part of the question. Only an empty list is an error now.
     Pinned by `test_a_single_tier_can_be_probed_repeatedly`.
+  - The budget sentence now counts the beats it tells the planner to follow, and
+    that is the denominator the wording was already asking for. B says "cover the
+    chapter's beats and let them decide when it needs more" — an instruction to
+    scale against a quantity the sentence never stated, printed next to an excerpt
+    length that it did state. C never issued that open instruction, and the two
+    tiers' repeatability split along exactly that line: four B runs on the same
+    chunk wrote 11/21/25/38 (3.5x) while three C runs wrote 29/25/33 (1.3x). The
+    beat set already reaches the planner as JSON, so the count adds no new
+    constraint, only the number behind an instruction the tier already gave. It is
+    derived from the beat object in the same request, so it cannot contradict the
+    beat list beside it, and it appears in both the storyboard and the page plan.
+    Pinned by `test_the_budget_sentence_counts_the_beats_it_tells_the_planner_to_follow`,
+    `test_the_beat_count_is_singular_for_one_beat`,
+    `test_the_budget_sentence_omits_the_beat_count_when_it_is_unknown` and
+    `test_the_page_plan_request_carries_the_beat_count_of_its_own_beat_set`.
+    The beat count is in the page-plan stage hash, so a project already planned
+    replans that stage; the storyboard snapshot moves with it.
+  - The beat extractor's count band was the largest single source of variance,
+    and it is now derived from the excerpt instead of fixed. ``Prefer 4–12 beats``
+    was the same sentence for a 200-character excerpt and a 4,594-character one.
+    Three runs on that chunk extracted 15, 7 and 7 beats; fifteen satisfied
+    "prefer" while sitting outside the stated range. Decomposing the panels that
+    followed (31, 15, 10) shows why this mattered more than the budget:
+
+    ```
+    beats        cv 0.48
+    panels/beat  cv 0.21
+    panels       cv 0.59
+    ```
+
+    ``panels = beats x panels_per_beat``, and the beat count was the larger half.
+    The band is now 1.5–3 beats per 1,000 characters (7–14 for 4,594 characters,
+    2–3 for 1,055), with a band of one below 200 characters so a two-line scene is
+    not padded into three turning points, and a ceiling so a very long chunk is
+    not sliced into clause-sized beats. Measured after the change, three runs on
+    the same chunk: beats 10, 13 and one empty; panels 24, 24, 18. Beats cv fell
+    from 0.48 to 0.18 and panels cv from 0.59 to 0.16, with every non-empty count
+    inside the requested band. Pinned by `tests/test_beat_count_band.py`.
+  - **Open:** the beat extractor accepts an empty set, and one of the three runs
+    above returned one. `extract_key_beats` validates whatever the model sent with
+    no check that it staged anything, and the pipeline's coverage retry only looks
+    at beats that exist (`uncovered_must_draw_beats` over a real beat set), so an
+    empty extraction produces a plan with no beat coverage and no retry. The band
+    fix does not address it: the run that returned nothing also returned 18 panels,
+    so the failure is silent rather than loud. Not fixed here because deciding what
+    an empty extraction should do — retry once, fall back to a single beat covering
+    the excerpt, or fail the stage — is a policy choice about a stage this change
+    did not otherwise touch.
+    that is the denominator the wording was already asking for. B says "cover the
+    chapter's beats and let them decide when it needs more" — an instruction to
+    scale against a quantity the sentence never stated, printed next to an excerpt
+    length that it did state. C never issued that open instruction, and the two
+    tiers' repeatability split along exactly that line: four B runs on the same
+    chunk wrote 11/21/25/38 (3.5x) while three C runs wrote 29/25/33 (1.3x). The
+    beat set already reaches the planner as JSON, so the count adds no new
+    constraint, only the number behind an instruction the tier already gave. It is
+    derived from the beat object in the same request, so it cannot contradict the
+    beat list beside it, and it appears in both the storyboard and the page plan.
+    Pinned by `test_the_budget_sentence_counts_the_beats_it_tells_the_planner_to_follow`,
+    `test_the_beat_count_is_singular_for_one_beat`,
+    `test_the_budget_sentence_omits_the_beat_count_when_it_is_unknown` and
+    `test_the_page_plan_request_carries_the_beat_count_of_its_own_beat_set`.
+    The beat count is in the page-plan stage hash, so a project already planned
+    replans that stage; the storyboard snapshot moves with it.
   - Only tier A clips. `clips_plan` in `core/density.py` is the single answer to
     "does this tier refuse an overrun"; the nine pipeline call sites, the two
     prompt-renderer sites, and the estimator's floor warning all read it, so the
@@ -491,15 +555,26 @@ Keep these prototypes only as migration material until they conform to the targe
   panels per 1,000 characters and B actually writes 5.17; C's 14 is 3.05 against
   6.31 measured. Both tiers miss by a similar factor (3.0x and 2.1x), which says
   the number is unscaled rather than simply too small. Fixing this means making
-  the budget a rate (panels per 1,000 characters) and deriving a per-chunk count
-  from each chunk's own length. That changes `state.panels_per_chunk`, which is
-  part of the structure fingerprint, so a resumed project would replan: it needs
-  a migration that keeps old checkpoints resumable, and the 8 call sites in
-  `core/pipelines/creative_comic.py` read the value rather than the rate. Not
-  started, because raising `3/8/14` to the measured numbers would fix one chunk
-  length and mis-set every other, and because B's own run-to-run spread is 3.5x
-  — wider than the gap between tiers — so a rate still has to be chosen against
-  a variance target rather than a single measurement.
+  the budget a rate and deriving a per-chunk count from each chunk's own size.
+  That changes `state.panels_per_chunk`, which is part of the structure
+  fingerprint, so a resumed project would replan: it needs a migration that keeps
+  old checkpoints resumable, and the 8 call sites in
+  `core/pipelines/creative_comic.py` read the value rather than the rate.
+  Two things now bear on which denominator to use, and only one of them is
+  measured. Length is measurably not a rate the planner honours: both tiers miss
+  by a similar 2 to 3 times on the same chunk, so a fixed count does not encode
+  characters. Beats is a hypothesis, not a measurement: the spread that motivated
+  this whole thread split exactly along the tier whose wording deferred to the
+  beats without counting them — B 3.5x, C 1.3x — and a panel is a drawn moment
+  staged from a beat rather than a slice of a character count, which is why it is
+  the more plausible denominator. Nobody has yet measured panels per beat, and
+  the beat counts in the old runs are gone with their scratch directories, so
+  that comparison cannot be reconstructed after the fact. The count is in the
+  prompt now, which is what makes the measurement possible.
+  Not started, because B's own spread is still 3.5x: a rate has to be chosen
+  against a variance target, and that needs the repeat sampling re-run against a
+  planner that now receives the beat count, which costs API calls and has not
+  been done.
 
 ### P0 — Content-addressed pipeline migration (0a-0h)
 

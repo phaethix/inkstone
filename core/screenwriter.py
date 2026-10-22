@@ -128,6 +128,55 @@ def build_extract_request(
     )
 
 
+BEATS_PER_1000_CHARS_LOW = 1.5
+BEATS_PER_1000_CHARS_HIGH = 3.0
+# A very long chunk is not sliced into clause-sized beats: past this the band
+# stops widening, because "one beat per sentence" is a summary, not a beat list.
+BEAT_BAND_CEILING = (8, 18)
+# Below this a chunk is too short to carry a full band, so it asks for one beat
+# rather than the floor of a normal chapter. Ten characters does not contain four
+# turning points, and saying so taught the extractor to pad.
+_TINY_EXCERPT_CHARS = 200
+
+
+def _beat_band(excerpt_chars: int) -> tuple[int, int]:
+    """The beat-count band for a chunk of ``excerpt_chars`` characters.
+
+    ``Prefer 4–12 beats`` was one sentence for a 200-character excerpt and a
+    4,594-character one, and measurement on the latter returned 15, 7 and 7 beats
+    across three runs of the same input. Fifteen satisfied "prefer" while sitting
+    outside the stated range, and the panels that followed were 31, 15 and 10 —
+    2.07, 2.14 and 1.43 panels per beat. The beat count is what the panel budget
+    scales from, so a band that does not move with the input hands that variance
+    downstream.
+
+    The band is derived from length at the rate a chapter reads at: 1.5 to 3
+    beats per 1,000 characters, so a 4,594-character chunk is asked for 7–14 and
+    a 1,055-character one for 2–3, rather than both being asked for 4–12.
+
+    Two ends need care. A very short excerpt is not asked for the floor of a
+    chapter — it gets a band of one, because padding a two-line scene into three
+    turning points is worse than staging it in one panel. A very long chunk stops
+    widening at the ceiling, because a beat finer than a scene is a clause.
+    """
+    chars = max(0, int(excerpt_chars))
+    if chars < _TINY_EXCERPT_CHARS:
+        return 1, 2
+    low = max(2, round(chars / 1000 * BEATS_PER_1000_CHARS_LOW))
+    high = max(low + 1, round(chars / 1000 * BEATS_PER_1000_CHARS_HIGH))
+    low = min(low, BEAT_BAND_CEILING[0])
+    high = min(high, BEAT_BAND_CEILING[1])
+    if high <= low:
+        high = low + 1
+    return low, high
+
+
+def _beat_band_sentence(excerpt_chars: int) -> str:
+    """The beat-count sentence, with the length it scales from named inline."""
+    low, high = _beat_band(excerpt_chars)
+    return f"This excerpt is about {excerpt_chars} characters long, so aim for {low}–{high} beats. "
+
+
 def build_beats_request(
     text: str,
     elements: StoryElements,
@@ -136,9 +185,11 @@ def build_beats_request(
     model: str = "",
 ) -> ChatRequest:
     """The key-beats request for one text unit."""
+    text = sanitize_text(text)
     values = {
-        "source_chunk": sanitize_text(text),
+        "source_chunk": text,
         "elements_json": elements.model_dump_json(),
+        "beat_band": _beat_band_sentence(len(text)),
     }
     user = (
         harness.render_stage("beats", values)
@@ -194,6 +245,7 @@ def build_storyboard_request(
             enforce=enforce_budget,
             tier=tier,
             excerpt_chars=len(sanitize_text(text)),
+            beat_count=_beats_for_prompt(key_beats),
         ),
         "domain": domain,
     }
@@ -272,6 +324,7 @@ def build_page_plan_request(
             enforce=enforce_budget,
             tier=tier,
             excerpt_chars=len(sanitize_text(text)),
+            beat_count=_beats_for_prompt(key_beats),
         ),
         "diversity": diversity,
         "voice": voice,
@@ -437,12 +490,22 @@ async def extract_story_elements(
     return StoryElements.model_validate(args)
 
 
+def _beats_for_prompt(key_beats: KeyBeatSet | None) -> int:
+    """How many beats the prompt is actually asking the planner to stage.
+
+    Derived from the same object whose JSON goes into the prompt, so the count in
+    the budget sentence cannot contradict the beat list next to it.
+    """
+    return len(key_beats.beats) if key_beats is not None and key_beats.beats else 0
+
+
 def _budget_sentence(
     panel_budget: int | None,
     *,
     enforce: bool,
     tier: str | None = None,
     excerpt_chars: int | None = None,
+    beat_count: int | None = None,
 ) -> str:
     """The panel budget sentence, worded to match what the tier promises.
 
@@ -471,20 +534,39 @@ def _budget_sentence(
     and 24 panels, which is not a length response. Saying how long the excerpt
     is makes the budget a ratio rather than a bare count. ``None`` keeps the old
     wording for callers that have no excerpt.
+
+    ``beat_count`` gives the *other* half of that denominator, and it is the half
+    the sentence was missing while telling the planner to follow it. B's wording
+    is "cover the chapter's beats and let them decide when it needs more" — an
+    instruction to scale against a quantity the sentence never stated, sitting
+    next to an excerpt length that it did state. C never issued that open
+    instruction, and the two tiers' repeatability split along exactly that line:
+    on one identical 4,594-character chunk, four B runs wrote 11/21/25/38 panels
+    (3.5x spread) while three C runs wrote 29/25/33 (1.3x spread). The beat set
+    already reaches the planner as JSON, so this adds no new constraint — only
+    the count behind an instruction the tier already gave. ``None`` omits it, for
+    callers that pass no beat set.
     """
     if panel_budget is None:
         return ""
     scale = f"This excerpt is about {excerpt_chars} characters long. " if excerpt_chars else ""
+    beats = ""
+    if beat_count:
+        noun = "key beat" if beat_count == 1 else "key beats"
+        beats = f"It stages {beat_count} {noun}. "
     if enforce:
         head = f"Panel budget for this excerpt: about {panel_budget} panels. "
         return (
-            scale + head + "This is a main-thread overview: keep the beats that carry the "
+            scale + beats + head + "This is a main-thread overview: keep the beats that carry the "
             "main thread and the turn, and do not exceed this budget. "
         )
     head = f"Panel budget for this excerpt: about {panel_budget} panels. "
     if tier == "C":
         return (
-            scale + head + "This is a near-original adaptation: cover every beat the excerpt "
+            scale
+            + beats
+            + head
+            + "This is a near-original adaptation: cover every beat the excerpt "
             "actually stages, including the connective tissue between them — the "
             "transitions, reactions, and beats of business that a summary would "
             "drop. Use fewer only when the excerpt is genuinely thin; this number "
@@ -492,13 +574,19 @@ def _budget_sentence(
         )
     if tier == "B":
         return (
-            scale + head + "This is a chapter-complete plan: cover the chapter's beats and let "
+            scale
+            + beats
+            + head
+            + "This is a chapter-complete plan: cover the chapter's beats and let "
             "them decide when it needs more; this number is a target, not a cap. "
         )
     # No tier: say only what is true for every uncapped tier rather than claiming
     # to be the chapter-complete one.
     return (
-        head + "Use fewer when the excerpt is thin, and let the chapter's beats decide "
+        scale
+        + beats
+        + head
+        + "Use fewer when the excerpt is thin, and let the chapter's beats decide "
         "when it needs more; this number is a target, not a cap. "
     )
 

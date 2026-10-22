@@ -191,6 +191,85 @@ def test_the_page_plan_request_carries_the_length_of_its_own_excerpt():
     assert short != long
 
 
+def test_the_budget_sentence_counts_the_beats_it_tells_the_planner_to_follow():
+    """B says "let the beats decide" while never saying how many there are.
+
+    The beat set already reaches the planner as JSON, but the budget sentence is
+    where the number is set, and it named no beat count. "Cover the chapter's
+    beats and let them decide when it needs more" therefore asks the planner to
+    scale against a quantity it was never given, while the length of the excerpt
+    is stated plainly next to it. That asymmetry is the difference between the
+    two tiers' repeatability: on one identical 4,594-character chunk, four B runs
+    (which defers to the beats) wrote 11/21/25/38 panels, a 3.5x spread, while
+    three C runs (which names what to cover) wrote 29/25/33, a 1.3x spread.
+
+    Counting the beats gives the sentence the denominator its own wording
+    promises. It is not a new constraint on the planner, only the number behind
+    the instruction it already had.
+    """
+    from core.screenwriter import _budget_sentence
+
+    few = _budget_sentence(8, enforce=False, tier="B", excerpt_chars=4600, beat_count=3)
+    many = _budget_sentence(8, enforce=False, tier="B", excerpt_chars=4600, beat_count=11)
+
+    assert "3 key beats" in few
+    assert "11 key beats" in many
+    assert few != many, "the same budget read the same for three beats and eleven"
+
+
+def test_the_beat_count_is_singular_for_one_beat():
+    """One beat is not "1 key beats"; the sentence is read by a model, not a form."""
+    from core.screenwriter import _budget_sentence
+
+    text = _budget_sentence(8, enforce=False, tier="B", beat_count=1)
+    assert "1 key beat" in text
+    assert "1 key beats" not in text
+
+
+def test_the_budget_sentence_omits_the_beat_count_when_it_is_unknown():
+    """Callers that pass no beat set keep the wording they had."""
+    from core.screenwriter import _budget_sentence
+
+    text = _budget_sentence(8, enforce=False, tier="B", excerpt_chars=4600)
+    assert "It stages" not in text
+    assert "about 8 panels" in text
+
+
+def test_the_page_plan_request_carries_the_beat_count_of_its_own_beat_set():
+    """The count must come from the beats actually being sent, not from a caller.
+
+    A caller passing a stale count would state a denominator that contradicts the
+    beat JSON in the same request, which is worse than stating none.
+    """
+    from core.schemas import KeyBeatSet, StoryElements
+    from core.screenwriter import build_page_plan_request
+
+    elements = StoryElements()
+    beats = KeyBeatSet.model_validate(
+        {
+            "beats": [
+                {"beat_id": f"b{i}", "summary": f"beat {i}", "must_draw": True} for i in range(1, 5)
+            ]
+        }
+    )
+    with_beats = build_page_plan_request(
+        "甲板上。",
+        elements,
+        key_beats=beats,
+        panel_budget=8,
+        enforce_budget=False,
+        tier="B",
+    ).messages[1]["content"]
+    without_beats = build_page_plan_request(
+        "甲板上。", elements, panel_budget=8, enforce_budget=False, tier="B"
+    ).messages[1]["content"]
+
+    assert "4 key beats" in with_beats
+    # The system prompt already contains the phrase "key beat", so assert on the
+    # sentence this change adds rather than on the word appearing anywhere.
+    assert "It stages" not in without_beats
+
+
 def test_the_page_plan_request_carries_the_tier_not_just_the_number():
     """The sentence has to reach the provider, not only the helper.
 

@@ -20,7 +20,7 @@
       "path": "stages/beats.md",
       "kind": "stage",
       "max_chars": 4000,
-      "slots": ["source_chunk", "elements_json"]
+      "slots": ["source_chunk", "elements_json", "beat_band"]
     },
     {
       "id": "stage.bible",
