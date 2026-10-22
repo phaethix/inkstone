@@ -694,6 +694,54 @@ Keep these prototypes only as migration material until they conform to the targe
   `test_the_short_band_is_not_widened_past_what_the_evidence_supports`. All ten
   fresh probes land inside their published band.
 
+  *Correction (next day, free tier).* The paragraph above reached the right
+  mechanism — "the scatter is run-to-run, not a length trend" — and then drew the
+  wrong conclusion from it, because it applied that mechanism to the short-range
+  readings only. Running a length ladder under `agnes-3.0-flash` (623 → 12, 1,059 →
+  8 then 13, 2,006 → 14, 3,008 → 16, 4,594 → 23) showed the same 1.6x run-to-run
+  spread at every length. Two conclusions follow.
+
+  First, the flat 9.4 below 620 characters was reading noise. The 1,059-character
+  rerun came back at 13, inside the line's band, after the first run at 8 sat below
+  it; the "short chunks write about half" reading was one run landing at the bottom
+  of a wide spread, not a property of short input. The mechanism was right and the
+  magnitude was not: 9.4 is the low tail of a distribution whose centre is close to
+  what the line already said.
+
+  Second, and more useful: the run-to-run spread is larger than every effect the
+  model tries to capture. Comparing 620 to 4,594 characters moves the prediction by
+  8.5 panels, while a single chunk's own sd is 11.2 (11/21/25/38 on one 2.5 chunk,
+  cv 0.47). Any conclusion drawn from one run at one length against one run at
+  another is reading noise, which is exactly what the ladder above was doing on its
+  first pass. `test_run_spread_is_larger_than_the_effect_of_length` now states that
+  ratio so it cannot be re-derived away, and
+  `test_the_band_is_wide_enough_for_a_single_run_not_just_the_mean` holds the band
+  to a single run's excursion rather than to the error of the mean — a user gets one
+  run, so a band that covers only a mean is a false promise.
+
+  The version question was checked and dismissed. The 23 stored chunks are 22 rows
+  of `agnes-2.5-flash` plus one of `agnes-3.0-flash`, so the fit had pooled two
+  models, and a version seam was the first hypothesis for the short-range gap. It
+  does not hold: at 620 characters 2.5 wrote 14 and 3.0 wrote 12, and at 4,594 they
+  wrote 21.3 and 23. The two models are indistinguishable at this model's
+  precision, and the one length where they looked far apart (1,059: 17 against 8)
+  closed to 10.5 on rerun. Mixing them was untidy but not the cause.
+
+  C's band floor was off by a rounding step and excluded the run it was derived
+  from: -5.7 gave a floor of 26.1 against a measured 26. Widened to -6.0. A band
+  that excludes its own measurement is the same defect as one that is too narrow.
+
+  Sixteen fresh probes now leave one outside its band (8 panels at 1,059
+  characters) and that is expected rather than a failure: a band is where runs
+  tend to land, not a bound, and the wording says so.
+
+  *What is still unmeasured.* The ladder was built by truncating one source at
+  different offsets, so length and story position are confounded and the beat count
+  of each truncated excerpt was not recorded. The finding above does not depend on
+  it — a confound larger than the effect cannot rescue the effect — but it does mean
+  the length slope has never been measured cleanly, only argued for from a range
+  whose noise exceeds it.
+
   Tier A still reports an exact count, and the page contract is untouched: pages
   remain `ceil(panels / capacity)` whatever the panel model says.
 

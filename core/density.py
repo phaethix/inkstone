@@ -100,6 +100,18 @@ PANELS_SHORT_CHARS = 620
 # 201, 201, 352, 502 and 502 characters. Mean 9.4, sd 1.8. The two reruns (201:
 # 8 then 10; 502: 10 then 8) are what show the scatter is run-to-run and not a
 # trend, so this is quoted as a flat value with a band rather than a slope.
+#
+# Correction, measured the next day at every length: the spread seen here is not a
+# property of short input. A 3.0 ladder gave 12, 8/13, 14, 16 and 23 panels at 623,
+# 1,059, 2,006, 3,008 and 4,594 characters — the same 1.6x run-to-run spread at
+# every length, and 1,059 came back at 13 on its rerun, inside the line's band,
+# after sitting at 8 below it. So 9.4 is the low tail of a distribution rather than
+# the centre of a different one, and this floor reads low. It is kept because it is
+# what short runs actually produced and the band (7 to 12) covers them, but the
+# centre should not be quoted as evidence that short chunks write about half.
+# Widening the floor toward the line's own value at 620 characters was considered
+# and rejected without clean measurement: the ladder above truncates one source at
+# different offsets, so length and story position are confounded.
 PANELS_SHORT_PANELS = 9.4
 
 # Tier C does not follow B's slope. Its output is flat where B's rises, and a slope
@@ -136,7 +148,12 @@ PANELS_RESIDUAL_P90 = 12.3
 # wider than the one it used to borrow, so quoting B's band for C would have
 # understated C by roughly a factor of two. Percentiles are on the three points,
 # which is a small sample and is why they are round numbers rather than fitted.
-PANELS_C_RESIDUAL_P10 = -5.7
+#
+# The floor was -5.7 (band 26.1) and missed the 5,043-character run that wrote 26,
+# by 0.1. Rounding a band so it excludes a measurement it was derived from is the
+# same error as a band that is too narrow: the number is quoted as where runs land,
+# so it has to contain them. Widened to -6.0 (-5.7 rounded away from the data).
+PANELS_C_RESIDUAL_P10 = -6.0
 PANELS_C_RESIDUAL_P90 = 7.2
 
 # Short chunks, measured on their own: 11, 7, 8, 10, 12, 10, 8 at 117 to 502
