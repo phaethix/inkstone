@@ -61,7 +61,9 @@ def test_estimate_honors_openai_price_param(tmp_path):
     """estimate() 函数级确实支持 price_per_panel（即便 CLI 未暴露）。"""
     book = _write(tmp_path, _BODY)
     est = estimate(book, density="B", api="openai-compat", price_per_panel=0.1)
-    assert est.cost_label == f"约 ¥{est.panels * 0.1:.2f}"
+    assert est.cost_label.startswith(f"约 ¥{est.panels * 0.1:.2f}")
+    assert est.panels_high is not None
+    assert est.cost_label == f"约 ¥{est.panels * 0.1:.2f}–{est.panels_high * 0.1:.2f}（按格数区间）"
 
 
 # --------------------------------------------------------------------------- #

@@ -168,11 +168,26 @@ def test_agnes_cost_label(tmp_path):
 
 
 def test_openai_cost_with_price(tmp_path):
+    """A tier that does not clip is quoted as a range, not at its floor.
+
+    Billing is per panel and tier B runs past its budget, so a price computed
+    from the budget is the least the run can cost. Quoting it alone would price
+    a five-hour run at the two-hour figure. The low end stays the budget's price
+    so the floor is still visible.
+    """
     book = _write(tmp_path, _BODY)
     est = estimate(book, density="B", api="openai-compat", price_per_panel=0.05)
     assert est.cost_label.startswith("约 ¥")
-    expected = f"约 ¥{est.panels * 0.05:.2f}"
+    assert est.panels_high is not None
+    expected = f"约 ¥{est.panels * 0.05:.2f}–{est.panels_high * 0.05:.2f}（按格数区间）"
     assert est.cost_label == expected
+
+
+def test_a_clipping_tier_is_quoted_at_a_single_price(tmp_path):
+    """Tier A clips, so its panel count is final and so is the price."""
+    book = _write(tmp_path, _BODY)
+    est = estimate(book, density="A", api="openai-compat", price_per_panel=0.05)
+    assert est.cost_label == f"约 ¥{est.panels * 0.05:.2f}"
 
 
 def test_openai_cost_without_price(tmp_path):

@@ -142,6 +142,12 @@ class DensityEstimate:
     output_format: str = "page"
     output_name: str = "comic.pdf"
     from_stored_plans: bool = False
+    # Upper bound for a tier whose budget does not clip. ``panels`` and ``pages``
+    # are the floor such a tier can compute; these carry the measured band above
+    # it. ``None`` means the number is exact: tier A clips, and a project with
+    # measured counts already knows its own total.
+    panels_high: int | None = None
+    pages_high: int | None = None
 
 
 def get_density_plan(tier: DensityTier) -> DensityPlan:
@@ -194,8 +200,19 @@ def _read_text(book_path: str | Path) -> str:
     return Path(book_path).read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n")
 
 
-def _cost_label(api: str, panels: int, price_per_panel: float | None) -> str:
-    """Build the human-facing cost string for the chosen billing backend."""
+def _cost_label(
+    api: str,
+    panels: int,
+    price_per_panel: float | None,
+    panels_high: int | None = None,
+) -> str:
+    """Build the human-facing cost string for the chosen billing backend.
+
+    ``panels_high`` is the measured upper bound for a tier that does not clip.
+    When it is set the cost is quoted as a range: billing is per panel, so a
+    price computed from the floor is the lowest the run can cost, not what it is
+    expected to cost.
+    """
     if api == "agnes":
         # Agnes free tier is the default; the R6 quota policy is still in flux,
         # so we surface the "变动风险" caveat up front instead of promising ¥0.
@@ -203,6 +220,10 @@ def _cost_label(api: str, panels: int, price_per_panel: float | None) -> str:
     if api == "openai-compat":
         if price_per_panel is None:
             return "按您的 endpoint 单价"
+        if panels_high is not None and panels_high > panels:
+            low = panels * price_per_panel
+            high = panels_high * price_per_panel
+            return f"约 ¥{low:.2f}–{high:.2f}（按格数区间）"
         return f"约 ¥{panels * price_per_panel:.2f}"
     # Unknown backend: stay conservative and treat as free, but say so.
     return "¥0（未知 API 档，已按免费档处理）"
@@ -385,7 +406,18 @@ def estimate(
     effective_concurrency = max(1, int(concurrency))
     estimated_minutes = ceil(panels / (effective_concurrency * PANELS_PER_MINUTE))
 
-    cost_label = _cost_label(api, panels, price_per_panel)
+    # A tier that does not clip runs past its budget, and the estimate can say by
+    # how much. The band is measured on tier B (23 stored chunks, budget 8, plans
+    # of 13 to 44 panels: 1.6x to 5.5x), so it is reported for B only. C's budget
+    # is 14 and its overrun has not been measured; reusing B's multipliers would
+    # describe a run C was never observed making.
+    panels_high: int | None = None
+    pages_high: int | None = None
+    if density == "B" and not clips_plan(density) and not observed_panels and not observed_pages:
+        panels_high = int(panels * PANELS_OVERRUN_HIGH)
+        pages_high = ceil(panels_high / PANELS_PER_PAGE)
+
+    cost_label = _cost_label(api, panels, price_per_panel, panels_high)
     webtoon_warning, webtoon_msg = _webtoon_warning(output_format, pages)
 
     warnings: list[str] = []
@@ -418,14 +450,19 @@ def estimate(
     # The tiers that do not clip keep whatever the planner wrote, so their
     # budget is a floor. Reported plain, "8 panels / 2 pages" reads as the size
     # of the run, and the public excerpt planned 14 panels onto 8. Say which of
-    # the two it is.
+    # the two it is, and for B say how far past it runs.
     if not clips_plan(density) and not observed_panels and not observed_pages:
-        warnings.append(
+        floor = (
             f"格数与页数是下限（{panels} 格 / {pages} 页）：{density} 档保留规划器写下的全部画面，"
             "章节叙事需要更多时实际产出会更多，页数随之增加。"
-            f"实测 23 段 B 档规划：实际格数是预算的 {PANELS_OVERRUN_LOW:g} 到 "
-            f"{PANELS_OVERRUN_HIGH:g} 倍，不是固定倍数，请按区间预留时间与费用。"
         )
+        if panels_high is not None:
+            floor += (
+                f"实测 23 段 B 档规划：实际格数是预算的 {PANELS_OVERRUN_LOW:g} 到 "
+                f"{PANELS_OVERRUN_HIGH:g} 倍，即最多约 {panels_high} 格 / {pages_high} 页；"
+                "不是固定倍数，请按区间预留时间与费用。"
+            )
+        warnings.append(floor)
     if capacity_note:
         warnings.append(
             f"实测数据里每页格数超过排版上限 {PANELS_PER_PAGE}，页数已按排版容量抬高，"
@@ -447,4 +484,6 @@ def estimate(
         output_format=output_format,
         output_name=_output_name(output_format),
         from_stored_plans=bool(observed_panels or observed_pages),
+        panels_high=panels_high,
+        pages_high=pages_high,
     )

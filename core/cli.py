@@ -545,7 +545,15 @@ def _print_plan(est: DensityEstimate) -> None:
     if "R6" in cost_line:
         cost_line = f"Agnes 免费档 → {cost_line}"
     print(f"档位 : {est.tier} {est.description}")
-    print(f"预计 : {est.panels} 格 / {est.pages} 页 / {est.output_name}")
+    if est.panels_high is not None:
+        # An uncapped tier runs past its budget, so the floor alone answers the
+        # wrong question. Show the measured band's top next to it.
+        print(
+            f"预计 : {est.panels}–{est.panels_high} 格 / "
+            f"{est.pages}–{est.pages_high} 页 / {est.output_name}（下限到实测上限）"
+        )
+    else:
+        print(f"预计 : {est.panels} 格 / {est.pages} 页 / {est.output_name}")
     print(f"成本 : {cost_line}")
     print(f"时长 : {_human_duration(est.estimated_minutes)}（支持断点续跑 state.json）")
     for w in est.warnings:

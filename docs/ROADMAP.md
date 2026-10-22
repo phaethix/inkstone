@@ -592,19 +592,31 @@ Keep these prototypes only as migration material until they conform to the targe
   planner's response to any budget at all. Pinned by
   `tests/test_panel_rate_evidence.py`, which reads the same stored runs and will
   fail if a future planner starts honouring a denominator.
-- **Measured (2026-10-22, `main`): the floor warning now quotes the overrun
-  band.** The estimate already said a tier B budget is a floor rather than a
-  forecast, but only qualitatively — "实际产出会更多" could mean 13 panels or 44 and
-  the user had no way to tell which end they were on. All 23 measured chunks were
-  tier B runs against a budget of 8, writing 13 to 44 panels: mean 3.35x, range
-  1.6x to 5.5x. The warning now names that band and says it is measured, because
-  it is an observation about stored runs and not a promise: the spread is 3.4x
-  wide, so quoting "expect 3x" would still understate the widest chunks by over
-  half. `PANELS_OVERRUN_LOW` / `PANELS_OVERRUN_HIGH` in `core/density.py` hold the
-  band, tier A gets none (it clips, so it has no gap), and a project with measured
-  counts gets none (its own numbers supersede the budget). `3/8/14` is unchanged:
-  the data supports neither a rate nor a replacement value. Pinned by
-  `tests/test_floor_overrun_band.py`.
+- **Decided (2026-10-22, `main`): B and C keep not clipping; the estimate now
+  reports the band instead.** The open question was whether B and C should start
+  clipping so the quoted number becomes true. They should not. Clipping would
+  break the promise the tier names make — 章级完整 and 近原著 both mean "keep what
+  the chapter staged", and dropping panels to hit a number is the 主线概览
+  behaviour that only A promises. A budget the planner ignores is not made
+  trustworthy by threshing the output afterwards; it is made honest by not
+  quoting one number for it.
+
+  So the estimate answers the question a user is actually asking. `panels` and
+  `pages` stay the floor it can compute from the budget, and `panels_high` /
+  `pages_high` carry the measured top, rendered as `48–264 格 / 12–66 页`. The
+  cost follows, because billing is per panel: at ¥0.05 a panel the same run
+  quotes `约 ¥2.40–13.20` instead of pricing a five-hour run at the two-hour
+  figure. Tier A keeps a single value (it clips, so its count is final), and a
+  project with measured counts keeps its own numbers (there is no gap left to
+  widen).
+
+  The band is reported for tier B only, and that is a limit of the evidence, not
+  an oversight: all 23 measured chunks ran with a budget of 8, which is B's. C's
+  budget is 14, so the same 1.6x–5.5x multipliers would describe a run C has
+  never been observed making. C keeps the floor caveat it already had and reports
+  no band until its own runs are measured. Pinned by
+  `tests/test_estimate_range.py`, including the test that C does not inherit B's
+  numbers.
 
 ### P0 — Content-addressed pipeline migration (0a-0h)
 
