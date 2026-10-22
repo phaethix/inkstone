@@ -58,6 +58,25 @@ from core.config import DEFAULT_PANELS_PER_PAGE, webtoon_warn_mb
 # The tier is the planning budget. Page count follows the measured rate.
 PANELS_PER_CHUNK_A = 3  # 主线概览
 PANELS_PER_CHUNK_B = 8  # 章级完整 / 标准
+
+# How far a plan actually runs past a tier budget that does not clip.
+#
+# Measured on 23 stored chunks: every finished project under ``comic_out/`` keeps
+# its beat and page caches in one ``state.json``, so each chunk pairs the panels
+# a plan wrote with the budget it was given. All 23 were tier B with a budget of
+# 8, and the plans wrote 13 to 44 panels: a mean of 3.35x, a range of 1.6x to
+# 5.5x. ``tests/test_panel_rate_evidence.py`` reads those runs and pins both the
+# mean and the spread.
+#
+# This is reported as a band, never as a single factor. The spread is 3.4x wide,
+# so "expect 3x" would still understate the widest chunks by more than half. A
+# band says what the measurement knows.
+#
+# It is a floor band for the tiers that do not clip (B and C). Tier A clips, so
+# it has no gap to describe, and a project with measured counts already knows its
+# own numbers.
+PANELS_OVERRUN_LOW = 1.6
+PANELS_OVERRUN_HIGH = 5.5
 PANELS_PER_CHUNK_C = 14  # 近原著
 
 # Throughput used only for wall-clock estimation (panels generated per minute,
@@ -404,6 +423,8 @@ def estimate(
         warnings.append(
             f"格数与页数是下限（{panels} 格 / {pages} 页）：{density} 档保留规划器写下的全部画面，"
             "章节叙事需要更多时实际产出会更多，页数随之增加。"
+            f"实测 23 段 B 档规划：实际格数是预算的 {PANELS_OVERRUN_LOW:g} 到 "
+            f"{PANELS_OVERRUN_HIGH:g} 倍，不是固定倍数，请按区间预留时间与费用。"
         )
     if capacity_note:
         warnings.append(

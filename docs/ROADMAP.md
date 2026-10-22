@@ -563,31 +563,48 @@ Keep these prototypes only as migration material until they conform to the targe
   stored tier and applies that tier's clipping semantics. Both paths are pinned
   by mutation-checked tests in `tests/test_density_contract.py` and
   `tests/test_cli_prompt.py`.
-- **Open:** the panel budget is an absolute count while the planner's output
-  scales with length. On one 4,594-character chunk, B's budget of 8 is 1.74
-  panels per 1,000 characters and B actually writes 5.17; C's 14 is 3.05 against
-  6.31 measured. Both tiers miss by a similar factor (3.0x and 2.1x), which says
-  the number is unscaled rather than simply too small. Fixing this means making
-  the budget a rate and deriving a per-chunk count from each chunk's own size.
-  That changes `state.panels_per_chunk`, which is part of the structure
-  fingerprint, so a resumed project would replan: it needs a migration that keeps
-  old checkpoints resumable, and the 8 call sites in
-  `core/pipelines/creative_comic.py` read the value rather than the rate.
-  Two things now bear on which denominator to use, and only one of them is
-  measured. Length is measurably not a rate the planner honours: both tiers miss
-  by a similar 2 to 3 times on the same chunk, so a fixed count does not encode
-  characters. Beats is a hypothesis, not a measurement: the spread that motivated
-  this whole thread split exactly along the tier whose wording deferred to the
-  beats without counting them — B 3.5x, C 1.3x — and a panel is a drawn moment
-  staged from a beat rather than a slice of a character count, which is why it is
-  the more plausible denominator. Nobody has yet measured panels per beat, and
-  the beat counts in the old runs are gone with their scratch directories, so
-  that comparison cannot be reconstructed after the fact. The count is in the
-  prompt now, which is what makes the measurement possible.
-  Not started, because B's own spread is still 3.5x: a rate has to be chosen
-  against a variance target, and that needs the repeat sampling re-run against a
-  planner that now receives the beat count, which costs API calls and has not
-  been done.
+- **Measured (2026-10-22, `main`): neither denominator predicts the panel count,
+  so the budget is not made a rate.** The earlier entry here said the beat counts
+  "are gone with their scratch directories" and that panels per beat could not be
+  reconstructed. They were not gone. Every finished project keeps both caches in
+  one `state.json` — `beat_cache["0"]` holds the staged beats for chunk 0 and
+  `page_cache["0"]` the pages it was planned onto — so 23 chunks across the five
+  projects under `comic_out/` pair a beat count with a panel count from the same
+  run. Rebuilding each chunk's text with the project's own segmenter adds the
+  excerpt length, which makes both candidates comparable on identical rows:
+
+      chars   620 - 5,619   cv 0.21
+      beats     5 -    13   cv 0.31
+      panels   13 -    44   cv 0.28
+      corr(chars, panels) = 0.21
+      corr(beats, panels) = 0.23
+      panels per 1,000 chars   mean 6.31   cv 0.63
+      panels per beat          mean 3.16   cv 0.38
+
+  Neither denominator predicts the plan. Over a 9x range of excerpt length and a
+  2.6x range of beat count, the panels barely move: 13 to 44 whatever the input.
+  Beats is the tighter of the two (cv 0.38 against 0.63), which is what the
+  earlier reasoning guessed, but a correlation of 0.23 is not a rate a budget can
+  be built on. So the rate conversion is not done, and not because it is
+  expensive: a coefficient fit to this data would be fit to noise, and the
+  per-chunk count would keep being wrong while costing a migration and a
+  structure fingerprint change to compute. What would have to change first is the
+  planner's response to any budget at all. Pinned by
+  `tests/test_panel_rate_evidence.py`, which reads the same stored runs and will
+  fail if a future planner starts honouring a denominator.
+- **Measured (2026-10-22, `main`): the floor warning now quotes the overrun
+  band.** The estimate already said a tier B budget is a floor rather than a
+  forecast, but only qualitatively — "实际产出会更多" could mean 13 panels or 44 and
+  the user had no way to tell which end they were on. All 23 measured chunks were
+  tier B runs against a budget of 8, writing 13 to 44 panels: mean 3.35x, range
+  1.6x to 5.5x. The warning now names that band and says it is measured, because
+  it is an observation about stored runs and not a promise: the spread is 3.4x
+  wide, so quoting "expect 3x" would still understate the widest chunks by over
+  half. `PANELS_OVERRUN_LOW` / `PANELS_OVERRUN_HIGH` in `core/density.py` hold the
+  band, tier A gets none (it clips, so it has no gap), and a project with measured
+  counts gets none (its own numbers supersede the budget). `3/8/14` is unchanged:
+  the data supports neither a rate nor a replacement value. Pinned by
+  `tests/test_floor_overrun_band.py`.
 
 ### P0 — Content-addressed pipeline migration (0a-0h)
 
