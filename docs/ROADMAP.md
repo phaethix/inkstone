@@ -87,8 +87,13 @@ Keep these prototypes only as migration material until they conform to the targe
   The letter resume cluster followed into the same module (`letter_key`,
   `letter_resume_status`, `plan_ready_to_letter`, `page_chunk_complete`), with
   the stage source passed in rather than imported back: 3,384 → 3,261 lines.
-  Still inline: the ~1,800-line `_creative_comic` body and the render-node
-  closures (which must be lifted to module scope before they can move).
+  The work graph then moved to `core/pipelines/plan_graph.py` (227 lines, no
+  provider, no key), taking `creative_comic.py` to 3,037.
+  Still inline: the ~1,500-line `_creative_comic` body and the render-node
+  closures. The closures are the next real target and the reason they are last:
+  a closure captures *bindings*, so lifting one is not a text move — every
+  captured name becomes a parameter, and any `nonlocal` has to be made explicit.
+  That needs its own branch and a per-step test run.
   Regression: `tests/test_reconcile.py`, `tests/test_resume_rules.py`, plus the
   existing contract tests.
 - **Local (2026-10-23, `main`):** Persistence and interface integrity.

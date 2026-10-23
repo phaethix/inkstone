@@ -40,6 +40,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   has no artifact" cannot come from a crash between two writes. The manifest is
   still not compared — it records inputs and outputs but not the page key, and
   re-deriving that key is the second derivation path the design forbids.
+- The work graph moved to `core/pipelines/plan_graph.py` (`_build_plan_graph`,
+  `_expand_page_render_nodes`, `_expand_panel_render_nodes`,
+  `_append_page_render_nodes`, `_append_panel_render_nodes`,
+  `_previous_render_node_id`, plus the two-line panel key helper).
+  `creative_comic.py` is 3,037 lines. These are pure bookkeeping over the
+  checkpoint — no provider, no key, no fingerprint — and they were 227 lines of
+  the orchestrator that only needed `ProjectState` and the node types. Nothing
+  here derives an action key: the graph says which node to visit, and the key is
+  derived at the point of work, so this module cannot drift from `core.comic.cas`.
+  The pipeline re-exports every name, so `tests/test_render_node_expansion.py`
+  keeps patching them where it always did.
 - Migration cost forecast: `inkstone migrate --check` reports what a re-run
   would redo without calling any provider. It compares each manifest's recorded
   `stage_src` against the hash current code computes, so a prompt or stage-code
