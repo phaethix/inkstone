@@ -186,6 +186,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `gate.json`. Source text is deliberately not scanned: a novel may legitimately
   contain those phrases.
 
+### Changed
+- `creative_comic`'s run inputs are now one `ComicRunOptions` dataclass instead
+  of the same eighteen keyword parameters written into both the public function
+  and its private body. The public keyword signature is unchanged, so every
+  caller (CLI, Web, supervisor, probe, examples, tests) is untouched.
+  `_creative_comic` takes one argument and unpacks it into the local names the
+  body already used, so no stage code changed. The two functions that enter a
+  `stage_source_hash` — `_portrait_key_material` and `_panel_key_material` —
+  stayed in their module on purpose: `stage_source_hash` hashes
+  `module.qualname` plus the source text, so relocating them would change the
+  portrait and panel keys and repaint stored work.
+
 ### Fixed
 - **A newer `state.json` is no longer silently downgraded.** `state.json` now
   carries `schema_version` (currently 2). Files written before the field existed

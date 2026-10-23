@@ -1864,6 +1864,41 @@ def estimate_progress(state: ProjectState, total_chunks: int | None = None) -> f
     return min(0.95, 0.9 * finished / planned)
 
 
+@dataclass(frozen=True)
+class ComicRunOptions:
+    """One run's inputs, written once instead of three times.
+
+    ``creative_comic``, ``_creative_comic`` and ``run_until_complete`` each
+    carried the same eighteen-parameter list, so adding a knob meant editing
+    three signatures in three files and hoping they stayed aligned. The field
+    list here is the single definition; ``_creative_comic`` unpacks it into the
+    local names the body already used, so no stage code had to change.
+
+    ``chat`` / ``image`` are duck-typed providers rather than ABCs: the tests and
+    the merge-cost probe pass fakes that only implement the two methods the
+    pipeline calls.
+    """
+
+    source_txt: str
+    output_dir: str
+    project_id: str | None = None
+    chat: object | None = None
+    image: object | None = None
+    style_guide: str | None = None
+    output_format: str = "page"
+    progress_callback: Callable[[str, float | None], None] | None = None
+    panel_keys: list[str] | None = None
+    cancel_check: Callable[[], bool] | None = None
+    render_mode: str | None = None
+    budget: BudgetSpec | None = None
+    data_dir: str | Path | None = None
+    budget_day: str | None = None
+    gate_yes: bool = False
+    sample_gate_size: int | None = None
+    density: str | None = None
+    harness_dir: str | Path | None = None
+
+
 async def creative_comic(
     source_txt: str,
     *,
@@ -1885,28 +1920,34 @@ async def creative_comic(
     density: str | None = None,
     harness_dir: str | Path | None = None,
 ) -> ComicProject:
-    """Generate a project while holding its process-level mutation lock."""
+    """Generate a project while holding its process-level mutation lock.
+
+    The keyword signature is kept as the public contract: every caller (CLI,
+    Web UI, supervisor, probe, examples) passes these names, and a run record is
+    easier to read as a call than as a positional tuple.
+    """
+    options = ComicRunOptions(
+        source_txt=source_txt,
+        output_dir=output_dir,
+        project_id=project_id,
+        chat=chat,
+        image=image,
+        style_guide=style_guide,
+        output_format=output_format,
+        progress_callback=progress_callback,
+        panel_keys=panel_keys,
+        cancel_check=cancel_check,
+        render_mode=render_mode,
+        budget=budget,
+        data_dir=data_dir,
+        budget_day=budget_day,
+        gate_yes=gate_yes,
+        sample_gate_size=sample_gate_size,
+        density=density,
+        harness_dir=harness_dir,
+    )
     with _project_lock(Path(output_dir)):
-        return await _creative_comic(
-            source_txt,
-            output_dir=output_dir,
-            project_id=project_id,
-            chat=chat,
-            image=image,
-            style_guide=style_guide,
-            output_format=output_format,
-            progress_callback=progress_callback,
-            panel_keys=panel_keys,
-            cancel_check=cancel_check,
-            render_mode=render_mode,
-            budget=budget,
-            data_dir=data_dir,
-            budget_day=budget_day,
-            gate_yes=gate_yes,
-            sample_gate_size=sample_gate_size,
-            density=density,
-            harness_dir=harness_dir,
-        )
+        return await _creative_comic(options)
 
 
 def _required_budget_stages(mode: str, page_script: bool) -> set[str]:
@@ -1930,27 +1971,7 @@ def _page_script_enabled() -> bool:
     return page_script_enabled()
 
 
-async def _creative_comic(
-    source_txt: str,
-    *,
-    output_dir: str,
-    project_id: str | None = None,
-    chat=None,
-    image=None,
-    style_guide: str | None = None,
-    output_format: str = "page",
-    progress_callback: Callable[[str, float | None], None] | None = None,
-    panel_keys: list[str] | None = None,
-    cancel_check: Callable[[], bool] | None = None,
-    render_mode: str | None = None,
-    budget: BudgetSpec | None = None,
-    data_dir: str | Path | None = None,
-    budget_day: str | None = None,
-    gate_yes: bool = False,
-    sample_gate_size: int | None = None,
-    density: str | None = None,
-    harness_dir: str | Path | None = None,
-) -> ComicProject:
+async def _creative_comic(options: ComicRunOptions) -> ComicProject:
     """Generate a comic from ``source_txt`` into ``output_dir``.
 
     Args:
@@ -1997,6 +2018,28 @@ async def _creative_comic(
     Returns:
         A ``ComicProject`` with the final state, produced page paths, and PDF.
     """
+    # Unpacked into the local names the body already used. Assigning 18 locals is
+    # cheaper than rewriting 1,800 lines, and it keeps the closures below
+    # (``_render_page_node`` and friends) closing over the same bindings.
+    source_txt = options.source_txt
+    output_dir = options.output_dir
+    project_id = options.project_id
+    chat = options.chat
+    image = options.image
+    style_guide = options.style_guide
+    output_format = options.output_format
+    progress_callback = options.progress_callback
+    panel_keys = options.panel_keys
+    cancel_check = options.cancel_check
+    render_mode = options.render_mode
+    budget = options.budget
+    data_dir = options.data_dir
+    budget_day = options.budget_day
+    gate_yes = options.gate_yes
+    sample_gate_size = options.sample_gate_size
+    density = options.density
+    harness_dir = options.harness_dir
+
     output_dir = Path(output_dir)
     clear_audit()
     (output_dir / "panels").mkdir(parents=True, exist_ok=True)
