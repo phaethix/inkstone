@@ -51,6 +51,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   derived at the point of work, so this module cannot drift from `core.comic.cas`.
   The pipeline re-exports every name, so `tests/test_render_node_expansion.py`
   keeps patching them where it always did.
+- Progress accounting moved to `core/pipelines/progress.py`
+  (`panel_progress_counts`, `page_progress_counts`, `estimate_progress`).
+  `creative_comic.py` is 2,961 lines. Progress is derived, never stored, and
+  nothing here enters a key, so the number can change without invalidating work.
+  The fallback denominator now reads `PANELS_PER_CHUNK_B` from `core.density`
+  instead of restating `8`, so the default tier and the progress bar cannot drift
+  apart. The pipeline re-exports all three names for `web/server.py` and
+  `tests/test_estimate_progress.py`.
 - Migration cost forecast: `inkstone migrate --check` reports what a re-run
   would redo without calling any provider. It compares each manifest's recorded
   `stage_src` against the hash current code computes, so a prompt or stage-code
