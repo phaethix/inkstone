@@ -45,6 +45,7 @@ import tempfile
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -62,8 +63,16 @@ from core.comic.identity import (  # noqa: E402
     remember_merged_alias,
 )
 from core.comic.ledger import LEDGER_ESCALATION_THRESHOLD, ConsistencyLedger  # noqa: E402
+from core.comic.locks import exclusive_lock  # noqa: E402
 from core.comic.reader import chapter_pages, write_reader  # noqa: E402
-from core.config import data_dir, experiments_dir  # noqa: E402
+from core.config import (  # noqa: E402
+    data_dir,
+    experiments_dir,
+    job_ttl_seconds,
+    ui_host,
+    ui_max_body_bytes,
+    ui_port,
+)
 from core.pipelines.creative_comic import estimate_progress  # noqa: E402
 from core.pipelines.run_until_complete import PausedRun, run_until_complete  # noqa: E402
 from core.pipelines.timing import estimate_remaining  # noqa: E402
@@ -73,10 +82,13 @@ logger = logging.getLogger(__name__)
 
 OUTPUT_DIR = ROOT / "comic_out"
 EXPERIMENTS_DIR = experiments_dir()
-HOST = os.environ.get("INKSTONE_UI_HOST", "127.0.0.1")
-PORT = int(os.environ.get("INKSTONE_UI_PORT", "8000"))
+# Every knob below is resolved by ``core.config``, so it joins ``ALL_ENV_VARS``
+# and the h_env partition test. A bare ``os.environ`` read here would be
+# invisible to both.
+HOST = ui_host()
+PORT = ui_port()
 # Cap novel-paste / JSON POSTs (three-body-scale text is ~0.5–1 MB; 8 MB is ample).
-MAX_JSON_BODY_BYTES = int(os.environ.get("INKSTONE_UI_MAX_BODY_BYTES", str(8 * 1024 * 1024)))
+MAX_JSON_BODY_BYTES = ui_max_body_bytes()
 
 _PROJECT_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
 _EXPERIMENT_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,80}$")
@@ -96,7 +108,7 @@ class _BodyTooLarge(ValueError):
 
 
 def _job_ttl_seconds() -> int:
-    return int(os.environ.get("INKSTONE_JOB_TTL_SECONDS", "3600"))
+    return job_ttl_seconds()
 
 
 def _append_job_log(job: dict, message: str) -> None:
@@ -534,6 +546,32 @@ def request_stop(job_id: str) -> tuple[bool, str | None]:
         return True, None
 
 
+@contextmanager
+def _project_write_lock(out_dir: Path):
+    """Exclusive project lock around one short UI-initiated state mutation.
+
+    The pipeline holds ``<out>/.inkstone.lock`` for a whole run. A write that
+    skipped it would load an older ``state.json`` and then overwrite the run's
+    checkpoint with a full dump — last writer wins, silently. Review merge,
+    ledger confirm and regen therefore take the same lock.
+
+    ``blocking=False``: while a job runs the request is refused with 409 rather
+    than queued behind a render that can take hours. The lock file is shared
+    with ``core.pipelines.creative_comic._project_lock``; a different name would
+    be a second lock and would not exclude anything.
+    """
+    # A missing project must answer 404 without leaving an empty directory (and
+    # a lock file) behind: locking is not creation.
+    if not out_dir.is_dir():
+        raise FileNotFoundError(f"no project directory: {out_dir}")
+    with exclusive_lock(
+        out_dir / ".inkstone.lock",
+        blocking=False,
+        busy_message=f"project is already running: {out_dir}",
+    ):
+        yield
+
+
 def _load_project_state(project_id: str) -> tuple[Path, ProjectState]:
     out_dir = _project_dir(project_id)
     state_path = out_dir / "state.json"
@@ -547,23 +585,25 @@ def _load_project_state(project_id: str) -> tuple[Path, ProjectState]:
 
 def apply_review(project_id: str, action: str, new_name: str, candidate: str) -> dict:
     """Merge or dismiss an alias suggestion; persist state.json."""
-    out_dir, state = _load_project_state(project_id)
-    ledger = ConsistencyLedger.load_or_rebuild(out_dir / "consistency.json", state)
-    if action == "merge":
-        try:
-            merge_character_alias(state, new_name, candidate, ledger=ledger)
-        except KeyError as exc:
-            # Concurrent merges can remove the kept name between the UI load and
-            # this request. Answer 400 instead of leaking a 500.
-            raise ValueError(str(exc)) from exc
-        remember_merged_alias(state, new_name, candidate)
-    elif action == "dismiss":
-        dismiss_character_alias(state, new_name, candidate)
-    else:
-        raise ValueError("action must be 'merge' or 'dismiss'")
-    state.save(out_dir / "state.json")
-    ledger.save(out_dir / "consistency.json")
-    return _state_snapshot(state, out_dir)
+    out_dir = _project_dir(project_id)
+    with _project_write_lock(out_dir):
+        _, state = _load_project_state(project_id)
+        ledger = ConsistencyLedger.load_or_rebuild(out_dir / "consistency.json", state)
+        if action == "merge":
+            try:
+                merge_character_alias(state, new_name, candidate, ledger=ledger)
+            except KeyError as exc:
+                # Concurrent merges can remove the kept name between the UI load
+                # and this request. Answer 400 instead of leaking a 500.
+                raise ValueError(str(exc)) from exc
+            remember_merged_alias(state, new_name, candidate)
+        elif action == "dismiss":
+            dismiss_character_alias(state, new_name, candidate)
+        else:
+            raise ValueError("action must be 'merge' or 'dismiss'")
+        state.save(out_dir / "state.json")
+        ledger.save(out_dir / "consistency.json")
+        return _state_snapshot(state, out_dir)
 
 
 def apply_ledger_confirm(
@@ -577,19 +617,21 @@ def apply_ledger_confirm(
     page of this character; unknown characters or page keys raise ``ValueError``
     so the handler can answer 400/404 instead of claiming success.
     """
-    out_dir, state = _load_project_state(project_id)
-    ledger = ConsistencyLedger.load_or_rebuild(out_dir / "consistency.json", state)
-    if character not in ledger.characters:
-        raise KeyError(f"unknown character: {character}")
-    if pages is not None:
-        current = set(ledger.characters[character].pages)
-        selected = [page for page in pages if page in current]
-        if not selected:
-            raise ValueError(f"none of the pages belong to {character}")
-        pages = selected
-    ledger.confirm_review(character, pages=pages)
-    ledger.save(out_dir / "consistency.json")
-    return _state_snapshot(state, out_dir)
+    out_dir = _project_dir(project_id)
+    with _project_write_lock(out_dir):
+        _, state = _load_project_state(project_id)
+        ledger = ConsistencyLedger.load_or_rebuild(out_dir / "consistency.json", state)
+        if character not in ledger.characters:
+            raise KeyError(f"unknown character: {character}")
+        if pages is not None:
+            current = set(ledger.characters[character].pages)
+            selected = [page for page in pages if page in current]
+            if not selected:
+                raise ValueError(f"none of the pages belong to {character}")
+            pages = selected
+        ledger.confirm_review(character, pages=pages)
+        ledger.save(out_dir / "consistency.json")
+        return _state_snapshot(state, out_dir)
 
 
 def start_regen_job(
@@ -601,30 +643,38 @@ def start_regen_job(
     style_guide: str | None = None,
 ) -> tuple[str, str]:
     """Force-regen stale/selected panels and start a background job."""
-    out_dir, state = _load_project_state(project_id)
-    source_path = out_dir / "source.txt"
-    if not source_path.is_file():
-        raise FileNotFoundError("project has no source.txt; regenerate from scratch")
-    text = source_path.read_text(encoding="utf-8")
-    target_keys = list(keys or [])
-    if stale:
-        # ``stale_panels`` covers panel_compose; ``stale_pages`` covers the
-        # default finished_page mode. A UI "redraw affected" request must be able
-        # to start a job from either, otherwise the merge review flow is a no-op.
-        target_keys = list(dict.fromkeys([*target_keys, *state.stale_panels, *state.stale_pages]))
-    if not target_keys:
-        raise ValueError("no panel keys to regenerate")
-    # Panel keys and page keys live in disjoint state fields and never coexist in
-    # one project: ``render_mode`` selects exactly one render path (0b). Route by
-    # the mode, not by guessing from the key string - the positional page key
-    # ``c0000-p0000`` is shape-identical to a panel key, so a delimiter heuristic
-    # would misroute it into ``stale_panels`` and the repaint would be a no-op.
-    if state.render_mode == "finished_page":
-        state.stale_pages = sorted(set(state.stale_pages) | set(target_keys))
-        state.pages_done = [k for k in state.pages_done if k not in set(target_keys)]
-    else:
-        force_regen_panels(state, target_keys)
-    state.save(out_dir / "state.json")
+    out_dir = _project_dir(project_id)
+    # The mutation is locked; the job itself must start after the lock is
+    # released, because ``creative_comic`` takes the same lock for its whole run.
+    with _project_write_lock(out_dir):
+        _, state = _load_project_state(project_id)
+        source_path = out_dir / "source.txt"
+        if not source_path.is_file():
+            raise FileNotFoundError("project has no source.txt; regenerate from scratch")
+        text = source_path.read_text(encoding="utf-8")
+        target_keys = list(keys or [])
+        if stale:
+            # ``stale_panels`` covers panel_compose; ``stale_pages`` covers the
+            # default finished_page mode. A UI "redraw affected" request must be
+            # able to start a job from either, otherwise the merge review flow is
+            # a no-op.
+            target_keys = list(
+                dict.fromkeys([*target_keys, *state.stale_panels, *state.stale_pages])
+            )
+        if not target_keys:
+            raise ValueError("no panel keys to regenerate")
+        # Panel keys and page keys live in disjoint state fields and never
+        # coexist in one project: ``render_mode`` selects exactly one render path
+        # (0b). Route by the mode, not by guessing from the key string - the
+        # positional page key ``c0000-p0000`` is shape-identical to a panel key,
+        # so a delimiter heuristic would misroute it into ``stale_panels`` and the
+        # repaint would be a no-op.
+        if state.render_mode == "finished_page":
+            state.stale_pages = sorted(set(state.stale_pages) | set(target_keys))
+            state.pages_done = [k for k in state.pages_done if k not in set(target_keys)]
+        else:
+            force_regen_panels(state, target_keys)
+        state.save(out_dir / "state.json")
     return _start_job(text, fmt, style_guide, project_id=project_id, panel_keys=target_keys)
 
 
@@ -1169,6 +1219,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
         except _BodyTooLarge as exc:
             self._send_json({"error": str(exc)}, status=413)
+            return
+        except RuntimeError as exc:
+            # A project lock held by a running job is a conflict, not a server
+            # fault: the caller can retry once the run pauses or finishes.
+            self._send_json({"error": str(exc)}, status=409)
             return
         except ValueError as exc:
             self._send_json({"error": str(exc)}, status=400)

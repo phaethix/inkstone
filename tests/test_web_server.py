@@ -12,6 +12,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 from core.comic.ledger import ConsistencyLedger, LedgerEntry, ReferenceVersion
+from core.comic.locks import exclusive_lock
 from core.harness.spec import DATA_DIR
 from core.schemas import (
     CharacterAliasSuggestion,
@@ -1029,3 +1030,67 @@ def test_index_html_has_theme_toggle_and_plan_diff_hooks():
     assert "inkstone-theme" in html
     assert "planDiffPages" in html
     assert "◆ marks a differing page" in html
+
+
+# --------------------------------------------------------------------------- #
+# UI writes must not race a running pipeline on the same state.json
+# --------------------------------------------------------------------------- #
+def test_apply_review_refuses_while_the_project_lock_is_held(tmp_path, monkeypatch):
+    """A merge outside the lock would be overwritten by the next pipeline save.
+
+    The pipeline holds ``.inkstone.lock`` for a whole run and saves the full
+    state, so a UI write that loaded first and saved second silently wins or
+    loses depending on timing. Refusing is the only correct answer.
+    """
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    out = _seed_review_project(tmp_path)
+
+    with exclusive_lock(out / ".inkstone.lock"):
+        try:
+            server.apply_review("demo", "dismiss", "福贵", "富贵")
+            raise AssertionError("expected RuntimeError while the project lock is held")
+        except RuntimeError as exc:
+            assert "already running" in str(exc)
+
+
+def test_post_ledger_confirm_answers_409_while_a_job_holds_the_lock(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    out = _seed_review_project(tmp_path)
+
+    with exclusive_lock(out / ".inkstone.lock"):
+        with _running_server() as httpd:
+            status, payload = _request(
+                httpd.server_port,
+                "/api/project/demo/ledger/confirm",
+                "POST",
+                data=json.dumps({"character": "福贵"}).encode(),
+            )
+
+    assert status == 409
+    assert "already running" in payload["error"]
+
+
+def test_regen_releases_the_lock_before_starting_the_job(tmp_path, monkeypatch):
+    """The job takes the same lock; holding it across ``_start_job`` deadlocks."""
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    out = _seed_review_project(tmp_path)
+    (out / "source.txt").write_text("第一章\n福贵。", encoding="utf-8")
+
+    started: list[dict] = []
+
+    def _fake_start_job(*_args, **kwargs):
+        # If the caller still held the lock, this non-blocking acquire would fail.
+        with exclusive_lock(out / ".inkstone.lock", blocking=False):
+            started.append(kwargs)
+        return "job-1", "demo"
+
+    monkeypatch.setattr(server, "_start_job", _fake_start_job)
+
+    job_id, project_id = server.start_regen_job(
+        "demo", keys=["c0000-p0000"], fmt="page", style_guide=None
+    )
+
+    assert (job_id, project_id) == ("job-1", "demo")
+    assert started and started[0]["project_id"] == "demo"
+    state = ProjectState.load(out / "state.json")
+    assert state.stale_pages == ["c0000-p0000"]

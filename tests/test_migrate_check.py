@@ -171,3 +171,30 @@ def test_the_cli_prints_json_for_automation(tmp_path, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["chat_calls"] == 1
     assert any(row["stage"] == "extract" and row["stale"] == 1 for row in payload["stages"])
+    assert payload["unattributed"] == []
+
+
+def test_a_stage_outside_the_table_is_reported_not_dropped(tmp_path):
+    """A stage added to the registry but not to the forecast used to vanish.
+
+    Dropping it made the report look cheaper for exactly the stage a developer
+    had just introduced — the one case the forecast exists to catch.
+    """
+    _manifest(tmp_path, stage="render.unknown", stage_src="whatever", suffix="b")
+
+    forecast = check_recompute(tmp_path)
+
+    assert forecast.unattributed == ["render.unknown"]
+    assert all(check.stage != "render.unknown" for check in forecast.stages)
+
+
+def test_a_known_stage_without_a_source_hash_counts_as_stale(tmp_path, monkeypatch):
+    """Unprovable reuse must overstate a redo, never hide one."""
+    monkeypatch.delattr(creative_comic, "_LETTER_STAGE_SRC", raising=False)
+    _manifest(tmp_path, stage="letter", stage_src="a-hash", suffix="c")
+
+    forecast = check_recompute(tmp_path)
+    letter = next(check for check in forecast.stages if check.stage == "letter")
+
+    assert letter.stale == 1
+    assert letter.current == 0

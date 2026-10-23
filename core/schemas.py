@@ -24,7 +24,15 @@ from pathlib import Path
 from typing import Any, Literal
 
 from json_repair import repair_json
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 from pydantic.json_schema import SkipJsonSchema
 
 logger = logging.getLogger(__name__)
@@ -1519,6 +1527,12 @@ class Tombstone(BaseModel):
 # ``state.json`` checkpoint stays small enough to write on the render hot path
 # (two-part state design, 2026-10-19).
 CACHE_FILE_NAME = "cache.json"
+
+# ``state.json`` schema version. 1 is the implicit version of every file written
+# before the field existed; 2 adds the field itself and carries unknown top-level
+# fields through a save instead of deleting them. A reader records the version it
+# wrote, so a downgrade is visible instead of silent.
+STATE_SCHEMA_VERSION = 2
 _CACHE_FIELDS = (
     "chunk_cache",
     "page_cache",
@@ -1565,6 +1579,13 @@ class ProjectState(BaseModel):
     """
 
     model_config = ConfigDict(extra="ignore")
+
+    # Stamped on every save. Read back so a newer file opened by older code is
+    # reported instead of being silently interpreted as current.
+    schema_version: int = 1
+    # Top-level keys this build does not understand, captured at load and merged
+    # back at save. Never serialized as a field: it is a carrier, not state.
+    _preserved_unknown_fields: dict[str, Any] = PrivateAttr(default_factory=dict)
 
     project_id: str
     source_file: str = ""
@@ -1650,7 +1671,20 @@ class ProjectState(BaseModel):
                 **{name: getattr(self, name) for name in _CACHE_FIELDS}
             ).model_dump_json(indent=2)
             _atomic_write_text(p.parent / CACHE_FILE_NAME, payload)
-        _atomic_write_text(p, self.model_dump_json(indent=2, exclude=set(_CACHE_FIELDS)))
+        # Never lower the stamp: a file written by a newer build is preserved as
+        # far as this build understands it, and claiming the older version would
+        # hide that a downgrade happened.
+        self.schema_version = max(self.schema_version, STATE_SCHEMA_VERSION)
+        document = self.model_dump_json(indent=2, exclude=set(_CACHE_FIELDS))
+        if self._preserved_unknown_fields:
+            # ``extra="ignore"`` drops unknown keys at validation time. Without
+            # putting them back here, opening a newer ``state.json`` once would
+            # delete those fields permanently on the next save.
+            merged = json.loads(document)
+            for name, value in self._preserved_unknown_fields.items():
+                merged.setdefault(name, value)
+            document = json.dumps(merged, indent=2, ensure_ascii=False)
+        _atomic_write_text(p, document)
 
     @classmethod
     def load(cls, path: str | Path, *, caches: bool = True) -> "ProjectState":
@@ -1668,7 +1702,9 @@ class ProjectState(BaseModel):
         explicit "delete ``cache.json`` to recompute".
         """
         p = Path(path)
-        state = cls.model_validate_json(p.read_text(encoding="utf-8"))
+        text = p.read_text(encoding="utf-8")
+        state = cls.model_validate_json(text)
+        state._capture_unknown_fields(text, source=p)
         if caches:
             cache_path = p.parent / CACHE_FILE_NAME
             if cache_path.is_file():
@@ -1681,6 +1717,45 @@ class ProjectState(BaseModel):
         # the book because one call site forgot to migrate.
         state.migrate_legacy_page_keys()
         return state
+
+    def _capture_unknown_fields(self, text: str, *, source: Path) -> None:
+        """Remember top-level keys this build does not know, so ``save`` can keep them.
+
+        ``extra="ignore"`` is right at the LLM boundary — a model may add a field
+        and rejecting the whole call over it would be worse. It is wrong at the
+        persistence boundary: a field written by a newer build would be dropped
+        at load and then deleted for good by the next save, with no trace.
+
+        Scope is deliberately top-level only. A new field nested inside a
+        sub-model is still lost; that is what ``schema_version`` is for, and
+        widening the carrier to nested paths would need the sub-models to opt in.
+        """
+        try:
+            raw = json.loads(text)
+        except ValueError:
+            return
+        if not isinstance(raw, dict):
+            return
+        known = set(type(self).model_fields)
+        unknown = {key: value for key, value in raw.items() if key not in known}
+        self._preserved_unknown_fields = unknown
+        written = raw.get("schema_version", 1)
+        if isinstance(written, int) and written > STATE_SCHEMA_VERSION:
+            logger.warning(
+                "state.json %s was written with schema v%s but this build reads v%s; "
+                "unknown top-level fields are preserved verbatim, not interpreted",
+                source,
+                written,
+                STATE_SCHEMA_VERSION,
+            )
+        elif unknown:
+            logger.warning(
+                "state.json %s carries %d field(s) this build does not know (%s); "
+                "they are preserved verbatim on the next save",
+                source,
+                len(unknown),
+                ", ".join(sorted(unknown)),
+            )
 
     def migrate_legacy_page_keys(self) -> bool:
         """Rewrite pre-0b ``c{ci:04d}:{page_id}`` page keys to positional keys.

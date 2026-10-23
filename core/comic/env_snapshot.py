@@ -44,6 +44,7 @@ from core.config import (
     ENV_INKSTONE_DATA_DIR,
     ENV_INKSTONE_IMAGE_CONCURRENCY,
     ENV_INKSTONE_PANEL_CONTINUITY,
+    ENV_JOB_TTL_SECONDS,
     ENV_L3,
     ENV_LESSONS,
     ENV_OPENAI_COMPAT_API_KEY,
@@ -62,6 +63,9 @@ from core.config import (
     ENV_RUN_DEADLINE_HOURS,
     ENV_SUPERVISOR_BACKOFF_BASE,
     ENV_SUPERVISOR_BACKOFF_CAP,
+    ENV_UI_HOST,
+    ENV_UI_MAX_BODY_BYTES,
+    ENV_UI_PORT,
     ENV_WEBTOON_MAX_PIXELS,
     ENV_WEBTOON_WARN_MB,
     ChatConfig,
@@ -130,6 +134,12 @@ H_ENV_EXCLUDED: frozenset[str] = frozenset(
         ENV_HARNESS,
         # Batch size bounds peak memory; it does not change output bytes.
         ENV_PDF_BATCH,
+        # Web UI bind address, request size cap, and job TTL select where the
+        # surface listens and how long an id answers. None changes a drawn byte.
+        ENV_UI_HOST,
+        ENV_UI_PORT,
+        ENV_UI_MAX_BODY_BYTES,
+        ENV_JOB_TTL_SECONDS,
         # The host selects which Agnes gateway answers. The model name is the
         # generation identity; a mirror override must not invalidate a book.
         ENV_AGNES_BASE_URL,

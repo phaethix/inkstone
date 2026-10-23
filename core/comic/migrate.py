@@ -148,6 +148,11 @@ class RecomputeForecast:
     stages: list[StageKeyCheck] = field(default_factory=list)
     pages: int = 0
     pages_reusable: int = 0
+    # Manifest stages this forecast cannot place. A stage added to the registry
+    # but not to ``_STAGE_SRC_CONSTANTS`` used to be skipped silently, which made
+    # the cost report under-count for exactly the stage someone just introduced.
+    # They are listed here instead, so an incomplete registration is visible.
+    unattributed: list[str] = field(default_factory=list)
 
     @property
     def chat_calls(self) -> int:
@@ -235,9 +240,19 @@ def check_recompute(root: str | Path) -> RecomputeForecast:
                 continue
             check = by_stage.get(manifest.stage)
             if check is None:
+                # Unknown stage: report it rather than dropping it. Counting it
+                # as reusable would understate the bill; counting it as stale
+                # without being able to name the stage would be a guess.
+                if manifest.stage not in forecast.unattributed:
+                    forecast.unattributed.append(manifest.stage)
                 continue
             current = _current_stage_src(manifest.stage)
-            if current is not None and manifest.stage_src and manifest.stage_src != current:
+            # ``None`` means this build has no source hash for a stage the
+            # forecast otherwise knows. Nobody can prove it is current, so it is
+            # counted as a miss: a forecast may overstate a redo, never hide one.
+            if current is None:
+                check.stale += 1
+            elif manifest.stage_src and manifest.stage_src != current:
                 check.stale += 1
             else:
                 check.current += 1

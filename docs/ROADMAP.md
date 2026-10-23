@@ -70,6 +70,20 @@ Keep these prototypes only as migration material until they conform to the targe
 
 ### P0 — Make the current state honest and deterministic
 
+- **Local (2026-10-23, `main`):** Persistence and interface integrity.
+  `state.json` carries `schema_version`; an unknown top-level field is logged at
+  load and written back at save instead of being deleted by the next full dump,
+  and a file from a newer build keeps its higher stamp. The three UI write
+  endpoints (`review`, `ledger/confirm`, the mutation in `regen`) take the same
+  project lock the pipeline holds, and a held lock answers 409 instead of 500.
+  `migrate --check` reports manifest stages it cannot place (`unattributed`)
+  instead of skipping them, and an unprovable stage counts as a miss. The Web
+  UI's four env knobs joined `core.config` / `ALL_ENV_VARS`. `core.comic` no
+  longer imports `core.pipelines` at module scope through the merge-cost probe.
+  Regression: `tests/test_p0_state_integrity.py`, `tests/test_web_server.py`,
+  `tests/test_migrate_check.py`, `tests/test_merge_cost_probe.py`.
+  Not addressed here: the `pages_done` / `generated.pages` / `render.page`
+  manifest triple, and the 1,869-line `_creative_comic` body.
 - **Local (2026-10-20, `main`):** Four more specs on the runner (`letter`,
   `layout`, `export` PDF and CBZ). Each keeps its own key derivation; only the
   replay check and the manifest write moved.

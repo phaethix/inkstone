@@ -1080,6 +1080,7 @@ def _run_migrate_check(root: Path, *, as_json: bool = False) -> int:
                     "repaints": forecast.repaints,
                     "pages": forecast.pages,
                     "pages_reusable": forecast.pages_reusable,
+                    "unattributed": forecast.unattributed,
                     "stages": [
                         {
                             "stage": check.stage,
@@ -1104,6 +1105,10 @@ def _run_migrate_check(root: Path, *, as_json: bool = False) -> int:
         print(
             f"  {check.stage}: 可复用 {check.current}，失效 {check.stale}，未记录 {check.missing}"
         )
+    if forecast.unattributed:
+        # A stage outside the forecast's table cannot be proven reusable, so it
+        # must not vanish from the report.
+        print(f"  未能归属的阶段（未计入预测）：{', '.join(sorted(forecast.unattributed))}")
     print(f"聊天调用：{forecast.chat_calls} 次")
     if forecast.local_redos:
         print(f"本地重做：{forecast.local_redos} 个（不消耗配额）")

@@ -7,6 +7,9 @@ which is the value being discovered.
 """
 
 import asyncio
+import subprocess
+import sys
+from pathlib import Path
 
 from core.comic.merge_cost_probe import (
     GROWTH_CHUNKS,
@@ -102,3 +105,27 @@ def test_probe_is_network_free(tmp_path, monkeypatch):
     monkeypatch.setattr(probe, "get_image_provider", _explode, raising=False)
 
     assert _small(tmp_path).pages == 6
+
+
+def test_importing_the_probe_does_not_import_the_pipeline():
+    """``core.comic`` must import without ``core.pipelines``.
+
+    The probe imported ``creative_comic`` at module scope, which is the wrong
+    direction: ``creative_comic`` imports ``core.comic.*``, and
+    ``stage_contract`` (reached through ``stage_registry``) imports a pipeline
+    helper back. A fresh interpreter is the only honest check, because
+    ``sys.modules`` in this process is already populated by other tests.
+    """
+    code = (
+        "import sys, core.comic.merge_cost_probe;"
+        "print(int('core.pipelines.creative_comic' in sys.modules))"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert out.stdout.strip() == "0", out.stderr

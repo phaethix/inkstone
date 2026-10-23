@@ -176,6 +176,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   contain those phrases.
 
 ### Fixed
+- **A newer `state.json` is no longer silently downgraded.** `state.json` now
+  carries `schema_version` (currently 2). Files written before the field existed
+  load as v1 and are stamped on the next save. A field this build does not know
+  is logged at load and merged back at save instead of being deleted by the full
+  dump that `extra="ignore"` used to cause — the failure mode was: open a newer
+  project once with older code, and the next save removes the field for good. A
+  file whose version is ahead of this build keeps the higher stamp, so a
+  downgrade stays visible. Scope is top-level keys; a field nested inside a
+  sub-model is still lost, which is what the version number is for.
+- **UI writes no longer race a running pipeline.** `apply_review`,
+  `apply_ledger_confirm`, and the state mutation inside `start_regen_job` take
+  the same `<out>/.inkstone.lock` the pipeline holds. Previously they loaded an
+  older checkpoint and saved the whole document, so a merge made while a job was
+  running could be overwritten by that job's next save. A held lock answers 409
+  instead of 500. The regen path releases the lock before starting the job,
+  because the job acquires it for its own run.
+- `migrate --check` no longer drops a manifest stage it cannot place. A
+  registry stage missing from the forecast table was skipped entirely, and a
+  known stage with no source hash fell through to "reusable"; both made the cost
+  report cheaper for exactly the stage a developer had just changed. Unknown
+  stages are listed in `unattributed` (CLI text and `--json`), and an
+  unprovable stage counts as a miss.
+- The four Web UI knobs (`INKSTONE_UI_HOST`, `INKSTONE_UI_PORT`,
+  `INKSTONE_UI_MAX_BODY_BYTES`, `INKSTONE_JOB_TTL_SECONDS`) are read through
+  `core.config`, so they join `ALL_ENV_VARS` and the `h_env` partition test. They
+  are excluded from `h_env`: none of them can change a drawn byte.
+- `core.comic.merge_cost_probe` imports `creative_comic` at call time. The
+  module-level edge was a real cycle (`creative_comic` imports `core.comic.*`,
+  and `stage_contract` imports a pipeline helper back), so `import core.comic`
+  alone dragged in the whole pipeline.
 - D-16: `h_env` is now scope-aware. Chat keys already used the request
   digest; the remaining letter/render/layout/webtoon/export scopes no longer
   share chat/image/font fields they do not read. Changing the chat model no

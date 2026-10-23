@@ -6,13 +6,20 @@ They are prerequisites for any automated harness iteration: a learning loop
 writes human decisions, so a silent merge or overwrite must be impossible.
 """
 
+import json
 from pathlib import Path
 
 import pytest
 
 from core.comic.gate import adjust_sample_size
 from core.comic.ledger import ConsistencyLedger, LedgerEntry, ReferenceVersion
-from core.schemas import ComicPagePlan, ComicPagePlanSet, PagePanelSpec, ProjectState
+from core.schemas import (
+    STATE_SCHEMA_VERSION,
+    ComicPagePlan,
+    ComicPagePlanSet,
+    PagePanelSpec,
+    ProjectState,
+)
 
 
 def _plan(names: list[str], page_id: str = "p") -> ComicPagePlan:
@@ -121,3 +128,70 @@ def test_sample_size_growth_has_a_lower_bound():
     assert adjust_sample_size(0, 0.95) >= 1
     assert adjust_sample_size(1, 0.95, chapter_pages=1) == 1
     assert adjust_sample_size(1, 0.4) >= 1
+
+
+# --------------------------------------------------------------------------- #
+# state.json versioning: an unknown field must survive a round trip
+# --------------------------------------------------------------------------- #
+def _write_state(path: Path, **overrides) -> None:
+    """Write a state.json whose raw document can be edited before loading."""
+    ProjectState(project_id="t").save(path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw.update(overrides)
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+
+def test_save_stamps_the_current_schema_version(tmp_path):
+    path = tmp_path / "state.json"
+    _write_state(path)
+
+    assert json.loads(path.read_text(encoding="utf-8"))["schema_version"] == STATE_SCHEMA_VERSION
+
+
+def test_an_unversioned_file_loads_as_version_one_and_is_upgraded(tmp_path):
+    """Every pre-existing ``state.json`` has no version field and must still load."""
+    path = tmp_path / "state.json"
+    ProjectState(project_id="t").save(path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    del raw["schema_version"]
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    state = ProjectState.load(path)
+
+    assert state.schema_version == 1
+    state.save(path)
+    assert json.loads(path.read_text(encoding="utf-8"))["schema_version"] == STATE_SCHEMA_VERSION
+
+
+def test_unknown_top_level_fields_survive_a_load_save_round_trip(tmp_path, caplog):
+    """Opening a newer file once must not delete the fields it added.
+
+    ``extra="ignore"`` is correct for a model reply and wrong for a checkpoint: a
+    field written by a later build would be dropped at load and then permanently
+    removed by the next full dump.
+    """
+    path = tmp_path / "state.json"
+    _write_state(path, future_field={"nested": [1, 2]}, future_flag=True)
+
+    with caplog.at_level("WARNING", logger="core.schemas"):
+        state = ProjectState.load(path)
+    assert "future_field" in caplog.text
+    state.save(path)
+
+    after = json.loads(path.read_text(encoding="utf-8"))
+    assert after["future_field"] == {"nested": [1, 2]}
+    assert after["future_flag"] is True
+
+
+def test_a_newer_schema_version_is_not_downgraded_on_save(tmp_path, caplog):
+    """Writing back v2 over a v3 file would hide that a downgrade happened."""
+    path = tmp_path / "state.json"
+    newer = STATE_SCHEMA_VERSION + 1
+    _write_state(path, schema_version=newer)
+
+    with caplog.at_level("WARNING", logger="core.schemas"):
+        state = ProjectState.load(path)
+    state.save(path)
+
+    assert f"schema v{newer}" in caplog.text
+    assert json.loads(path.read_text(encoding="utf-8"))["schema_version"] == newer

@@ -36,8 +36,13 @@ from PIL import Image
 
 from core.api import ChatProvider, ImageProvider
 from core.comic.identity import merge_character_alias, remember_merged_alias
-from core.pipelines.creative_comic import creative_comic
 from core.schemas import ProjectState
+
+# ``creative_comic`` is imported at call time. A module-level import here is a
+# real cycle: ``core.pipelines.creative_comic`` imports ``core.comic.*``, and
+# ``core.comic.stage_contract`` (loaded by ``stage_registry``) imports the
+# pipeline's layout helper. Keeping the edge lazy is what lets ``core.comic`` be
+# imported on its own.
 
 # The fixed sample from the §9 threshold table: 20 chunks x 15 pages = 300
 # pages, the alias on 5 pages of each of 3 chunks = 15 pages. The density is 5%
@@ -297,6 +302,9 @@ async def measure_merge_cost(
         re-run's billable calls, and whose ``merged_keys`` are the page keys the
         merge marked stale.
     """
+    # Imported here, not at module scope: see the note beside the imports.
+    from core.pipelines.creative_comic import creative_comic
+
     workdir = Path(workdir)
     workdir.mkdir(parents=True, exist_ok=True)
     source = _source_text(chunks)
