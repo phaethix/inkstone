@@ -40,7 +40,7 @@ from core.comic.adaptation import (
     stamp_storyboard_beats,
     sync_adaptation_plans,
 )
-from core.comic.artifact_projection import drop_page_artifact, record_page_artifact
+from core.comic.artifact_projection import record_page_artifact
 from core.comic.budget import BudgetPaused, BudgetSession, BudgetSpec
 from core.comic.cas import (
     beats_action_key,
@@ -94,7 +94,6 @@ from core.comic.lettering_lang import (
     lettering_field_mismatches,
     sanitize_lettering_text,
     sanitize_plan_lettering,
-    scrub_lettering_panel,
     source_lettering_script,
     strip_mismatched_lettering,
     strip_pinyin_glosses,
@@ -200,6 +199,11 @@ from core.pipelines.reconcile import (
 from core.pipelines.reconcile import (
     soft_invalidate_render as _soft_invalidate_render,
 )
+from core.pipelines.resume import drop_pages_outside_plan as _drop_pages_outside_plan
+from core.pipelines.resume import page_needs_generation as _page_needs_generation
+from core.pipelines.resume import panel_needs_generation as _panel_needs_generation
+from core.pipelines.resume import scrub_chunk_lettering as _scrub_chunk_lettering
+from core.pipelines.resume import stamp_action_key as _stamp_action_key
 from core.pipelines.stage_registry import validate_stage_registry
 from core.pipelines.stage_runner import record, run_stage
 from core.pipelines.stage_scheduler import PipelinePhase, StageGraph, WorkKind, WorkNode
@@ -914,22 +918,6 @@ def _store_page_script(cache: ChunkCache, script: PageScript, action_key: str) -
     cache.page_script_action_key = action_key
 
 
-def _scrub_chunk_lettering(state: ProjectState, key: str, chunk: str) -> bool:
-    """Drop stored lettering that is not a contiguous span of this chunk."""
-    changed = False
-    pageset = state.page_cache.get(key)
-    if pageset is not None:
-        for page in pageset.pages:
-            for panel in page.panels:
-                changed = scrub_lettering_panel(panel, chunk) or changed
-    cached = state.chunk_cache.get(key)
-    board = cached.storyboard if cached is not None else None
-    if board is not None:
-        for panel in board.panels:
-            changed = scrub_lettering_panel(panel, chunk) or changed
-    return changed
-
-
 def _page_plan_key(
     chunk: str,
     beats,
@@ -946,20 +934,6 @@ def _page_plan_key(
         stage_src=_PAGE_PLAN_STAGE_SRC,
         request_digest=request_digest,
     )
-
-
-def _stamp_action_key(state: ProjectState, state_path: Path, target, key: str) -> bool:
-    """Stamp a cached plan's missing action key and persist it immediately.
-
-    A resume path changes only this stamp. Waiting for the end-of-run save
-    loses it on a budget/continuity pause or a crash, and the next resume
-    re-derives it. Persist at the mutation, as storyboard already does.
-    """
-    if target is None or target.action_key:
-        return False
-    target.action_key = key
-    state.save(state_path)
-    return True
 
 
 def _letter_key(
@@ -1107,15 +1081,6 @@ def _resolve_setting(
     return None
 
 
-def _panel_needs_generation(state: ProjectState, state_key: str) -> bool:
-    """True when a panel must be (re)generated this run."""
-    if state_key in state.stale_panels:
-        return True
-    if state_key in state.panels_done or state_key in state.skipped:
-        return False
-    return True
-
-
 def _mark_panel_done(state: ProjectState, state_key: str) -> None:
     if state_key in state.stale_panels:
         state.stale_panels = [k for k in state.stale_panels if k != state_key]
@@ -1205,36 +1170,6 @@ def _page_reference_names(plan: ComicPagePlan) -> list[str]:
         seen.add(name)
         names.append(name)
     return names
-
-
-def _page_needs_generation(state: ProjectState, state_key: str) -> bool:
-    """True when a finished page must be (re)generated this run."""
-    if state_key in state.stale_pages:
-        return True
-    if state_key in state.pages_done or state_key in state.skipped_pages:
-        return False
-    return True
-
-
-def _drop_pages_outside_plan(state: ProjectState, *, chunk_index: int, page_count: int) -> None:
-    """Remove obsolete positional page projections from one replanned chunk.
-
-    Only the current chunk's ``cNNNN-pNNNN`` keys past its new page range are
-    derived artifacts. Stale markers, tombstones, and other chunks' state stay
-    untouched so a shorter plan cannot discard a human-visible decision.
-    """
-    prefix = f"c{chunk_index:04d}-p"
-    known = set(state.generated.pages) | set(state.pages_done)
-    for page_key in sorted(known):
-        suffix = page_key.removeprefix(prefix)
-        if (
-            not page_key.startswith(prefix)
-            or len(suffix) != 4
-            or not suffix.isdecimal()
-            or int(suffix) < page_count
-        ):
-            continue
-        drop_page_artifact(state, page_key)
 
 
 def _plan_ready_to_letter(state: ProjectState, plan: ComicPagePlan) -> ComicPagePlan:

@@ -82,10 +82,15 @@ Keep these prototypes only as migration material until they conform to the targe
   `stage_source_hash` hashes `module.qualname`, so moving them would change the
   portrait and panel keys and repaint stored work. Every cut was verified by
   comparing the four stage hashes before deleting the moved code.
-  Still inline: the ~1,800-line `_creative_comic` body, the letter/render resume
-  predicates, and the render-node closures (which must be lifted to module scope
-  before they can move).
-  Regression: `tests/test_reconcile.py`, plus the existing contract tests.
+  A fourth cut moved the skip/redo rule to `core/pipelines/resume.py` (3,449 →
+  3,384 lines), with the first direct tests for it.
+  Still inline: the ~1,800-line `_creative_comic` body, the letter resume cluster
+  (`_letter_key`, `_letter_resume_status`, `_page_chunk_complete` — it needs
+  `_LETTER_STAGE_SRC`, so the cut is to pass the stage source in instead of
+  reaching back for the constant), and the render-node closures (which must be
+  lifted to module scope before they can move).
+  Regression: `tests/test_reconcile.py`, `tests/test_resume_rules.py`, plus the
+  existing contract tests.
 - **Local (2026-10-23, `main`):** Persistence and interface integrity.
   `state.json` carries `schema_version`; an unknown top-level field is logged at
   load and written back at save instead of being deleted by the next full dump,

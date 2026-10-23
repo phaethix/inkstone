@@ -217,6 +217,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   explicitly because it is easy to get wrong: a page that lost its lettered file
   keeps its projection entry and its blank but **loses** its `pages_done`
   record — the page is not finished, yet re-lettering it costs no image call.
+- The skip/redo rule moved to `core/pipelines/resume.py`
+  (`panel_needs_generation`, `page_needs_generation`, `drop_pages_outside_plan`,
+  `scrub_chunk_lettering`, `stamp_action_key`), and `creative_comic.py` is
+  3,384 lines. The same three-way branch was written out four times in the
+  pipeline body and never tested in isolation; `tests/test_resume_rules.py`
+  now pins the two rules that are easy to invert and expensive when wrong:
+  a stale page is redrawn even though a projection record says it finished
+  (otherwise an alias merge redraws nothing), and a content-policy skip is not
+  retried (otherwise every resume re-spends quota on the same rejection).
+  Still inline: `_letter_key` / `_letter_resume_status` / `_page_chunk_complete`.
+  They need `_LETTER_STAGE_SRC`, which is defined in the pipeline; the clean cut
+  is to pass the stage source in rather than have a second module reach back for
+  the constant, and that is its own change.
 
 ### Fixed
 - **A newer `state.json` is no longer silently downgraded.** `state.json` now
