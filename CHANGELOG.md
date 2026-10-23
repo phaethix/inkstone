@@ -197,6 +197,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stayed in their module on purpose: `stage_source_hash` hashes
   `module.qualname` plus the source text, so relocating them would change the
   portrait and panel keys and repaint stored work.
+- The export, layout, webtoon and CBZ stages moved out of
+  `core/pipelines/creative_comic.py` into `core/pipelines/export_stages.py`
+  (`creative_comic.py` 3,801 → 3,556 lines). The four stage-source constants
+  moved with them and are re-exported from the pipeline module, because
+  `core.comic.migrate._STAGE_SRC_CONSTANTS` reads them there by name; all twelve
+  stage sources still resolve and no key changed. Tests that patched
+  `ExportEngine` / `LayoutEngine` through the pipeline module now patch the class
+  where it is defined (`core.comic.export` / `core.comic.layout`), which is the
+  same object and no longer depends on which module happened to import it.
 
 ### Fixed
 - **A newer `state.json` is no longer silently downgraded.** `state.json` now

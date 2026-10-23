@@ -136,7 +136,7 @@ def test_soft_invalidate_render_clears_panels_keeps_chunk_cache():
     assert "0" in state.chunk_cache
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_style_change_reuses_chunk_cache_and_redraws_panels(tmp_path):
     src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
     chat, img = FakeChat(), FakeImage()
@@ -173,7 +173,7 @@ def test_style_change_reuses_chunk_cache_and_redraws_panels(tmp_path):
     assert set(state2.panels_done) == {"c0000-p0000", "c0001-p0000"}
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_source_change_drops_chunk_cache(tmp_path):
     src_a = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
     chat, img = FakeChat(), FakeImage()
@@ -190,7 +190,7 @@ def test_source_change_drops_chunk_cache(tmp_path):
     assert state2.structure_fingerprint == _structure_fingerprint(src_b)
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_source_change_keeps_the_alias_review_queue(tmp_path):
     """§8 invariant 6: discarding the projection must not drop human decisions."""
     src_a = "第一章\n方鸿渐在甲板上。"
@@ -214,7 +214,7 @@ def test_source_change_keeps_the_alias_review_queue(tmp_path):
     assert loaded.structure_fingerprint == _structure_fingerprint(src_b)
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_source_change_keeps_a_dismissed_alias(tmp_path):
     """A dismiss is a human decision, so a rebuilt projection must not reopen it."""
     src_a = "第一章\n方鸿渐在甲板上。"
@@ -233,7 +233,7 @@ def test_source_change_keeps_a_dismissed_alias(tmp_path):
     assert loaded.needs_review == []
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_source_change_keeps_a_merged_alias(tmp_path):
     """A merge is a human decision, so a rebuilt projection must fold the alias again."""
     src_a = "第一章\n方鸿渐在甲板上。"
@@ -253,7 +253,7 @@ def test_source_change_keeps_a_merged_alias(tmp_path):
     assert loaded.needs_review == []
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_style_change_ignores_panel_keys_filter(tmp_path):
     src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
     asyncio.run(
@@ -284,7 +284,7 @@ def test_style_change_ignores_panel_keys_filter(tmp_path):
     assert img2.calls == 3  # portrait + 2 panels after soft-invalidate
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_pre_split_state_takes_the_one_time_recompute(tmp_path):
     """A stored project without split fingerprints recomputes once and keeps its
     recorded human decisions (the accepted one-time invalidation)."""
@@ -343,7 +343,7 @@ class _StoryboardChat(FinishedChat):
         }
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_panel_compose_does_not_reuse_a_finished_page_completion(tmp_path, monkeypatch):
     """§5: a missing storyboard is a miss, not a hit on the finished-page cache."""
     src = "第一章\n福贵在村口。"

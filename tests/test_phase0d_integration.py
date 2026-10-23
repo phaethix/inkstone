@@ -41,7 +41,7 @@ def test_alias_merge_without_ledger_keeps_cache_walk():
     assert merge_character_alias(state, "a", "b") == []
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_pipeline_writes_ledger_with_positional_pages(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
     src = "第一章\n福贵在村口。"
@@ -63,7 +63,7 @@ def test_pipeline_writes_ledger_with_positional_pages(tmp_path, monkeypatch):
     assert blob.resolve() not in {candidate.path.resolve() for candidate in plan.candidates}
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_an_older_portrait_gains_a_hash_without_a_new_image(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
     src = "第一章\n福贵在村口。"

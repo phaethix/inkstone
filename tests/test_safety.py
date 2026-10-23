@@ -151,7 +151,7 @@ def test_is_content_policy_rejection_requires_policy_evidence():
     assert is_content_policy_rejection(RuntimeError("rate limit")) is False
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_orchestration_skips_rejected_panel(tmp_path):
     src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
     chat, img = FakeChat(), RejectingImage()
@@ -165,7 +165,7 @@ def test_orchestration_skips_rejected_panel(tmp_path):
     assert proj.pdf and Path(proj.pdf).exists()
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_orchestration_skips_content_rejected_chunk(tmp_path):
     src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
     chat, img = RejectingExtractChat(), FakeImage()

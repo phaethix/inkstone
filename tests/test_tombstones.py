@@ -22,7 +22,7 @@ from tests.test_finished_page_pipeline import (
     _fake_export_pdf,
 )
 
-_PATCH = "core.pipelines.creative_comic.ExportEngine.export_pdf"
+_PATCH = "core.comic.export.ExportEngine.export_pdf"
 _SRC = "第一章\n福贵在村口。"
 
 

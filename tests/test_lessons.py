@@ -229,7 +229,7 @@ def test_a_lesson_reaches_the_page_plan_prompt(tmp_path, monkeypatch):
         genre="general",
     )
 
-    with patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf):
+    with patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf):
         asyncio.run(
             creative_comic(
                 "第一章\n福贵在村口。",

@@ -299,7 +299,7 @@ def test_render_fingerprint_omits_lettering_for_panel_compose():
     assert '"lettering"' not in expected_payload
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_finished_page_mode_writes_generated_pages(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
     src = "第一章\n福贵在村口。"
@@ -375,7 +375,7 @@ def test_finished_page_mode_writes_generated_pages(tmp_path, monkeypatch):
     assert "You are a comic scriptwriter" not in logged
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_finished_page_writes_blank_and_lettered(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
     img = RecordingImage()
@@ -403,7 +403,7 @@ def test_finished_page_writes_blank_and_lettered(tmp_path, monkeypatch):
     assert Path(generated_page.blank_local).read_bytes() != Path(generated_page.local).read_bytes()
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_finished_page_reletters_from_blank_without_new_image(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
     out = str(tmp_path)
@@ -431,7 +431,7 @@ def test_finished_page_reletters_from_blank_without_new_image(tmp_path, monkeypa
     assert proj2.state.generated.pages[key].mode == "finished_lettered"
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_a_changed_font_reletters_the_stored_blank(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
     out = str(tmp_path)
@@ -481,7 +481,7 @@ def test_a_changed_font_reletters_the_stored_blank(tmp_path, monkeypatch):
     assert len(letter_manifests) == 2
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_finished_page_stale_page_repaints_instead_of_reusing_blank(tmp_path, monkeypatch):
     """A stale page is invalidated for a content reason (e.g. alias merge).
 
@@ -512,7 +512,7 @@ def test_finished_page_stale_page_repaints_instead_of_reusing_blank(tmp_path, mo
     assert key in proj.state.pages_done
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_finished_page_kwarg_overrides_env_default(tmp_path, monkeypatch):
     # Env says panel_compose; explicit kwarg should win.
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "panel_compose")
@@ -527,7 +527,7 @@ def test_finished_page_kwarg_overrides_env_default(tmp_path, monkeypatch):
     assert sorted((tmp_path / "pages").glob("page_*.png"))
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_finished_page_resumes_after_deleted_page(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
     src = "第一章\n福贵在村口。"
@@ -547,7 +547,7 @@ def test_finished_page_resumes_after_deleted_page(tmp_path, monkeypatch):
     assert "c0000-p0000" in proj.state.pages_done
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_finished_page_filenames_are_position_stable_across_partial_resume(tmp_path, monkeypatch):
     """Regenerating one deleted page must not collide with / corrupt another page's file.
 
@@ -587,7 +587,7 @@ class RejectingPageImage(FakeImage):
         return FakeImageOutput()
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_finished_page_content_policy_rejection_is_skipped_not_raised(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
     src = "第一章\n福贵在村口。"
@@ -648,7 +648,7 @@ class SizeRejectThenOkImage(FakeImage):
         return FakeImageOutput()
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_finished_page_falls_back_to_square_when_size_rejected(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
     monkeypatch.delenv("INKSTONE_PAGE_SIZE", raising=False)
@@ -680,7 +680,7 @@ class FailOncePageImage(FakeImage):
         return FakeImageOutput()
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_finished_page_generic_failure_retries_once_with_stricter_prompt(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
     src = "第一章\n福贵在村口。"
@@ -697,7 +697,7 @@ def test_finished_page_generic_failure_retries_once_with_stricter_prompt(tmp_pat
     assert Path(proj.state.generated.pages["c0000-p0000"].local).exists()
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_finished_page_export_ignores_stale_panel_compose_pages(tmp_path, monkeypatch):
     """panel_compose writes page_01.png; finished_page must not pick those up on export."""
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
@@ -764,7 +764,7 @@ class CollidingPageIdChat(FakeChat):
         return {}
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_finished_page_cross_chunk_page_id_collision(tmp_path, monkeypatch):
     """Two chunks with the same page_id must both generate distinct pages."""
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
@@ -784,7 +784,7 @@ def test_finished_page_cross_chunk_page_id_collision(tmp_path, monkeypatch):
     assert proj.pdf and Path(proj.pdf).exists()
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_finished_page_webtoon_stacks_page_images(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
     src = "第一章\n福贵在村口。\n第二章\n福贵在读书。"
@@ -805,7 +805,7 @@ def test_finished_page_webtoon_stacks_page_images(tmp_path, monkeypatch):
     assert len(list((tmp_path / "pages").glob("page_c*_p*.png"))) == 2
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_legacy_completed_project_bootstraps_visual_bible(tmp_path, monkeypatch):
     """Completed chunks without a bible must still reconcile and soft-invalidate render."""
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
@@ -847,7 +847,7 @@ class RecordingRefsImage(FakeImage):
         return await super().generate_single_image(prompt, reference_image_paths, size, **kw)
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_finished_pages_pass_portrait_and_cross_chunk_blank_refs(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
     src = "第一章\n福贵在村口。\n第二章\n福贵在读书。"
@@ -861,7 +861,7 @@ def test_finished_pages_pass_portrait_and_cross_chunk_blank_refs(tmp_path, monke
     assert second_refs - first_refs, "second chunk first page should add previous blank"
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_a_stored_beats_key_includes_the_extract_key(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
     src = "第一章\n福贵在村口。"
@@ -881,7 +881,7 @@ def test_a_stored_beats_key_includes_the_extract_key(tmp_path, monkeypatch):
     assert proj.state.beat_cache["0"].action_key == expected
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_a_stored_page_plan_key_includes_the_beats_key(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
     src = "第一章\n福贵在村口。"
@@ -910,7 +910,7 @@ def test_a_stored_page_plan_key_includes_the_beats_key(tmp_path, monkeypatch):
     assert proj.state.page_cache["0"].action_key == expected
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_resume_drops_lettering_that_is_not_in_the_source(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
     src = "第一章\n福贵在村口。"
@@ -952,7 +952,7 @@ class _OrderImage(FakeImage):
         return await super().generate_single_image(prompt, reference_image_paths, size, **kw)
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_every_chunk_is_planned_before_any_page_is_drawn(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
     src = "第一章\n福贵在村口。\n第二章\n福贵在读书。"
@@ -973,7 +973,7 @@ def _custom_harness(tmp_path: Path, marker: str = "CUSTOM HARNESS MARKER") -> Pa
     return target
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_an_explicit_harness_dir_reaches_the_chat_requests(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
     custom = _custom_harness(tmp_path)
@@ -995,7 +995,7 @@ def test_an_explicit_harness_dir_reaches_the_chat_requests(tmp_path, monkeypatch
     assert manifest["harness_digest"] == harness_from_dir(custom).digest()
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_harness_dir_env_is_used_when_no_argument_is_passed(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
     custom = _custom_harness(tmp_path, "ENV HARNESS MARKER")
@@ -1031,7 +1031,7 @@ def test_a_missing_harness_dir_fails_before_any_provider_call(tmp_path):
     assert image.calls == 0
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_harness_kill_switch_ignores_override_genre_and_lessons(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
     monkeypatch.setenv("INKSTONE_HARNESS", "0")
@@ -1073,7 +1073,7 @@ def test_harness_kill_switch_ignores_override_genre_and_lessons(tmp_path, monkey
     assert manifest["harness_digest"] == harness_from_dir(DATA_DIR).digest()
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_finished_page_resume_does_not_require_a_visual_bible(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
     source = "第一章\n福贵在村口。"
@@ -1126,7 +1126,7 @@ def test_a_budget_missing_a_charged_stage_fails_before_any_call(tmp_path, monkey
     assert image.calls == 0
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_beats_and_page_plan_manifests_survive_a_lost_cache(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
     source = "第一章\n福贵在村口。"

@@ -61,7 +61,7 @@ class CapturingImage(ImageProvider):
         return Output()
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_equivalent_newlines_reuse_cache(tmp_path):
     source_crlf = "第一章\r\n甲散步。\r\n第二章\r\n甲回家。"
     asyncio.run(
@@ -87,7 +87,7 @@ def test_equivalent_newlines_reuse_cache(tmp_path):
     assert image.calls == 0
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_model_identity_change_invalidates_generated_assets(tmp_path):
     source = "第一章\n甲散步。"
     asyncio.run(
@@ -114,7 +114,7 @@ def test_model_identity_change_invalidates_generated_assets(tmp_path):
     assert set(state2.chunk_cache) == cache_keys
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_continuity_setting_invalidates_generated_assets(tmp_path, monkeypatch):
     source = "第一章\n甲散步。\n第二章\n甲回家。"
     monkeypatch.setenv("INKSTONE_PANEL_CONTINUITY", "1")
@@ -139,7 +139,7 @@ def test_continuity_setting_invalidates_generated_assets(tmp_path, monkeypatch):
     assert set(state2.chunk_cache) == cache_keys
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_default_mode_keeps_previous_panel_reference(tmp_path, monkeypatch):
     monkeypatch.delenv("INKSTONE_PANEL_CONTINUITY", raising=False)
     image = CapturingImage()
@@ -156,7 +156,7 @@ def test_default_mode_keeps_previous_panel_reference(tmp_path, monkeypatch):
     assert first_panel in image.references[-1]
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_resume_continuity_uses_completed_predecessor(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_PANEL_CONTINUITY", "1")
     source = "第一章\n甲散步。\n第二章\n甲回家。"
@@ -180,7 +180,7 @@ def test_resume_continuity_uses_completed_predecessor(tmp_path, monkeypatch):
     assert image.references == [expected_refs]
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_external_portrait_in_state_is_not_sent_to_provider(tmp_path):
     source = "第一章\n甲散步。"
     project = asyncio.run(
@@ -233,7 +233,7 @@ class OneRejectedPortraitImage(CapturingImage):
         return await super().generate_single_image(prompt, reference_image_paths, size, **kwargs)
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_successful_portraits_survive_sibling_policy_rejection(tmp_path):
     project = asyncio.run(
         creative_comic(
@@ -256,7 +256,7 @@ class OperationalPortraitImage(CapturingImage):
         return await super().generate_single_image(prompt, reference_image_paths, size, **kwargs)
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_successful_portrait_is_checkpointed_before_sibling_operational_failure(tmp_path):
     with pytest.raises(RuntimeError, match="provider unavailable"):
         asyncio.run(
@@ -294,7 +294,7 @@ class OperationalPanelImage(CapturingImage):
         return await super().generate_single_image(prompt, reference_image_paths, size, **kwargs)
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_successful_panel_is_checkpointed_before_sibling_operational_failure(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_PANEL_CONTINUITY", "0")
     with pytest.raises(RuntimeError, match="provider unavailable"):

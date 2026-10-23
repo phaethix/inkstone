@@ -20,7 +20,6 @@ Providers are injected so the pipeline can be exercised without network.
 
 import asyncio
 import hashlib
-import io
 import json
 import logging
 from collections.abc import Callable
@@ -47,11 +46,8 @@ from core.comic.cas import (
     beats_action_key,
     bible_action_key,
     bible_inputs,
-    export_action_key,
-    export_inputs,
     extract_action_key,
     extract_inputs,
-    layout_action_key,
     letter_action_key,
     letter_inputs,
     page_plan_action_key,
@@ -64,7 +60,6 @@ from core.comic.cas import (
     render_panel_action_key,
     stored_output,
     storyboard_action_key,
-    webtoon_action_key,
 )
 from core.comic.consistency import (
     DEFAULT_PORTRAIT_STYLE,
@@ -73,13 +68,9 @@ from core.comic.consistency import (
 )
 from core.comic.env_snapshot import h_env
 from core.comic.export import (
-    ExportEngine,
-    _comic_info_xml,
-    _img2pdf_layout,
     _pdf_batch_size,
-    _pdf_dpi,
 )
-from core.comic.fonts import resolve_font, text_requires_cjk
+from core.comic.fonts import resolve_font
 from core.comic.gate import SAMPLE_GATE_SIZE, GatePaused, GateSession
 from core.comic.identity import (
     apply_recorded_merges,
@@ -96,7 +87,7 @@ from core.comic.key_beats import (
     cacheable_beats,
     uncovered_must_draw_beats,
 )
-from core.comic.layout import LayoutEngine, PanelImage, _line_height, _webtoon_max_pixels
+from core.comic.layout import PanelImage, _webtoon_max_pixels
 from core.comic.layout_diversity import layout_diversity_instructions
 from core.comic.ledger import ConsistencyLedger, ContinuityReviewPaused
 from core.comic.lettering_lang import (
@@ -185,6 +176,18 @@ from core.harness.spec import (
 from core.lessons import LessonStore, format_craft_notes
 from core.perf import PerfCollector
 from core.pipelines.cancel import check_cancel
+from core.pipelines.export_stages import (  # noqa: F401  (the four constants are read by migrate)
+    _CBZ_STAGE_SRC,
+    _DRAW_SOURCES,
+    _EXPORT_STAGE_SRC,
+    _LAYOUT_STAGE_SRC,
+    _WEBTOON_STAGE_SRC,
+    export_cbz_with_manifest,
+    export_pdf_with_manifest,
+    export_webtoon_with_manifest,
+    layout_pages_with_manifest,
+    prepare_finished_page_export,
+)
 from core.pipelines.stage_registry import validate_stage_registry
 from core.pipelines.stage_runner import record, run_stage
 from core.pipelines.stage_scheduler import PipelinePhase, StageGraph, WorkKind, WorkNode
@@ -706,7 +709,7 @@ def _page_asset_path(pages_dir: Path, chunk_index: int, page_index: int) -> Path
     Position-derived (not a running counter) so regenerating a stale/missing
     page always rewrites the same file — a counter would risk colliding with
     an unrelated page's filename when only some pages are redone on resume.
-    The ``page_`` prefix and zero-padding keep ``_finished_page_files`` in
+    The ``page_`` prefix and zero-padding keep ``finished_page_files`` in
     correct reading order.
     """
     return pages_dir / f"page_c{chunk_index:04d}_p{page_index:04d}.png"
@@ -716,31 +719,6 @@ def _page_asset_path(pages_dir: Path, chunk_index: int, page_index: int) -> Path
 # key of bytes already stored under the real source. Each tuple is the behaviour
 # that stage draws or binds. The page grid is not part of lettering, and the
 # pipeline function is not part of any of them.
-_DRAW_SOURCES = (
-    LayoutEngine._bubble_height,
-    LayoutEngine._caption_block_height,
-    LayoutEngine._draw_bubble,
-    LayoutEngine._draw_caption,
-    LayoutEngine._fitted_caption,
-    LayoutEngine._draw_sfx,
-    LayoutEngine._rebreak_for_punctuation,
-    LayoutEngine._hang_date_mark,
-    LayoutEngine._hang_duration,
-    LayoutEngine._hang_operator,
-    LayoutEngine._hang_spaced_unit,
-    LayoutEngine._wrap_clock,
-    LayoutEngine._wrap_grouped_number,
-    LayoutEngine._wrap_number_unit,
-    LayoutEngine._wrap_date,
-    LayoutEngine._wrap_numeric_expression,
-    LayoutEngine._wrap_range,
-    LayoutEngine._wrap_chars,
-    LayoutEngine._wrap_mixed,
-    LayoutEngine._wrap_text,
-    LayoutEngine._wrap_words,
-    _line_height,
-    text_requires_cjk,
-)
 _LETTER_SOURCES = (
     *_DRAW_SOURCES,
     _avoid_overlap,
@@ -767,36 +745,9 @@ _STAGE_SOURCE_EXCLUDED = (
     _webtoon_max_pixels,
     resolve_font,
 )
-_LAYOUT_SOURCES = (
-    *_DRAW_SOURCES,
-    LayoutEngine._cols_for,
-    LayoutEngine._compose_pages,
-    LayoutEngine._lettering_reserve,
-    LayoutEngine._paginate,
-    LayoutEngine._place_panel,
-    LayoutEngine._render_page,
-)
-_WEBTOON_SOURCES = (
-    *_DRAW_SOURCES,
-    LayoutEngine._compose_webtoon,
-    LayoutEngine._panel_strip_height,
-)
-_EXPORT_SOURCES = (
-    ExportEngine._export_pdf_pil_batched,
-    ExportEngine._merge_pdf_parts,
-    ExportEngine._save_pil_batch,
-    ExportEngine._try_img2pdf,
-    ExportEngine.export_pdf,
-    _img2pdf_layout,
-    _pdf_dpi,
-)
+# Lettering keeps its own sources here: the export module owns the bind keys, but
+# this stage is executed by ``_letter_page_from_blank`` in this file.
 _LETTER_STAGE_SRC = stage_source_hash(*_LETTER_SOURCES)
-_EXPORT_STAGE_SRC = stage_source_hash(*_EXPORT_SOURCES)
-# Kept off the PDF hash. A CBZ is a different binder, and adding it must not
-# change the key of a PDF that was already stored.
-_CBZ_STAGE_SRC = stage_source_hash(ExportEngine.export_cbz, _comic_info_xml)
-_WEBTOON_STAGE_SRC = stage_source_hash(*_WEBTOON_SOURCES)
-_LAYOUT_STAGE_SRC = stage_source_hash(*_LAYOUT_SOURCES)
 
 
 def _portrait_key_material(name: str, asset, style: str) -> str:
@@ -1104,245 +1055,6 @@ def _letter_page_from_blank(
     if run.replayed:
         local_path.parent.mkdir(parents=True, exist_ok=True)
         local_path.write_bytes(run.files[0][1])
-
-
-def _bound_image_size(blobs: list[bytes]) -> str | None:
-    """Pixel sizes of the images a binder consumes, as ``WIDTHxHEIGHT``.
-
-    One size shared by every image stays a single string, so a book drawn at
-    the configured size keeps the key already stored. Mixed images join their
-    sizes in bind order.
-    """
-    sizes: list[str] = []
-    for blob in blobs:
-        with Image.open(io.BytesIO(blob)) as image:
-            sizes.append(f"{image.size[0]}x{image.size[1]}")
-    if not sizes:
-        return None
-    if len(set(sizes)) == 1:
-        return sizes[0]
-    return ",".join(sizes)
-
-
-def _export_pdf_with_manifest(pages_dir: Path, output_dir: Path) -> str:
-    """Build ``comic.pdf``, or copy it when the same pages were already bound."""
-    out = output_dir / "comic.pdf"
-    files = sorted(pages_dir.glob("page_*.png"))
-    if not files:
-        files = sorted(p for p in pages_dir.glob("*.png") if p.name.lower() != "webtoon.png")
-    blobs = [path.read_bytes() for path in files]
-    env = h_env(text="", resolved_size=_bound_image_size(blobs), scope="export")
-    key = export_action_key(
-        pages=blobs,
-        layout="TwoPageRight",
-        direction="R2L",
-        env=env,
-        stage_src=_EXPORT_STAGE_SRC,
-    )
-
-    def _bind() -> list[tuple[str, bytes]]:
-        pdf = ExportEngine().export_pdf(pages_dir, out=str(out))
-        return [(out.name, Path(pdf).read_bytes())]
-
-    run = run_stage(
-        output_dir,
-        "export",
-        key,
-        _bind,
-        stage_src=_EXPORT_STAGE_SRC,
-        env=env,
-        inputs=export_inputs(blobs),
-    )
-    if run.tombstoned or not run.files:
-        return str(out)
-    if run.replayed:
-        out.write_bytes(run.files[0][1])
-    return str(out)
-
-
-def _export_cbz_with_manifest(pages_dir: Path, output_dir: Path) -> str:
-    """Build ``comic.cbz``, or copy it when the same pages were already bound."""
-    out = output_dir / "comic.cbz"
-    files = sorted(pages_dir.glob("page_*.png"))
-    if not files:
-        files = sorted(p for p in pages_dir.glob("*.png") if p.name.lower() != "webtoon.png")
-    blobs = [path.read_bytes() for path in files]
-    env = h_env(text="", resolved_size=_bound_image_size(blobs), scope="export")
-    key = export_action_key(
-        pages=blobs,
-        layout="cbz",
-        direction="R2L",
-        env=env,
-        stage_src=_CBZ_STAGE_SRC,
-    )
-
-    def _bind() -> list[tuple[str, bytes]]:
-        cbz = ExportEngine().export_cbz(pages_dir, out=str(out))
-        return [(out.name, Path(cbz).read_bytes())]
-
-    run = run_stage(
-        output_dir,
-        "export",
-        key,
-        _bind,
-        stage_src=_CBZ_STAGE_SRC,
-        env=env,
-        inputs=export_inputs(blobs),
-    )
-    if run.tombstoned or not run.files:
-        return str(out)
-    if run.replayed:
-        out.write_bytes(run.files[0][1])
-    return str(out)
-
-
-def _panel_png_bytes(panel: PanelImage) -> bytes:
-    buffer = io.BytesIO()
-    panel.image.convert("RGB").save(buffer, format="PNG")
-    return buffer.getvalue()
-
-
-def _webtoon_lettering(panels: list[PanelImage]) -> list[dict[str, str]]:
-    return [
-        {
-            "caption": panel.caption or "",
-            "dialogue": panel.dialogue or "",
-            "sfx": panel.sfx or "",
-        }
-        for panel in panels
-    ]
-
-
-def _export_webtoon_with_manifest(
-    panels: list[PanelImage], pages_dir: Path, output_dir: Path
-) -> list[str]:
-    """Stack a webtoon strip, or copy it when the same panels were already bound."""
-    if not panels:
-        return []
-    out = pages_dir / "webtoon.png"
-    blobs = [_panel_png_bytes(panel) for panel in panels]
-    lettering = _webtoon_lettering(panels)
-    text = "\n".join(piece for row in lettering for piece in row.values() if piece)
-    env = h_env(text=text, resolved_size=_bound_image_size(blobs), scope="webtoon")
-    engine = LayoutEngine()
-    key = webtoon_action_key(
-        pages=blobs,
-        lettering=lettering,
-        page_width=engine.page_width,
-        env=env,
-        stage_src=_WEBTOON_STAGE_SRC,
-    )
-
-    def _stack() -> list[tuple[str, bytes]]:
-        pages_dir.mkdir(parents=True, exist_ok=True)
-        paths = engine.compose(panels, pages_dir, layout_mode="webtoon")
-        return [(Path(paths[0]).name, Path(paths[0]).read_bytes())] if paths else []
-
-    run = run_stage(
-        output_dir,
-        "webtoon",
-        key,
-        _stack,
-        stage_src=_WEBTOON_STAGE_SRC,
-        env=env,
-        inputs=export_inputs(blobs),
-    )
-    if run.tombstoned:
-        return [str(out)]
-    if not run.files:
-        return []
-    if run.replayed:
-        pages_dir.mkdir(parents=True, exist_ok=True)
-        for name, data in run.files:
-            (pages_dir / Path(name).name).write_bytes(data)
-    return [str(out)]
-
-
-def _drop_stale_panel_sheets(pages_dir: Path, keep: list[str]) -> None:
-    """Remove panel sheets the current collage did not write.
-
-    Finished-page files (``page_c*_p*.png``) stay. A shorter collage must not
-    leave ``page_03.png`` behind for the PDF binder to pick up.
-    """
-    kept = {Path(path).name for path in keep}
-    if not pages_dir.is_dir():
-        return
-    for path in pages_dir.glob("page_*.png"):
-        if path.match("page_c*_p*.png") or path.name in kept:
-            continue
-        path.unlink()
-
-
-def _layout_pages_with_manifest(
-    panels: list[PanelImage], pages_dir: Path, output_dir: Path
-) -> list[str] | None:
-    """Collage panel sheets, or copy them when the same panels were already bound.
-
-    ``None`` means a non-ok manifest: the collage is not rebuilt, and the caller
-    should not bind a PDF from whatever sheets happen to be on disk.
-    """
-    if not panels:
-        return []
-    blobs = [_panel_png_bytes(panel) for panel in panels]
-    lettering = _webtoon_lettering(panels)
-    text = "\n".join(piece for row in lettering for piece in row.values() if piece)
-    env = h_env(text=text, resolved_size=_bound_image_size(blobs), scope="layout")
-    engine = LayoutEngine()
-    key = layout_action_key(
-        pages=blobs,
-        lettering=lettering,
-        page_width=engine.page_width,
-        cell_height=engine.cell_height,
-        bg=[int(channel) for channel in engine.bg],
-        env=env,
-        stage_src=_LAYOUT_STAGE_SRC,
-    )
-
-    def _compose() -> list[tuple[str, bytes]]:
-        # Report an empty collage instead of recording an ``ok`` manifest whose
-        # ``outputs`` is empty: that would be a hit no reader can satisfy.
-        pages_dir.mkdir(parents=True, exist_ok=True)
-        paths = engine.compose(panels, pages_dir, layout_mode="page")
-        return [(Path(path).name, Path(path).read_bytes()) for path in paths]
-
-    run = run_stage(
-        output_dir,
-        "layout",
-        key,
-        _compose,
-        stage_src=_LAYOUT_STAGE_SRC,
-        env=env,
-        inputs=export_inputs(blobs),
-    )
-    if run.tombstoned:
-        return None
-    if not run.files:
-        # Nothing was composed and nothing was replayed. Returning here keeps an
-        # empty ``keep`` list from deleting the sheets a previous run wrote.
-        return []
-    pages_dir.mkdir(parents=True, exist_ok=True)
-    restored: list[str] = []
-    for name, data in run.files:
-        dest = pages_dir / Path(name).name
-        if run.replayed:
-            dest.write_bytes(data)
-        restored.append(str(dest))
-    _drop_stale_panel_sheets(pages_dir, restored)
-    return restored
-
-
-def _finished_page_files(pages_dir: Path) -> list[Path]:
-    """Return finished-page assets only, excluding panel-compose ``page_NN.png`` leftovers."""
-    return sorted(p for p in pages_dir.glob("page_*.png") if p.match("page_c*_p*.png"))
-
-
-def _prepare_finished_page_export(pages_dir: Path) -> list[Path]:
-    """Collect finished-page assets and drop stale panel-compose ``page_NN.png`` files."""
-    finished = _finished_page_files(pages_dir)
-    for stale in pages_dir.glob("page_*.png"):
-        if not stale.match("page_c*_p*.png"):
-            stale.unlink()
-    return finished
 
 
 def _asset_path(root: Path, directory: str, identifier: str) -> Path:
@@ -3766,24 +3478,24 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
         # pages into a single vertical strip.
         state.stage = "export"
         _report("export", max(0.90, _pct()))
-        page_files = _prepare_finished_page_export(pages_dir) if pages_dir.exists() else []
+        page_files = prepare_finished_page_export(pages_dir) if pages_dir.exists() else []
         if page_files:
             if output_format == "webtoon":
                 node = _schedule_export("export.webtoon")
                 panel_imgs = [PanelImage(Image.open(p)) for p in page_files]
                 with perf.measure("layout"):
-                    webtoon_paths = _export_webtoon_with_manifest(panel_imgs, pages_dir, output_dir)
+                    webtoon_paths = export_webtoon_with_manifest(panel_imgs, pages_dir, output_dir)
                 webtoon = webtoon_paths[0] if webtoon_paths else None
                 pages = webtoon_paths
             elif output_format == "cbz":
                 node = _schedule_export("export.cbz")
                 with perf.measure("export"):
-                    cbz = _export_cbz_with_manifest(pages_dir, output_dir)
+                    cbz = export_cbz_with_manifest(pages_dir, output_dir)
                 pages = [str(p) for p in page_files]
             else:
                 node = _schedule_export("export.pdf")
                 with perf.measure("export"):
-                    pdf = _export_pdf_with_manifest(pages_dir, output_dir)
+                    pdf = export_pdf_with_manifest(pages_dir, output_dir)
                 pages = [str(p) for p in page_files]
             completed_render_nodes.add(node.node_id)
     else:
@@ -3808,7 +3520,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
             if output_format == "webtoon":
                 node = _schedule_export("export.webtoon")
                 with perf.measure("layout"):
-                    pages = _export_webtoon_with_manifest(panel_imgs, pages_dir, output_dir)
+                    pages = export_webtoon_with_manifest(panel_imgs, pages_dir, output_dir)
                 completed_render_nodes.add(node.node_id)
                 state.stage = "export"
                 _report("export", 0.95)
@@ -3816,7 +3528,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
             else:
                 layout_node = _schedule_export("export.layout")
                 with perf.measure("layout"):
-                    laid_out = _layout_pages_with_manifest(panel_imgs, pages_dir, output_dir)
+                    laid_out = layout_pages_with_manifest(panel_imgs, pages_dir, output_dir)
                     pages = [] if laid_out is None else laid_out
                 completed_render_nodes.add(layout_node.node_id)
                 state.stage = "export"
@@ -3824,12 +3536,12 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                 if output_format == "cbz" and pages:
                     bind_node = _schedule_export("export.cbz", dependencies=("export.layout",))
                     with perf.measure("export"):
-                        cbz = _export_cbz_with_manifest(pages_dir, output_dir)
+                        cbz = export_cbz_with_manifest(pages_dir, output_dir)
                     completed_render_nodes.add(bind_node.node_id)
                 elif pages:
                     bind_node = _schedule_export("export.pdf", dependencies=("export.layout",))
                     with perf.measure("export"):
-                        pdf = _export_pdf_with_manifest(pages_dir, output_dir)
+                        pdf = export_pdf_with_manifest(pages_dir, output_dir)
                     completed_render_nodes.add(bind_node.node_id)
 
     state.save(state_path)

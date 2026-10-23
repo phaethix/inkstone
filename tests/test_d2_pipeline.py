@@ -94,7 +94,7 @@ def _fake_export_pdf(self, page_dir, out="comic.pdf", layout="TwoPageRight", dir
     return out
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_d2_pipeline_writes_and_resumes_page_script(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_PAGE_SCRIPT", "1")
     src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
@@ -121,7 +121,7 @@ def test_d2_pipeline_writes_and_resumes_page_script(tmp_path, monkeypatch):
         assert state2.chunk_cache[key].page_script is not None
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_an_empty_page_script_key_is_stamped_without_another_call(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_PAGE_SCRIPT", "1")
     src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
@@ -139,7 +139,7 @@ def test_an_empty_page_script_key_is_stamped_without_another_call(tmp_path, monk
         assert stamped.chunk_cache[key].page_script_action_key
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_a_changed_page_script_key_plans_the_script_again(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_PAGE_SCRIPT", "1")
     src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
@@ -171,7 +171,7 @@ def test_d2_pipeline_skips_page_script_by_default(tmp_path, monkeypatch):
         assert state.chunk_cache[key].page_script is None
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_d2_pipeline_skipped_pages_on_policy_rejection(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_PAGE_SCRIPT", "1")
     src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"

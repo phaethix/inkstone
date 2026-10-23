@@ -46,7 +46,7 @@ def test_an_older_state_loads_without_units():
     assert loaded.source_units == []
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_a_run_stores_units_without_changing_the_fingerprint(tmp_path):
     src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
     chat = FakeChat()

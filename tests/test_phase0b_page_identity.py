@@ -76,7 +76,7 @@ def test_alias_merge_marks_positional_page_keys():
     assert state.pages_done == ["c0000-p0000"]
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_finished_page_keys_are_positional(tmp_path, monkeypatch):
     """The state key is position, not the model's ``page_id`` (0b)."""
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
@@ -90,7 +90,7 @@ def test_finished_page_keys_are_positional(tmp_path, monkeypatch):
     assert all(":" not in key for key in proj.state.generated.pages)
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_key_is_unchanged_when_model_page_id_changes(tmp_path, monkeypatch):
     """A replan that renames ``page_id`` must not move the recorded key (0b)."""
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")

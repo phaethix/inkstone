@@ -90,7 +90,7 @@ def _ledger_stops(tmp_path: Path) -> list[dict]:
     ]
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_escalated_ledger_holds_the_render_phase(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
     monkeypatch.setattr("core.comic.ledger.LEDGER_ESCALATION_THRESHOLD", 1)
@@ -131,7 +131,7 @@ def test_escalated_ledger_holds_the_render_phase(tmp_path, monkeypatch):
     assert len(_ledger_stops(tmp_path)) == 1
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_pending_below_the_threshold_stays_quiet(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
 
@@ -151,7 +151,7 @@ def test_pending_below_the_threshold_stays_quiet(tmp_path, monkeypatch):
     assert "c0000-p0000" in proj.state.pages_done
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_the_successor_page_is_the_next_in_reading_order():
     """The redraw flag must land on the page that consumed the old blank.
 
@@ -192,7 +192,7 @@ def test_the_successor_page_is_the_next_in_reading_order():
     assert next_page_in_book(state, state.page_cache["1"], chunk_index=1, page_index=1) is None
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_a_page_redraw_marks_the_next_page_for_continuity_review(tmp_path, monkeypatch):
     """§4: repainting page 1 leaves page 2 encoded against a vanished blank.
 
@@ -219,7 +219,7 @@ def test_a_page_redraw_marks_the_next_page_for_continuity_review(tmp_path, monke
     assert _ledger_stops(tmp_path) == []
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_the_redraw_flag_does_not_repeat_on_resume(tmp_path, monkeypatch):
     """A resumed run that repaints nothing must not re-flag or duplicate."""
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
@@ -237,7 +237,7 @@ def test_the_redraw_flag_does_not_repeat_on_resume(tmp_path, monkeypatch):
     assert ConsistencyLedger.load(tmp_path / "consistency.json").pending_pages() == first
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_run_until_complete_reports_the_review_pause(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
     monkeypatch.setattr("core.comic.ledger.LEDGER_ESCALATION_THRESHOLD", 1)

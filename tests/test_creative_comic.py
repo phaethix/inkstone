@@ -76,7 +76,7 @@ def _fake_export_pdf(self, page_dir, out="comic.pdf", layout="TwoPageRight", dir
     return out
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_creative_comic_generates_and_resumes(tmp_path):
     src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
     chat, img = FakeChat(), FakeImage()
@@ -116,7 +116,7 @@ def test_creative_comic_generates_and_resumes(tmp_path):
     assert (tmp_path / "runs.jsonl").read_text(encoding="utf-8") == logged
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_creative_comic_regenerates_deleted_panel(tmp_path):
     src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
     asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage()))
@@ -136,7 +136,7 @@ def test_creative_comic_regenerates_deleted_panel(tmp_path):
     assert set(proj.state.panels_done) == {"c0000-p0000", "c0001-p0000"}
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_creative_comic_resume_reuses_chunk_cache(tmp_path):
     src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
     asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage()))
@@ -192,7 +192,7 @@ class FakeChatAlias(FakeChat):
         return {}
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_creative_comic_flags_character_alias_for_review(tmp_path):
     src = "第一章\n方鸿渐在甲板上。\n第二章\n鸿渐在读书。"
     proj = asyncio.run(
@@ -209,7 +209,7 @@ def test_creative_comic_flags_character_alias_for_review(tmp_path):
     assert sugg.suggested is True
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_creative_comic_regenerates_stale_panel(tmp_path):
     src = "第一章\n方鸿渐在甲板上。"
     asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage()))
@@ -228,7 +228,7 @@ def test_creative_comic_regenerates_stale_panel(tmp_path):
     assert key not in proj.state.stale_panels
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_creative_comic_merges_settings_across_chunks(tmp_path):
     src = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
     proj = asyncio.run(
@@ -250,7 +250,7 @@ def test_creative_comic_merges_settings_across_chunks(tmp_path):
     assert proj.pages == [proj.webtoon]
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_changed_source_invalidates_resume_state(tmp_path):
     asyncio.run(
         creative_comic(
@@ -297,7 +297,7 @@ class UnsafeIdentifierChat(FakeChat):
         }
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_model_identifiers_cannot_escape_project_directory(tmp_path):
     escaped_portrait = tmp_path.parent / "escaped-portrait.png"
     escaped_panel = tmp_path.parent / "escaped-panel.png"
@@ -339,7 +339,7 @@ class OrderedDialogueChat(FakeChat):
         }
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_layout_uses_storyboard_order_and_dialogue(tmp_path, monkeypatch):
     captured = []
 
@@ -347,7 +347,7 @@ def test_layout_uses_storyboard_order_and_dialogue(tmp_path, monkeypatch):
         captured.extend(panel.dialogue for panel in panels)
         return []
 
-    monkeypatch.setattr("core.pipelines.creative_comic.LayoutEngine.compose", capture_compose)
+    monkeypatch.setattr("core.comic.layout.LayoutEngine.compose", capture_compose)
     asyncio.run(
         creative_comic(
             "第一章\nfirst dialogue\nsecond dialogue\n测试。",
@@ -360,7 +360,7 @@ def test_layout_uses_storyboard_order_and_dialogue(tmp_path, monkeypatch):
     assert captured == ["first dialogue", "second dialogue"]
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_legacy_generated_panel_metadata_is_restored_from_storyboard(tmp_path, monkeypatch):
     asyncio.run(
         creative_comic(
@@ -387,7 +387,7 @@ def test_legacy_generated_panel_metadata_is_restored_from_storyboard(tmp_path, m
         captured.extend(panel.dialogue for panel in panels)
         return []
 
-    monkeypatch.setattr("core.pipelines.creative_comic.LayoutEngine.compose", capture_compose)
+    monkeypatch.setattr("core.comic.layout.LayoutEngine.compose", capture_compose)
     asyncio.run(
         creative_comic(
             "第一章\nfirst dialogue\nsecond dialogue\n测试。",
@@ -457,7 +457,7 @@ class ReusedPanelIdChat(FakeChat):
         }
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_reused_model_panel_ids_are_isolated_per_chunk(tmp_path):
     project = asyncio.run(
         creative_comic(
@@ -475,7 +475,7 @@ def test_reused_model_panel_ids_are_isolated_per_chunk(tmp_path):
     assert source_ids == {"panel-1"}
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_model_id_cannot_collide_with_internal_panel_key(tmp_path):
     project = asyncio.run(
         creative_comic(
@@ -490,7 +490,7 @@ def test_model_id_cannot_collide_with_internal_panel_key(tmp_path):
     assert len(project.state.panels_done) == 2
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_independent_image_work_uses_bounded_concurrency(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_IMAGE_CONCURRENCY", "3")
     monkeypatch.setenv("INKSTONE_PANEL_CONTINUITY", "0")

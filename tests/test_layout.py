@@ -213,7 +213,7 @@ def test_an_empty_collage_does_not_delete_the_sheets_on_disk(tmp_path, monkeypat
     would never reach the branch under test.
     """
     from core.comic.layout import LayoutEngine, PanelImage
-    from core.pipelines.creative_comic import _layout_pages_with_manifest
+    from core.pipelines.export_stages import layout_pages_with_manifest
 
     pages_dir = tmp_path / "pages"
     output_dir = tmp_path / "out"
@@ -223,7 +223,7 @@ def test_an_empty_collage_does_not_delete_the_sheets_on_disk(tmp_path, monkeypat
 
     monkeypatch.setattr(LayoutEngine, "compose", lambda *a, **k: [])
 
-    produced = _layout_pages_with_manifest([PanelImage(_img())], pages_dir, output_dir)
+    produced = layout_pages_with_manifest([PanelImage(_img())], pages_dir, output_dir)
 
     assert produced == []
     assert survivor.exists(), "an empty collage must not wipe existing sheets"

@@ -9,6 +9,7 @@ returns.
 
 import asyncio
 
+from core.comic.export import ExportEngine
 from core.pipelines import creative_comic as pipeline
 from core.pipelines.creative_comic import creative_comic
 from tests.test_creative_comic import FakeChat as PanelChat
@@ -26,7 +27,7 @@ def test_finished_page_renders_pageset_planned_during_render(tmp_path, monkeypat
         return real_expand(graph, state, chunk_count)
 
     monkeypatch.setattr(pipeline, "_expand_page_render_nodes", expand_with_empty_page_cache)
-    monkeypatch.setattr(pipeline.ExportEngine, "export_pdf", _fake_export_pdf)
+    monkeypatch.setattr(ExportEngine, "export_pdf", _fake_export_pdf)
 
     proj = asyncio.run(
         creative_comic(
@@ -51,7 +52,7 @@ def test_panel_continuity_renders_storyboard_planned_during_render(tmp_path, mon
         return real_expand(graph, state, chunk_count, continuity=continuity)
 
     monkeypatch.setattr(pipeline, "_expand_panel_render_nodes", expand_with_empty_storyboards)
-    monkeypatch.setattr(pipeline.ExportEngine, "export_pdf", _fake_panel_export)
+    monkeypatch.setattr(ExportEngine, "export_pdf", _fake_panel_export)
 
     proj = asyncio.run(
         creative_comic(
@@ -77,7 +78,7 @@ def test_panel_batch_renders_storyboard_planned_during_render(tmp_path, monkeypa
         return real_expand(graph, state, chunk_count, continuity=continuity)
 
     monkeypatch.setattr(pipeline, "_expand_panel_render_nodes", expand_with_empty_storyboards)
-    monkeypatch.setattr(pipeline.ExportEngine, "export_pdf", _fake_panel_export)
+    monkeypatch.setattr(ExportEngine, "export_pdf", _fake_panel_export)
 
     proj = asyncio.run(
         creative_comic(

@@ -64,7 +64,7 @@ class _BeatChat(FakeChat):
         return await super().chat_function_call(messages, tools, tool_choice, **kw)
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_a_finished_page_run_stores_the_plan_without_a_fingerprint_change(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
     src = "第一章\n石猴从石头里走出来。"

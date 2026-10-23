@@ -60,7 +60,7 @@ class RecordingChat(FakeChat):
         return name in self.tool_names
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_extract_and_bible_manifests_verify(tmp_path: Path, monkeypatch) -> None:
     """After a finished-page run, all manifests in the index are consistent."""
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
@@ -71,7 +71,7 @@ def test_extract_and_bible_manifests_verify(tmp_path: Path, monkeypatch) -> None
     assert verify(tmp_path) == []
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_cache_loss_restores_extract_and_bible_bodies(tmp_path: Path, monkeypatch) -> None:
     """Delete cache.json; re-run restores chunk_cache.elements and visual_bible with zero
     chat calls, repopulates bible_action_keys, and does not clear pages_done."""
@@ -188,7 +188,7 @@ def test_a_lost_bible_with_no_stamps_changes_nothing():
     assert clear_stale_bible_stamps(state) is False
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_the_stamp_rule_runs_before_the_bible_stage(tmp_path: Path, monkeypatch) -> None:
     """A lost body must not leave its stamps visible to the stage that reads them.
 
@@ -232,7 +232,7 @@ def test_the_stamp_rule_runs_before_the_bible_stage(tmp_path: Path, monkeypatch)
     assert proj2.state.bible_action_keys
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_a_lost_cache_costs_no_provider_call(tmp_path: Path, monkeypatch) -> None:
     """The headline claim: ``cache.json`` is a hot copy, not the record.
 
@@ -293,7 +293,7 @@ def test_a_lost_cache_costs_no_provider_call(tmp_path: Path, monkeypatch) -> Non
     assert proj2.state.bible_action_keys == pre.bible_action_keys
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_a_corrupt_body_falls_back_to_the_provider(tmp_path: Path, monkeypatch) -> None:
     """A damaged CAS object must degrade to a call, not to a crash or a fake hit.
 
@@ -342,7 +342,7 @@ def test_a_corrupt_body_falls_back_to_the_provider(tmp_path: Path, monkeypatch) 
     )
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_restored_bible_suppresses_soft_invalidation(tmp_path: Path, monkeypatch) -> None:
     """A resume with visual_bible explicitly None (and cache.json deleted) restores the
     bible from its manifest and preserves pages_done and generated.pages."""
@@ -382,7 +382,7 @@ def test_restored_bible_suppresses_soft_invalidation(tmp_path: Path, monkeypatch
 _PANEL_SRC = "第一章\n方鸿渐在甲板上。\n第二章\n方鸿渐在读书。"
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_storyboard_restores_from_its_manifest_with_zero_calls(tmp_path: Path, monkeypatch) -> None:
     """The panel-compose path restores the board instead of re-planning it.
 
@@ -422,7 +422,7 @@ def test_storyboard_restores_from_its_manifest_with_zero_calls(tmp_path: Path, m
     assert all(chunk.storyboard_action_key for chunk in proj2.state.chunk_cache.values())
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_page_script_restores_from_its_manifest_with_zero_calls(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -463,7 +463,7 @@ def test_page_script_restores_from_its_manifest_with_zero_calls(
     assert all(chunk.page_script_action_key for chunk in proj2.state.chunk_cache.values())
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_a_fully_restored_resume_never_trips_the_budget(tmp_path: Path, monkeypatch) -> None:
     """A resume that spends nothing must not be paused for want of budget.
 
@@ -507,7 +507,7 @@ def test_a_fully_restored_resume_never_trips_the_budget(tmp_path: Path, monkeypa
     assert proj.state.pages_done == pre.pages_done
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_losing_every_manifest_repairs_the_book_and_keeps_the_pages(
     tmp_path: Path, monkeypatch
 ) -> None:

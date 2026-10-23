@@ -91,7 +91,7 @@ def test_web_load_project_state_migrates_legacy_keys(tmp_path, monkeypatch):
     assert all(":" not in k for k in loaded.generated.pages)
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_resume_of_legacy_state_does_not_repaint(tmp_path, monkeypatch):
     """0b quota risk is none: a pre-0b checkpoint must not trigger a repaint."""
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")

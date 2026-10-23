@@ -319,7 +319,7 @@ async def measure_merge_cost(
 
     with (
         _finished_page_mode(),
-        patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf),
+        patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf),
     ):
         # The probe measures a whole sample, including the 300-page script
         # shape. The sample gate would stop that run at 30 pages, so the

@@ -37,12 +37,14 @@ from core.comic.cas import (
 from core.comic.env_snapshot import h_env
 from core.comic.layout import PanelImage
 from core.pipelines.creative_comic import (
-    _export_cbz_with_manifest,
-    _export_pdf_with_manifest,
-    _export_webtoon_with_manifest,
-    _layout_pages_with_manifest,
     _letter_page_from_blank,
     letter_finished_page,
+)
+from core.pipelines.export_stages import (
+    export_cbz_with_manifest,
+    export_pdf_with_manifest,
+    export_webtoon_with_manifest,
+    layout_pages_with_manifest,
 )
 from core.schemas import ComicPagePlan
 
@@ -287,12 +289,12 @@ def test_a_second_cbz_bind_copies_the_stored_archive(tmp_path, monkeypatch):
         calls["n"] += 1
         return real(self, page_dir, out)
 
-    monkeypatch.setattr("core.pipelines.creative_comic.ExportEngine.export_cbz", counting)
-    first = _export_cbz_with_manifest(pages, tmp_path)
+    monkeypatch.setattr("core.comic.export.ExportEngine.export_cbz", counting)
+    first = export_cbz_with_manifest(pages, tmp_path)
     assert calls["n"] == 1
     stored = Path(first).read_bytes()
     Path(first).unlink()
-    second = _export_cbz_with_manifest(pages, tmp_path)
+    second = export_cbz_with_manifest(pages, tmp_path)
     assert Path(second).read_bytes() == stored
     assert calls["n"] == 1
     assert verify(tmp_path) == []
@@ -309,16 +311,16 @@ def test_a_second_export_copies_the_stored_pdf(tmp_path, monkeypatch):
         Path(out).write_bytes(b"%PDF-1.4 fake")
         return out
 
-    monkeypatch.setattr("core.pipelines.creative_comic.ExportEngine.export_pdf", fake)
-    first = _export_pdf_with_manifest(pages, tmp_path)
+    monkeypatch.setattr("core.comic.export.ExportEngine.export_pdf", fake)
+    first = export_pdf_with_manifest(pages, tmp_path)
     assert calls["n"] == 1
     Path(first).unlink()
-    second = _export_pdf_with_manifest(pages, tmp_path)
+    second = export_pdf_with_manifest(pages, tmp_path)
     assert Path(second).read_bytes() == b"%PDF-1.4 fake"
     assert calls["n"] == 1
 
     Image.new("RGB", (8, 8), (9, 9, 9)).save(pages / "page_c0000_p0000.png")
-    _export_pdf_with_manifest(pages, tmp_path)
+    export_pdf_with_manifest(pages, tmp_path)
     assert calls["n"] == 2
     assert verify(tmp_path) == []
 
@@ -336,17 +338,17 @@ def test_binding_records_image_pixels_not_the_configured_page_size(tmp_path, mon
         Path(out).write_bytes(b"%PDF-1.4 fake")
         return out
 
-    monkeypatch.setattr("core.pipelines.creative_comic.ExportEngine.export_pdf", fake)
-    _export_pdf_with_manifest(pages, tmp_path)
+    monkeypatch.setattr("core.comic.export.ExportEngine.export_pdf", fake)
+    export_pdf_with_manifest(pages, tmp_path)
     monkeypatch.setenv("INKSTONE_PAGE_SIZE", "999x999")
-    _export_pdf_with_manifest(pages, tmp_path)
+    export_pdf_with_manifest(pages, tmp_path)
     assert calls["n"] == 1
     stored = next((tmp_path / "index").glob("*.json"))
     manifest = Manifest.model_validate_json(stored.read_text())
     assert manifest.env == h_env(text="", resolved_size="8x8", scope="export")
 
     Image.new("RGB", (9, 10), (7, 7, 7)).save(pages / "page_02.png")
-    _export_pdf_with_manifest(pages, tmp_path)
+    export_pdf_with_manifest(pages, tmp_path)
     assert calls["n"] == 2
     envs = [
         Manifest.model_validate_json(path.read_text()).env
@@ -444,19 +446,19 @@ def test_a_rejected_export_stays_rejected_until_rebuild(tmp_path, monkeypatch):
         Path(out).write_bytes(b"%PDF-1.4 fake")
         return out
 
-    monkeypatch.setattr("core.pipelines.creative_comic.ExportEngine.export_pdf", fake)
-    _export_pdf_with_manifest(pages, tmp_path)
+    monkeypatch.setattr("core.comic.export.ExportEngine.export_pdf", fake)
+    export_pdf_with_manifest(pages, tmp_path)
     key = _only_key(tmp_path)
     rewrite_manifest(tmp_path, key, outcome="rejected", reason="content_policy", outputs=[])
     (tmp_path / "comic.pdf").unlink()
 
-    _export_pdf_with_manifest(pages, tmp_path)
+    export_pdf_with_manifest(pages, tmp_path)
     assert calls["n"] == 1
     assert not (tmp_path / "comic.pdf").exists()
 
     exit_code = _run_rebuild(argparse.Namespace(out=str(tmp_path), stage="export", key=[key]))
     assert exit_code == 0
-    _export_pdf_with_manifest(pages, tmp_path)
+    export_pdf_with_manifest(pages, tmp_path)
     assert calls["n"] == 2
     assert (tmp_path / "comic.pdf").read_bytes() == b"%PDF-1.4 fake"
 
@@ -485,7 +487,7 @@ def _counting_webtoon(monkeypatch):
         path.write_bytes(b"strip-v1")
         return [str(path)]
 
-    monkeypatch.setattr("core.pipelines.creative_comic.LayoutEngine.compose", fake)
+    monkeypatch.setattr("core.comic.layout.LayoutEngine.compose", fake)
     return calls
 
 
@@ -494,19 +496,19 @@ def test_a_second_webtoon_copies_the_stored_strip(tmp_path, monkeypatch):
     panels = [PanelImage(image)]
     calls = _counting_webtoon(monkeypatch)
     pages = tmp_path / "pages"
-    first = _export_webtoon_with_manifest(panels, pages, tmp_path)
+    first = export_webtoon_with_manifest(panels, pages, tmp_path)
     assert calls["n"] == 1
     Path(first[0]).unlink()
-    second = _export_webtoon_with_manifest(panels, pages, tmp_path)
+    second = export_webtoon_with_manifest(panels, pages, tmp_path)
     assert Path(second[0]).read_bytes() == b"strip-v1"
     assert calls["n"] == 1
 
     changed = [PanelImage(Image.new("RGB", (8, 8), (9, 9, 9)))]
-    _export_webtoon_with_manifest(changed, pages, tmp_path)
+    export_webtoon_with_manifest(changed, pages, tmp_path)
     assert calls["n"] == 2
 
     spoken = [PanelImage(image, dialogue="福贵")]
-    _export_webtoon_with_manifest(spoken, pages, tmp_path)
+    export_webtoon_with_manifest(spoken, pages, tmp_path)
     assert calls["n"] == 3
     assert verify(tmp_path) == []
 
@@ -515,18 +517,18 @@ def test_a_rejected_webtoon_stays_rejected_until_rebuild(tmp_path, monkeypatch):
     panels = [PanelImage(Image.new("RGB", (8, 8), (1, 2, 3)))]
     calls = _counting_webtoon(monkeypatch)
     pages = tmp_path / "pages"
-    _export_webtoon_with_manifest(panels, pages, tmp_path)
+    export_webtoon_with_manifest(panels, pages, tmp_path)
     key = _only_key(tmp_path)
     rewrite_manifest(tmp_path, key, outcome="rejected", reason="content_policy", outputs=[])
     (pages / "webtoon.png").unlink()
 
-    _export_webtoon_with_manifest(panels, pages, tmp_path)
+    export_webtoon_with_manifest(panels, pages, tmp_path)
     assert calls["n"] == 1
     assert not (pages / "webtoon.png").exists()
 
     exit_code = _run_rebuild(argparse.Namespace(out=str(tmp_path), stage="export", key=[key]))
     assert exit_code == 0
-    _export_webtoon_with_manifest(panels, pages, tmp_path)
+    export_webtoon_with_manifest(panels, pages, tmp_path)
     assert calls["n"] == 2
     assert (pages / "webtoon.png").read_bytes() == b"strip-v1"
 
@@ -543,7 +545,7 @@ def _counting_layout(monkeypatch):
             paths.append(str(path))
         return paths
 
-    monkeypatch.setattr("core.pipelines.creative_comic.LayoutEngine.compose", fake)
+    monkeypatch.setattr("core.comic.layout.LayoutEngine.compose", fake)
     return calls
 
 
@@ -552,16 +554,16 @@ def test_a_second_layout_copies_every_sheet(tmp_path, monkeypatch):
     panels = [PanelImage(image), PanelImage(image, dialogue="后一句")]
     calls = _counting_layout(monkeypatch)
     pages = tmp_path / "pages"
-    first = _layout_pages_with_manifest(panels, pages, tmp_path)
+    first = layout_pages_with_manifest(panels, pages, tmp_path)
     assert [Path(path).name for path in first] == ["page_01.png", "page_02.png"]
     for path in first:
         Path(path).unlink()
 
-    second = _layout_pages_with_manifest(panels, pages, tmp_path)
+    second = layout_pages_with_manifest(panels, pages, tmp_path)
     assert [Path(path).read_bytes() for path in second] == [b"sheet-1", b"sheet-2"]
     assert calls["n"] == 1
 
-    _layout_pages_with_manifest([PanelImage(image, dialogue="改了")], pages, tmp_path)
+    layout_pages_with_manifest([PanelImage(image, dialogue="改了")], pages, tmp_path)
     assert calls["n"] == 2
     assert verify(tmp_path) == []
 
@@ -579,18 +581,18 @@ def test_a_shorter_collage_drops_the_extra_sheet(tmp_path, monkeypatch):
             paths.append(str(path))
         return paths
 
-    monkeypatch.setattr("core.pipelines.creative_comic.LayoutEngine.compose", fake)
+    monkeypatch.setattr("core.comic.layout.LayoutEngine.compose", fake)
     pages = tmp_path / "pages"
     pages.mkdir()
     finished = pages / "page_c0000_p0000.png"
     finished.write_bytes(b"finished")
     image = Image.new("RGB", (8, 8), (1, 2, 3))
-    _layout_pages_with_manifest(
+    layout_pages_with_manifest(
         [PanelImage(image), PanelImage(image, dialogue="后一句")], pages, tmp_path
     )
     assert (pages / "page_02.png").is_file()
 
-    _layout_pages_with_manifest([PanelImage(image, dialogue="只剩一张")], pages, tmp_path)
+    layout_pages_with_manifest([PanelImage(image, dialogue="只剩一张")], pages, tmp_path)
 
     assert calls["n"] == 2
     assert not (pages / "page_02.png").exists()
@@ -603,17 +605,17 @@ def test_a_page_size_setting_does_not_restack_or_recollage(tmp_path, monkeypatch
     image = Image.new("RGB", (8, 8), (1, 2, 3))
     panels = [PanelImage(image)]
     webtoon_calls = _counting_webtoon(monkeypatch)
-    _export_webtoon_with_manifest(panels, tmp_path / "strip", tmp_path / "strip-out")
+    export_webtoon_with_manifest(panels, tmp_path / "strip", tmp_path / "strip-out")
     monkeypatch.setenv("INKSTONE_PAGE_SIZE", "999x999")
-    _export_webtoon_with_manifest(panels, tmp_path / "strip", tmp_path / "strip-out")
+    export_webtoon_with_manifest(panels, tmp_path / "strip", tmp_path / "strip-out")
     assert webtoon_calls["n"] == 1
 
     layout_calls = _counting_layout(monkeypatch)
     collage = tmp_path / "collage"
     bound = [PanelImage(image), PanelImage(image)]
-    _layout_pages_with_manifest(bound, collage, tmp_path / "layout-out")
+    layout_pages_with_manifest(bound, collage, tmp_path / "layout-out")
     monkeypatch.setenv("INKSTONE_PAGE_SIZE", "1024x1536")
-    _layout_pages_with_manifest(bound, collage, tmp_path / "layout-out")
+    layout_pages_with_manifest(bound, collage, tmp_path / "layout-out")
     assert layout_calls["n"] == 1
 
 
@@ -621,19 +623,19 @@ def test_a_rejected_layout_is_not_rebuilt_until_rebuild(tmp_path, monkeypatch):
     panels = [PanelImage(Image.new("RGB", (8, 8), (4, 5, 6)))]
     calls = _counting_layout(monkeypatch)
     pages = tmp_path / "pages"
-    first = _layout_pages_with_manifest(panels, pages, tmp_path)
+    first = layout_pages_with_manifest(panels, pages, tmp_path)
     key = _only_key(tmp_path)
     rewrite_manifest(tmp_path, key, outcome="rejected", reason="content_policy", outputs=[])
     for path in first:
         Path(path).unlink()
 
-    assert _layout_pages_with_manifest(panels, pages, tmp_path) is None
+    assert layout_pages_with_manifest(panels, pages, tmp_path) is None
     assert calls["n"] == 1
     assert list(pages.glob("page_*.png")) == []
 
     exit_code = _run_rebuild(argparse.Namespace(out=str(tmp_path), stage="layout", key=[key]))
     assert exit_code == 0
-    restored = _layout_pages_with_manifest(panels, pages, tmp_path)
+    restored = layout_pages_with_manifest(panels, pages, tmp_path)
     assert calls["n"] == 2
     assert [Path(path).read_bytes() for path in restored] == [b"sheet-1", b"sheet-2"]
 

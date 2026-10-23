@@ -8,7 +8,7 @@ from core.pipelines.creative_comic import creative_comic
 from tests.test_finished_page_pipeline import FakeChat, FakeImage, _fake_export_pdf
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_a_run_writes_a_review_packet(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
     asyncio.run(
@@ -44,7 +44,7 @@ def test_a_run_writes_a_review_packet(tmp_path, monkeypatch):
     assert "chapter_validated" in report
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_the_packet_can_be_disabled(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
     monkeypatch.setenv("INKSTONE_REVIEW_PACKET", "0")

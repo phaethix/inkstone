@@ -107,7 +107,7 @@ def test_plan_storyboard_without_beats_does_not_keep_an_invented_id():
     assert board.panels[0].beat_ids == []
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_page_export)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_page_export)
 def test_a_finished_page_stores_the_required_beat_on_its_panel(tmp_path, monkeypatch):
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
 
@@ -139,7 +139,7 @@ def test_a_finished_page_stores_the_required_beat_on_its_panel(tmp_path, monkeyp
     assert proj2.state.page_cache["0"].pages[0].panels[0].beat_ids == ["hatch"]
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_a_cached_storyboard_gains_beat_ids_without_another_call(tmp_path):
     src = "第一章\n方鸿渐在甲板上。"
     proj = asyncio.run(

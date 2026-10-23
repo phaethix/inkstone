@@ -182,7 +182,7 @@ def test_a_clipped_plan_drops_the_boxes_of_dropped_panels():
     assert "d" in kept_ids and "d" in boxed_ids, "a kept panel lost its box"
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_a_density_change_replans_and_the_same_tier_does_not(tmp_path):
     src = "第一章\n方鸿渐在甲板上。"
     chat, img = FakeChat(), FakeImage()
@@ -297,7 +297,7 @@ def test_a_page_plan_past_the_budget_is_reported_too(caplog):
     )
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_resuming_a_tier_c_project_without_the_flag_keeps_tier_c(tmp_path):
     """Omitting --density on resume must inherit the tier the project was planned with.
 
@@ -326,7 +326,7 @@ def test_resuming_a_tier_c_project_without_the_flag_keeps_tier_c(tmp_path):
     assert img.calls == 0
 
 
-@patch("core.pipelines.creative_comic.ExportEngine.export_pdf", _fake_export_pdf)
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_an_explicit_tier_on_resume_still_replans(tmp_path):
     """Inheriting must not swallow a deliberate tier change."""
     src = "第一章\n方鸿渐在甲板上。"
