@@ -188,6 +188,18 @@ from core.pipelines.export_stages import (  # noqa: F401  (the four constants ar
     layout_pages_with_manifest,
     prepare_finished_page_export,
 )
+from core.pipelines.reconcile import (
+    is_unsupported_image_size_error,
+)
+from core.pipelines.reconcile import (
+    is_within as _is_within,
+)
+from core.pipelines.reconcile import (
+    reconcile_state as _reconcile_state,
+)
+from core.pipelines.reconcile import (
+    soft_invalidate_render as _soft_invalidate_render,
+)
 from core.pipelines.stage_registry import validate_stage_registry
 from core.pipelines.stage_runner import record, run_stage
 from core.pipelines.stage_scheduler import PipelinePhase, StageGraph, WorkKind, WorkNode
@@ -683,14 +695,6 @@ def _bind_missing_portrait_hashes(ledger: ConsistencyLedger, output_dir: Path) -
         ref.content_hash = content_hash
         changed = True
     return changed
-
-
-def _is_within(path: str | Path, root: Path) -> bool:
-    try:
-        Path(path).resolve().relative_to(root.resolve())
-    except ValueError:
-        return False
-    return True
 
 
 def _panel_state_key(chunk_index: int, panel_index: int) -> str:
@@ -1331,118 +1335,7 @@ def clear_stale_bible_stamps(state: ProjectState) -> bool:
     return True
 
 
-def _soft_invalidate_render(state: ProjectState) -> None:
-    """Drop render-owned assets while keeping structural chat caches.
-
-    Preserves ``chunk_cache`` (extract/storyboard) and ``page_cache`` (finished
-    page plans). Content-policy ``skipped`` / ``skipped_pages`` are kept: the
-    source text did not change, so re-attempting those assets only burns quota.
-    """
-    state.panels_done = []
-    state.stale_panels = []
-    state.generated.panels = {}
-    state.generated.portraits = {}
-    state.pages_done = []
-    state.stale_pages = []
-    state.generated.pages = {}
-    for asset in state.characters.values():
-        asset.portrait_local = None
-
-
 _FALLBACK_PAGE_SIZE = "1024x1024"
-
-
-def is_unsupported_image_size_error(exc: Exception) -> bool:
-    """Return True when a provider likely rejected the requested output size.
-
-    Used to fall back from portrait sizes (e.g. ``1024x1536``) to ``1024x1024``
-    once. Content-policy rejects are excluded so they stay on the skip path.
-    """
-    if is_content_policy_rejection(exc):
-        return False
-    text = str(exc).lower()
-    size_tokens = ("size", "resolution", "dimension", "1024x1536", "aspect")
-    reject_tokens = (
-        "invalid",
-        "unsupported",
-        "not supported",
-        "not allow",
-        "not allowed",
-        "unknown",
-        "bad request",
-    )
-    return any(t in text for t in size_tokens) and any(t in text for t in reject_tokens)
-
-
-def _reconcile_state(state: ProjectState, state_path: Path, output_dir: Path) -> None:
-    """Remove every missing or escaped persisted asset before a resume trusts it."""
-    changed = False
-    invalid_panels = [
-        panel_id
-        for panel_id, generated in state.generated.panels.items()
-        if not _is_within(generated.local, output_dir) or not Path(generated.local).is_file()
-    ]
-    for panel_id in invalid_panels:
-        state.generated.panels.pop(panel_id, None)
-        changed = True
-    stale_done = [
-        panel_id for panel_id in state.panels_done if panel_id not in state.generated.panels
-    ]
-    for panel_id in stale_done:
-        state.panels_done.remove(panel_id)
-        changed = True
-
-    invalid_pages = []
-    pages_missing_lettered = []
-    for page_id, generated in state.generated.pages.items():
-        local_valid = _is_within(generated.local, output_dir) and Path(generated.local).is_file()
-        blank_valid = bool(
-            generated.blank_local
-            and _is_within(generated.blank_local, output_dir)
-            and Path(generated.blank_local).is_file()
-        )
-        if not local_valid:
-            pages_missing_lettered.append(page_id)
-        if not local_valid and not blank_valid:
-            invalid_pages.append(page_id)
-    for page_id in invalid_pages:
-        state.generated.pages.pop(page_id, None)
-        changed = True
-    stale_pages_done = [
-        page_id
-        for page_id in state.pages_done
-        if page_id not in state.generated.pages or page_id in pages_missing_lettered
-    ]
-    for page_id in stale_pages_done:
-        state.pages_done.remove(page_id)
-        changed = True
-
-    orphan_portraits = set(state.generated.portraits) - set(state.characters)
-    for name in orphan_portraits:
-        state.generated.portraits.pop(name, None)
-        changed = True
-    for name, asset in state.characters.items():
-        portrait = asset.portrait_local
-        if portrait and _is_within(portrait, output_dir) and Path(portrait).is_file():
-            continue
-        if portrait:
-            logger.warning("reconcile: discarding invalid portrait for %s", name)
-        asset.portrait_local = None
-        state.generated.portraits.pop(name, None)
-        changed = True
-
-    if not changed:
-        return
-    if invalid_panels or stale_done:
-        logger.warning(
-            "reconcile: removed %d invalid panel record(s)", len(invalid_panels) + len(stale_done)
-        )
-    if invalid_pages or stale_pages_done:
-        logger.warning(
-            "reconcile: removed %d invalid page record(s)",
-            len(invalid_pages) + len(stale_pages_done),
-        )
-    state.save(state_path)
 
 
 def _chunk_complete(

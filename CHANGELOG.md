@@ -206,6 +206,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ExportEngine` / `LayoutEngine` through the pipeline module now patch the class
   where it is defined (`core.comic.export` / `core.comic.layout`), which is the
   same object and no longer depends on which module happened to import it.
+- Resume reconciliation moved to `core/pipelines/reconcile.py`
+  (`is_within`, `soft_invalidate_render`, `is_unsupported_image_size_error`,
+  `reconcile_state`), and `creative_comic.py` is 3,801 → 3,449 lines this
+  release. It was the largest block in the pipeline that never issued a provider
+  call, so extracting it costs nothing at runtime. The move also produced the
+  first direct tests for it: `tests/test_reconcile.py` covers a missing panel
+  file, a file outside the project, an orphan portrait, a page whose blank
+  survives, and the no-change no-write case. One behaviour is now stated
+  explicitly because it is easy to get wrong: a page that lost its lettered file
+  keeps its projection entry and its blank but **loses** its `pages_done`
+  record — the page is not finished, yet re-lettering it costs no image call.
 
 ### Fixed
 - **A newer `state.json` is no longer silently downgraded.** `state.json` now
