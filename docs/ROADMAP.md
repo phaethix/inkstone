@@ -84,11 +84,11 @@ Keep these prototypes only as migration material until they conform to the targe
   comparing the four stage hashes before deleting the moved code.
   A fourth cut moved the skip/redo rule to `core/pipelines/resume.py` (3,449 →
   3,384 lines), with the first direct tests for it.
-  Still inline: the ~1,800-line `_creative_comic` body, the letter resume cluster
-  (`_letter_key`, `_letter_resume_status`, `_page_chunk_complete` — it needs
-  `_LETTER_STAGE_SRC`, so the cut is to pass the stage source in instead of
-  reaching back for the constant), and the render-node closures (which must be
-  lifted to module scope before they can move).
+  The letter resume cluster followed into the same module (`letter_key`,
+  `letter_resume_status`, `plan_ready_to_letter`, `page_chunk_complete`), with
+  the stage source passed in rather than imported back: 3,384 → 3,261 lines.
+  Still inline: the ~1,800-line `_creative_comic` body and the render-node
+  closures (which must be lifted to module scope before they can move).
   Regression: `tests/test_reconcile.py`, `tests/test_resume_rules.py`, plus the
   existing contract tests.
 - **Local (2026-10-23, `main`):** Persistence and interface integrity.

@@ -437,6 +437,11 @@ def test_a_changed_font_reletters_the_stored_blank(tmp_path, monkeypatch):
     out = str(tmp_path)
     env = {"value": "font-a"}
     monkeypatch.setattr(pipeline, "h_env", lambda **_kwargs: env["value"])
+    # The letter key is derived in ``core.pipelines.resume``; patching only the
+    # pipeline module would leave that key unchanged and hide the re-letter.
+    from core.pipelines import resume as resume_module
+
+    monkeypatch.setattr(resume_module, "h_env", lambda **_kwargs: env["value"])
     calls = {"n": 0}
     real = pipeline.letter_finished_page
 

@@ -226,10 +226,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a stale page is redrawn even though a projection record says it finished
   (otherwise an alias merge redraws nothing), and a content-policy skip is not
   retried (otherwise every resume re-spends quota on the same rejection).
-  Still inline: `_letter_key` / `_letter_resume_status` / `_page_chunk_complete`.
-  They need `_LETTER_STAGE_SRC`, which is defined in the pipeline; the clean cut
-  is to pass the stage source in rather than have a second module reach back for
-  the constant, and that is its own change.
+- The lettering half of resume followed: `letter_key`, `letter_resume_status`,
+  `plan_ready_to_letter` and `page_chunk_complete` now live beside the rules
+  above, together with the three helpers they need (`plan_json`,
+  `page_asset_path`, `known_character_names`). `creative_comic.py` is 3,261
+  lines; `resume.py` is 255 and is now the whole "may this be skipped" module.
+  The stage source is an **argument**, not an import: `_LETTER_STAGE_SRC` belongs
+  to the pipeline, and reaching back for it would make the two modules import
+  each other. The letter key is unchanged — the constant was restored verbatim
+  and the functions it hashes never left `core.comic.*`.
+  This move exposed one test that had silently depended on module placement:
+  `test_a_changed_font_reletters_the_stored_blank` patched `h_env` on the
+  pipeline module to simulate a font change, which stopped affecting the letter
+  key once derivation moved. It now patches `core.pipelines.resume.h_env` too,
+  and the test passes again — the behaviour never changed, only where the patch
+  landed.
 
 ### Fixed
 - **A newer `state.json` is no longer silently downgraded.** `state.json` now

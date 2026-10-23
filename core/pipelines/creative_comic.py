@@ -48,7 +48,6 @@ from core.comic.cas import (
     bible_inputs,
     extract_action_key,
     extract_inputs,
-    letter_action_key,
     letter_inputs,
     page_plan_action_key,
     page_script_action_key,
@@ -130,9 +129,7 @@ from core.comic.stage_contract import (
 )
 from core.comic.visual_bible import (
     apply_reconcile,
-    backfill_panel_characters,
     canonical_portrait_ref,
-    canonicalize_page_plan,
     collect_finished_page_refs,
     finished_page_ref_policy,
     format_color_bible_block,
@@ -142,12 +139,11 @@ from core.comic.visual_bible import (
     refresh_bible_hash,
     resolve_canonical_name,
     resolve_character_asset,
-    resolve_panel_stage_refs,
     rewrite_pageset_from_bible,
     sanitize_visual_bible_state,
     sync_characters_from_bible,
 )
-from core.comic.voice import sanitize_plan_voice, voice_timeline_plan_instructions
+from core.comic.voice import voice_timeline_plan_instructions
 from core.config import (
     ImageConfig,
     finished_page_size,
@@ -200,8 +196,14 @@ from core.pipelines.reconcile import (
     soft_invalidate_render as _soft_invalidate_render,
 )
 from core.pipelines.resume import drop_pages_outside_plan as _drop_pages_outside_plan
+from core.pipelines.resume import letter_key as _letter_key
+from core.pipelines.resume import letter_resume_status as _letter_resume_status
+from core.pipelines.resume import page_asset_path as _page_asset_path
+from core.pipelines.resume import page_chunk_complete as _page_chunk_complete
 from core.pipelines.resume import page_needs_generation as _page_needs_generation
 from core.pipelines.resume import panel_needs_generation as _panel_needs_generation
+from core.pipelines.resume import plan_json as _plan_json
+from core.pipelines.resume import plan_ready_to_letter as _plan_ready_to_letter
 from core.pipelines.resume import scrub_chunk_lettering as _scrub_chunk_lettering
 from core.pipelines.resume import stamp_action_key as _stamp_action_key
 from core.pipelines.stage_registry import validate_stage_registry
@@ -583,17 +585,6 @@ def _bible_fingerprint_kwargs(visual_bible) -> tuple[str | None, str | None]:
     return visual_bible.version, visual_bible.content_hash
 
 
-def _known_character_names(state: ProjectState) -> list[str]:
-    names: list[str] = list(state.characters.keys())
-    bible = state.visual_bible
-    if bible is None:
-        return names
-    for canon_name, canon in bible.characters.items():
-        names.append(canon_name)
-        names.extend(canon.aliases)
-    return names
-
-
 def _chunk_sort_key(cache_key: str) -> tuple[int, int, str]:
     """Order ``page_cache`` keys by resolved chunk index, then lexicographically.
 
@@ -711,22 +702,6 @@ def _stored_panel_key(state: ProjectState, chunk_index: int, panel_index: int) -
     return _panel_state_key(chunk_index, panel_index)
 
 
-def _page_asset_path(pages_dir: Path, chunk_index: int, page_index: int) -> Path:
-    """Deterministic ``page_XX.png``-style path for one (chunk, page) position.
-
-    Position-derived (not a running counter) so regenerating a stale/missing
-    page always rewrites the same file — a counter would risk colliding with
-    an unrelated page's filename when only some pages are redone on resume.
-    The ``page_`` prefix and zero-padding keep ``finished_page_files`` in
-    correct reading order.
-    """
-    return pages_dir / f"page_c{chunk_index:04d}_p{page_index:04d}.png"
-
-
-# Hashed once at import. A monkeypatch of a stage function must not change the
-# key of bytes already stored under the real source. Each tuple is the behaviour
-# that stage draws or binds. The page grid is not part of lettering, and the
-# pipeline function is not part of any of them.
 _LETTER_SOURCES = (
     *_DRAW_SOURCES,
     _avoid_overlap,
@@ -822,11 +797,6 @@ _PAGE_SCRIPT_STAGE_SRC = stage_source_hash(build_page_script_request, plan_page_
 _PORTRAIT_STAGE_SRC = stage_source_hash(_portrait_key_material)
 _RENDER_PANEL_STAGE_SRC = stage_source_hash(_panel_key_material)
 _RENDER_PAGE_STAGE_SRC = stage_source_hash(render_finished_page_prompt)
-
-
-def _plan_json(plan: ComicPagePlan) -> str:
-    payload = plan.model_dump(mode="json")
-    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
 def _beats_payload(beats) -> str:
@@ -936,54 +906,6 @@ def _page_plan_key(
     )
 
 
-def _letter_key(
-    blank: bytes,
-    plan: ComicPagePlan,
-    source_text: str,
-    *,
-    resolved_size: str | None = None,
-) -> tuple[str, str, str]:
-    """Return the letter key, its environment digest, and the canonical plan.
-
-    ``resolved_size`` is the size the provider accepted. A square fallback
-    therefore misses a key that was stored for the configured size.
-    """
-    plan_json = _plan_json(plan)
-    env = h_env(
-        text=source_text or plan_json,
-        resolved_size=resolved_size or None,
-        scope="letter",
-    )
-    key = letter_action_key(blank=blank, plan_json=plan_json, env=env, stage_src=_LETTER_STAGE_SRC)
-    return key, env, plan_json
-
-
-def _letter_resume_status(
-    blank_path: Path,
-    local_path: Path,
-    plan: ComicPagePlan,
-    source_text: str,
-    output_dir: Path,
-    *,
-    resolved_size: str | None = None,
-) -> str:
-    """``current`` when the lettered file is the stored hit for this environment.
-
-    ``tombstone`` is a non-ok hit: do not letter and do not paint. ``miss``
-    means the blank can be lettered again, including after a font change.
-    """
-    key, _env, _plan_json = _letter_key(
-        blank_path.read_bytes(), plan, source_text, resolved_size=resolved_size
-    )
-    recorded = read_manifest_entry(output_dir, key, stage="letter")
-    if recorded is not None and recorded.outcome != "ok":
-        return "tombstone"
-    cached = stored_output(output_dir, key, stage="letter")
-    if cached is None or not local_path.is_file() or local_path.read_bytes() != cached:
-        return "miss"
-    return "current"
-
-
 def _letter_page_from_blank(
     blank_path: Path,
     local_path: Path,
@@ -1006,7 +928,11 @@ def _letter_page_from_blank(
     plan_json = ""
     if root is not None:
         key, env, plan_json = _letter_key(
-            blank_path.read_bytes(), plan, source_text, resolved_size=resolved_size
+            blank_path.read_bytes(),
+            plan,
+            source_text,
+            resolved_size=resolved_size,
+            stage_src=_LETTER_STAGE_SRC,
         )
 
     def _letter() -> list[tuple[str, bytes]]:
@@ -1170,65 +1096,6 @@ def _page_reference_names(plan: ComicPagePlan) -> list[str]:
         seen.add(name)
         names.append(name)
     return names
-
-
-def _plan_ready_to_letter(state: ProjectState, plan: ComicPagePlan) -> ComicPagePlan:
-    """Apply the same plan rewrite the page loop uses before lettering."""
-    if state.visual_bible is not None:
-        plan = backfill_panel_characters(plan, _known_character_names(state))
-        plan = resolve_panel_stage_refs(plan, state.visual_bible)
-        plan = sanitize_plan_voice(plan, state.visual_bible)
-    else:
-        plan = sanitize_plan_voice(plan, None)
-    return canonicalize_page_plan(
-        plan,
-        known_names=_known_character_names(state),
-        visual_bible=state.visual_bible,
-    )
-
-
-def _page_chunk_complete(
-    state: ProjectState,
-    pageset: ComicPagePlanSet,
-    output_dir: Path,
-    chunk_index: int,
-    source_text: str,
-) -> bool:
-    """True when every planned page is generated or policy-skipped.
-
-    A finished page whose letter key misses — a font change, for example — is
-    not complete, so the blank is lettered again. A rejected letter stays
-    complete: it is not retried from this check.
-    """
-    pages_dir = output_dir / "pages"
-    for page_index, plan in enumerate(pageset.pages):
-        state_key = page_state_key(chunk_index, page_index)
-        if state_key in state.stale_pages:
-            return False
-        if state_key in state.skipped_pages:
-            continue
-        rec = state.generated.pages.get(state_key)
-        if (
-            rec is None
-            or state_key not in state.pages_done
-            or not _is_within(rec.local, output_dir)
-            or not Path(rec.local).exists()
-        ):
-            return False
-        if not rec.blank_local or not Path(rec.blank_local).is_file():
-            continue
-        local = _page_asset_path(pages_dir, chunk_index, page_index)
-        status = _letter_resume_status(
-            Path(rec.blank_local),
-            local,
-            _plan_ready_to_letter(state, plan),
-            source_text,
-            output_dir,
-            resolved_size=rec.resolved_size or None,
-        )
-        if status == "miss":
-            return False
-    return True
 
 
 def _mark_page_chunk_done_if_complete(
@@ -1950,7 +1817,14 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                 chunk_complete = (
                     pageset is not None
                     and key in set(state.chunks_done)
-                    and _page_chunk_complete(state, pageset, output_dir, ci, chunk)
+                    and _page_chunk_complete(
+                        state,
+                        pageset,
+                        output_dir,
+                        ci,
+                        chunk,
+                        stage_src=_LETTER_STAGE_SRC,
+                    )
                     and panel_key_filter is None
                 )
                 if chunk_complete:
@@ -2601,6 +2475,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                             _chunk,
                             output_dir,
                             resolved_size=existing.resolved_size or None,
+                            stage_src=_LETTER_STAGE_SRC,
                         )
                         if status == "tombstone":
                             return
@@ -2697,6 +2572,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                                     _chunk,
                                     output_dir,
                                     resolved_size=page_size,
+                                    stage_src=_LETTER_STAGE_SRC,
                                 )
                                 == "tombstone"
                             ):
@@ -2846,6 +2722,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                             _chunk,
                             output_dir,
                             resolved_size=active_size,
+                            stage_src=_LETTER_STAGE_SRC,
                         )
                         == "tombstone"
                     ):
