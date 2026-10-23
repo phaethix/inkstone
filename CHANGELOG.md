@@ -29,6 +29,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stage.
 
 ### Added
+- `inkstone verify` also reports the finished-page projection. "This page is
+  done" is stored as `pages_done`, as `generated.pages`, and as a `render.page`
+  manifest; the first two live in one document and are written together, so a
+  disagreement between them is provable without re-deriving a key. The check
+  fails on a page that is done without an artifact (or the reverse), a duplicate
+  done entry, or a page that is both done and tombstoned/stale. A project that
+  predates the projection reports `absent` instead of failing: `record_page_artifact`
+  writes the artifact before the done entry in one document, so "every done page
+  has no artifact" cannot come from a crash between two writes. The manifest is
+  still not compared — it records inputs and outputs but not the page key, and
+  re-deriving that key is the second derivation path the design forbids.
 - Migration cost forecast: `inkstone migrate --check` reports what a re-run
   would redo without calling any provider. It compares each manifest's recorded
   `stage_src` against the hash current code computes, so a prompt or stage-code

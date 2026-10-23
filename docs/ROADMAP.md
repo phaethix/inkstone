@@ -80,10 +80,17 @@ Keep these prototypes only as migration material until they conform to the targe
   instead of skipping them, and an unprovable stage counts as a miss. The Web
   UI's four env knobs joined `core.config` / `ALL_ENV_VARS`. `core.comic` no
   longer imports `core.pipelines` at module scope through the merge-cost probe.
+  `inkstone verify` now also compares the finished-page projection: a page that
+  is done without an artifact (or the reverse), a duplicate done entry, or a page
+  that is both done and tombstoned/stale is a failure; a project that predates
+  the projection reports `absent`, not a pass.
   Regression: `tests/test_p0_state_integrity.py`, `tests/test_web_server.py`,
-  `tests/test_migrate_check.py`, `tests/test_merge_cost_probe.py`.
-  Not addressed here: the `pages_done` / `generated.pages` / `render.page`
-  manifest triple, and the 1,869-line `_creative_comic` body.
+  `tests/test_migrate_check.py`, `tests/test_merge_cost_probe.py`,
+  `tests/test_projection_consistency.py`.
+  Not addressed here: the second half of the page triple (`render.page` manifest
+  vs `pages_done` — the manifest stores inputs/outputs but not the page key, so
+  comparing them needs a key-schema change that would invalidate every existing
+  manifest), and the 1,869-line `_creative_comic` body.
 - **Local (2026-10-20, `main`):** Four more specs on the runner (`letter`,
   `layout`, `export` PDF and CBZ). Each keeps its own key derivation; only the
   replay check and the manifest write moved.

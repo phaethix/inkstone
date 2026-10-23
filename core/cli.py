@@ -1171,11 +1171,39 @@ def _run_migrate(args: argparse.Namespace) -> int:
 
 
 def _run_verify(args: argparse.Namespace) -> int:
-    """Report whether index/ and cas/ describe the same bytes."""
+    """Report whether index/ and cas/ describe the same bytes, and whether the
+    finished-page projection agrees with the checkpoint.
+
+    The second half is read-only and no-provider. It answers a different
+    question from the CAS check: not "are the bytes the ones we recorded" but
+    "do the three records of a finished page still say the same thing".
+    """
+    from core.comic.artifact_projection import check_page_projection
     from core.comic.cas import verify
     from core.pipelines.stage_registry import manifest_stages
+    from core.schemas import ProjectState
 
-    problems = verify(Path(args.out), allowed_stages=manifest_stages())
+    root = Path(args.out)
+    problems = verify(root, allowed_stages=manifest_stages())
+
+    state_path = root / "state.json"
+    if not state_path.is_file():
+        print("page projection: absent — no state.json", file=sys.stderr)
+    else:
+        # ``caches=False``: these fields live in state.json, and a corrupt
+        # cache.json must not stop a consistency check (it only costs a re-plan).
+        try:
+            state = ProjectState.load(state_path, caches=False)
+        except (OSError, ValueError) as exc:
+            problems.append(f"page projection: state.json unreadable ({exc})")
+        else:
+            for check in check_page_projection(state):
+                if check.status == "mismatch":
+                    problems.append(f"{check.name}: {check.detail}")
+                elif check.status == "absent":
+                    # Nothing to compare is reported, never counted as a pass.
+                    print(f"{check.name}: absent — {check.detail}", file=sys.stderr)
+
     if problems:
         for problem in problems:
             print(problem, file=sys.stderr)
