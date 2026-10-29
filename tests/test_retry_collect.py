@@ -31,7 +31,7 @@ def test_retryable_post_collect_on_retryable_status_uses_to_thread():
     async def run():
         with (
             patch("core.api.rate_limiter.get_rate_limiter") as mock_limiter,
-            patch("requests.post", side_effect=[bad, good]),
+            patch("core.api.retry.upstream_post", side_effect=[bad, good]),
             patch("core.api.retry.asyncio.to_thread", side_effect=fake_to_thread),
             patch("core.api.retry.asyncio.sleep", new=asyncio.sleep),
         ):

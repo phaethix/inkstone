@@ -41,6 +41,7 @@ from core.config import (
     ENV_GENRE,
     ENV_HARNESS,
     ENV_HARNESS_DIR,
+    ENV_HTTP_PROXY,
     ENV_INKSTONE_DATA_DIR,
     ENV_INKSTONE_IMAGE_CONCURRENCY,
     ENV_INKSTONE_PANEL_CONTINUITY,
@@ -146,6 +147,9 @@ H_ENV_EXCLUDED: frozenset[str] = frozenset(
         ENV_AGNES_API_KEY,
         ENV_OPENAI_COMPAT_API_KEY,
         ENV_OPENAI_COMPAT_CHAT_API_KEY,
+        # The proxy selects a network path, not a byte: routing through one
+        # cannot change the drawn output.
+        ENV_HTTP_PROXY,
     }
 )
 

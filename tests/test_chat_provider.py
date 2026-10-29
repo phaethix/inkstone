@@ -16,6 +16,7 @@ import json
 import pytest
 import requests
 
+from core.api import retry as retry_mod
 from core.api.chat_provider import (
     AgnesChatAPI,
     ChatProvider,
@@ -99,7 +100,7 @@ def test_openai_compat_chat_factory_does_not_send_agnes_key(monkeypatch):
 def test_agnes_chat_returns_parsed_args(patch_async, monkeypatch):
     body = _tool_call_body(json.dumps({"characters": [{"name": "方鸿渐"}]}))
     fake_post = _fake_chat_post([200], body)
-    monkeypatch.setattr(requests, "post", fake_post)
+    monkeypatch.setattr(retry_mod, "upstream_post", fake_post)
     api = AgnesChatAPI(api_key="k")
     out = asyncio.run(
         api.chat_function_call(
@@ -117,7 +118,7 @@ def test_agnes_chat_repairs_broken_outer_arguments(patch_async, monkeypatch):
     broken = '{"characters": [{"name": "Fogg", "role": "says "go""}]}'
     body = _tool_call_body(broken)
     fake_post = _fake_chat_post([200], body)
-    monkeypatch.setattr(requests, "post", fake_post)
+    monkeypatch.setattr(retry_mod, "upstream_post", fake_post)
     api = AgnesChatAPI(api_key="k")
     out = asyncio.run(
         api.chat_function_call(
@@ -133,7 +134,7 @@ def test_agnes_chat_repairs_broken_outer_arguments(patch_async, monkeypatch):
 def test_agnes_chat_returns_dict_args_as_is(patch_async, monkeypatch):
     body = _tool_call_body({"characters": [{"name": "方鸿渐"}]})  # already a dict
     fake_post = _fake_chat_post([200], body)
-    monkeypatch.setattr(requests, "post", fake_post)
+    monkeypatch.setattr(retry_mod, "upstream_post", fake_post)
     api = AgnesChatAPI(api_key="k")
     out = asyncio.run(
         api.chat_function_call(
@@ -148,7 +149,7 @@ def test_agnes_chat_returns_dict_args_as_is(patch_async, monkeypatch):
 def test_agnes_chat_no_tool_calls_raises(patch_async, monkeypatch):
     body = {"choices": [{"message": {"content": "I can't do that"}}]}
     fake_post = _fake_chat_post([200], body)
-    monkeypatch.setattr(requests, "post", fake_post)
+    monkeypatch.setattr(retry_mod, "upstream_post", fake_post)
     api = AgnesChatAPI(api_key="k")
     with pytest.raises(RuntimeError):
         asyncio.run(
@@ -164,7 +165,7 @@ def test_agnes_chat_no_tool_calls_raises(patch_async, monkeypatch):
 def test_agnes_chat_retries_on_503(patch_async, monkeypatch):
     body = _tool_call_body(json.dumps({"ok": True}))
     fake_post = _fake_chat_post([503, 503, 200], body)
-    monkeypatch.setattr(requests, "post", fake_post)
+    monkeypatch.setattr(retry_mod, "upstream_post", fake_post)
     api = AgnesChatAPI(api_key="k")
     out = asyncio.run(
         api.chat_function_call(
@@ -180,7 +181,7 @@ def test_agnes_chat_retries_on_503(patch_async, monkeypatch):
 
 def test_agnes_chat_gives_up_after_max_retries(patch_async, monkeypatch):
     fake_post = _fake_chat_post([503, 503, 503, 503], {})
-    monkeypatch.setattr(requests, "post", fake_post)
+    monkeypatch.setattr(retry_mod, "upstream_post", fake_post)
     api = AgnesChatAPI(api_key="k")
     with pytest.raises(RuntimeError):
         asyncio.run(
@@ -208,7 +209,7 @@ def test_agnes_chat_uses_chat_bucket(patch_async, monkeypatch):
 
     monkeypatch.setattr("core.api.rate_limiter.get_rate_limiter", fake_get_rate_limiter)
     fake_post = _fake_chat_post([200], _tool_call_body(json.dumps({"ok": True})))
-    monkeypatch.setattr(requests, "post", fake_post)
+    monkeypatch.setattr(retry_mod, "upstream_post", fake_post)
     api = AgnesChatAPI(api_key="k")
     asyncio.run(
         api.chat_function_call(
@@ -230,7 +231,7 @@ def test_agnes_chat_collects_errors(patch_async, monkeypatch):
 
     monkeypatch.setattr("core.api.error_collector.collect_error", fake_collect)
     fake_post = _fake_chat_post([503, 503, 200], _tool_call_body(json.dumps({"ok": True})))
-    monkeypatch.setattr(requests, "post", fake_post)
+    monkeypatch.setattr(retry_mod, "upstream_post", fake_post)
     api = AgnesChatAPI(api_key="k")
     asyncio.run(
         api.chat_function_call(

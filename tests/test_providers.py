@@ -18,6 +18,7 @@ import json
 import pytest
 import requests
 
+from core.api import retry as retry_mod
 from core.api.agnes_image import AgnesImageAPI
 from core.api.image_provider import (
     ImageOutput,
@@ -79,7 +80,7 @@ def test_agnes_image_uses_image_bucket(monkeypatch):
         def json(self):
             return {"data": [{"url": "http://x/y.png"}]}
 
-    monkeypatch.setattr(requests, "post", lambda *a, **k: FakeResp())
+    monkeypatch.setattr(retry_mod, "upstream_post", lambda *a, **k: FakeResp())
     api = AgnesImageAPI(api_key="k")
     asyncio.run(api.generate_single_image("p", max_retries=1))
     # Image calls keep the "image" bucket, distinct from chat's "chat" bucket.
@@ -170,7 +171,7 @@ def test_compute_backoff_exponential_capped_with_jitter(monkeypatch):
 
 def test_agnes_retries_on_503(patch_async, monkeypatch):
     fake_post = _fake_response_class([503, 503, 200])
-    monkeypatch.setattr(requests, "post", fake_post)
+    monkeypatch.setattr(retry_mod, "upstream_post", fake_post)
     api = AgnesImageAPI(api_key="k")
     out = asyncio.run(api.generate_single_image("p", max_retries=3))
     assert fake_post.calls["n"] == 3  # retried twice, then succeeded
@@ -179,7 +180,7 @@ def test_agnes_retries_on_503(patch_async, monkeypatch):
 
 def test_openai_compat_retries_on_503(patch_async, monkeypatch):
     fake_post = _fake_response_class([503, 503, 200])
-    monkeypatch.setattr(requests, "post", fake_post)
+    monkeypatch.setattr(retry_mod, "upstream_post", fake_post)
     api = OpenAICompatProvider(api_key="x", base_url="https://example.com/v1", model="m")
     out = asyncio.run(api.generate_single_image("p", max_retries=3))
     assert fake_post.calls["n"] == 3
@@ -196,7 +197,7 @@ def test_backoff_delay_is_applied(patch_async, monkeypatch):
     # Pin backoff to a deterministic value so we can assert it is actually used.
     monkeypatch.setattr("core.api.retry.compute_backoff", lambda attempt, base, cap=120.0: 7.0)
     fake_post = _fake_response_class([503, 503, 200])
-    monkeypatch.setattr(requests, "post", fake_post)
+    monkeypatch.setattr(retry_mod, "upstream_post", fake_post)
     api = AgnesImageAPI(api_key="k")
     asyncio.run(api.generate_single_image("p", max_retries=3))
     assert slept == [7.0, 7.0]  # two retries before success
@@ -204,7 +205,7 @@ def test_backoff_delay_is_applied(patch_async, monkeypatch):
 
 def test_agnes_gives_up_after_max_retries(patch_async, monkeypatch):
     fake_post = _fake_response_class([503, 503, 503, 503])
-    monkeypatch.setattr(requests, "post", fake_post)
+    monkeypatch.setattr(retry_mod, "upstream_post", fake_post)
     api = AgnesImageAPI(api_key="k")
     with pytest.raises(RuntimeError):
         asyncio.run(api.generate_single_image("p", max_retries=3))
@@ -223,7 +224,7 @@ def test_agnes_default_retries_are_patient():
 def test_agnes_retries_through_many_busy_503s(patch_async, monkeypatch):
     # Four consecutive "Service busy" replies, then success — must not give up.
     fake_post = _fake_response_class([503, 503, 503, 503, 200])
-    monkeypatch.setattr(requests, "post", fake_post)
+    monkeypatch.setattr(retry_mod, "upstream_post", fake_post)
     api = AgnesImageAPI(api_key="k")
     out = asyncio.run(api.generate_single_image("p"))
     assert out.fmt == "url"
@@ -233,7 +234,7 @@ def test_agnes_retries_through_many_busy_503s(patch_async, monkeypatch):
 
 def test_openai_compat_retries_through_many_busy_503s(patch_async, monkeypatch):
     fake_post = _fake_response_class([503, 503, 503, 503, 200])
-    monkeypatch.setattr(requests, "post", fake_post)
+    monkeypatch.setattr(retry_mod, "upstream_post", fake_post)
     api = OpenAICompatProvider(api_key="x", base_url="https://example.com/v1", model="m")
     out = asyncio.run(api.generate_single_image("p"))
     assert out.fmt == "url"
@@ -250,7 +251,7 @@ def test_openai_compat_collects_errors(patch_async, monkeypatch):
 
     monkeypatch.setattr("core.api.error_collector.collect_error", fake_collect)
     fake_post = _fake_response_class([503, 503, 200])
-    monkeypatch.setattr(requests, "post", fake_post)
+    monkeypatch.setattr(retry_mod, "upstream_post", fake_post)
     api = OpenAICompatProvider(api_key="x", base_url="https://example.com/v1", model="m")
     asyncio.run(api.generate_single_image("p", max_retries=3))
     # Two retryable 503s => two error records (previously OpenAICompat collected none).
@@ -279,7 +280,7 @@ def test_openai_compat_i2i_sends_resolved_image(patch_async, monkeypatch, tmp_pa
         captured["json"] = k.get("json")
         return FakeResp()
 
-    monkeypatch.setattr(requests, "post", fake_post)
+    monkeypatch.setattr(retry_mod, "upstream_post", fake_post)
     api = OpenAICompatProvider(api_key="x", base_url="https://example.com/v1", model="m")
     asyncio.run(api.generate_single_image("p", reference_image_paths=[str(ref)], max_retries=1))
     assert "extra_body" in captured["json"]

@@ -14,7 +14,6 @@ import logging
 import mimetypes
 import os
 
-import requests
 from tenacity import retry, stop_after_attempt
 
 logger = logging.getLogger(__name__)
@@ -30,7 +29,20 @@ USER_AGENT = "Inkstone/0.1 (+https://github.com/phaethix/inkstone)"
 def download_image(url: str, save_path: str, max_size: int = _MAX_IMAGE_SIZE) -> None:
     """Download ``url`` to ``save_path`` with a size cap (no auth header)."""
     logger.info(f"Downloading image from {url} to {save_path}")
-    resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=(30, 120), stream=True)
+    # Imported here, not at module scope: ``core.api`` imports this module, so a
+    # top-level import would be a cycle.
+    from core.api.retry import upstream_session
+
+    # Ignore shell proxies for the same reason upstream POSTs do: a stale
+    # ``HTTPS_PROXY`` aimed at a dead proxy raises ``ProxyError`` and all three
+    # attempts fail, so a generated image never reaches disk.
+    session = upstream_session()
+    resp = session.get(
+        url,
+        headers={"User-Agent": USER_AGENT},
+        timeout=(30, 120),
+        stream=True,
+    )
     resp.raise_for_status()
     # Prefer checking Content-Length first
     content_length = resp.headers.get("Content-Length")

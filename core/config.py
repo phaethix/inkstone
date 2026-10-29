@@ -59,6 +59,9 @@ ENV_OPENAI_COMPAT_MODEL_I2I = "OPENAI_COMPAT_MODEL_I2I"
 ENV_OPENAI_COMPAT_CHAT_BASE_URL = "OPENAI_COMPAT_CHAT_BASE_URL"
 ENV_OPENAI_COMPAT_CHAT_API_KEY = "OPENAI_COMPAT_CHAT_API_KEY"
 ENV_OPENAI_COMPAT_CHAT_MODEL = "OPENAI_COMPAT_CHAT_MODEL"
+# Upstream calls run with ``trust_env=False`` so a stale shell proxy cannot turn
+# every attempt into ``ProxyError``. Set this to route through one deliberately.
+ENV_HTTP_PROXY = "INKSTONE_HTTP_PROXY"
 
 
 def _get(name: str, default: str = "") -> str:
@@ -239,6 +242,15 @@ def job_ttl_seconds() -> int:
 
 def run_deadline_hours() -> float:
     return env_float(ENV_RUN_DEADLINE_HOURS, 24.0, minimum=0.0)
+
+
+def http_proxy() -> str:
+    """Explicit upstream proxy URL, or ``""`` to connect directly.
+
+    Empty by default: shell ``HTTP(S)_PROXY`` values are ignored so a stale
+    proxy cannot turn every upstream attempt into ``ProxyError``.
+    """
+    return _get(ENV_HTTP_PROXY, "").strip()
 
 
 def supervisor_backoff_base() -> float:

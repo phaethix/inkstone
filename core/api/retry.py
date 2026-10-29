@@ -39,6 +39,39 @@ READ_TIMEOUT_SECONDS = 180.0
 RETRYABLE_STATUS = (429, 500, 502, 503, 504, 520, 521, 522, 523, 524)
 
 
+def upstream_session() -> requests.Session:
+    """A ``requests`` Session that ignores ``HTTP(S)_PROXY`` from the shell.
+
+    ``trust_env`` is a *Session attribute*, not a request kwarg — passing it to
+    ``requests.get``/``post`` raises ``TypeError``. Sessions are the only way to
+    opt out of the ambient proxy, and a stale one turns every upstream attempt
+    into ``ProxyError`` (see ``comic_out/1f61fb46a59a``, which retried for 18
+    minutes against a dead local proxy).
+
+    ``INKSTONE_HTTP_PROXY`` is still honoured when set explicitly: routing
+    through a proxy is a deliberate choice, inheriting one from the shell is not.
+    """
+    from core.config import http_proxy
+
+    session = requests.Session()
+    # Keep the module's retry budget semantics: no implicit proxy discovery.
+    session.trust_env = False
+    proxy = http_proxy()
+    if proxy:
+        session.proxies = {"http": proxy, "https": proxy}
+    return session
+
+
+def upstream_post(url: str, **kwargs) -> requests.Response:
+    """POST through the hardened session.
+
+    Thin seam so tests can substitute a fake transport without patching the
+    real ``requests`` module, and so the session's proxy decision cannot be
+    bypassed by a caller that reaches for ``requests.post`` directly.
+    """
+    return upstream_session().post(url, **kwargs)
+
+
 def compute_backoff(attempt: int, base_delay: float, cap: float = BACKOFF_CAP_SECONDS) -> float:
     """Exponential backoff with a hard cap and full jitter.
 
@@ -135,7 +168,7 @@ async def retryable_post(
         await asyncio.to_thread(get_rate_limiter(size, bucket=bucket).acquire)
         try:
             resp = await asyncio.to_thread(
-                requests.post,
+                upstream_post,
                 url,
                 headers=headers,
                 json=json_payload,
