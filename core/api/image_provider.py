@@ -80,6 +80,10 @@ class ImageProvider(ABC):
                 errors. The free-tier image service is frequently 503 "Service busy",
                 so the default retries (5 attempts, 5s exponential backoff); tune via
                 ``AGNES_IMAGE_MAX_RETRIES`` / ``AGNES_IMAGE_RETRY_BASE_DELAY``.
+            negative_prompt: Text to steer the model away from. Pass bubble and
+                text bans here rather than in the positive prompt: a positive
+                "no speech bubbles" reminds the model that bubbles exist and it
+                draws one full of pseudo-script.
         Returns:
             An ``ImageOutput``; call ``.save(path)`` to persist.
         """
@@ -120,15 +124,22 @@ class OpenAICompatProvider(ImageProvider):
             "Content-Type": "application/json",
         }
 
-    def _build_payload(self, prompt: str, resolved_refs: list[str], size: str | None) -> dict:
+    def _build_payload(
+        self,
+        prompt: str,
+        resolved_refs: list[str],
+        size: str | None,
+        negative_prompt: str = "",
+    ) -> dict:
         use_i2i = len(resolved_refs) > 0
-        model = self.i2i_model if use_i2i else self.model
         payload = {
-            "model": model,
+            "model": self.i2i_model if use_i2i else self.model,
             "prompt": prompt,
             "size": size or "1024x1024",
             "n": 1,
         }
+        if negative_prompt:
+            payload["negative_prompt"] = negative_prompt
         if resolved_refs:
             payload["extra_body"] = {"response_format": "url", "image": resolved_refs}
         return payload
@@ -145,7 +156,8 @@ class OpenAICompatProvider(ImageProvider):
         reference_image_paths = reference_image_paths or []
         # Resolve refs off the event loop.
         resolved = [await asyncio.to_thread(resolve_image_ref, p) for p in reference_image_paths]
-        payload = self._build_payload(prompt, resolved, size)
+        negative_prompt = kwargs.get("negative_prompt") or ""
+        payload = self._build_payload(prompt, resolved, size, negative_prompt)
         logger.info(
             f"[OpenAICompat] Generating "
             f"({'i2i' if reference_image_paths else 't2i'}): "
