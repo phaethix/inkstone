@@ -215,12 +215,21 @@ def extract_action_key(
     )
 
 
-def render_page_inputs(plan_json: str, prompt: str) -> list[str]:
-    """Ordered inputs for a finished page: the plan, then the prompt that was sent."""
-    return [
+def render_page_inputs(plan_json: str, prompt: str, negative_prompt: str = "") -> list[str]:
+    """Ordered inputs for a finished page: the plan, then both prompts sent.
+
+    The negative prompt is an input, not a parameter, because it changes the
+    bytes the model draws. Leaving it out would serve the already-garbled page
+    from cache after the wiring was fixed. Absent and empty agree, so a project
+    rendered before the channel existed keeps its keys.
+    """
+    inputs = [
         "sha256:" + _hex_digest(plan_json.encode("utf-8")),
         "sha256:" + _hex_digest(prompt.encode("utf-8")),
     ]
+    if negative_prompt:
+        inputs.append("sha256:negative:" + _hex_digest(negative_prompt.encode("utf-8")))
+    return inputs
 
 
 def render_page_action_key(
@@ -232,8 +241,9 @@ def render_page_action_key(
     ref_policy: str,
     env: str,
     stage_src: str,
+    negative_prompt: str = "",
 ) -> str:
-    """Key a finished page from its plan, prompt, identity, and ref policy.
+    """Key a finished page from its plan, prompts, identity, and ref policy.
 
     The L2 reference image itself is a soft reference and is not an input; the
     *selection policy* is (``ref_policy``, see
@@ -246,7 +256,7 @@ def render_page_action_key(
     return action_key(
         stage="render.page",
         stage_src=stage_src,
-        inputs=render_page_inputs(plan_json, prompt),
+        inputs=render_page_inputs(plan_json, prompt, negative_prompt),
         params={
             "page_key": page_key,
             "resolved_size": resolved_size,

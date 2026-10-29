@@ -113,7 +113,10 @@ from core.comic.page_lettering import (
     letter_finished_page,
     resolve_lettering_jobs,
 )
-from core.comic.page_prompt import render_finished_page_prompt
+from core.comic.page_prompt import (
+    render_finished_page_negative_prompt,
+    render_finished_page_prompt,
+)
 from core.comic.review_packet import ReviewPacket
 from core.comic.runs import bind_audit, clear_audit, image_failure, image_intent
 from core.comic.segmentation import (
@@ -573,7 +576,9 @@ _STORYBOARD_STAGE_SRC = stage_source_hash(
 _PAGE_SCRIPT_STAGE_SRC = stage_source_hash(build_page_script_request, plan_page_script)
 _PORTRAIT_STAGE_SRC = stage_source_hash(_portrait_key_material)
 _RENDER_PANEL_STAGE_SRC = stage_source_hash(_panel_key_material)
-_RENDER_PAGE_STAGE_SRC = stage_source_hash(render_finished_page_prompt)
+_RENDER_PAGE_STAGE_SRC = stage_source_hash(
+    render_finished_page_prompt, render_finished_page_negative_prompt
+)
 
 
 def _beats_payload(beats) -> str:
@@ -2212,6 +2217,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                         style_guide=_style,
                         visual_bible=_state.visual_bible,
                     )
+                    negative_prompt = render_finished_page_negative_prompt()
                     if _state.visual_bible is not None:
                         ledger_refs = {
                             name: entry.reference.path
@@ -2247,6 +2253,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                         ref_policy=ref_policy,
                         env=render_env,
                         stage_src=_RENDER_PAGE_STAGE_SRC,
+                        negative_prompt=negative_prompt,
                     )
                     recorded_render = read_manifest_entry(
                         output_dir, render_key, stage="render.page"
@@ -2325,7 +2332,10 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                             async with image_semaphore:
                                 with perf.measure("page"):
                                     out = await image.generate_single_image(
-                                        prompt, reference_image_paths=refs, size=active_size
+                                        prompt,
+                                        reference_image_paths=refs,
+                                        size=active_size,
+                                        negative_prompt=negative_prompt,
                                     )
                             break
                         except Exception as exc:  # noqa: BLE001 — preserve policy skip behavior
@@ -2375,6 +2385,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                                     strict=True,
                                     visual_bible=_state.visual_bible,
                                 )
+                                negative_prompt = render_finished_page_negative_prompt(strict=True)
                                 logger.warning(
                                     "page %s image failed (%s); retrying once with stricter prompt",
                                     page_id,
@@ -2392,7 +2403,9 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                     stored_render_env = h_env(
                         text=prompt, resolved_size=active_size, scope="render"
                     )
-                    stored_render_inputs = render_page_inputs(_plan_json(plan), prompt)
+                    stored_render_inputs = render_page_inputs(
+                        _plan_json(plan), prompt, negative_prompt
+                    )
                     stored_render_key = render_page_action_key(
                         plan_json=_plan_json(plan),
                         prompt=prompt,
@@ -2401,6 +2414,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                         ref_policy=ref_policy,
                         env=stored_render_env,
                         stage_src=_RENDER_PAGE_STAGE_SRC,
+                        negative_prompt=negative_prompt,
                     )
                     record(
                         output_dir,
