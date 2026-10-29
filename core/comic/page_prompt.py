@@ -30,6 +30,47 @@ from core.comic.visual_bible import (
 from core.comic.voice import timeline_prompt_lines
 from core.schemas import CharacterAsset, ComicPagePlan, Setting, VisualBible
 
+# A positive prompt that says "NO speech bubbles" still reminds a diffusion
+# model that bubbles are a thing comics have, so it draws one full of
+# pseudo-script ("S:cooas t9!" on page_c0000_p0000.png). The negative channel is
+# where the ban actually holds. Kept free of any plan text: naming the dialogue
+# here would summon the dialogue.
+#
+# Diegetic props need their own entries. ``DIEGETIC_TEXT_LINE`` already asks for
+# blank paper, and the model still set "WIENER MORGENPOST" on a newspaper and
+# gibberish on a station sign, so the props are named explicitly here.
+FINISHED_PAGE_NEGATIVE_PROMPT = (
+    "speech bubbles, thought bubbles, balloon tails, caption bars, caption boxes, "
+    "text boxes, lettering, subtitles, watermark, signature, logo, "
+    "any readable text, letters, words, characters, glyphs, numbers, "
+    "pseudo-script, fake writing, gibberish text, scribbled letters, "
+    "typography, calligraphy, "
+    "newspaper headlines, printed columns of text, book pages with writing, "
+    "signposts with writing, station signs with writing, shop signs with writing, "
+    "posters with writing, labels with writing, screen text, UI text"
+)
+
+_NEGATIVE_PROMPT_STRICT_SUFFIX = ", absolutely no text of any kind anywhere in the image"
+
+
+def render_finished_page_negative_prompt(
+    *,
+    strict: bool = False,
+    lettering: Literal["deferred", "in_image"] = "deferred",
+) -> str:
+    """The negative prompt for a finished page render.
+
+    ``in_image`` lettering asks the model to letter the page, so banning
+    bubbles would fight the positive prompt; it gets no negative prompt at all.
+    ``strict`` is the retry after a failed render, where the ban is the whole
+    point, so it says the same thing with less room to interpret.
+    """
+    if lettering != "deferred":
+        return ""
+    if strict:
+        return FINISHED_PAGE_NEGATIVE_PROMPT + _NEGATIVE_PROMPT_STRICT_SUFFIX
+    return FINISHED_PAGE_NEGATIVE_PROMPT
+
 
 def _character_desc_for_prompt(
     name: str,
