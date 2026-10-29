@@ -45,7 +45,7 @@ import tempfile
 import threading
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -186,6 +186,38 @@ class _JobLogHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         _append_job_log(self._job, record.getMessage())
+
+
+# Jobs lower the root logger to INFO for their lifetime. The level is global,
+# so overlapping jobs must not restore it early: the outermost exit wins.
+_JOB_LOG_LEVEL_DEPTH = 0
+_JOB_LOG_LEVEL_PREVIOUS = logging.NOTSET
+_JOB_LOG_LEVEL_LOCK = threading.Lock()
+
+
+@contextmanager
+def _job_log_level():
+    """Temporarily lower the root logger to INFO so retries reach the job log.
+
+    ``_JobLogHandler`` filters at INFO, but a handler cannot enable a level the
+    root logger has already dropped: with the default WARNING level every
+    ``logger.info`` retry line was discarded, leaving the UI blank while a run
+    silently retried for minutes. Restores the previous level on the last exit.
+    """
+    global _JOB_LOG_LEVEL_DEPTH, _JOB_LOG_LEVEL_PREVIOUS
+    root = logging.getLogger()
+    with _JOB_LOG_LEVEL_LOCK:
+        if _JOB_LOG_LEVEL_DEPTH == 0:
+            _JOB_LOG_LEVEL_PREVIOUS = root.level
+            root.setLevel(logging.INFO)
+        _JOB_LOG_LEVEL_DEPTH += 1
+    try:
+        yield
+    finally:
+        with _JOB_LOG_LEVEL_LOCK:
+            _JOB_LOG_LEVEL_DEPTH -= 1
+            if _JOB_LOG_LEVEL_DEPTH == 0:
+                root.setLevel(_JOB_LOG_LEVEL_PREVIOUS)
 
 
 def _reader_url(project_id: str | None) -> str | None:
@@ -433,6 +465,12 @@ def _run_job(
     handler = _JobLogHandler(job)
     handler.setLevel(logging.INFO)
     root = logging.getLogger()
+    # ExitStack pairs the level with the handler: if attaching either one fails
+    # the other is still undone, and the unwinding runs before the caller sees
+    # the exception (a bare __enter__/__exit__ pair would leak both).
+    log_window = ExitStack()
+    log_window.enter_context(_job_log_level())
+    log_window.callback(root.removeHandler, handler)
     root.addHandler(handler)
 
     def _on_progress(stage: str, percent: float | None) -> None:
@@ -478,7 +516,7 @@ def _run_job(
         _refresh_job_timing(job)
         _persist_active_elapsed(project_id, float(job["elapsed_seconds"]))
         _mark_job_finished(job)
-        root.removeHandler(handler)
+        log_window.close()
 
 
 def _start_job(
