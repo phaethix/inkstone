@@ -901,7 +901,19 @@ async def reconcile_visual_bible(
     chat=None,
     request: ChatRequest | None = None,
 ) -> VisualBibleReconcileResult:
-    """Build or update the project visual bible from chunk text and known characters."""
+    """Build or update the project visual bible from chunk text and known characters.
+
+    Every character in ``state_characters`` is asked for a canon, and the ones the
+    answer skips are asked about once more. Measured on a real run: the excerpt
+    named four people, extraction found all four, and the reconcile answered with
+    canons for two — the two guests then had no face lock, so the bible could not
+    keep them consistent across pages while the pipeline reported success.
+
+    The retry is bounded to one extra call and only covers names that are still
+    missing; an answer that skips them again is returned as-is, because a canon
+    set the model refuses to extend is the caller's decision to surface (the
+    pipeline records the gap on the character), not a reason to abort the run.
+    """
     chat = chat or get_chat_provider()
     request = request or build_bible_request(
         text,
@@ -912,7 +924,69 @@ async def reconcile_visual_bible(
         model=getattr(chat, "model", ""),
     )
     args = await _audited_chat(chat, request.messages, request.tools, request.tool_choice)
+    result = VisualBibleReconcileResult.model_validate(args)
+    missing = _characters_without_canon(state_characters, result, bible)
+    if not missing:
+        return result
+    logger.warning(
+        "visual bible reconcile skipped %s character(s): %s; asking once more",
+        len(missing),
+        ", ".join(missing[:8]),
+    )
+    retry = request.with_user_suffix(
+        "\n\nCRITICAL: the previous answer had no canon for these characters: "
+        f"{', '.join(missing)}. Return one canon per character listed above. "
+        "上一次回答漏掉了这些人物，请为上述每一个角色都提供 canon。"
+    )
+    args = await _audited_chat(chat, retry.messages, retry.tools, retry.tool_choice)
     return VisualBibleReconcileResult.model_validate(args)
+
+
+def _characters_without_canon(
+    state_characters: dict,
+    result: VisualBibleReconcileResult,
+    bible: VisualBible | None = None,
+) -> list[str]:
+    """Characters this reconcile was responsible for and did not describe.
+
+    A character counts as described when a canon carries the name as canonical or
+    alias, when a ``high`` confidence merge folds it into someone else, or when the
+    existing bible already has it. Those are all answers about the person rather
+    than skips.
+
+    The existing bible matters for cost, not just accuracy: by the tenth chunk the
+    character table holds everyone the book has introduced, and demanding a fresh
+    canon for each of them would make every chunk pay for a retry over people the
+    bible already describes. Only new names are owed, which is the same rule the
+    request text states ("still return merges/stages/keeps for any new names").
+
+    Stage rows (``Name@adult``) are not asked about separately — their base row is
+    what a canon is built from.
+    """
+    covered: set[str] = set()
+    for canon in result.canons:
+        if canon.canonical_name:
+            covered.add(canon.canonical_name.casefold())
+        for alias in canon.aliases:
+            covered.add(alias.casefold())
+    for merge in result.merges:
+        if merge.confidence == "high":
+            covered.add(merge.alias.casefold())
+    if bible is not None:
+        for key, canon in bible.characters.items():
+            covered.add(key.casefold())
+            if canon.canonical_name:
+                covered.add(canon.canonical_name.casefold())
+            for alias in canon.aliases:
+                covered.add(alias.casefold())
+    missing: list[str] = []
+    for name in state_characters:
+        if "@" in name:
+            continue
+        if name.casefold() in covered:
+            continue
+        missing.append(name)
+    return missing
 
 
 PAGE_SCRIPT_TOOL = to_tool_schema(

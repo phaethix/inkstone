@@ -52,6 +52,21 @@ class FakeChat(ChatProvider):
                 "settings": [{"name": "甲板", "scene_prompt": "deck"}],
                 "style_guide": "manhua",
             }
+        if name == "reconcile_visual_bible":
+            # A real reconcile always names the characters it was shown; returning
+            # an empty answer here would model a provider failure, not the API.
+            return {
+                "canons": [
+                    {
+                        "canonical_name": "方鸿渐",
+                        "face_lock": "a young man's face",
+                        "gender": "male",
+                        "narrative_function": "protagonist",
+                        "role": "protagonist",
+                    }
+                ],
+                "style_guide": "manhua",
+            }
         if name == "plan_storyboard":
             self.board += 1
             return {

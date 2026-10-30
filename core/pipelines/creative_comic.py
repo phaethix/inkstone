@@ -135,6 +135,7 @@ from core.comic.visual_bible import (
     canonical_portrait_ref,
     collect_finished_page_refs,
     finished_page_ref_policy,
+    fold_case_variant_characters,
     format_color_bible_block,
     l1_from_canon,
     parse_stage_ref,
@@ -1367,6 +1368,15 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
     engine = ConsistencyEngine()
 
     _reconcile_state(state, state_path, output_dir)
+
+    # Identity repair runs from the load path, not from inside the chunk loop.
+    # A chunk that short-circuits as complete never reaches sanitize or sync, so a
+    # project that forked one person into two spellings kept both rows (and both
+    # portraits) across every resume: measured, a finished project went from
+    # ``0.1s`` start to ``0.1s`` finish and never shed the duplicate.
+    if fold_case_variant_characters(state):
+        state.render_fingerprint = _render_for_bible(state.visual_bible)
+        state.save(state_path)
 
     if sanitize_visual_bible_state(state):
         _soft_invalidate_render(state)

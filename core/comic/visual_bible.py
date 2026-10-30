@@ -697,7 +697,14 @@ def collapse_duplicate_identities(state: ProjectState) -> bool:
         stem = identity_stem(canon.canonical_name or key)
         if not stem:
             continue
-        stem_groups.setdefault(stem, []).append(key)
+        # Casefold the group key only. ``identity_stem`` stays case-sensitive
+        # because it also strips stage suffixes and parenthetical role tags, where
+        # case carries no meaning; but two canons that differ *only* by the case
+        # of a Latin letter are the same person — the excerpt writes ``r·`` and
+        # the bible wrote ``R`` — and grouping them separately left one body
+        # paying for two portraits and a page plan naming a character no canon
+        # described.
+        stem_groups.setdefault(stem.casefold(), []).append(key)
 
     for stem, keys in stem_groups.items():
         if len(keys) < 2:
@@ -1196,11 +1203,40 @@ def _upsert_canon(existing: CharacterCanon, incoming: CharacterCanon) -> Charact
     return merged
 
 
+def _adopt_existing_spelling(out: ProjectState, canonical: str) -> str:
+    """Return the spelling already in use for ``canonical``, or ``canonical``.
+
+    The reconcile call answers with its own spelling of a name — measured on a
+    real run, ``著名小说家R`` for an extraction that wrote ``著名小说家r``. Storing
+    the answer verbatim leaves the bible describing a name no character row and no
+    panel carries: the canon's L1 never reaches the row the pages name, and the
+    stage rows hang off a spelling nothing references.
+
+    The row already on disk wins. It is the one with the portrait and the panel
+    references, and a case difference is not a different person. Real differences
+    are left alone — the alias machinery, not this function, is what may merge
+    those.
+    """
+    row = _casefold_row_key(out, canonical)
+    if row != canonical:
+        return row
+    # No character row yet (a first reconcile): the god's-eye table is the bible
+    # itself, so an existing canon under the other spelling keeps its name.
+    bible = out.visual_bible
+    if bible is not None and canonical not in bible.characters:
+        folded = canonical.casefold()
+        matches = [key for key in bible.characters if key.casefold() == folded]
+        if len(matches) == 1:
+            return matches[0]
+    return canonical
+
+
 def _install_reconcile_bible(
     out: ProjectState,
     result: VisualBibleReconcileResult,
 ) -> None:
     """Create or update visual bible from reconcile style, color, and canons."""
+    canons = [(c, _adopt_existing_spelling(out, c.canonical_name)) for c in result.canons]
     if out.visual_bible is None:
         out.visual_bible = VisualBible(
             version="bible_v1",
@@ -1208,7 +1244,7 @@ def _install_reconcile_bible(
             era=result.era or "",
             era_forbidden_wardrobe=list(result.era_forbidden_wardrobe or []),
             color=result.color or ColorBible(palette=[], lighting="", forbidden=[]),
-            characters={c.canonical_name: c for c in result.canons},
+            characters={name: canon for canon, name in canons},
             sheet_ref_local=None,
             content_hash="",
         )
@@ -1216,12 +1252,13 @@ def _install_reconcile_bible(
         return
 
     bible = out.visual_bible
-    for canon in result.canons:
-        existing = bible.characters.get(canon.canonical_name)
+    for canon, name in canons:
+        existing = bible.characters.get(name)
         if existing is None:
-            bible.characters[canon.canonical_name] = canon
+            bible.characters[name] = canon.model_copy(update={"canonical_name": name})
         else:
-            bible.characters[canon.canonical_name] = _upsert_canon(existing, canon)
+            merged = _upsert_canon(existing, canon)
+            bible.characters[name] = merged.model_copy(update={"canonical_name": name})
 
     if not bible.style_guide and result.style_guide:
         bible.style_guide = result.style_guide
@@ -1432,11 +1469,21 @@ def ensure_stage_portrait_assets(state: ProjectState) -> None:
         return
     for key, canon in bible.characters.items():
         canonical = canon.canonical_name or key
-        base_asset = state.characters.get(canonical)
+        base_row = _casefold_row_key(state, canonical)
+        base_asset = state.characters.get(base_row)
         for stage in canon.stages:
             portrait_key = (stage.portrait_key or "").strip()
             if not portrait_key or portrait_key == canonical:
                 continue
+            # The stage row must hang off the row the plan already names. A canon
+            # spelled ``R`` beside an extracted ``r`` used to mint ``R@adult`` —
+            # a second row, and a second portrait, of the face ``r@adult`` covers.
+            # Rebuilding the key from the resolved base row keeps the suffix the
+            # canon asked for while adopting the spelling in use.
+            _base, stage_name = parse_stage_ref(portrait_key)
+            if stage_name != "default" and base_row != canonical:
+                portrait_key = f"{base_row}@{stage_name}"
+            portrait_key = _casefold_row_key(state, portrait_key)
             if portrait_key in state.characters:
                 continue
             l1 = l1_from_canon(canon, stage.stage)
@@ -1517,6 +1564,249 @@ def resolve_character_asset(
     return characters_by_name.get(canonical)
 
 
+def _has_case_variant_stage_row(state: ProjectState) -> bool:
+    """True when a ``Name@stage`` row's base is spelled with a different case.
+
+    Checked separately from the base collisions because the two can be repaired by
+    different runs: a base folded by an earlier resume leaves its stage row behind
+    with no collision left to notice.
+    """
+    base_rows = {name.casefold(): name for name in state.characters if "@" not in name}
+    for name in state.characters:
+        base, stage = parse_stage_ref(name)
+        if stage == "default":
+            continue
+        keep_base = base_rows.get(base.casefold())
+        if keep_base is not None and keep_base != base:
+            return True
+    return False
+
+
+def fold_case_variant_characters(state: ProjectState) -> bool:
+    """Fold character rows that spell one person apart only by case.
+
+    Runs from the load path, before any chunk can short-circuit: the broken
+    project this repairs resumed in 0.1 seconds, skipped every chunk as complete,
+    and kept ``著名小说家r`` beside ``著名小说家R`` forever — the page plan naming
+    one, the bible describing the other, and two portraits of one face on disk.
+    Sanitize and sync only run inside the chunk loop, so a healthy-looking project
+    could never shed a duplicate it had already paid for.
+
+    Which row survives is decided, not incidental:
+
+    * The spelling the page plans reference wins: it is what prompts resolve
+      against, and folding onto any other name would leave the plan pointing at a
+      character no canon describes.
+    * Then the row with a portrait, since it is the one already billed.
+    * The canon's spelling is only a tie-breaker: a bible that agrees with itself
+      is worth less than a plan that resolves.
+
+    Returns ``True`` when anything changed, so the caller can persist.
+    """
+    bible = state.visual_bible
+    groups: dict[str, list[str]] = {}
+    for name in state.characters:
+        # Stage rows are grouped separately: they follow their base row and are
+        # handled once the base is settled, not folded against each other.
+        base, stage = parse_stage_ref(name)
+        if stage != "default":
+            continue
+        groups.setdefault(name.casefold(), []).append(name)
+    has_base_collision = any(len(names) > 1 for names in groups.values())
+    if not has_base_collision and not _has_case_variant_stage_row(state):
+        return False
+
+    canon_keys: dict[str, str] = {}
+    if bible is not None:
+        for key, canon in bible.characters.items():
+            canonical = canon.canonical_name or key
+            canon_keys.setdefault(canonical.casefold(), canonical)
+
+    referenced: set[str] = set()
+    for pageset in state.page_cache.values():
+        for plan in pageset.pages:
+            referenced.update(plan.reference_characters)
+            for panel in plan.panels:
+                referenced.update(panel.characters)
+
+    renamed: dict[str, str] = {}
+    for folded, names in groups.items():
+        if len(names) < 2:
+            continue
+        # The spelling the pages name wins, then the one already drawn, then the
+        # canon's. Folding onto the canon instead looks tidier in the bible and is
+        # wrong here: the plan keeps naming the other spelling, which then resolves
+        # to no canon at all — the measured symptom — and the surviving row has to
+        # be repainted because its portrait belongs to the dropped name.
+        keep = max(
+            names,
+            key=lambda n: (
+                n in referenced,
+                bool(state.characters[n].portrait_local),
+                canon_keys.get(folded) == n,
+                -len(n),
+                n,
+            ),
+        )
+        for drop in names:
+            if drop == keep:
+                continue
+            _fold_character_into(state, drop, keep)
+            renamed[drop] = keep
+            logger.warning("character %r folded into %r: the names differ only by case", drop, keep)
+
+    if bible is not None:
+        for drop, keep in renamed.items():
+            canon = bible.characters.pop(drop, None)
+            if canon is None:
+                continue
+            merged = canon.model_copy(update={"canonical_name": keep})
+            existing = bible.characters.get(keep)
+            bible.characters[keep] = (
+                _upsert_canon(existing, merged) if existing is not None else merged
+            )
+        bible.content_hash = ""
+        state.visual_bible = refresh_bible_hash(bible)
+
+    _rewrite_folded_references(state, renamed)
+    _fold_case_variant_stage_rows(state, renamed)
+    state.needs_review = [
+        s for s in state.needs_review if s.new_name.casefold() != s.candidate.casefold()
+    ]
+    return True
+
+
+def _fold_case_variant_stage_rows(state: ProjectState, renamed: dict[str, str]) -> None:
+    """Fold ``Name@stage`` rows whose base name is spelled with the wrong case.
+
+    The base row and the stage row are separate keys, so folding only the base
+    leaves a stage portrait nobody references: measured after the first pass, the
+    project still carried ``著名小说家R@adult`` beside ``著名小说家r``, one paid
+    image of the same face.
+
+    The base it belongs to is looked up fresh rather than read from ``renamed``:
+    the two rows can be folded by *different* runs. A base folded last time leaves
+    its stage row behind with no rename to trigger on, which is exactly how the
+    leftover survived a run that otherwise reported success.
+    """
+    stage_renames: dict[str, str] = {}
+    base_rows = {name.casefold(): name for name in state.characters if "@" not in name}
+    for name in list(state.characters):
+        base, stage = parse_stage_ref(name)
+        if stage == "default":
+            continue
+        keep_base = renamed.get(base) or base_rows.get(base.casefold())
+        if keep_base is None:
+            continue
+        target = f"{keep_base}@{stage}"
+        if target == name:
+            continue
+        if target in state.characters:
+            _fold_character_into(state, name, target)
+        else:
+            asset = state.characters.pop(name)
+            state.characters[target] = asset.model_copy(update={"name": target})
+            portrait = state.generated.portraits.pop(name, None)
+            if portrait is not None:
+                state.generated.portraits[target] = portrait
+        stage_renames[name] = target
+        logger.warning("stage row %r folded into %r: its base name was folded", name, target)
+
+    if stage_renames:
+        _rewrite_folded_references(state, stage_renames)
+
+
+def _fold_character_into(state: ProjectState, drop: str, keep: str) -> None:
+    """Move ``drop`` into ``keep``, filling only fields ``keep`` lacks."""
+    asset = state.characters[drop]
+    target = state.characters[keep]
+    for field in (
+        "hair",
+        "eyewear",
+        "outfit_top",
+        "outfit_bottom",
+        "shoes",
+        "body_type",
+        "distinguishing",
+    ):
+        if not (getattr(target.appearance, field) or "").strip():
+            setattr(target.appearance, field, getattr(asset.appearance, field))
+    if not (target.role or "").strip() and (asset.role or "").strip():
+        target.role = asset.role
+    if not (target.l1_prompt or "").strip() and (asset.l1_prompt or "").strip():
+        target.l1_prompt = asset.l1_prompt
+    if not (target.portrait_prompt or "").strip() and (asset.portrait_prompt or "").strip():
+        target.portrait_prompt = asset.portrait_prompt
+    if not target.portrait_local and asset.portrait_local:
+        target.portrait_local = asset.portrait_local
+        state.generated.portraits[keep] = asset.portrait_local
+    if drop not in target.aliases:
+        target.aliases.append(drop)
+    for alias in asset.aliases:
+        if alias != keep and alias not in target.aliases:
+            target.aliases.append(alias)
+    del state.characters[drop]
+    state.generated.portraits.pop(drop, None)
+
+
+def _rewrite_folded_references(state: ProjectState, renamed: dict[str, str]) -> None:
+    """Point cached page plans at the surviving spelling of a folded name.
+
+    A fold renames rows, not references. Without this the plan keeps naming the
+    dropped spelling, which now resolves to no canon — exactly the symptom the
+    measured run showed as ``panel names with no canon: ['著名小说家r']``.
+    """
+    if not renamed:
+        return
+    for cache_key, pageset in list(state.page_cache.items()):
+        updated = pageset.model_copy(deep=True)
+        changed = False
+        for plan in updated.pages:
+            remapped = _remap_names(plan.reference_characters, renamed)
+            if remapped != plan.reference_characters:
+                plan.reference_characters = remapped
+                changed = True
+            for panel in plan.panels:
+                remapped = _remap_names(panel.characters, renamed)
+                if remapped != panel.characters:
+                    panel.characters = remapped
+                    changed = True
+        if changed:
+            state.page_cache[cache_key] = updated
+
+
+def _remap_names(names: list[str], mapping: dict[str, str]) -> list[str]:
+    out: list[str] = []
+    for name in names:
+        mapped = mapping.get(name, name)
+        if mapped not in out:
+            out.append(mapped)
+    return out
+
+
+def _casefold_row_key(state: ProjectState, name: str) -> str:
+    """Return the ``state.characters`` key that spells ``name`` apart only by case.
+
+    A canon and the extraction that fed it can disagree about the case of a Latin
+    letter — the excerpt writes ``r·``, the bible reconciled ``R`` — and an exact
+    ``dict.get`` then misses the very row the pages name. The row already on disk
+    is the identity to keep: it owns the portrait and the panel references, so the
+    canon folds onto it instead of minting a second character.
+
+    Only case (and Unicode width, which ``casefold`` normalizes) is ignored. Names
+    that differ by any real character stay separate: this must never become the
+    fuzzy matcher that ``detect_character_aliases`` is, because a silent merge of
+    two genuinely different people is far worse than a duplicate portrait.
+    """
+    if name in state.characters:
+        return name
+    folded = name.casefold()
+    matches = [key for key in state.characters if key.casefold() == folded]
+    if len(matches) == 1:
+        return matches[0]
+    return name
+
+
 def sync_characters_from_bible(state: ProjectState) -> None:
     """Sync character L1 prompts from bible canons and rewrite cached page plans."""
     bible = state.visual_bible
@@ -1527,7 +1817,12 @@ def sync_characters_from_bible(state: ProjectState) -> None:
 
     for key, canon in bible.characters.items():
         canonical = canon.canonical_name or key
-        asset = state.characters.get(canonical)
+        # The extraction decides how the character is spelled in the plan; the
+        # canon only supplies the identity. Looking the row up by exact name used
+        # to leave a case-different extraction with an empty L1 while the canon
+        # paid for a second portrait of the same face.
+        row = _casefold_row_key(state, canonical)
+        asset = state.characters.get(row)
         if asset is None:
             continue
         l1 = l1_from_canon(canon)
@@ -1535,7 +1830,7 @@ def sync_characters_from_bible(state: ProjectState) -> None:
             asset.l1_prompt = l1
             asset.portrait_prompt = l1
         for alias in canon.aliases:
-            if alias and alias != canonical and alias not in asset.aliases:
+            if alias and alias != row and alias not in asset.aliases:
                 asset.aliases.append(alias)
 
     ensure_stage_portrait_assets(state)
