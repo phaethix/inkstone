@@ -75,6 +75,32 @@ def test_a_shorter_plan_drops_only_its_own_out_of_range_pages():
     assert "c0001-p0007" in state.generated.pages
 
 
+def test_dropping_a_page_deletes_its_lettered_file_and_blank(tmp_path):
+    pages = tmp_path / "pages"
+    blank_dir = pages / "blank"
+    blank_dir.mkdir(parents=True)
+    lettered = pages / "page_c0000_p0002.png"
+    blank = blank_dir / "page_c0000_p0002.png"
+    kept = pages / "page_c0000_p0000.png"
+    lettered.write_bytes(b"a")
+    blank.write_bytes(b"b")
+    kept.write_bytes(b"c")
+    state = ProjectState(project_id="t")
+    state.generated.pages["c0000-p0002"] = GeneratedPage(
+        local=str(lettered), blank_local=str(blank)
+    )
+    state.generated.pages["c0000-p0000"] = GeneratedPage(local=str(kept))
+    state.pages_done = ["c0000-p0000", "c0000-p0002"]
+
+    drop_pages_outside_plan(state, chunk_index=0, page_count=1, pages_dir=pages)
+
+    assert not lettered.exists()
+    assert not blank.exists()
+    assert kept.exists()
+    assert "c0000-p0002" not in state.generated.pages
+    assert "c0000-p0000" in state.generated.pages
+
+
 def test_stamping_a_missing_key_persists_immediately(tmp_path):
     state = ProjectState(project_id="t")
     state_path = tmp_path / "state.json"

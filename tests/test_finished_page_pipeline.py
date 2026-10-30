@@ -671,6 +671,184 @@ def test_finished_page_falls_back_to_square_when_size_rejected(tmp_path, monkeyp
     assert Path(proj.state.generated.pages["c0000-p0000"].local).exists()
 
 
+def test_unsupported_image_size_error_reads_the_http_body():
+    import requests
+
+    response = requests.Response()
+    response.status_code = 400
+    response.reason = "Bad Request"
+    response.url = "https://api.example/v1/images"
+    response._content = b"invalid size: 1024x1536 is not supported"
+    response.encoding = "utf-8"
+    with pytest.raises(requests.HTTPError) as raised:
+        response.raise_for_status()
+    assert "1024x1536" not in str(raised.value)
+    assert is_unsupported_image_size_error(raised.value)
+
+    policy = requests.Response()
+    policy.status_code = 400
+    policy.reason = "Bad Request"
+    policy.url = "https://api.example/v1/images"
+    policy._content = b"content_policy_violation"
+    policy.encoding = "utf-8"
+    with pytest.raises(requests.HTTPError) as policy_error:
+        policy.raise_for_status()
+    assert is_unsupported_image_size_error(policy_error.value) is False
+
+
+class EmptyBeatsChat(FakeChat):
+    def __init__(self):
+        super().__init__()
+        self.beat_calls = 0
+
+    async def chat_function_call(self, messages, tools, tool_choice, **kw):
+        name = tool_choice["function"]["name"]
+        if name == "extract_key_beats":
+            self.beat_calls += 1
+            self.calls += 1
+            return {"beats": []}
+        return await super().chat_function_call(messages, tools, tool_choice, **kw)
+
+
+def _manifest_stages(output_dir: Path) -> list[str]:
+    index = output_dir / "index"
+    if not index.is_dir():
+        return []
+    stages = []
+    for path in index.glob("*.json"):
+        stages.append(json.loads(path.read_text(encoding="utf-8")).get("stage"))
+    return stages
+
+
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
+def test_empty_key_beats_are_extracted_again_on_the_next_run(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+    source = "第一章\n福贵在村口。"
+    first = EmptyBeatsChat()
+    proj = asyncio.run(
+        creative_comic(source, output_dir=str(tmp_path), chat=first, image=FakeImage())
+    )
+    assert first.beat_calls == 2
+    assert "0" not in proj.state.page_cache
+    assert "page_plan" not in _manifest_stages(tmp_path)
+
+    second = EmptyBeatsChat()
+    asyncio.run(creative_comic(source, output_dir=str(tmp_path), chat=second, image=FakeImage()))
+    assert second.beat_calls >= 2
+
+
+def _render_budget(*, render: int) -> BudgetSpec:
+    reservations = {
+        "extract": 10,
+        "bible": 10,
+        "beats": 10,
+        "page_plan": 10,
+        "portrait": 10,
+        "render": render,
+    }
+    return BudgetSpec(
+        total=sum(reservations.values()) + 1,
+        recovery_reserve=1,
+        reservations=reservations,
+    )
+
+
+def _quota_stages(data_dir: Path) -> list[str]:
+    path = data_dir / "quota.jsonl"
+    return [
+        json.loads(line)["stage"] for line in path.read_text(encoding="utf-8").splitlines() if line
+    ]
+
+
+class SquareOnlyAfterReject(FakeImage):
+    """Asks for the rejected portrait size are a test failure."""
+
+    def __init__(self):
+        super().__init__()
+        self.page_sizes: list[str | None] = []
+
+    async def generate_single_image(self, prompt, reference_image_paths=None, size=None, **kw):
+        self.calls += 1
+        if "Finished readable manga/comic page" in prompt:
+            self.page_sizes.append(size)
+            if size == "1024x1536":
+                raise RuntimeError("rejected size was requested again")
+        return FakeImageOutput()
+
+
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
+def test_size_fallback_charges_render_once_and_is_remembered(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+    monkeypatch.delenv("INKSTONE_PAGE_SIZE", raising=False)
+    out = tmp_path / "out"
+    data = tmp_path / "data"
+    img = SizeRejectThenOkImage()
+    proj = asyncio.run(
+        creative_comic(
+            "第一章\n福贵在村口。",
+            output_dir=str(out),
+            chat=FakeChat(),
+            image=img,
+            budget=_render_budget(render=1),
+            data_dir=data,
+        )
+    )
+    assert img.page_sizes == ["1024x1536", "1024x1024"]
+    assert proj.state.rejected_page_size == "1024x1536"
+    assert proj.state.generated.pages["c0000-p0000"].resolved_size == "1024x1024"
+    assert _quota_stages(data).count("render") == 1
+
+    state = ProjectState.load(out / "state.json")
+    state.pages_done = []
+    state.generated.pages.pop("c0000-p0000", None)
+    state.save(out / "state.json")
+    for path in (out / "pages").rglob("page_*.png"):
+        path.unlink()
+
+    again = SquareOnlyAfterReject()
+    resumed = asyncio.run(
+        creative_comic(
+            "第一章\n福贵在村口。",
+            output_dir=str(out),
+            chat=FakeChat(),
+            image=again,
+            budget=_render_budget(render=1),
+            data_dir=data,
+        )
+    )
+    assert "1024x1536" not in again.page_sizes
+    assert "c0000-p0000" in resumed.state.pages_done
+    assert resumed.state.generated.pages["c0000-p0000"].resolved_size == "1024x1024"
+
+
+@patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
+def test_structure_reset_drops_page_files_outside_the_new_plan(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+    asyncio.run(
+        creative_comic(
+            "第一章\n福贵在村口。",
+            output_dir=str(tmp_path),
+            chat=FakeChat(),
+            image=FakeImage(),
+        )
+    )
+    orphan = tmp_path / "pages" / "page_c0000_p0009.png"
+    blank = tmp_path / "pages" / "blank" / "page_c0000_p0009.png"
+    blank.parent.mkdir(parents=True, exist_ok=True)
+    orphan.write_bytes(b"orphan")
+    blank.write_bytes(b"blank")
+    asyncio.run(
+        creative_comic(
+            "第二章\n另一段故事。",
+            output_dir=str(tmp_path),
+            chat=FakeChat(),
+            image=FakeImage(),
+        )
+    )
+    assert not orphan.exists()
+    assert not blank.exists()
+
+
 class FailOncePageImage(FakeImage):
     """First finished-page image call fails generically; second succeeds."""
 

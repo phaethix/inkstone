@@ -52,6 +52,31 @@ def test_read_without_pages_writes_nothing(tmp_path, capsys):
     assert "no page images" in capsys.readouterr().err
 
 
+def test_reader_omits_pages_the_plan_dropped_or_skipped(tmp_path):
+    from core.schemas import ComicPagePlan, ComicPagePlanSet, ProjectState
+
+    pages = tmp_path / "pages"
+    pages.mkdir()
+    for name in (
+        "page_c0000_p0000.png",
+        "page_c0000_p0001.png",
+        "page_c0000_p0002.png",
+    ):
+        _png(pages, name)
+    state = ProjectState(project_id="p", render_mode="finished_page")
+    state.page_cache["0"] = ComicPagePlanSet(
+        unit_id="0",
+        pages=[ComicPagePlan(page_id="a"), ComicPagePlan(page_id="b")],
+    )
+    state.skipped_pages = ["c0000-p0001"]
+    state.save(tmp_path / "state.json")
+
+    html = write_reader(tmp_path).read_text(encoding="utf-8")
+    assert "page_c0000_p0000.png" in html
+    assert "page_c0000_p0001.png" not in html
+    assert "page_c0000_p0002.png" not in html
+
+
 def test_read_refuses_to_break_out_of_the_script(tmp_path):
     pages = tmp_path / "pages"
     pages.mkdir()

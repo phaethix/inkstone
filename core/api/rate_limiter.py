@@ -8,8 +8,10 @@ Matches Agnes Free/Default RPM ceilings (official table):
 - Image 3K/4K (larger):      1 RPM
 
 A 0.8 safety factor is applied so we stay under the published ceiling.
-Image limiters are keyed by **resolution tier** (1k/2k/3k), not by exact
-``WxH`` string, so all 1K sizes share one budget and cannot stack.
+The burst is sized from that scaled rate: burst plus the refill over one
+minute stays under the published count. Image limiters are keyed by
+**resolution tier** (1k/2k/3k), not by exact ``WxH`` string, so all 1K
+sizes share one budget and cannot stack.
 
 Usage::
 
@@ -22,6 +24,7 @@ Usage::
 from __future__ import annotations
 
 import asyncio
+import math
 import threading
 import time
 
@@ -73,6 +76,25 @@ def image_tier(size: str | None) -> str:
     return "3k"
 
 
+def _max_burst(rate_per_minute: float) -> int:
+    """Largest burst that keeps ``[0, 60)`` under the published ceiling.
+
+    ``rate_per_minute`` is already the safety-scaled rate (published × 0.8).
+    The bucket starts full, then releases one call per refill interval, so the
+    open minute is ``burst + rate`` calls. That sum has to stay under the
+    published ceiling. For the default 2K bucket (10 published, 8 scaled) the
+    gap is 2, so the burst is 1. The same rule gives the 1K bucket a burst of
+    3 (20 published, 16 scaled).
+    """
+    if rate_per_minute <= 0:
+        return 1
+    published = rate_per_minute / _SAFETY_FACTOR
+    gap = published - rate_per_minute
+    if gap <= 1:
+        return 1
+    return max(1, min(4, math.floor(gap - 1e-9)))
+
+
 def select_rpm(size: str | None = None, *, bucket: str = "image") -> int:
     """Return the Free/Default RPM ceiling for this call.
 
@@ -94,7 +116,9 @@ def select_rpm(size: str | None = None, *, bucket: str = "image") -> int:
 class RateLimiter:
     """Thread-safe token-bucket rate limiter, safe under multithreading and asyncio.to_thread."""
 
-    def __init__(self, rate_per_minute: float, max_burst: int = 4):
+    def __init__(self, rate_per_minute: float, max_burst: int | None = None):
+        if max_burst is None:
+            max_burst = _max_burst(rate_per_minute)
         self.max_tokens = min(max_burst, max(1, int(rate_per_minute)))
         self.refill_rate = rate_per_minute / 60.0  # tokens per second
         self.tokens = float(self.max_tokens)

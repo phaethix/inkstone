@@ -1717,6 +1717,9 @@ class ProjectState(BaseModel):
     # honest instead of retrying blindly. Superseded by ``tombstones`` below,
     # which additionally carries the reason; kept for the legacy skip set.
     skipped_pages: list[str] = Field(default_factory=list)
+    # Configured page size the provider rejected. The next render starts at the
+    # square fallback and does not pay for the rejected size again.
+    rejected_page_size: str = ""
     # Phase 0f: minimal tombstone, keyed by page state key. §6 requires a
     # rejection to be a *hit* on resume (no external call re-issued), with its
     # ``outcome``/``reason`` preserved so a human can audit and override it.

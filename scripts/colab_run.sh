@@ -29,6 +29,7 @@ cd "$ROOT"
 SESSION="${INKSTONE_COLAB_SESSION:-inkstone}"
 REMOTE_ROOT="${INKSTONE_COLAB_REMOTE_ROOT:-/content/inkstone}"
 REMOTE_KEY="${INKSTONE_COLAB_KEY_PATH:-/content/AGNES_API_KEY}"
+REMOTE_ENV="${INKSTONE_COLAB_ENV_PATH:-/content/inkstone.env}"
 REMOTE_LOG="${INKSTONE_COLAB_LOG:-/content/inkstone_run.log}"
 REMOTE_PID="${INKSTONE_COLAB_PID:-/content/inkstone_run.pid}"
 REPO_URL="${INKSTONE_COLAB_REPO:-https://github.com/phaethix/inkstone.git}"
@@ -81,16 +82,55 @@ colab_err_is_session_lost() {
 }
 
 load_key() {
-  if [ -z "${AGNES_API_KEY:-}" ] && [ -f "$ROOT/.env" ]; then
-    set -a
-    # shellcheck disable=SC1091
-    source "$ROOT/.env"
-    set +a
+  # Parse .env. Do not `source` it: command substitutions would run here.
+  # An already-exported AGNES_API_KEY is left alone; the other lines still load.
+  # shellcheck disable=SC1091
+  source "$ROOT/scripts/dotenv.sh"
+  if [ -f "$ROOT/.env" ]; then
+    inkstone_load_dotenv "$ROOT/.env"
   fi
   if [ -z "${AGNES_API_KEY:-}" ]; then
     echo "ERROR: AGNES_API_KEY is not set. Put it in .env or export it." >&2
     exit 1
   fi
+}
+
+# Write job settings as KEY=value literals. The VM loads this with
+# inkstone_load_dotenv. Do not interpolate these values into the remote
+# script: a value that contains $(...) would run there.
+write_job_settings() {
+  local dest="$1"
+  INKSTONE_SETTINGS_OUT="$dest" python3 - <<'PY'
+import os
+from pathlib import Path
+
+keys = (
+    "INKSTONE_PAGE_SIZE",
+    "PROVIDER",
+    "INKSTONE_HTTP_PROXY",
+    "INKSTONE_RENDER_MODE",
+    "OPENAI_COMPAT_BASE_URL",
+    "OPENAI_COMPAT_API_KEY",
+    "OPENAI_COMPAT_MODEL_T2I",
+    "OPENAI_COMPAT_MODEL_I2I",
+    "OPENAI_COMPAT_CHAT_BASE_URL",
+    "OPENAI_COMPAT_CHAT_API_KEY",
+    "OPENAI_COMPAT_CHAT_MODEL",
+    "AGNES_BASE_URL",
+    "AGNES_CHAT_MODEL",
+    "AGNES_IMAGE_I2I_MODEL",
+)
+lines = []
+for key in keys:
+    if key not in os.environ or os.environ[key] == "":
+        continue
+    value = os.environ[key].replace("\r", "").replace("\n", "")
+    lines.append(f"{key}={value}")
+Path(os.environ["INKSTONE_SETTINGS_OUT"]).write_text(
+    ("\n".join(lines) + "\n") if lines else "",
+    encoding="utf-8",
+)
+PY
 }
 
 # Embed a local value as a shell-quoted literal in remote scripts. Expansion
@@ -482,12 +522,27 @@ cmd_run() {
   echo "[colab] Uploading novel -> $remote_novel"
   colab upload -s "$SESSION" "$source" "$remote_novel"
 
+  load_key
+  local settings
+  settings="$(mktemp)"
+  write_job_settings "$settings"
+  echo "[colab] Uploading job settings -> $REMOTE_ENV"
+  colab upload -s "$SESSION" "$settings" "$REMOTE_ENV"
+  rm -f "$settings"
+
   echo "[colab] Starting background generate_comic (project=$project format=$format)..."
   # Start nohup quickly; do not keep the local CLI attached to the long job.
+  # Settings are loaded by the non-executing parser. The API key stays in its
+  # own file and is not written into the settings file.
   colab_sh 120 "
 set -e
 cd $(remote_q "$REMOTE_ROOT")
 test -f $(remote_q "$REMOTE_KEY") || { echo 'missing API key on VM; run bootstrap'; exit 1; }
+# shellcheck disable=SC1091
+source $(remote_q "$REMOTE_ROOT/scripts/dotenv.sh")
+if [ -f $(remote_q "$REMOTE_ENV") ]; then
+  inkstone_load_dotenv $(remote_q "$REMOTE_ENV")
+fi
 export AGNES_API_KEY=\$(cat $(remote_q "$REMOTE_KEY"))
 mkdir -p $(remote_q "$remote_out")
 if [ -f $(remote_q "$REMOTE_PID") ] && kill -0 \"\$(cat $(remote_q "$REMOTE_PID"))\" 2>/dev/null; then
