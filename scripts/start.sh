@@ -21,11 +21,12 @@ fi
 uv sync --extra dev --quiet
 
 # Load AGNES_API_KEY from .env if it isn't already exported.
+# Parse the file. Do not `source` it: command substitutions in a copied
+# .env would run at launch.
+# shellcheck disable=SC1091
+source "$ROOT/scripts/dotenv.sh"
 if [ -z "${AGNES_API_KEY:-}" ] && [ -f .env ]; then
-  set -a
-  # shellcheck disable=SC1091
-  source .env
-  set +a
+  inkstone_load_dotenv .env
 fi
 
 if [ -z "${AGNES_API_KEY:-}" ]; then

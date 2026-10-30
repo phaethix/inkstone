@@ -42,6 +42,7 @@ from core.config import (
     ENV_HARNESS,
     ENV_HARNESS_DIR,
     ENV_HTTP_PROXY,
+    ENV_IMAGE_DOWNLOAD_HOSTS,
     ENV_INKSTONE_DATA_DIR,
     ENV_INKSTONE_IMAGE_CONCURRENCY,
     ENV_INKSTONE_PANEL_CONTINUITY,
@@ -64,9 +65,12 @@ from core.config import (
     ENV_RUN_DEADLINE_HOURS,
     ENV_SUPERVISOR_BACKOFF_BASE,
     ENV_SUPERVISOR_BACKOFF_CAP,
+    ENV_UI_ALLOW_LAN,
     ENV_UI_HOST,
     ENV_UI_MAX_BODY_BYTES,
+    ENV_UI_ORIGIN,
     ENV_UI_PORT,
+    ENV_UI_TOKEN,
     ENV_WEBTOON_MAX_PIXELS,
     ENV_WEBTOON_WARN_MB,
     ChatConfig,
@@ -140,6 +144,12 @@ H_ENV_EXCLUDED: frozenset[str] = frozenset(
         ENV_UI_HOST,
         ENV_UI_PORT,
         ENV_UI_MAX_BODY_BYTES,
+        ENV_UI_ALLOW_LAN,
+        # The token is a credential. It must not enter a cache key.
+        ENV_UI_TOKEN,
+        ENV_UI_ORIGIN,
+        # Which CDN names a download will accept does not change drawn bytes.
+        ENV_IMAGE_DOWNLOAD_HOSTS,
         ENV_JOB_TTL_SECONDS,
         # The host selects which Agnes gateway answers. The model name is the
         # generation identity; a mirror override must not invalidate a book.

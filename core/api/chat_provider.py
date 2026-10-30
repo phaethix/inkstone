@@ -256,7 +256,9 @@ def get_chat_provider(
     if provider == "agnes":
         key = api_key or cfg.agnes_api_key
         if not key:
-            raise RuntimeError("PROVIDER=agnes but no AGNES_API_KEY found (env or config)")
+            raise RuntimeError(
+                "PROVIDER=agnes but no AGNES_API_KEY found (environment or repo-root .env)"
+            )
         return AgnesChatAPI(api_key=key, model=model or cfg.agnes_chat_model)
 
     if provider in ("openai_compat", "openai-compatible", "openai", "gemini"):
