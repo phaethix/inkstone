@@ -179,6 +179,47 @@ def _resolve_job(job_id: str) -> tuple[dict | None, str | None]:
         return None, "unknown"
 
 
+class _ResumeConflict(Exception):
+    """The posted manuscript or style does not match the saved project."""
+
+
+def _canonicalize_source(text: str) -> str:
+    """Match the pipeline's newline folding without importing it."""
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _resolve_resume_source(
+    project_id: str, text: str, style_guide: str | None
+) -> tuple[str, str | None]:
+    """Resume from the saved manuscript when one exists.
+
+    A different paste or style is a conflict: the caller keeps the files on
+    disk and does not start a job. An empty paste continues the saved text.
+    A project with no ``style.txt`` yet accepts the requested style.
+    """
+    source_path = OUTPUT_DIR / project_id / "source.txt"
+    if not source_path.is_file():
+        return text, style_guide
+    stored = _canonicalize_source(source_path.read_text(encoding="utf-8"))
+    incoming = _canonicalize_source(text)
+    if incoming and incoming != stored:
+        raise _ResumeConflict(
+            "This paste does not match the saved manuscript. Nothing was changed. "
+            "Continue with the same project id and the saved text, or choose a new project id."
+        )
+    style_path = OUTPUT_DIR / project_id / "style.txt"
+    requested = (style_guide or "").strip()
+    if style_path.is_file():
+        saved_style = style_path.read_text(encoding="utf-8").strip()
+        if requested != saved_style:
+            raise _ResumeConflict(
+                "This style does not match the saved style guide. Nothing was changed. "
+                "Continue with the same project id and the saved style, or choose a new project id."
+            )
+        return stored, saved_style or None
+    return stored, style_guide
+
+
 def _load_dotenv() -> None:
     """Best-effort .env loader (no python-dotenv dependency).
 
@@ -1427,6 +1468,9 @@ class Handler(BaseHTTPRequestHandler):
                     "render_mode": job.get("render_mode", "finished_page"),
                     "pages_done": job.get("pages_done", []),
                     "skipped_pages": job.get("skipped_pages", []),
+                    "stale_pages": job.get("stale_pages", []),
+                    "ledger_pending": job.get("ledger_pending", {}),
+                    "ledger_escalation_threshold": job.get("ledger_escalation_threshold"),
                     "project_id": job.get("project_id"),
                     "pause_reason": job.get("pause_reason"),
                     "elapsed_seconds": job.get("elapsed_seconds"),
@@ -1518,6 +1562,13 @@ class Handler(BaseHTTPRequestHandler):
         fmt = payload.get("format", "webtoon")
         style_guide = (payload.get("style_guide") or "").strip() or None
         project_id = (payload.get("project_id") or "").strip() or None
+        if project_id:
+            validate_project_id(project_id)
+            try:
+                text, style_guide = _resolve_resume_source(project_id, text, style_guide)
+            except _ResumeConflict as exc:
+                self._send_json({"error": str(exc)}, status=409)
+                return
         if not text:
             self._send_json({"error": "missing 'text'"}, status=400)
             return
@@ -1532,8 +1583,6 @@ class Handler(BaseHTTPRequestHandler):
             return
         if fmt not in ("page", "webtoon"):
             fmt = "webtoon"
-        if project_id:
-            validate_project_id(project_id)
         job_id, pid = _start_job(text, fmt, style_guide, project_id=project_id)
         self._send_json({"job_id": job_id, "project_id": pid})
 

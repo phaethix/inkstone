@@ -708,6 +708,89 @@ def _seed_review_project(tmp_path, project_id="demo"):
     return out
 
 
+def test_paused_job_poll_includes_continuity_fields():
+    with _register_job(
+        "jobpause",
+        status="paused",
+        stale_pages=["c0000-p0001"],
+        ledger_pending={"福贵": ["c0000-p0001"]},
+        ledger_escalation_threshold=30,
+    ):
+        with _running_server() as httpd:
+            status, payload = _request(httpd.server_port, "/api/job/jobpause", "GET")
+    assert status == 200
+    assert payload["stale_pages"] == ["c0000-p0001"]
+    assert payload["ledger_pending"] == {"福贵": ["c0000-p0001"]}
+    assert payload["ledger_escalation_threshold"] == 30
+
+
+def test_generate_rejects_a_paste_that_does_not_match_the_saved_manuscript(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    project = tmp_path / "demo"
+    project.mkdir()
+    (project / "source.txt").write_text("saved manuscript", encoding="utf-8")
+    (project / "style.txt").write_text("manhua", encoding="utf-8")
+    started: list[str] = []
+
+    def _start(*args, **kwargs):
+        started.append("called")
+        return "job1", "demo"
+
+    monkeypatch.setattr(server, "_start_job", _start)
+    monkeypatch.setattr(server, "_providers_configured", lambda: True)
+    body = json.dumps(
+        {"text": "a different paste", "project_id": "demo", "style_guide": "manhua"}
+    ).encode()
+    with _running_server() as httpd:
+        status, payload = _request(httpd.server_port, "/api/generate", "POST", data=body)
+    assert status == 409
+    assert "manuscript" in payload["error"]
+    assert (project / "source.txt").read_text(encoding="utf-8") == "saved manuscript"
+    assert started == []
+
+
+def test_generate_rejects_a_style_that_does_not_match_the_saved_one(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    project = tmp_path / "demo"
+    project.mkdir()
+    (project / "source.txt").write_text("saved manuscript", encoding="utf-8")
+    (project / "style.txt").write_text("manhua", encoding="utf-8")
+    monkeypatch.setattr(server, "_start_job", lambda *args, **kwargs: ("job1", "demo"))
+    monkeypatch.setattr(server, "_providers_configured", lambda: True)
+    body = json.dumps(
+        {"text": "saved manuscript", "project_id": "demo", "style_guide": "watercolor"}
+    ).encode()
+    with _running_server() as httpd:
+        status, payload = _request(httpd.server_port, "/api/generate", "POST", data=body)
+    assert status == 409
+    assert "style" in payload["error"]
+    assert (project / "source.txt").read_text(encoding="utf-8") == "saved manuscript"
+
+
+def test_generate_resumes_from_the_saved_manuscript_when_the_paste_is_empty(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    project = tmp_path / "demo"
+    project.mkdir()
+    (project / "source.txt").write_text("saved manuscript", encoding="utf-8")
+    (project / "style.txt").write_text("manhua", encoding="utf-8")
+    captured: dict[str, str | None] = {}
+
+    def _start(text, fmt, style_guide, project_id=None, panel_keys=None):
+        captured["text"] = text
+        captured["style"] = style_guide
+        return "job1", project_id
+
+    monkeypatch.setattr(server, "_start_job", _start)
+    monkeypatch.setattr(server, "_providers_configured", lambda: True)
+    body = json.dumps({"text": "", "project_id": "demo", "style_guide": "manhua"}).encode()
+    with _running_server() as httpd:
+        status, payload = _request(httpd.server_port, "/api/generate", "POST", data=body)
+    assert status == 200
+    assert payload["project_id"] == "demo"
+    assert captured["text"] == "saved manuscript"
+    assert captured["style"] == "manhua"
+
+
 def test_snapshot_carries_the_ledger_escalation_threshold(tmp_path):
     out = _seed_review_project(tmp_path)
     state = ProjectState.load(out / "state.json")
@@ -1030,6 +1113,9 @@ def test_index_html_has_theme_toggle_and_plan_diff_hooks():
     assert "inkstone-theme" in html
     assert "planDiffPages" in html
     assert "◆ marks a differing page" in html
+    assert "job.skipped_pages" in html
+    assert "res.status === 404" in html
+    assert "res.status === 410" in html
 
 
 # --------------------------------------------------------------------------- #

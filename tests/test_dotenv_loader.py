@@ -62,3 +62,51 @@ def test_dotenv_loader_does_not_override_existing_environment(tmp_path):
     assert code == 0
     assert key == "already"
     assert other == "from-file"
+
+
+def test_start_sh_loads_dotenv_when_the_api_key_is_already_exported():
+    text = (ROOT / "scripts" / "start.sh").read_text(encoding="utf-8")
+    assert 'if [ -z "${AGNES_API_KEY:-}" ] && [ -f .env ]' not in text
+    assert "inkstone_load_dotenv .env" in text
+    assert 'source "$ROOT/.env"' not in text
+    assert "source .env" not in text
+
+
+def test_colab_run_parses_dotenv_instead_of_sourcing_it():
+    text = (ROOT / "scripts" / "colab_run.sh").read_text(encoding="utf-8")
+    assert 'source "$ROOT/.env"' not in text
+    assert "set -a" not in text
+    assert "inkstone_load_dotenv" in text
+    assert "write_job_settings" in text
+
+
+def test_preset_key_still_loads_the_rest_of_dotenv_without_executing_it(tmp_path):
+    marker = tmp_path / "pwned"
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        f"AGNES_API_KEY=$(touch {marker})\nINKSTONE_PAGE_SIZE=1024x1536\n",
+        encoding="utf-8",
+    )
+    script = f"""
+set -euo pipefail
+export AGNES_API_KEY=preset
+source "{LOADER}"
+inkstone_load_dotenv "{env_file}"
+printf '%s\\n' "$AGNES_API_KEY"
+printf '%s\\n' "${{INKSTONE_PAGE_SIZE-}}"
+"""
+    env = os.environ.copy()
+    env["AGNES_API_KEY"] = "preset"
+    env.pop("INKSTONE_PAGE_SIZE", None)
+    result = subprocess.run(
+        ["bash", "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.split("\n")
+    assert lines[0] == "preset"
+    assert lines[1] == "1024x1536"
+    assert not marker.exists()

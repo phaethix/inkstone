@@ -88,12 +88,34 @@ def page_needs_generation(state: ProjectState, state_key: str) -> bool:
     return True
 
 
-def drop_pages_outside_plan(state: ProjectState, *, chunk_index: int, page_count: int) -> None:
+def _unlink_page_file(path: str | None) -> None:
+    """Delete a lettered page or its blank. Other recorded paths stay put."""
+    if not path:
+        return
+    candidate = Path(path)
+    name = candidate.name
+    if not name.startswith("page_") or not name.lower().endswith(".png"):
+        return
+    try:
+        candidate.unlink(missing_ok=True)
+    except OSError:
+        return
+
+
+def drop_pages_outside_plan(
+    state: ProjectState,
+    *,
+    chunk_index: int,
+    page_count: int,
+    pages_dir: Path | None = None,
+) -> None:
     """Remove obsolete positional page projections from one replanned chunk.
 
     Only the current chunk's ``cNNNN-pNNNN`` keys past its new page range are
     derived artifacts. Stale markers, tombstones, and other chunks' state stay
     untouched so a shorter plan cannot discard a human-visible decision.
+    The lettered file and the blank leave with the projection: export and the
+    reader must not bind a page the plan already dropped.
     """
     prefix = f"c{chunk_index:04d}-p"
     known = set(state.generated.pages) | set(state.pages_done)
@@ -106,7 +128,41 @@ def drop_pages_outside_plan(state: ProjectState, *, chunk_index: int, page_count
             or int(suffix) < page_count
         ):
             continue
+        if pages_dir is not None:
+            index = int(suffix)
+            _unlink_page_file(str(page_asset_path(pages_dir, chunk_index, index)))
+            _unlink_page_file(str(page_asset_path(pages_dir / "blank", chunk_index, index)))
+        generated = state.generated.pages.get(page_key)
+        if generated is not None:
+            _unlink_page_file(generated.local)
+            _unlink_page_file(generated.blank_local)
         drop_page_artifact(state, page_key)
+
+
+def finished_plan_files(state: ProjectState, pages_dir: Path) -> list[Path]:
+    """Lettered pages the current plan still names, in reading order.
+
+    A file left behind after a shorter plan, or a page the content filter
+    skipped, is not part of the book.
+    """
+    files: list[Path] = []
+    keys = sorted(state.page_cache, key=lambda chunk: int(chunk) if str(chunk).isdigit() else 0)
+    for key in keys:
+        try:
+            chunk_index = int(key)
+        except (TypeError, ValueError):
+            continue
+        pageset = state.page_cache.get(key)
+        if pageset is None:
+            continue
+        for page_index in range(len(pageset.pages)):
+            state_key = page_state_key(chunk_index, page_index)
+            if state_key in state.skipped_pages:
+                continue
+            path = page_asset_path(pages_dir, chunk_index, page_index)
+            if path.is_file():
+                files.append(path)
+    return files
 
 
 def scrub_chunk_lettering(state: ProjectState, key: str, chunk: str) -> bool:

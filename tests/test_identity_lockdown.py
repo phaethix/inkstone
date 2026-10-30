@@ -8,7 +8,7 @@ from core.comic.visual_bible import (
     match_plan_character_name,
     sanitize_visual_bible_state,
 )
-from core.pipelines.creative_comic import previous_page_blank
+from core.pipelines.creative_comic import previous_page_blank, successor_breaks_continuity
 from core.schemas import (
     CharacterAsset,
     CharacterCanon,
@@ -281,3 +281,75 @@ def test_previous_page_blank_crosses_chunks():
         ),
     )
     assert previous_page_blank(state, pageset, chunk_index=1, page_index=0) == "/tmp/prev-chunk.png"
+
+
+def test_previous_page_blank_skips_a_hole_in_the_same_chunk():
+    pageset = ComicPagePlanSet(
+        unit_id="1",
+        pages=[
+            ComicPagePlan.model_validate(
+                {
+                    "page_id": "p",
+                    "purpose": "x",
+                    "layout_intent": "y",
+                    "panels": [{"panel_id": "1", "action": "walks"}],
+                }
+            )
+        ],
+    )
+    state = ProjectState(
+        project_id="p",
+        generated=GeneratedAssets(
+            pages={
+                "c0000-p0003": GeneratedPage(
+                    local="/tmp/earlier-chunk.png",
+                    blank_local="/tmp/earlier-chunk-blank.png",
+                    page_id="prev",
+                    unit_index=0,
+                    page_index=3,
+                ),
+                "c0001-p0000": GeneratedPage(
+                    local="/tmp/page0.png",
+                    blank_local="/tmp/page0-blank.png",
+                    page_id="p0",
+                    unit_index=1,
+                    page_index=0,
+                ),
+                "c0001-p0002": GeneratedPage(
+                    local="/tmp/page2.png",
+                    blank_local="/tmp/page2-blank.png",
+                    page_id="p2",
+                    unit_index=1,
+                    page_index=2,
+                ),
+            }
+        ),
+    )
+    assert (
+        previous_page_blank(state, pageset, chunk_index=1, page_index=2) == "/tmp/page0-blank.png"
+    )
+
+
+def test_successor_breaks_continuity_for_a_stale_page_and_a_filled_hole():
+    assert (
+        successor_breaks_continuity(
+            page_is_stale=True, successor="c0000-p0001", successor_generated=False
+        )
+        is True
+    )
+    assert (
+        successor_breaks_continuity(
+            page_is_stale=False, successor="c0000-p0001", successor_generated=True
+        )
+        is True
+    )
+    assert (
+        successor_breaks_continuity(
+            page_is_stale=False, successor="c0000-p0001", successor_generated=False
+        )
+        is False
+    )
+    assert (
+        successor_breaks_continuity(page_is_stale=True, successor=None, successor_generated=False)
+        is False
+    )

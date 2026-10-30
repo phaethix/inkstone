@@ -65,7 +65,7 @@ def is_unsupported_image_size_error(exc: Exception) -> bool:
     """
     if is_content_policy_rejection(exc):
         return False
-    text = str(exc).lower()
+    text = _provider_error_text(exc)
     size_tokens = ("size", "resolution", "dimension", "1024x1536", "aspect")
     reject_tokens = (
         "invalid",
@@ -77,6 +77,27 @@ def is_unsupported_image_size_error(exc: Exception) -> bool:
         "bad request",
     )
     return any(t in text for t in size_tokens) and any(t in text for t in reject_tokens)
+
+
+def _provider_error_text(exc: Exception) -> str:
+    """Status line plus the HTTP body.
+
+    ``raise_for_status`` puts only ``400 Client Error: Bad Request for url: …``
+    on the exception. A size rejection names ``1024x1536`` in the body.
+    """
+    parts = [str(exc)]
+    response = getattr(exc, "response", None)
+    if response is not None:
+        try:
+            body = response.text
+        except Exception:  # noqa: BLE001 — a body we cannot read is not evidence
+            body = ""
+        if isinstance(body, str) and body:
+            parts.append(body)
+        reason = getattr(response, "reason", None)
+        if isinstance(reason, str) and reason:
+            parts.append(reason)
+    return "\n".join(parts).lower()
 
 
 def reconcile_state(state: ProjectState, state_path: Path, output_dir: Path) -> None:

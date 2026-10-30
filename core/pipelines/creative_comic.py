@@ -343,13 +343,17 @@ def _require_density(density: str | None) -> DensityTier:
     raise ValueError(f"density must be A, B, or C, got {density!r}")
 
 
+def _canonicalize_source(source_txt: str) -> str:
+    return source_txt.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def _structure_fingerprint(
     source_txt: str,
     *,
     density: str = "B",
     panels_per_chunk: int = PANELS_PER_CHUNK_B,
 ) -> str:
-    canonical = source_txt.replace("\r\n", "\n").replace("\r", "\n")
+    canonical = _canonicalize_source(source_txt)
     body: dict[str, object] = {"source": canonical}
     # Tier B at the historical panel count stays out of the hash, so a project
     # planned before density was stored still resumes.
@@ -827,10 +831,14 @@ def previous_page_blank(
     chunk_index: int,
     page_index: int,
 ) -> str | None:
-    """Blank-page path for L2 continuity: prior page in-chunk, else last prior chunk."""
-    if page_index > 0:
-        prev_key = page_state_key(chunk_index, page_index - 1)
-        prev_gen = state.generated.pages.get(prev_key)
+    """Blank-page path for L2 continuity.
+
+    The nearest earlier page in this chunk that has a blank, then the last
+    page of an earlier chunk. A skipped page must not jump to the previous
+    chunk while an earlier page of this chunk is still on disk.
+    """
+    for earlier in range(page_index - 1, -1, -1):
+        prev_gen = state.generated.pages.get(page_state_key(chunk_index, earlier))
         if prev_gen and prev_gen.blank_local:
             return prev_gen.blank_local
     candidates: list[tuple[int, int, str]] = []
@@ -870,6 +878,25 @@ def next_page_in_book(
             continue
         return page_state_key(later_index, 0)
     return None
+
+
+def successor_breaks_continuity(
+    *,
+    page_is_stale: bool,
+    successor: str | None,
+    successor_generated: bool,
+) -> bool:
+    """Whether the next page must be flagged after this page's blank changed.
+
+    A redraw of a stale page breaks the successor even when that successor has
+    not been painted yet. A page first painted into a hole breaks a successor
+    that was already generated against an older blank.
+    """
+    if successor is None:
+        return False
+    if page_is_stale:
+        return True
+    return successor_generated
 
 
 def _page_reference_names(plan: ComicPagePlan) -> list[str]:
@@ -927,6 +954,23 @@ def clear_stale_bible_stamps(state: ProjectState) -> bool:
 
 
 _FALLBACK_PAGE_SIZE = "1024x1024"
+
+
+def _clear_rendered_pages(output_dir: Path) -> None:
+    """Drop lettered pages and blanks after a structure reset.
+
+    A new checkpoint does not name the old page files. Export and the reader
+    would otherwise bind whatever ``page_*.png`` the previous manuscript left.
+    """
+    pages_dir = output_dir / "pages"
+    for directory in (pages_dir, pages_dir / "blank"):
+        if not directory.is_dir():
+            continue
+        for path in directory.glob("page_*.png"):
+            try:
+                path.unlink()
+            except OSError:
+                logger.warning("could not remove stale page %s", path)
 
 
 def _chunk_complete(
@@ -1252,10 +1296,26 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
     _report("init", 0.0)
     state_path = output_dir / "state.json"
     # Persist source so Web/CLI regen can resume without re-uploading text.
-    (output_dir / "source.txt").write_text(
-        source_txt.replace("\r\n", "\n").replace("\r", "\n"),
-        encoding="utf-8",
+    # A different manuscript is written only after the fingerprint decision,
+    # so a compare that rebuilds the checkpoint is not preceded by a silent
+    # overwrite of the file a crash would leave behind.
+    canonical_source = _canonicalize_source(source_txt)
+    source_path = output_dir / "source.txt"
+    style_path = output_dir / "style.txt"
+    incoming_style = style_guide or ""
+    stored_source = (
+        _canonicalize_source(source_path.read_text(encoding="utf-8"))
+        if source_path.is_file()
+        else None
     )
+    source_matches = stored_source is None or stored_source == canonical_source
+
+    def _commit_inputs() -> None:
+        source_path.write_text(canonical_source, encoding="utf-8")
+        style_path.write_text(incoming_style, encoding="utf-8")
+
+    if source_matches:
+        _commit_inputs()
     image_config = ImageConfig()
     chat = chat or get_chat_provider()
     image = image or get_image_provider()
@@ -1319,8 +1379,10 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
             # combined fingerprint that used to adopt them in place is gone
             # (resolved item 21): they take the accepted one-time recompute,
             # and `carried` keeps the recorded human decisions.
+            _clear_rendered_pages(output_dir)
             state = _fresh_state(carried=persisted)
         elif persisted.structure_fingerprint != struct:
+            _clear_rendered_pages(output_dir)
             state = _fresh_state(carried=persisted)
         elif persisted.visual_bible is None:
             # ``cache.json`` is a hot copy, and the bible body lives in it. With
@@ -1344,6 +1406,8 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
             state = persisted
     else:
         state = _fresh_state()
+    if not source_matches:
+        _commit_inputs()
     # A stamp describes a bible body. If the body is gone, the stamps are
     # leftovers from the run that wrote it; clear them before the bible stage
     # reads them. §Task 2 step 3.
@@ -1463,6 +1527,11 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
             raise RuntimeError(f"export node {node_id} is not ready for dispatch")
         return node
 
+    # A page plan made from an empty beat answer is kept for this run's draw
+    # and export, then dropped. It is not recorded as a manifest, and the next
+    # run extracts again instead of treating that answer as final.
+    ephemeral_page_plans: set[str] = set()
+
     for phase in ("plan", "render"):
         prev_panel_local = None
         if phase == "plan":
@@ -1528,6 +1597,19 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                 if cached_beats is not None and cached_beats.beats:
                     if stamp_page_panel_beats(pageset, cached_beats):
                         state.save(state_path)
+            # An empty beat answer is not a plan. A saved page plan and a
+            # chunk-complete short-circuit would make that empty answer
+            # permanent, so drop both and extract again. A plan made earlier
+            # in this same run is still what the render pass draws.
+            if (
+                mode == "finished_page"
+                and cacheable_beats(state.beat_cache.get(key)) is None
+                and key not in ephemeral_page_plans
+            ):
+                state.beat_cache.pop(key, None)
+                if pageset is not None:
+                    pageset = None
+                    state.page_cache.pop(key, None)
 
             # Fully planned chunk: cached, marked done, every panel/page present on
             # disk. Re-running reuses the cache so the billable chat API is never
@@ -1543,6 +1625,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                 chunk_complete = (
                     pageset is not None
                     and elements is not None
+                    and cacheable_beats(state.beat_cache.get(key)) is not None
                     and key in set(state.chunks_done)
                     and _page_chunk_complete(
                         state,
@@ -1972,7 +2055,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                         pageset = None
                     else:
                         _stamp_action_key(state, state_path, pageset, plan_key)
-                if pageset is None:
+                if pageset is None and cacheable_beats(state.beat_cache.get(key)) is not None:
                     restored_plan = _restore_stage_body(
                         output_dir, plan_key, "page_plan", ComicPagePlanSet
                     )
@@ -2122,18 +2205,30 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                         beats_key,
                         request_digest=stored_plan_key_request.digest(),
                     )
-                    state.page_cache[key] = pageset
-                    _record_stage_body(
-                        output_dir,
-                        "page_plan",
-                        pageset.action_key,
-                        pageset,
-                        stage_src=_PAGE_PLAN_STAGE_SRC,
-                        env=snapshot.chat,
-                        inputs=[beats_key],
+                    _drop_pages_outside_plan(
+                        state,
+                        chunk_index=ci,
+                        page_count=len(pageset.pages),
+                        pages_dir=pages_dir,
                     )
-                    _drop_pages_outside_plan(state, chunk_index=ci, page_count=len(pageset.pages))
-                    state.save(state_path)
+                    if cacheable_beats(state.beat_cache.get(key)) is None:
+                        ephemeral_page_plans.add(key)
+                        state.page_cache.pop(key, None)
+                        state.save(state_path)
+                        state.page_cache[key] = pageset
+                    else:
+                        ephemeral_page_plans.discard(key)
+                        state.page_cache[key] = pageset
+                        _record_stage_body(
+                            output_dir,
+                            "page_plan",
+                            pageset.action_key,
+                            pageset,
+                            stage_src=_PAGE_PLAN_STAGE_SRC,
+                            env=snapshot.chat,
+                            inputs=[beats_key],
+                        )
+                        state.save(state_path)
                     _report("page_plan", _pct())
                 if pageset is not None:
                     review.record_plan("page_plan", ci, pageset.model_dump(mode="json"))
@@ -2268,11 +2363,14 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                     ref_policy = finished_page_ref_policy(
                         panel_continuity=image_config.panel_continuity
                     )
-                    render_env = h_env(text=prompt, resolved_size=page_size, scope="render")
+                    active_size = page_size
+                    if page_size != _FALLBACK_PAGE_SIZE and _state.rejected_page_size == page_size:
+                        active_size = _FALLBACK_PAGE_SIZE
+                    render_env = h_env(text=prompt, resolved_size=active_size, scope="render")
                     render_key = render_page_action_key(
                         plan_json=_plan_json(plan),
                         prompt=prompt,
-                        resolved_size=page_size,
+                        resolved_size=active_size,
                         page_key=state_key,
                         ref_policy=ref_policy,
                         env=render_env,
@@ -2300,7 +2398,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                                     plan,
                                     _chunk,
                                     output_dir,
-                                    resolved_size=page_size,
+                                    resolved_size=active_size,
                                     stage_src=_LETTER_STAGE_SRC,
                                 )
                                 == "tombstone"
@@ -2314,7 +2412,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                                     plan,
                                     source_text=_chunk,
                                     output_dir=output_dir,
-                                    resolved_size=page_size,
+                                    resolved_size=active_size,
                                 )
                             )
                             record_page_artifact(
@@ -2324,7 +2422,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                                     local=str(local),
                                     blank_local=str(blank_path),
                                     lettering_version=LETTERING_VERSION,
-                                    resolved_size=page_size,
+                                    resolved_size=active_size,
                                     render_action_key=render_key,
                                     page_id=page_id,
                                     unit_index=_chunk_index,
@@ -2342,9 +2440,11 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                         return
                     stricter_attempted = False
                     size_fallback_attempted = False
-                    active_size = page_size
+                    skip_charge = False
                     while True:
-                        _charge("render", state_key)
+                        if not skip_charge:
+                            _charge("render", state_key)
+                        skip_charge = False
                         image_intent(
                             output_dir,
                             stage="render",
@@ -2397,7 +2497,10 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                                     exc,
                                     _FALLBACK_PAGE_SIZE,
                                 )
+                                _state.rejected_page_size = page_size
+                                _state.save(state_path, caches=False)
                                 active_size = _FALLBACK_PAGE_SIZE
+                                skip_charge = True
                                 continue
                             if not stricter_attempted:
                                 stricter_attempted = True
@@ -2491,18 +2594,22 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                     )
                     if ledger.rebuild_from_state(_state):
                         ledger.save(ledger_path)
-                    if page_is_stale:
-                        # §4: this page's blank was just replaced, so the page
-                        # that consumed the old one is now inconsistent. Flag
-                        # it per character; quiet below the threshold.
-                        successor = next_page_in_book(
-                            _state,
-                            _pageset,
-                            chunk_index=_chunk_index,
-                            page_index=page_index,
-                        )
-                        if successor and ledger.mark_continuity_pending(successor):
-                            ledger.save(ledger_path)
+                    # §4: a replaced blank makes the page that consumed the old
+                    # one inconsistent. A first paint into a hole does the same
+                    # when that successor was already generated. Quiet below
+                    # the threshold.
+                    successor = next_page_in_book(
+                        _state,
+                        _pageset,
+                        chunk_index=_chunk_index,
+                        page_index=page_index,
+                    )
+                    if successor_breaks_continuity(
+                        page_is_stale=page_is_stale,
+                        successor=successor,
+                        successor_generated=bool(successor and successor in _state.generated.pages),
+                    ) and ledger.mark_continuity_pending(successor):
+                        ledger.save(ledger_path)
                     _state.save(state_path, caches=False)
                     _report("pages", _pct())
 
@@ -2919,7 +3026,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
         # pages into a single vertical strip.
         state.stage = "export"
         _report("export", max(0.90, _pct()))
-        page_files = prepare_finished_page_export(pages_dir) if pages_dir.exists() else []
+        page_files = prepare_finished_page_export(pages_dir, state) if pages_dir.exists() else []
         if page_files:
             if output_format == "webtoon":
                 node = _schedule_export("export.webtoon")
@@ -2931,12 +3038,12 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
             elif output_format == "cbz":
                 node = _schedule_export("export.cbz")
                 with perf.measure("export"):
-                    cbz = export_cbz_with_manifest(pages_dir, output_dir)
+                    cbz = export_cbz_with_manifest(pages_dir, output_dir, files=page_files)
                 pages = [str(p) for p in page_files]
             else:
                 node = _schedule_export("export.pdf")
                 with perf.measure("export"):
-                    pdf = export_pdf_with_manifest(pages_dir, output_dir)
+                    pdf = export_pdf_with_manifest(pages_dir, output_dir, files=page_files)
                 pages = [str(p) for p in page_files]
             completed_render_nodes.add(node.node_id)
     else:
@@ -2977,14 +3084,20 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                 if output_format == "cbz" and pages:
                     bind_node = _schedule_export("export.cbz", dependencies=("export.layout",))
                     with perf.measure("export"):
-                        cbz = export_cbz_with_manifest(pages_dir, output_dir)
+                        cbz = export_cbz_with_manifest(
+                            pages_dir, output_dir, files=[Path(path) for path in pages]
+                        )
                     completed_render_nodes.add(bind_node.node_id)
                 elif pages:
                     bind_node = _schedule_export("export.pdf", dependencies=("export.layout",))
                     with perf.measure("export"):
-                        pdf = export_pdf_with_manifest(pages_dir, output_dir)
+                        pdf = export_pdf_with_manifest(
+                            pages_dir, output_dir, files=[Path(path) for path in pages]
+                        )
                     completed_render_nodes.add(bind_node.node_id)
 
+    for plan_key in ephemeral_page_plans:
+        state.page_cache.pop(plan_key, None)
     state.save(state_path)
     if gate.awaiting and gate.project.paused_key is not None:
         review.finish(state=state, source=source_txt, pages=pages)

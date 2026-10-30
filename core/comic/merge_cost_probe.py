@@ -177,7 +177,18 @@ class SyntheticChat(ChatProvider):
                 ],
             }
         if name == "extract_key_beats":
-            return {"beats": []}
+            # An empty answer is not stored, and the next run would plan again.
+            # One beat keeps this sample's page plan stable so the measured
+            # re-run is the merge, not a repeated extraction.
+            return {
+                "beats": [
+                    {
+                        "beat_id": f"c{ordinal}_turn",
+                        "summary": "looks at the sea",
+                        "must_draw": False,
+                    }
+                ]
+            }
         if name == "plan_comic_pages":
             return {"unit_id": f"u{ordinal}", "pages": self._pages(ordinal)}
         return {}

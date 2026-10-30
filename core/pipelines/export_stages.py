@@ -18,6 +18,10 @@ name. That is why they are imported there with an explicit ``noqa``.
 from __future__ import annotations
 
 import io
+import shutil
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from PIL import Image
@@ -118,13 +122,42 @@ def _bound_image_size(blobs: list[bytes]) -> str | None:
     return ",".join(sizes)
 
 
-def export_pdf_with_manifest(pages_dir: Path, output_dir: Path) -> str:
-    """Build ``comic.pdf``, or copy it when the same pages were already bound."""
-    out = output_dir / "comic.pdf"
+def _directory_page_files(pages_dir: Path) -> list[Path]:
+    """Every page image a binder would glob, in filename order."""
     files = sorted(pages_dir.glob("page_*.png"))
     if not files:
         files = sorted(p for p in pages_dir.glob("*.png") if p.name.lower() != "webtoon.png")
-    blobs = [path.read_bytes() for path in files]
+    return files
+
+
+@contextmanager
+def _bind_directory(pages_dir: Path, files: list[Path]) -> Iterator[Path]:
+    """Directory whose ``page_*.png`` glob is exactly ``files``.
+
+    When that is already ``pages_dir``, bind it in place. Otherwise stage
+    copies so a dropped page still sitting in the project is not zipped in.
+    """
+    selected = [path.resolve() for path in files]
+    on_disk = [path.resolve() for path in _directory_page_files(pages_dir)]
+    if selected == on_disk:
+        yield pages_dir
+        return
+    staging = Path(tempfile.mkdtemp(prefix="inkstone-export-"))
+    try:
+        for path in files:
+            (staging / path.name).write_bytes(path.read_bytes())
+        yield staging
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
+def export_pdf_with_manifest(
+    pages_dir: Path, output_dir: Path, files: list[Path] | None = None
+) -> str:
+    """Build ``comic.pdf``, or copy it when the same pages were already bound."""
+    out = output_dir / "comic.pdf"
+    chosen = list(files) if files is not None else _directory_page_files(pages_dir)
+    blobs = [path.read_bytes() for path in chosen]
     env = h_env(text="", resolved_size=_bound_image_size(blobs), scope="export")
     key = export_action_key(
         pages=blobs,
@@ -135,7 +168,8 @@ def export_pdf_with_manifest(pages_dir: Path, output_dir: Path) -> str:
     )
 
     def _bind() -> list[tuple[str, bytes]]:
-        pdf = ExportEngine().export_pdf(pages_dir, out=str(out))
+        with _bind_directory(pages_dir, chosen) as bind_dir:
+            pdf = ExportEngine().export_pdf(bind_dir, out=str(out))
         return [(out.name, Path(pdf).read_bytes())]
 
     run = run_stage(
@@ -154,13 +188,13 @@ def export_pdf_with_manifest(pages_dir: Path, output_dir: Path) -> str:
     return str(out)
 
 
-def export_cbz_with_manifest(pages_dir: Path, output_dir: Path) -> str:
+def export_cbz_with_manifest(
+    pages_dir: Path, output_dir: Path, files: list[Path] | None = None
+) -> str:
     """Build ``comic.cbz``, or copy it when the same pages were already bound."""
     out = output_dir / "comic.cbz"
-    files = sorted(pages_dir.glob("page_*.png"))
-    if not files:
-        files = sorted(p for p in pages_dir.glob("*.png") if p.name.lower() != "webtoon.png")
-    blobs = [path.read_bytes() for path in files]
+    chosen = list(files) if files is not None else _directory_page_files(pages_dir)
+    blobs = [path.read_bytes() for path in chosen]
     env = h_env(text="", resolved_size=_bound_image_size(blobs), scope="export")
     key = export_action_key(
         pages=blobs,
@@ -171,7 +205,8 @@ def export_cbz_with_manifest(pages_dir: Path, output_dir: Path) -> str:
     )
 
     def _bind() -> list[tuple[str, bytes]]:
-        cbz = ExportEngine().export_cbz(pages_dir, out=str(out))
+        with _bind_directory(pages_dir, chosen) as bind_dir:
+            cbz = ExportEngine().export_cbz(bind_dir, out=str(out))
         return [(out.name, Path(cbz).read_bytes())]
 
     run = run_stage(
@@ -330,9 +365,19 @@ def finished_page_files(pages_dir: Path) -> list[Path]:
     return sorted(p for p in pages_dir.glob("page_*.png") if p.match("page_c*_p*.png"))
 
 
-def prepare_finished_page_export(pages_dir: Path) -> list[Path]:
-    """Collect finished-page assets and drop stale panel-compose ``page_NN.png`` files."""
-    finished = finished_page_files(pages_dir)
+def prepare_finished_page_export(pages_dir: Path, state=None) -> list[Path]:
+    """Collect finished-page assets and drop stale panel-compose ``page_NN.png`` files.
+
+    With a project state, the list is the current plan (skipped pages omitted).
+    Without one, every ``page_c*_p*.png`` is collected, which is what older
+    callers did.
+    """
+    if state is None:
+        finished = finished_page_files(pages_dir)
+    else:
+        from core.pipelines.resume import finished_plan_files
+
+        finished = finished_plan_files(state, pages_dir)
     for stale in pages_dir.glob("page_*.png"):
         if not stale.match("page_c*_p*.png"):
             stale.unlink()

@@ -1,7 +1,9 @@
 """Browser reader for page images already stored under a project.
 
-The page list is the files on disk. Writing ``reader.html`` does not call a
-model and does not decide that a chapter is validated.
+The page list is the files on disk. When ``state.json`` names a plan, only
+those pages are listed: a file the plan dropped is not a page of this book.
+Writing ``reader.html`` does not call a model and does not decide that a
+chapter is validated.
 """
 
 from __future__ import annotations
@@ -10,12 +12,31 @@ import json
 import re
 from pathlib import Path
 
+from core.schemas import ProjectState
+
 _CHUNK_RE = re.compile(r"^page_c(\d{4})_p\d{4}\.png$", re.IGNORECASE)
+
+
+def _project_state(pages_dir: Path) -> ProjectState | None:
+    path = pages_dir.parent / "state.json"
+    if not path.is_file():
+        return None
+    try:
+        return ProjectState.load(path)
+    except Exception:  # noqa: BLE001 — a reader with no plan lists the files
+        return None
 
 
 def page_images(pages_dir: Path) -> list[Path]:
     """Page images in filename order. A webtoon strip is not a page."""
+    state = _project_state(pages_dir)
+    if state is not None and state.render_mode == "finished_page":
+        from core.pipelines.resume import finished_plan_files
+
+        return finished_plan_files(state, pages_dir)
     pages = sorted(pages_dir.glob("page_*.png"))
+    if state is not None and state.render_mode == "panel_compose":
+        return [path for path in pages if _CHUNK_RE.match(path.name) is None]
     if not pages:
         pages = sorted(
             path for path in pages_dir.glob("*.png") if path.name.lower() != "webtoon.png"

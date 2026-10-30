@@ -300,6 +300,20 @@ def test_a_second_cbz_bind_copies_the_stored_archive(tmp_path, monkeypatch):
     assert verify(tmp_path) == []
 
 
+def test_cbz_bind_omits_pages_left_off_the_file_list(tmp_path):
+    import zipfile
+
+    pages = tmp_path / "pages"
+    pages.mkdir()
+    Image.new("RGB", (8, 8), (1, 2, 3)).save(pages / "page_c0000_p0000.png")
+    Image.new("RGB", (8, 8), (4, 5, 6)).save(pages / "page_c0000_p0002.png")
+    export_cbz_with_manifest(pages, tmp_path, files=[pages / "page_c0000_p0000.png"])
+    with zipfile.ZipFile(tmp_path / "comic.cbz") as archive:
+        names = archive.namelist()
+    assert "page_c0000_p0000.png" in names
+    assert "page_c0000_p0002.png" not in names
+
+
 def test_a_second_export_copies_the_stored_pdf(tmp_path, monkeypatch):
     pages = tmp_path / "pages"
     pages.mkdir()

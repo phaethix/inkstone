@@ -1031,10 +1031,8 @@
       const btn = $("stop");
       if (!btn) return;
       btn.classList.toggle("hidden", !running);
-      if (running) {
-        btn.disabled = false;
-        btn.textContent = "Stop";
-      }
+      btn.disabled = false;
+      btn.textContent = "Stop";
     }
 
     function formatDuration(sec) {
@@ -1563,7 +1561,7 @@
         setProgress(jobProgressPct(job), "Paused");
         render(job);
         const msg = job.pause_reason
-          || "Paused after the time limit; progress is saved. Click Generate again with the same project id to continue.";
+          || "Paused after the time limit; progress is saved. Click Generate again with the same project id to continue from the saved manuscript. A different paste or style is rejected and is not written over the saved one.";
         $("errorWrap").textContent = msg;
         $("errorWrap").classList.remove("hidden");
         $("go").disabled = false;
@@ -1607,7 +1605,8 @@
 
     function generate() {
       const text = $("text").value.trim();
-      if (mode === "live" && !text) {
+      const existingPid = $("projectId").value.trim();
+      if (mode === "live" && !text && !existingPid) {
         $("errorWrap").textContent = "Please paste some novel text first.";
         $("errorWrap").classList.remove("hidden");
         return;
@@ -1619,7 +1618,6 @@
       timingElapsed = 0;
       timingRemaining = null;
       renderTiming();
-      const existingPid = $("projectId").value.trim();
       if (existingPid) {
         const cur = parseInt(String($("pct").textContent || "0").replace("%", ""), 10);
         setProgress(Number.isFinite(cur) && cur > 0 ? cur : 1, "Resuming…");
@@ -1704,11 +1702,33 @@
       clearInterval(pollTimer);
       currentJobId = jobId;
       let pollMisses = 0;
+      let stopped = false;
       clearError();
       const tick = async () => {
+        if (stopped) return;
         let job;
         try {
           const res = await fetch("/api/job/" + jobId);
+          if (stopped) return;
+          if (res.status === 404 || res.status === 410) {
+            stopped = true;
+            clearInterval(pollTimer);
+            pollTimer = null;
+            stopTimingTick();
+            setStopVisible(false);
+            $("go").disabled = false;
+            $("progressWrap").classList.add("hidden");
+            const pid = currentProjectId || $("projectId").value.trim();
+            if (pid) {
+              currentProjectId = pid;
+              $("projectId").value = pid;
+            }
+            $("errorWrap").textContent = res.status === 410
+              ? "This job expired. Progress is saved — click Generate again with the same project id."
+              : "Job not found (the server may have restarted). Progress is saved — click Generate again with the same project id.";
+            $("errorWrap").classList.remove("hidden");
+            return;
+          }
           if (!res.ok) throw new Error("HTTP " + res.status);
           job = await res.json();
           pollMisses = 0;
@@ -1752,7 +1772,7 @@
           setProgress(jobProgressPct(job), "Paused");
           render(job);
           const msg = job.pause_reason
-            || "Paused after the time limit; progress is saved. Click Generate again with the same project id to continue.";
+            || "Paused after the time limit; progress is saved. Click Generate again with the same project id to continue from the saved manuscript. A different paste or style is rejected and is not written over the saved one.";
           $("errorWrap").textContent = msg;
           $("errorWrap").classList.remove("hidden");
           $("go").disabled = false;
@@ -1764,7 +1784,12 @@
         setProgress(100, "Done");
         render(job);
       };
-      tick();
+      tick().then(() => {
+        if (stopped && pollTimer) {
+          clearInterval(pollTimer);
+          pollTimer = null;
+        }
+      });
       pollTimer = setInterval(tick, 1500);
     }
 
@@ -1978,7 +2003,8 @@
       list.innerHTML = "";
       const skipped = job.skipped || [];
       const chunks = job.skipped_chunks || [];
-      if (!skipped.length && !chunks.length) {
+      const pages = job.skipped_pages || [];
+      if (!skipped.length && !chunks.length && !pages.length) {
         wrap.classList.add("hidden");
         return;
       }
@@ -1998,6 +2024,19 @@
         const row = document.createElement("div");
         row.style.cssText = "margin:6px 0;font-size:13px;color:var(--muted);";
         row.textContent = "chunk " + key + " skipped (content filter)";
+        list.appendChild(row);
+      });
+      pages.forEach((key) => {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;gap:8px;align-items:center;margin:6px 0;font-size:13px;";
+        const label = document.createElement("span");
+        label.textContent = "page " + key;
+        row.appendChild(label);
+        const btn = document.createElement("button");
+        btn.className = "btn btn-secondary";
+        btn.textContent = "Retry";
+        btn.onclick = () => regenKeys([key]);
+        row.appendChild(btn);
         list.appendChild(row);
       });
     }
