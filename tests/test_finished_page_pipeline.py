@@ -310,6 +310,10 @@ def test_finished_page_mode_writes_generated_pages(tmp_path, monkeypatch):
     assert page_files
 
     assert proj.state.render_mode == "finished_page"
+    # The state names the file that holds the source, not the directory it sits
+    # in: a reader that follows this field must land on the text.
+    assert proj.state.source_file == str(tmp_path / "source.txt")
+    assert Path(proj.state.source_file).is_file()
     assert "c0000-p0000" in proj.state.generated.pages
     assert "c0000-p0000" in proj.state.pages_done
     generated_page = proj.state.generated.pages["c0000-p0000"]

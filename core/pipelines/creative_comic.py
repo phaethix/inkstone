@@ -599,22 +599,28 @@ def _model_payload(model) -> str:
 
 
 def _page_script_elements(elements) -> str:
-    """Plan-facing extract. Portrait files and rewritten prompts stay out."""
+    """Plan-facing extract: the cast and settings, plus nothing that gets rewritten.
+
+    Only stable identifiers are key material. ``portrait_prompt`` and ``role``
+    live on the *same* ``CharacterAsset`` objects the extraction handed back —
+    ``merge_characters`` stores them by reference, then ``ensure_character_l1``
+    and ``sync_characters_from_bible`` rewrite them in place as the run goes on.
+    Hashing those fields made the key a function of how far the run had
+    progressed rather than of the chunk: measured, chunk 0 was planned under
+    ``sha256:7bbd…`` while the extract body recorded in the manifest still read
+    ``portrait`` where the live object read ``adult man, a young man's face``.
+    With ``cache.json`` gone the resume restored the body, recomputed
+    ``sha256:c15b…``, missed its own manifest, and paid for the script twice.
+
+    A page script describes panels, not faces — ``build_page_script_request``
+    gets the full elements and the request digest covers the prompt. The key
+    covers who is in the chunk and where.
+    """
     if elements is None:
         return ""
     payload = {
-        "characters": [
-            {
-                "name": character.name,
-                "portrait_prompt": character.portrait_prompt,
-                "role": character.role,
-            }
-            for character in elements.characters
-        ],
-        "settings": [
-            {"name": setting.name, "scene_prompt": setting.scene_prompt}
-            for setting in elements.settings
-        ],
+        "characters": [character.name for character in elements.characters],
+        "settings": [setting.name for setting in elements.settings],
         "style_guide": elements.style_guide,
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -1291,7 +1297,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
         # Tombstones stay behind: they name pages of the discarded projection.
         fresh = ProjectState(
             project_id=project_id,
-            source_file=str(output_dir),
+            source_file=str(output_dir / "source.txt"),
             source_fingerprint=struct,
             structure_fingerprint=struct,
             render_fingerprint=_render_for_bible(),
@@ -1516,9 +1522,17 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
             # Fully planned chunk: cached, marked done, every panel/page present on
             # disk. Re-running reuses the cache so the billable chat API is never
             # re-called.
+            #
+            # ``elements`` is part of the test, not just the pages. A key move
+            # clears it above, and the pages on disk were built from the
+            # extraction it used to hold: skipping on the pages alone would keep
+            # a chunk committed to a character table this build would no longer
+            # produce, which is how a project with no characters stayed that way
+            # across every resume.
             if mode == "finished_page":
                 chunk_complete = (
                     pageset is not None
+                    and elements is not None
                     and key in set(state.chunks_done)
                     and _page_chunk_complete(
                         state,
