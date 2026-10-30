@@ -483,10 +483,32 @@ async def extract_story_elements(
     chat=None,
     request: ChatRequest | None = None,
 ) -> StoryElements:
-    """Extract characters / settings / style from ``text`` via forced call."""
+    """Extract characters / settings / style from ``text`` via forced call.
+
+    A shape-valid answer with no characters is asked about once more, the same
+    rule ``extract_key_beats`` already applies to beats. Measured on the real
+    API, three of four consecutive runs on an excerpt that names four people
+    returned ``{"characters": [], "settings": []}``: the model answered in the
+    right shape while ignoring the excerpt, and the pipeline cached that as the
+    chunk's extraction and painted a page with no reference image at all.
+
+    The retry is bounded to one extra call, and an empty second answer is
+    returned rather than raised: a chunk that is genuinely scenery has no
+    characters, so what an empty list means is the caller's decision.
+    """
     chat = chat or get_chat_provider()
     request = request or build_extract_request(text, model=getattr(chat, "model", ""))
     args = await _audited_chat(chat, request.messages, request.tools, request.tool_choice)
+    elements = StoryElements.model_validate(args)
+    if elements.characters:
+        return elements
+    logger.warning("character extract returned no characters; asking once more")
+    retry = request.with_user_suffix(
+        "\n\nCRITICAL: the previous answer contained no characters. Name every "
+        "person the excerpt mentions, with the appearance evidence the text "
+        "supports. 上一次回答没有提取到任何人物，请重新提取本段出现的全部人物。"
+    )
+    args = await _audited_chat(chat, retry.messages, retry.tools, retry.tool_choice)
     return StoryElements.model_validate(args)
 
 

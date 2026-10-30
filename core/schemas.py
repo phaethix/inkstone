@@ -159,7 +159,14 @@ def coerce_object_list(value: Any) -> Any:
 
     Decodes stringified elements and wraps a lone object into a one-item list.
     Keeps already-constructed Pydantic models (constructor / resume paths).
-    Non-object entries that cannot be decoded are dropped.
+    Non-object entries that cannot be decoded are dropped with a warning.
+
+    Inner lists are flattened, not dropped. The chat model sometimes fuses the
+    roles of a tool call into one encoded array — ``characters`` arriving as
+    the string ``[[character, ...], [setting, ...]]`` — so a decoded element is
+    a list of objects rather than an object. Keeping only dicts threw both
+    groups away and extraction reported success with no characters at all,
+    which rendered pages without a single reference image.
     """
     value = coerce_jsonish(value)
     if value is None or value == "":
@@ -170,11 +177,33 @@ def coerce_object_list(value: Any) -> Any:
         value = [value]
     if not isinstance(value, list):
         return value
+
     objects: list[Any] = []
-    for item in value:
+    dropped = 0
+
+    def _collect(item: Any) -> None:
+        nonlocal dropped
         item = coerce_jsonish(item)
         if isinstance(item, (dict, BaseModel)):
             objects.append(item)
+        elif isinstance(item, (list, tuple)):
+            for nested in item:
+                _collect(nested)
+        else:
+            dropped += 1
+
+    for entry in value:
+        _collect(entry)
+    # A payload that lost every element is the failure this function exists to
+    # prevent, so it must not be the quiet one.
+    if dropped and not objects:
+        logger.warning(
+            "dropping all %s list entries: none decoded into objects (%s)",
+            dropped,
+            str(value)[:200],
+        )
+    elif dropped:
+        logger.warning("dropping %s list entries that are not objects", dropped)
     return objects
 
 
@@ -607,6 +636,53 @@ class StoryElements(BaseModel):
             f"default to {_COMIC_STYLE_HINT}"
         ),
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _split_fused_roles(cls, data: Any) -> Any:
+        """Move setting-shaped entries out of ``characters`` into ``settings``.
+
+        The model sometimes fuses both roles into the ``characters`` payload,
+        as the string ``[[character, ...], [setting, ...]]``, and omits the
+        ``settings`` key. Flattening that payload keeps the objects but lands
+        the settings in the character list, where each would be admitted as a
+        character with no appearance and pay for a portrait of a train station.
+
+        Shape decides, not position, because the fused groups are not always
+        in the same order: an entry is a setting when it carries a setting's
+        vocabulary and none of a character's.
+        """
+        if not isinstance(data, dict):
+            return data
+        raw_characters = data.get("characters")
+        if raw_characters is None:
+            return data
+        decoded = coerce_object_list(raw_characters)
+        if not isinstance(decoded, list):
+            return data
+        character_keys = {"role", "l1_prompt", "portrait_prompt", "appearance", "face_lock"}
+        setting_keys = {"description", "scene_prompt", "setting_name", "location", "place"}
+        kept: list[Any] = []
+        moved: list[Any] = []
+        for entry in decoded:
+            if isinstance(entry, dict) and not (character_keys & entry.keys()):
+                if setting_keys & entry.keys():
+                    moved.append(entry)
+                    continue
+            kept.append(entry)
+        if not moved:
+            return data
+        logger.warning(
+            "%s setting(s) arrived inside characters; moving them to settings", len(moved)
+        )
+        out = dict(data)
+        out["characters"] = kept
+        existing = data.get("settings")
+        if existing is None or existing == "":
+            out["settings"] = moved
+        elif isinstance(existing, list):
+            out["settings"] = [*existing, *moved]
+        return out
 
     @field_validator("characters", mode="before")
     @classmethod
