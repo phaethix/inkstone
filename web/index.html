@@ -938,6 +938,30 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script>
+    // Network binds require INKSTONE_UI_TOKEN. The page never embeds it.
+    // A correct header arms a SameSite cookie so later <img> reads of /files work.
+    (function installUiToken() {
+      const _fetch = window.fetch.bind(window);
+      function withToken(init) {
+        let token = "";
+        try { token = sessionStorage.getItem("inkstone_ui_token") || ""; } catch (e) {}
+        if (!token) return init || {};
+        const next = Object.assign({}, init || {});
+        const headers = new Headers(next.headers || {});
+        headers.set("X-Inkstone-Token", token);
+        next.headers = headers;
+        return next;
+      }
+      window.fetch = async function (input, init) {
+        const res = await _fetch(input, withToken(init));
+        if (res.status !== 401) return res;
+        const entered = window.prompt("Enter the Inkstone UI token (INKSTONE_UI_TOKEN)");
+        if (!entered) return res;
+        try { sessionStorage.setItem("inkstone_ui_token", entered.trim()); } catch (e) { return res; }
+        return _fetch(input, withToken(init));
+      };
+    })();
+
     const $ = (id) => document.getElementById(id);
 
     function currentTheme() {

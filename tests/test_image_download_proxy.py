@@ -10,6 +10,7 @@ real local HTTP server rather than asserting on a mocked call.
 """
 
 import http.server
+import socket
 import threading
 
 import pytest
@@ -50,7 +51,7 @@ def test_download_image_ignores_environment_proxy(monkeypatch, png_server, tmp_p
     monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:9")
 
     target = tmp_path / "a.png"
-    image_mod.download_image(png_server, str(target))
+    image_mod.download_image(png_server, str(target), allow_private=True)
 
     assert target.read_bytes() == b"data"
 
@@ -63,12 +64,16 @@ def test_download_image_honours_explicit_proxy(monkeypatch):
 
     class _Resp:
         headers = {"Content-Length": "4"}
+        is_redirect = False
 
         def raise_for_status(self) -> None:
             return None
 
         def iter_content(self, chunk_size):
             return iter([b"data"])
+
+        def close(self) -> None:
+            return None
 
     class _Session:
         trust_env = False
@@ -78,6 +83,11 @@ def test_download_image_honours_explicit_proxy(monkeypatch):
             seen["url"] = url
             seen["kwargs"] = kwargs
             return _Resp()
+
+    def _public_dns(host, port, *args, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("1.1.1.1", port or 0))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", _public_dns)
 
     from unittest.mock import patch
 

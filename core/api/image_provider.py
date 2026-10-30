@@ -242,7 +242,9 @@ def get_image_provider(
     if provider == "agnes":
         key = api_key or cfg.agnes_api_key
         if not key:
-            raise RuntimeError("PROVIDER=agnes but no AGNES_API_KEY found (env or config)")
+            raise RuntimeError(
+                "PROVIDER=agnes but no AGNES_API_KEY found (environment or repo-root .env)"
+            )
         from core.api.agnes_image import AgnesImageAPI
 
         return AgnesImageAPI(

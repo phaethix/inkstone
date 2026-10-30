@@ -51,6 +51,10 @@ ENV_INKSTONE_PANEL_CONTINUITY = "INKSTONE_PANEL_CONTINUITY"
 ENV_UI_HOST = "INKSTONE_UI_HOST"
 ENV_UI_PORT = "INKSTONE_UI_PORT"
 ENV_UI_MAX_BODY_BYTES = "INKSTONE_UI_MAX_BODY_BYTES"
+ENV_UI_ALLOW_LAN = "INKSTONE_UI_ALLOW_LAN"
+ENV_UI_TOKEN = "INKSTONE_UI_TOKEN"
+ENV_UI_ORIGIN = "INKSTONE_UI_ORIGIN"
+ENV_IMAGE_DOWNLOAD_HOSTS = "INKSTONE_IMAGE_DOWNLOAD_HOSTS"
 ENV_JOB_TTL_SECONDS = "INKSTONE_JOB_TTL_SECONDS"
 ENV_OPENAI_COMPAT_BASE_URL = "OPENAI_COMPAT_BASE_URL"
 ENV_OPENAI_COMPAT_API_KEY = "OPENAI_COMPAT_API_KEY"
@@ -228,6 +232,31 @@ def ui_host() -> str:
 
 def ui_port() -> int:
     return env_int(ENV_UI_PORT, 8000, minimum=1)
+
+
+def ui_allow_lan() -> bool:
+    """Operator opt-in for a non-loopback Web UI bind. Off by default."""
+    return env_bool(ENV_UI_ALLOW_LAN, default=False)
+
+
+def ui_token() -> str:
+    """Shared secret for /api and /files when the UI is not loopback-only."""
+    return _get(ENV_UI_TOKEN, "").strip()
+
+
+def ui_origin() -> str:
+    """Exact browser origin allowed to receive the UI token cookie, if any."""
+    return _get(ENV_UI_ORIGIN, "").strip()
+
+
+def image_download_hosts() -> frozenset[str]:
+    """Optional host allowlist for provider image URLs.
+
+    Empty means any public https host. A comma-separated list restricts the
+    download to those names (private and link-local addresses stay blocked).
+    """
+    raw = _get(ENV_IMAGE_DOWNLOAD_HOSTS, "")
+    return frozenset(part.strip().lower().rstrip(".") for part in raw.split(",") if part.strip())
 
 
 def ui_max_body_bytes() -> int:

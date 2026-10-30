@@ -89,19 +89,23 @@ def test_server_warns_on_non_loopback_bind(tmp_path, monkeypatch, capsys):
 
     class _FakeHTTPD:
         def __init__(self, *args, **kwargs):
-            pass
+            raise AssertionError("non-loopback bind must refuse before listen")
 
-        def serve_forever(self):
-            raise KeyboardInterrupt
-
-    monkeypatch.setattr(server, "HOST", "0.0.0.0")
+    monkeypatch.setenv("INKSTONE_UI_HOST", "0.0.0.0")
+    monkeypatch.delenv("INKSTONE_UI_ALLOW_LAN", raising=False)
+    monkeypatch.delenv("INKSTONE_UI_TOKEN", raising=False)
+    monkeypatch.delenv("INKSTONE_UI_ORIGIN", raising=False)
+    monkeypatch.setattr(server, "HOST", server.HOST)
+    monkeypatch.setattr(server, "PORT", server.PORT)
     monkeypatch.setattr(server, "ThreadingHTTPServer", _FakeHTTPD)
     monkeypatch.setattr(server, "_load_dotenv", lambda: None)
     monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
-    server.main()
+    with pytest.raises(SystemExit) as exc:
+        server.main()
+    assert exc.value.code not in (0, None)
     err = capsys.readouterr().err
-    assert "unauthenticated" in err
     assert "0.0.0.0" in err
+    assert "INKSTONE_UI_ALLOW_LAN" in err
 
 
 def test_server_quiet_on_loopback(tmp_path, monkeypatch, capsys):
@@ -114,7 +118,9 @@ def test_server_quiet_on_loopback(tmp_path, monkeypatch, capsys):
         def serve_forever(self):
             raise KeyboardInterrupt
 
+    monkeypatch.delenv("INKSTONE_UI_HOST", raising=False)
     monkeypatch.setattr(server, "HOST", "127.0.0.1")
+    monkeypatch.setattr(server, "PORT", server.PORT)
     monkeypatch.setattr(server, "ThreadingHTTPServer", _FakeHTTPD)
     monkeypatch.setattr(server, "_load_dotenv", lambda: None)
     monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)

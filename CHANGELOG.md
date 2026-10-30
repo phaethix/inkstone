@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- The Web UI no longer treats a matching `Host` and `Origin` as proof of
+  same-origin. A loopback bind accepts only loopback names, and `/files/`
+  no longer serves `source.txt`, checkpoints, or `review/`. Listening beyond
+  loopback now requires `INKSTONE_UI_ALLOW_LAN=1`, `INKSTONE_UI_TOKEN`, and
+  `INKSTONE_UI_ORIGIN`.
+- Provider image downloads refuse non-https URLs, private and link-local
+  addresses, and redirects onto those addresses.
+- `scripts/start.sh` parses `.env` as `KEY=value` lines and does not `source` it.
+- `INKSTONE_UI_HOST`, `INKSTONE_UI_PORT`, `INKSTONE_UI_MAX_BODY_BYTES`, and
+  `INKSTONE_EXPERIMENTS_DIR` in `.env` are applied before the UI binds.
+
 ### Upgrade notes — prompt-harness identity
 - **A prompt edit now invalidates the chat stage it belongs to.** Every chat
   stage's action key carries a digest of the request's stable identity: the

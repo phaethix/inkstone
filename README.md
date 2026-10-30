@@ -239,7 +239,8 @@ Inkstone is configured through environment variables (copy `.env.example` → `.
 | `INKSTONE_PAGE_SIZE` | | `1024x1536` | Finished-page image size. If the provider rejects the size, Inkstone retries once with `1024x1024`. |
 | `INKSTONE_FONT_PATH` | | (auto) | TrueType/OpenType font for dialogue bubbles. |
 | `INKSTONE_WEBTOON_MAX_PIXELS` | | `200000000` | Refuse single-strip webtoon compose above this pixel budget. `0` disables. |
-| `INKSTONE_UI_HOST` / `INKSTONE_UI_PORT` | | `127.0.0.1` / `8000` | Web UI bind address. |
+| `INKSTONE_UI_HOST` / `INKSTONE_UI_PORT` | | `127.0.0.1` / `8000` | Web UI bind address. Values in `.env` apply at startup. A non-loopback host is refused unless `INKSTONE_UI_ALLOW_LAN=1`, `INKSTONE_UI_TOKEN`, and `INKSTONE_UI_ORIGIN` are all set. |
+| `INKSTONE_IMAGE_DOWNLOAD_HOSTS` | | (any public https host) | Optional comma-separated allowlist for image URLs returned by a provider. Private, link-local, and metadata addresses are always refused. |
 
 PDF export prefers the optional `manga2pdf` CLI for two-page / right-to-left manga layout (`pip install manga2pdf` to restore the gallery layout).
 

@@ -36,6 +36,8 @@ can take minutes), so the UI polls ``/api/job/<id>`` until status is "done".
 from __future__ import annotations
 
 import asyncio
+import hmac
+import ipaddress
 import json
 import logging
 import os
@@ -48,6 +50,7 @@ import uuid
 from contextlib import ExitStack, contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlparse
 
 # Make the repo root importable so `core` resolves regardless of CWD.
 ROOT = Path(__file__).resolve().parents[1]
@@ -69,9 +72,12 @@ from core.config import (  # noqa: E402
     data_dir,
     experiments_dir,
     job_ttl_seconds,
+    ui_allow_lan,
     ui_host,
     ui_max_body_bytes,
+    ui_origin,
     ui_port,
+    ui_token,
 )
 from core.pipelines.creative_comic import estimate_progress  # noqa: E402
 from core.pipelines.run_until_complete import PausedRun, run_until_complete  # noqa: E402
@@ -89,6 +95,21 @@ HOST = ui_host()
 PORT = ui_port()
 # Cap novel-paste / JSON POSTs (three-body-scale text is ~0.5–1 MB; 8 MB is ample).
 MAX_JSON_BODY_BYTES = ui_max_body_bytes()
+
+
+def apply_runtime_config() -> None:
+    """Re-read UI settings after ``.env`` is loaded.
+
+    These four values used to be captured at import, which is before
+    ``main`` reads ``.env``, so a port or experiments directory set only
+    in that file never took effect.
+    """
+    global HOST, PORT, MAX_JSON_BODY_BYTES, EXPERIMENTS_DIR
+    HOST = ui_host()
+    PORT = ui_port()
+    MAX_JSON_BODY_BYTES = ui_max_body_bytes()
+    EXPERIMENTS_DIR = experiments_dir()
+
 
 _PROJECT_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
 _EXPERIMENT_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,80}$")
@@ -1065,14 +1086,118 @@ async def advance_sequence_api(
     return sequence_detail(sequence_id)
 
 
+_PUBLIC_ARTIFACT_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf", ".cbz"}
+_CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+    "script-src 'self' 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'"
+)
+
+
+def is_loopback_hostname(host: str) -> bool:
+    """True for localhost and loopback addresses, not for names that merely resolve there."""
+    name = host.strip().lower().rstrip(".")
+    if name.startswith("[") and name.endswith("]"):
+        name = name[1:-1]
+    if name in {"localhost", "localhost.localdomain"}:
+        return True
+    try:
+        return bool(ipaddress.ip_address(name).is_loopback)
+    except ValueError:
+        return False
+
+
+def _split_host_header(value: str) -> tuple[str, int | None] | None:
+    raw = value.strip()
+    if not raw:
+        return None
+    if raw.startswith("["):
+        host, sep, rest = raw[1:].partition("]")
+        if not sep:
+            return None
+        if not rest:
+            return host, None
+        if rest.startswith(":") and rest[1:].isdigit():
+            return host, int(rest[1:])
+        return None
+    if raw.count(":") == 1:
+        host, port_text = raw.rsplit(":", 1)
+        if port_text.isdigit():
+            return host, int(port_text)
+    if ":" in raw:
+        return None
+    return raw, None
+
+
+def _normalize_origin(value: str) -> tuple[str, str, int] | None:
+    parsed = urlparse(value.strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return None
+    if parsed.username or parsed.password:
+        return None
+    port = parsed.port
+    if port is None:
+        port = 443 if parsed.scheme == "https" else 80
+    return parsed.scheme, parsed.hostname.lower().rstrip("."), port
+
+
+def _configured_origin() -> tuple[str, str, int] | None:
+    raw = ui_origin()
+    if not raw:
+        return None
+    return _normalize_origin(raw)
+
+
+def _cookie_safe_token(token: str) -> bool:
+    return bool(token) and all(char.isalnum() or char in "._~-" for char in token)
+
+
+def _public_artifact_name(name: str) -> bool:
+    lowered = name.lower()
+    if lowered == "reader.html":
+        return True
+    return Path(lowered).suffix in _PUBLIC_ARTIFACT_SUFFIXES
+
+
+def _public_artifact_rel(rel: str) -> bool:
+    """Generated images and the reader only. Not the manuscript or checkpoints."""
+    rel = rel.split("?", 1)[0].split("#", 1)[0]
+    if "\\" in rel or "\x00" in rel:
+        return False
+    parts = [part for part in rel.split("/") if part not in {"", "."}]
+    if not parts or any(part == ".." for part in parts):
+        return False
+    if any(part.lower() == "review" or part.startswith(".") for part in parts):
+        return False
+    return _public_artifact_name(parts[-1])
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "InkstoneUI/0.1"
+
+    def _security_headers(self) -> None:
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Security-Policy", _CONTENT_SECURITY_POLICY)
+        self.send_header("Referrer-Policy", "no-referrer")
+
+    def _token_cookie_header(self) -> str | None:
+        """Arm a SameSite cookie only after the caller already presented the token.
+
+        ``GET /`` must not hand the secret to whoever can spoof ``Host``.
+        """
+        token = ui_token()
+        if not _cookie_safe_token(token) or not self._token_matches():
+            return None
+        return f"inkstone_token={token}; HttpOnly; SameSite=Strict; Path=/"
 
     def _send_json(self, obj, status: int = 200) -> None:
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self._security_headers()
+        cookie = self._token_cookie_header()
+        if cookie:
+            self.send_header("Set-Cookie", cookie)
         self.end_headers()
         self.wfile.write(body)
 
@@ -1099,13 +1224,112 @@ class Handler(BaseHTTPRequestHandler):
         mime = self._MIME.get(path.suffix, "application/octet-stream")
         self.send_header("Content-Type", mime)
         self.send_header("Content-Length", str(len(data)))
+        self._security_headers()
+        cookie = self._token_cookie_header()
+        if cookie:
+            self.send_header("Set-Cookie", cookie)
         self.end_headers()
         self.wfile.write(data)
+
+    def _server_port(self) -> int:
+        return int(self.server.server_address[1])
+
+    def _request_host(self) -> tuple[str, int] | None:
+        parsed = _split_host_header(self.headers.get("Host") or "")
+        if parsed is None:
+            return None
+        host, port = parsed
+        if port is None:
+            port = 80
+        return host, port
+
+    def _origin_parts(self) -> tuple[str, str, int] | None:
+        raw = (self.headers.get("Origin") or "").strip()
+        if not raw:
+            return None
+        return _normalize_origin(raw)
+
+    def _presented_token(self) -> str:
+        header = (self.headers.get("X-Inkstone-Token") or "").strip()
+        if header:
+            return header
+        auth = (self.headers.get("Authorization") or "").strip()
+        if auth.lower().startswith("bearer "):
+            return auth[7:].strip()
+        cookie = self.headers.get("Cookie") or ""
+        for part in cookie.split(";"):
+            name, _, value = part.strip().partition("=")
+            if name == "inkstone_token":
+                return value.strip()
+        return ""
+
+    def _token_matches(self) -> bool:
+        expected = ui_token()
+        presented = self._presented_token()
+        if not expected or not presented or len(presented) != len(expected):
+            return False
+        return hmac.compare_digest(presented, expected)
+
+    def _origin_is_acceptable(self, origin: tuple[str, str, int]) -> bool:
+        _scheme, host, port = origin
+        if port != self._server_port():
+            return False
+        if is_loopback_hostname(host):
+            return True
+        configured = _configured_origin()
+        if configured is None:
+            return False
+        return (host, port) == (configured[1], configured[2])
+
+    def _loopback_safe(self) -> bool:
+        """Curl on a loopback bind, or a browser whose names are loopback too.
+
+        A DNS-rebinding page presents its own name in both Host and Origin.
+        That pair is not loopback, so it is not trusted just because the
+        socket is.
+        """
+        if not is_loopback_hostname(HOST):
+            return False
+        host_port = self._request_host()
+        if host_port is None:
+            return False
+        host, port = host_port
+        if port != self._server_port() or not is_loopback_hostname(host):
+            return False
+        origin = self._origin_parts()
+        if origin is None:
+            return True
+        return is_loopback_hostname(origin[1]) and self._origin_is_acceptable(origin)
+
+    def _sensitive_block(self) -> tuple[int, str] | None:
+        site = (self.headers.get("Sec-Fetch-Site") or "").strip().lower()
+        if site == "cross-site":
+            return 403, "cross-origin request blocked (open the UI from this server)"
+        raw_origin = (self.headers.get("Origin") or "").strip()
+        origin = self._origin_parts()
+        if raw_origin and (origin is None or not self._origin_is_acceptable(origin)):
+            return 403, "cross-origin request blocked (open the UI from this server)"
+        if self._loopback_safe():
+            return None
+        if not self._token_matches():
+            return 401, "unauthorized"
+        return None
+
+    def _reject_sensitive(self) -> bool:
+        blocked = self._sensitive_block()
+        if blocked is None:
+            return False
+        status, message = blocked
+        self._send_json({"error": message}, status=status)
+        return True
 
     def log_message(self, *args) -> None:  # quieter default logging
         pass
 
     def do_GET(self) -> None:
+        if self.path.startswith("/api/") or self.path.startswith("/files/"):
+            if self._reject_sensitive():
+                return
         if self.path == "/" or self.path == "/index.html":
             self._send_file(Path(__file__).resolve().parent / "index.html")
             return
@@ -1121,7 +1345,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"error": "not found"}, status=404)
             return
         if self.path.startswith("/files/"):
-            rel = self.path[len("/files/") :]
+            rel = self.path[len("/files/") :].split("?", 1)[0]
+            if not _public_artifact_rel(rel):
+                self._send_json({"error": "not found"}, status=404)
+                return
             target = (OUTPUT_DIR / rel).resolve()
             if (
                 target.name == "reader.html"
@@ -1129,7 +1356,11 @@ class Handler(BaseHTTPRequestHandler):
                 and chapter_pages(target.parent / "pages")
             ):
                 write_reader(target.parent)
-            if target.is_file() and _is_within(target, OUTPUT_DIR):
+            if (
+                target.is_file()
+                and _is_within(target, OUTPUT_DIR)
+                and _public_artifact_name(target.name)
+            ):
                 self._send_file(target)
             else:
                 self._send_json({"error": "not found"}, status=404)
@@ -1210,11 +1441,7 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json({"error": "not found"}, status=404)
 
     def do_POST(self) -> None:
-        if not self._post_origin_allowed():
-            self._send_json(
-                {"error": "cross-origin POST blocked (open the UI from this server)"},
-                status=403,
-            )
+        if self._reject_sensitive():
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -1273,25 +1500,6 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": "invalid JSON"}, status=400)
             return
         self._send_json({"error": "not found"}, status=404)
-
-    def _post_origin_allowed(self) -> bool:
-        """Block browser CSRF from other sites; allow curl (no Origin / Fetch metadata)."""
-        site = (self.headers.get("Sec-Fetch-Site") or "").strip().lower()
-        if site == "cross-site":
-            return False
-        origin = (self.headers.get("Origin") or "").strip()
-        if not origin:
-            return True
-        host = (self.headers.get("Host") or "").strip()
-        if not host:
-            return False
-        allowed = {f"http://{host}", f"https://{host}"}
-        # Also accept loopback aliases when bound locally.
-        if HOST in _LOOPBACK_HOSTS:
-            for loop in ("127.0.0.1", "localhost", "::1"):
-                allowed.add(f"http://{loop}:{PORT}")
-                allowed.add(f"https://{loop}:{PORT}")
-        return origin in allowed
 
     def _read_json(self) -> dict:
         try:
@@ -1509,20 +1717,40 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json({"job_id": job_id, "project_id": pid})
 
 
-_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+def _require_safe_bind() -> None:
+    """Refuse a non-loopback listen unless the operator named the exposure."""
+    if is_loopback_hostname(HOST):
+        return
+    missing: list[str] = []
+    if not ui_allow_lan():
+        missing.append("INKSTONE_UI_ALLOW_LAN=1")
+    token = ui_token()
+    if not _cookie_safe_token(token) or len(token) < 8:
+        missing.append("INKSTONE_UI_TOKEN (8+ characters from letters, digits, . _ ~ -)")
+    if _configured_origin() is None:
+        missing.append("INKSTONE_UI_ORIGIN=http://host:port")
+    if missing:
+        print(
+            f"Refusing to bind {HOST!r}. This UI is unauthenticated only on a loopback "
+            "address. To listen beyond loopback, set " + ", ".join(missing) + ".",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    print(
+        f"WARNING: binding to {HOST!r} exposes this UI on the network. "
+        "API and file routes require the UI token. "
+        "Anyone with that token can spend API quota and read generated files.",
+        file=sys.stderr,
+    )
 
 
 def main() -> None:
     _load_dotenv()
+    apply_runtime_config()
+    _require_safe_bind()
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     if not os.environ.get("AGNES_API_KEY"):
         print("WARNING: AGNES_API_KEY is not set. Set it (or add to .env) before generating.")
-    if HOST not in _LOOPBACK_HOSTS:
-        print(
-            f"WARNING: binding to {HOST!r} exposes this unauthenticated UI to the network — "
-            "anyone who can reach this port can spend your API quota and read your projects.",
-            file=sys.stderr,
-        )
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"Inkstone UI running at http://{HOST}:{PORT}  (Ctrl+C to stop)")
     try:
