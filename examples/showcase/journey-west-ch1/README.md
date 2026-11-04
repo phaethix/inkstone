@@ -1,8 +1,8 @@
 # 《西游记》第一回节选（公版）Showcase
 
-**Scope:** source text + scripts only. Generated panels / PDF / coverage
-reports are **not** committed — run them locally or on Colab, then keep
-artifacts under `comic_out/` (gitignored).
+**Scope:** source text only. Generated panels / PDF / coverage reports are
+**not** committed — run them locally, then keep artifacts under `comic_out/`
+(gitignored). All commands use the unified `uv run inkstone` entry.
 
 ## Source
 
@@ -12,15 +12,15 @@ full-book run.
 
 ## Offline plan (no API key)
 
-From the repo root (with the inkstone env active):
+From the repo root:
 
 ```bash
-./scripts/run_showcase.sh
+uv run inkstone plan --book examples/showcase/journey-west-ch1/source.txt --density B --format page
 ```
 
-When `comic_out/journey-west-ch1/state.json` is present, the script plans from
-those stored counts and prints `inkstone structure`. Without that file it
-prints the experience-rate estimate.
+When `comic_out/journey-west-ch1/state.json` is present, add
+`--out comic_out/journey-west-ch1` so the estimate uses those stored counts.
+Without that file it prints the experience-rate estimate.
 
 `plan` is marked `[experimental]`. Its panel rate is an experience value until
 you pass `--out` pointing at a project that already has plans. `generate
@@ -33,25 +33,17 @@ stay in `comic_out/` and are not committed.
 ## Generate (needs AGNES_API_KEY)
 
 ```bash
-python examples/generate_comic.py \
-  examples/showcase/journey-west-ch1/source.txt \
+uv run inkstone generate \
+  --book examples/showcase/journey-west-ch1/source.txt \
   --project journey-west-ch1 \
   --format page \
   --out comic_out/journey-west-ch1
 ```
 
-Or via Colab CLI:
-
-```bash
-./scripts/colab_run.sh run examples/showcase/journey-west-ch1/source.txt \
-  --project journey-west-ch1 --format page
-./scripts/colab_run.sh download --project journey-west-ch1
-```
-
 `--format cbz` zips the stored pages and writes a page count. After pages
-exist, `inkstone structure --out comic_out/journey-west-ch1` and
-`inkstone read --out comic_out/journey-west-ch1` read that project and do
-not call a model. The reader shows the page index. A local project at that
+exist, `uv run inkstone structure --out comic_out/journey-west-ch1` and
+`uv run inkstone read --out comic_out/journey-west-ch1` read that project and
+do not call a model. The reader shows the page index. A local project at that
 path passes every structural check and has 8 stored pages. The PDF is not
 committed.
 

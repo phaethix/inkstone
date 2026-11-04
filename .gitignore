@@ -235,7 +235,6 @@ comic*.pdf
 
 # Docs versioned on main for now:
 #   docs/ROADMAP.md
-#   docs/guides/colab-cli.md
 #   docs/superpowers/**
 # Everything else under docs/ stays local until deliberately published.
 docs/README.md

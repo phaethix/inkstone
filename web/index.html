@@ -1487,7 +1487,7 @@
       if (loc.startsWith("file:")) {
         $("modeHint").innerHTML = `Demo mode: open <code>http://127.0.0.1:8000/</code> instead of the local file to use the real generator`;
       } else {
-        $("modeHint").innerHTML = `Demo mode: backend not found at this origin. Make sure <code>python web/server.py</code> is running, then refresh.`;
+        $("modeHint").innerHTML = `Demo mode: backend not found at this origin. Run <code>uv run inkstone web</code>, then refresh.`;
       }
     }
 
@@ -1598,7 +1598,7 @@
     function friendlyFetchError(err) {
       const raw = (err && err.message) ? err.message : String(err || "Request failed");
       if (raw === "Failed to fetch" || /NetworkError|Load failed|network/i.test(raw)) {
-        return "Could not reach the server (network blip or web/server.py not running). If a job was already started, progress is still saved — refresh or reuse the same project id.";
+        return "Could not reach the server (network blip or `uv run inkstone web` not running). If a job was already started, progress is still saved — refresh or reuse the same project id.";
       }
       return raw;
     }

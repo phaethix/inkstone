@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 from contextvars import ContextVar
 from datetime import datetime, timezone
@@ -66,6 +67,24 @@ def image_failure(output_dir: Path, *, stage: str, key: str, error: BaseExceptio
             "ts": _now_iso(),
         },
     )
+
+
+def image_result(output_dir: Path, *, stage: str, key: str, duration_ms: int, status: str) -> None:
+    """Record the wall-clock outcome of one image call (no prompt or error text)."""
+    try:
+        append_run(
+            output_dir,
+            {
+                "kind": "result",
+                "key": key,
+                "stage": stage,
+                "duration_ms": duration_ms,
+                "status": status,
+                "ts": _now_iso(),
+            },
+        )
+    except OSError:
+        logging.getLogger(__name__).warning("could not append image_result row", exc_info=True)
 
 
 def bind_audit(output_dir: Path, stage: str, key: str) -> None:

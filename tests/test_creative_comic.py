@@ -109,7 +109,11 @@ def test_creative_comic_generates_and_resumes(tmp_path):
     assert img.calls == 3  # 1 portrait + 2 panels (char reused on 2nd chunk)
     assert chat.calls == 6  # 2 extract + 2 reconcile + 2 storyboard (page_script off by default)
     logged = (tmp_path / "runs.jsonl").read_text(encoding="utf-8")
-    intents = [json.loads(line)["stage"] for line in logged.splitlines()]
+    intents = [
+        json.loads(line)["stage"]
+        for line in logged.splitlines()
+        if json.loads(line)["kind"] == "intent"
+    ]
     assert intents == [
         "extract",
         "bible",

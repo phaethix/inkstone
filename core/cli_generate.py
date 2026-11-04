@@ -21,9 +21,64 @@ from tqdm import tqdm
 from core.api import get_chat_provider, get_image_provider
 from core.comic.budget import allocate
 from core.config import ImageConfig, data_dir, page_script_enabled, render_mode
+from core.perf import set_safe_write
 from core.pipelines.run_until_complete import PausedRun, run_until_complete
 
 logger = logging.getLogger(__name__)
+
+# Prefix shared by every report line so the final block reads as one section.
+_REPORT_INDENT = "  "
+
+
+class _TqdmLoggingHandler(logging.Handler):
+    """Route warnings through tqdm.write so they sit above the live bar."""
+
+    def __init__(self, write_fn) -> None:
+        super().__init__(level=logging.WARNING)
+        self._write = write_fn
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            self._write(self.format(record))
+        except Exception:  # noqa: BLE001 — a broken report must not kill the run
+            pass
+
+
+def _report_block(lines: list[str]) -> None:
+    """Print an aligned key/value result block (after the bar is gone)."""
+    for line in lines:
+        print(line)
+
+
+def _result_lines(proj) -> list[str]:
+    """Build the final summary as an aligned block."""
+    lines = ["", "result:"]
+    lines.append(f"{_REPORT_INDENT}project   : {proj.project_id}")
+    lines.append(f"{_REPORT_INDENT}pages     : {len(proj.pages)}")
+    if proj.pdf:
+        lines.append(f"{_REPORT_INDENT}pdf       : {proj.pdf}")
+    if proj.webtoon:
+        lines.append(f"{_REPORT_INDENT}webtoon   : {proj.webtoon}")
+    if proj.cbz:
+        lines.append(f"{_REPORT_INDENT}cbz       : {proj.cbz}")
+    lines.append(
+        f"{_REPORT_INDENT}panels    : {len(proj.state.panels_done)} generated, "
+        f"{len(proj.state.skipped)} skipped (content filter)"
+    )
+    if proj.state.needs_review:
+        lines.append(
+            f"{_REPORT_INDENT}review    : {len(proj.state.needs_review)} alias suggestion(s)"
+        )
+        for s in proj.state.needs_review:
+            flag = "suggested" if s.suggested else "review"
+            lines.append(
+                f"{_REPORT_INDENT}            [{flag}] {s.new_name} -> {s.candidate} ({s.reason})"
+            )
+    if proj.state.stale_panels:
+        lines.append(
+            f"{_REPORT_INDENT}stale     : {len(proj.state.stale_panels)} panel(s) need redraw"
+        )
+    return lines
 
 
 def _default_scene() -> Path | None:
@@ -38,28 +93,58 @@ def _default_scene() -> Path | None:
 
 @contextmanager
 def _progress_display(stream=None):
-    """Always use tqdm (including nohup/Colab) so status log tail shows % + stage."""
+    """Dynamic bar on the bottom line; static reports are inserted above it.
+
+    While the bar is live, ``perf`` summaries and warning logs are routed
+    through ``tqdm.write`` (registered on ``core.perf``) so they never tear
+    into the carriage-return redraw. ``leave=False`` clears the bar on exit.
+    """
     stream = stream or sys.stderr
-    with tqdm(
+    root = logging.getLogger()
+    pbar = tqdm(
         total=100,
         unit="%",
-        bar_format="{l_bar}{bar}| [{postfix}]",
-        desc="generating comic",
+        bar_format="{l_bar}{bar}|",
+        desc="generating comic [init]",
         file=stream,
-    ) as pbar:
+        leave=False,
+    )
 
-        def on_progress(stage: str, percent: float | None) -> None:
-            pbar.set_postfix_str(stage, refresh=False)
-            if percent is not None:
-                # A resumed run derives its fraction from a checkpoint; a later
-                # chunk can enlarge the canon and re-divide the portrait share,
-                # so the derived number may dip. Never rewind the bar the user
-                # is watching (the Web UI clamps the same way).
-                pbar.n = max(pbar.n, percent * 100)
-                pbar.update(0)
-            pbar.refresh()
+    def safe_write(text: str) -> None:
+        tqdm.write(text, file=stream)
 
-        yield on_progress
+    handler = _TqdmLoggingHandler(safe_write)
+    handler.setFormatter(logging.Formatter("warning: %(message)s"))
+    set_safe_write(safe_write)
+    # Isolate root logging for the bar's lifetime: a plain StreamHandler would
+    # write warnings straight to stderr and tear into the carriage-return
+    # redraw. Our tqdm-aware handler is the only sink while the bar is live.
+    saved_handlers = root.handlers[:]
+    saved_level = root.level
+    for h in saved_handlers:
+        root.removeHandler(h)
+    root.addHandler(handler)
+    try:
+        with pbar:
+
+            def on_progress(stage: str, percent: float | None) -> None:
+                pbar.set_description(f"generating comic [{stage}]")
+                if percent is not None:
+                    # A resumed run derives its fraction from a checkpoint; a later
+                    # chunk can enlarge the canon and re-divide the portrait share,
+                    # so the derived number may dip. Never rewind the bar the user
+                    # is watching (the Web UI clamps the same way).
+                    pbar.n = max(pbar.n, percent * 100)
+                    pbar.update(0)
+                pbar.refresh()
+
+            yield on_progress
+    finally:
+        root.removeHandler(handler)
+        for h in saved_handlers:
+            root.addHandler(h)
+        root.setLevel(saved_level)
+        set_safe_write(None)
 
 
 async def _run(
@@ -101,43 +186,35 @@ async def _run(
         )
 
     if isinstance(result, PausedRun):
-        print(f"PAUSED project {result.project_id}: {result.reason}")
-        print(f"  progress saved under {result.output_dir}")
+        _report_block(
+            [
+                "paused:",
+                f"{_REPORT_INDENT}project   : {result.project_id}",
+                f"{_REPORT_INDENT}reason    : {result.reason}",
+                f"{_REPORT_INDENT}saved     : {result.output_dir}",
+            ]
+        )
         if "continuity review" in result.reason:
-            print(
-                "  confirm the review with: inkstone identity --out "
-                f"{result.output_dir} --confirm <character>"
+            _report_block(
+                [
+                    f"{_REPORT_INDENT}confirm   : inkstone identity --out "
+                    f"{result.output_dir} --confirm <character>",
+                    f"{_REPORT_INDENT}            or click Confirm in the web UI",
+                ]
             )
-            print("  or click Confirm in the Continuity review panel of the web UI")
         elif "awaiting_human" in result.reason:
-            print(
-                "  decide the sample with: inkstone gate --out "
-                f"{result.output_dir} --key <page> --decision accept|redraw|accept-and-flag"
+            _report_block(
+                [
+                    f"{_REPORT_INDENT}decide    : inkstone gate --out {result.output_dir} "
+                    "--key <page> --decision accept|redraw|accept-and-flag",
+                    f"{_REPORT_INDENT}            or re-run with --yes (audited)",
+                ]
             )
-            print("  or re-run with --yes to render the remainder (audited)")
         else:
-            print("  re-run with the same --project to continue")
+            _report_block([f"{_REPORT_INDENT}resume    : re-run with the same --project"])
         sys.exit(2)
 
-    proj = result
-    print(f"project {proj.project_id}: {len(proj.pages)} page(s)")
-    if proj.pdf:
-        print(f"  PDF     -> {proj.pdf}")
-    if proj.webtoon:
-        print(f"  WEBTOON -> {proj.webtoon}")
-    if proj.cbz:
-        print(f"  CBZ     -> {proj.cbz}")
-    print(
-        f"  panels  -> {len(proj.state.panels_done)} generated, "
-        f"{len(proj.state.skipped)} skipped (content filter)"
-    )
-    if proj.state.needs_review:
-        print(f"  review  -> {len(proj.state.needs_review)} alias suggestion(s):")
-        for s in proj.state.needs_review:
-            flag = "suggested" if s.suggested else "review"
-            print(f"    [{flag}] {s.new_name} -> {s.candidate} ({s.reason})")
-    if proj.state.stale_panels:
-        print(f"  stale   -> {len(proj.state.stale_panels)} panel(s) need redraw")
+    _report_block(_result_lines(result))
 
 
 def _configure_background_logging() -> None:

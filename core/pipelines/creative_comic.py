@@ -22,6 +22,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import time
 from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -118,7 +119,7 @@ from core.comic.page_prompt import (
     render_finished_page_prompt,
 )
 from core.comic.review_packet import ReviewPacket
-from core.comic.runs import bind_audit, clear_audit, image_failure, image_intent
+from core.comic.runs import bind_audit, clear_audit, image_failure, image_intent, image_result
 from core.comic.segmentation import (
     detect_character_aliases,
     merge_characters,
@@ -1903,6 +1904,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                         prompt=sent,
                         size="1024x1024",
                     )
+                    t0 = time.monotonic()
                     try:
                         with perf.measure("portrait"):
                             out = await image.generate_single_image(
@@ -1911,8 +1913,23 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                                 size="1024x1024",
                             )
                     except Exception as exc:  # noqa: BLE001 — log the class, then keep the portrait error
+                        image_result(
+                            output_dir,
+                            stage="portrait",
+                            key=name,
+                            duration_ms=round((time.monotonic() - t0) * 1000),
+                            status="error",
+                        )
                         image_failure(output_dir, stage="portrait", key=name, error=exc)
                         raise
+                    else:
+                        image_result(
+                            output_dir,
+                            stage="portrait",
+                            key=name,
+                            duration_ms=round((time.monotonic() - t0) * 1000),
+                            status="ok",
+                        )
                 path = _asset_path(output_dir, "assets/portraits", name)
                 await asyncio.to_thread(out.save, str(path))
                 asset.portrait_action_key = portrait_action_key(
@@ -2517,6 +2534,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                             prompt=prompt,
                             size=active_size,
                         )
+                        t0 = time.monotonic()
                         try:
                             async with image_semaphore:
                                 with perf.measure("page"):
@@ -2526,8 +2544,14 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                                         size=active_size,
                                         negative_prompt=negative_prompt,
                                     )
-                            break
                         except Exception as exc:  # noqa: BLE001 — preserve policy skip behavior
+                            image_result(
+                                output_dir,
+                                stage="render",
+                                key=state_key,
+                                duration_ms=round((time.monotonic() - t0) * 1000),
+                                status="error",
+                            )
                             image_failure(output_dir, stage="render", key=state_key, error=exc)
                             if is_content_policy_rejection(exc):
                                 logger.warning(
@@ -2585,6 +2609,15 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                                 )
                                 continue
                             raise
+                        else:
+                            image_result(
+                                output_dir,
+                                stage="render",
+                                key=state_key,
+                                duration_ms=round((time.monotonic() - t0) * 1000),
+                                status="ok",
+                            )
+                            break
                     if out is None:
                         return
                     pages_dir.mkdir(parents=True, exist_ok=True)
@@ -2918,14 +2951,30 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                     image_intent(
                         output_dir, stage="render", key=state_key, prompt=prompt, size=panel.size
                     )
+                    t0 = time.monotonic()
                     try:
                         with perf.measure("panel"):
                             out = await image.generate_single_image(
                                 prompt, reference_image_paths=refs, size=panel.size
                             )
                     except Exception as exc:  # noqa: BLE001 — log the class, then keep the panel error
+                        image_result(
+                            output_dir,
+                            stage="render",
+                            key=state_key,
+                            duration_ms=round((time.monotonic() - t0) * 1000),
+                            status="error",
+                        )
                         image_failure(output_dir, stage="render", key=state_key, error=exc)
                         raise
+                    else:
+                        image_result(
+                            output_dir,
+                            stage="render",
+                            key=state_key,
+                            duration_ms=round((time.monotonic() - t0) * 1000),
+                            status="ok",
+                        )
                 local = _asset_path(output_dir, "panels", state_key)
                 await asyncio.to_thread(out.save, str(local))
 

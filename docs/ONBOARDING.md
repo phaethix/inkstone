@@ -125,9 +125,10 @@ Read in this order the first time you touch the repo.
 
 1. **Purpose and honesty** — [`README.md`](../README.md), then this file and
    [`ROADMAP.md`](ROADMAP.md).
-2. **Run it** — `uv sync --extra dev`, copy `.env.example` → `.env`,
-   `uv run python examples/first_panel.py` or `./scripts/start.sh`. Tests:
-   `uv run pytest` (offline). Web: `uv run python web/server.py`.
+2. **Run it** — `uv sync --extra dev`, copy `.env.example` → `.env`, then use the
+   unified CLI: `uv run inkstone` (generate the demo), `uv run inkstone web`
+   (local UI). Tests: `uv run pytest` (offline). First-panel probe:
+   `uv run python examples/first_panel.py`.
 3. **Contracts** — `ProjectState`, `ComicPagePlan` / `ComicPagePlanSet`,
    `VisualBible` / `CharacterCanon`, `CharacterAsset` / `Appearance` /
    `EvidenceQuote` in `core/schemas.py`. LLM tools are `to_tool_schema(...)`.
@@ -213,13 +214,12 @@ comic_out/<project_id>/
 
 | File | Role |
 |---|---|
-| `core/cli.py` | `generate`, `plan`, `gate`, `identity`, `prune`, `gc`, `verify`, `rebuild`, `structure`, `read`; `coverage` is the PageScript prototype |
+| `core/cli.py` | Unified `uv run inkstone` entry: `generate`, `web`, `plan`, `gate`, `identity`, `prune`, `gc`, `verify`, `rebuild`, `structure`, `read`; `coverage` is the PageScript prototype |
+| `core/dotenv.py` | Loads repo-root `.env` for every subcommand |
 | `core/cli_generate.py` | tqdm + credential checks; packaged entry (not `examples/`) |
-| `web/server.py` | Local UI backend; jobs in memory; artifacts on disk. `/files/<id>/reader.html` writes the reader when pages are stored |
+| `web/server.py` | Local UI backend (launched via `uv run inkstone web`); jobs in memory; artifacts on disk. `/files/<id>/reader.html` writes the reader when pages are stored |
 | `web/index.html` | Tailwind SPA; GitHub Pages demo mode if `/api/health` is absent |
 | `examples/generate_comic.py` | Thin wrapper around `cli_generate` |
-| `scripts/start.sh` / `start.ps1` | One-click demo |
-| `docs/guides/colab-cli.md` | Headless long jobs on Colab |
 
 ## Complexity hotspots
 

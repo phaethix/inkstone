@@ -26,7 +26,69 @@ from core.comic.prune import apply_prune, parse_older_than, plan_prune
 from core.comic.reader import chapter_pages, write_reader
 from core.comic.structure_report import chapter_validated, structural_report, write_structure_report
 from core.density import DensityEstimate, estimate
+from core.dotenv import load_dotenv
 from core.schemas import ProjectState
+
+
+def _add_model_flags(parser: argparse.ArgumentParser) -> None:
+    """为生成类命令挂上单次模型覆盖项；值不落盘，优先于 .env。"""
+    group = parser.add_argument_group("model overrides (single run, override .env)")
+    group.add_argument(
+        "--chat-model",
+        default=None,
+        help="Text / tool-calling model id (overrides AGNES_CHAT_MODEL / OPENAI_COMPAT_CHAT_MODEL)",
+    )
+    group.add_argument(
+        "--image-model",
+        default=None,
+        help="Image / img2img model id (overrides AGNES_IMAGE_I2I_MODEL / OPENAI_COMPAT_MODEL_I2I)",
+    )
+    group.add_argument(
+        "--provider",
+        choices=["agnes", "openai_compat"],
+        default=None,
+        help="Provider backend (overrides PROVIDER)",
+    )
+    group.add_argument(
+        "--base-url",
+        default=None,
+        help="API root (overrides AGNES_BASE_URL / OPENAI_COMPAT_BASE_URL)",
+    )
+
+
+def _apply_model_flags(args: argparse.Namespace) -> None:
+    """把模型覆盖 flag 映射到对应环境变量（若命令行未给则保持 .env 值）。"""
+    import os
+
+    provider = getattr(args, "provider", None)
+    mapping: dict[str, str] = {}
+    if getattr(args, "chat_model", None):
+        key = "OPENAI_COMPAT_CHAT_MODEL" if provider == "openai_compat" else "AGNES_CHAT_MODEL"
+        mapping[key] = args.chat_model
+    if getattr(args, "image_model", None):
+        key = "OPENAI_COMPAT_MODEL_I2I" if provider == "openai_compat" else "AGNES_IMAGE_I2I_MODEL"
+        mapping[key] = args.image_model
+    if provider:
+        mapping["PROVIDER"] = provider
+    if getattr(args, "base_url", None):
+        key = "OPENAI_COMPAT_BASE_URL" if provider == "openai_compat" else "AGNES_BASE_URL"
+        mapping[key] = args.base_url
+    for name, value in mapping.items():
+        os.environ[name] = value
+
+
+def _run_web(args: argparse.Namespace) -> int:
+    """启动本地 Web UI（复用 web.server.main，零侵入）。"""
+    import os
+
+    if args.host:
+        os.environ["INKSTONE_UI_HOST"] = args.host
+    if args.port is not None:
+        os.environ["INKSTONE_UI_PORT"] = str(args.port)
+    from web.server import main as server_main
+
+    server_main()
+    return 0
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -47,6 +109,11 @@ def _build_parser() -> argparse.ArgumentParser:
         nargs="?",
         default=None,
         help="Source text file path (default: examples/scene1.txt)",
+    )
+    p_gen.add_argument(
+        "--book",
+        default=None,
+        help="Novel text file path (alias for the positional source; matches plan --book)",
     )
     p_gen.add_argument("--out", default=None, help="Output directory")
     p_gen.add_argument("--project", default=None, help="Stable project id (for resume)")
@@ -97,6 +164,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "an explicit change replans the book."
         ),
     )
+    _add_model_flags(p_gen)
 
     p_gate = sub.add_parser(
         "gate",
@@ -519,6 +587,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Page state key to release, e.g. c0000-p0000 (repeatable)",
     )
 
+    p_web = sub.add_parser(
+        "web",
+        help="Launch the local Web UI (http://127.0.0.1:8000 by default)",
+    )
+    p_web.add_argument("--host", default=None, help="Bind host (default 127.0.0.1)")
+    p_web.add_argument("--port", type=int, default=None, help="Bind port (default 8000)")
+    _add_model_flags(p_web)
+
     return parser
 
 
@@ -906,7 +982,7 @@ def _run_generate(args: argparse.Namespace) -> None:
 
     sys.exit(
         run_generate(
-            source=args.source,
+            source=args.book or args.source,
             out=args.out,
             fmt=args.format,
             project_id=args.project,
@@ -1618,9 +1694,10 @@ def _run_experiment(args: argparse.Namespace) -> int:
 
 
 def main() -> None:
-    """统一 CLI 入口。"""
-    # 后向兼容：旧用法 `inkstone <source> ...` 无子命令时默认走 generate，
-    # 使 scripts/start.sh 改为 `python -m core.cli "$@"` 后行为不变。
+    """统一 CLI 入口：所有运行方式都从 ``uv run inkstone <command>`` 进入。"""
+    # 统一加载 repo 根 .env，使任何子命令（含 web）都能读到凭据。
+    load_dotenv()
+    # 后向兼容：无子命令时默认走 generate（如 `inkstone book.txt`）。
     # -h/--help 不插入，否则 `inkstone --help` 会误显示 generate 的帮助。
     first = sys.argv[1] if len(sys.argv) > 1 else ""
     if first not in (
@@ -1641,6 +1718,7 @@ def main() -> None:
         "harness",
         "lesson",
         "experiment",
+        "web",
         "-h",
         "--help",
     ):
@@ -1649,9 +1727,14 @@ def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
 
+    _apply_model_flags(args)
+
     if args.command == "plan":
         _run_plan(args)
     elif args.command == "generate":
+        from core.banner import print_banner
+
+        print_banner()
         _run_generate(args)
     elif args.command == "gate":
         sys.exit(_run_gate(args))
@@ -1683,6 +1766,8 @@ def main() -> None:
         sys.exit(_run_lesson(args))
     elif args.command == "experiment":
         sys.exit(_run_experiment(args))
+    elif args.command == "web":
+        sys.exit(_run_web(args))
 
 
 if __name__ == "__main__":

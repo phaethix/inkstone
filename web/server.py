@@ -5,9 +5,9 @@ runs the real ``creative_comic`` pipeline and streams progress + results.
 
 The backend uses only the Python standard library (``http.server`` +
 ``threading`` + ``asyncio``) so Inkstone needs no new pip dependency for the
-UI. Start it with your API key in the environment (or ``.env``):
+UI. Launch through the unified CLI from the repo root (the CLI loads ``.env``):
 
-    AGNES_API_KEY=sk-xxx python web/server.py
+    uv run inkstone web
     # then open http://127.0.0.1:8000
 
 Routes:
@@ -1806,7 +1806,3 @@ def main() -> None:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print("\nstopped.")
-
-
-if __name__ == "__main__":
-    main()

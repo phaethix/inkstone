@@ -101,7 +101,7 @@ cp .env.example .env
 Generate your first panel:
 
 ```console
-$ uv run python examples/first_panel.py   # run from the repo root
+$ uv run python examples/first_panel.py   # single-panel probe, run from the repo root
 saved -> panel.png
 ```
 
@@ -113,41 +113,96 @@ $ uv run pytest
 # pipeline resume and content-safety behavior without real API calls
 ```
 
-### One-click launch
+## Running Inkstone
+
+**Every way to run Inkstone goes through one command: `uv run inkstone <command> [flags]`.**
+There is no separate server script to launch; the CLI loads the repo-root `.env`
+automatically, so once step 3 above is done you never need to `export` a key again.
 
 ```bash
-./scripts/start.sh                                   # runs examples/scene1.txt -> comic_out (page PDF)
-./scripts/start.sh examples/sample_novel.txt --format webtoon
+uv run inkstone                                   # generate the bundled demo (examples/scene1.txt -> comic_out)
+uv run inkstone generate --book examples/scene1.txt --density B --format cbz
+uv run inkstone plan --book examples/scene1.txt  # offline size estimate; does not draw
+uv run inkstone web                               # local Web UI at http://127.0.0.1:8000
+uv run inkstone --help                            # list every subcommand
 ```
 
-On Windows use `.\scripts\start.ps1`. Sample inputs ship in `examples/` (`scene1.txt`, `sample_novel.txt`).
+Run `uv run inkstone <command> --help` for the full flag list of any command.
 
-> **Status:** M1–M4 (provider foundation, comic pipeline, long-form hardening and open-source release) have shipped. See the [Roadmap](docs/ROADMAP.md) for released capability, local prototypes and the approved long-form plan.
+### Command reference
+
+| Command | What it does |
+|---|---|
+| `generate` | Run the full comic pipeline (calls the API). `--book PATH` selects the novel; `--format page\|webtoon\|cbz`; `--density A\|B\|C`; `--budget N` pauses at a call limit; `--out DIR`; `--project ID` for resume. |
+| `plan` | Offline density / cost / duration estimate, no model calls (`--book`, `--density`, `--format`, `--api`). |
+| `web` | Launch the local Web UI (`--host`, `--port`; model flags below). |
+| `gate` / `identity` | Sample-gate decisions and the character-consistency ledger. |
+| `read` / `structure` / `coverage` | Browser reader, stored-structure checks, legacy PageScript report. |
+| `verify` / `migrate` / `rebuild` / `prune` / `gc` | Project maintenance: manifests, schema upgrades, tombstones, asset reclaim. |
+| `prompt` / `harness` / `lesson` / `experiment` / `stages` | Prompt inspection, harness validation, craft lessons, planning-only A/B probes. |
+
+### Choose a book
+
+`generate <source>` and `generate --book <source>` are equivalent; `--book` matches
+`plan --book`. Omitting it uses the bundled `examples/scene1.txt`. Sample inputs
+ship in `examples/` (`scene1.txt`, `sample_novel.txt`, and the public-domain
+`examples/showcase/journey-west-ch1/source.txt`).
 
 ```bash
-uv run inkstone plan --book examples/scene1.txt            # offline size estimate; does not draw
-uv run inkstone generate examples/scene1.txt --density B   # draw; --budget N pauses at a call limit
-uv run inkstone generate examples/scene1.txt --format cbz  # zip the page images as comic.cbz
-uv run inkstone identity --out comic_out --view            # character ledger
-uv run inkstone read --out comic_out                       # flip stored pages in a browser
+uv run inkstone generate examples/sample_novel.txt --format webtoon
+uv run inkstone generate --book examples/showcase/journey-west-ch1/source.txt --project jw1
 ```
 
-`inkstone coverage` reads legacy PageScript fields and is not a quality gate. Those fields are written only when `INKSTONE_PAGE_SCRIPT=1`. `inkstone structure` checks stored source units, beats, lettering, causal order, and blocked chunks. A check with nothing to read is absent, not a pass. A chapter is validated only when every one of those checks passes and a page is stored.
+### Customize the model
 
-The long-form sample is the public-domain excerpt `examples/showcase/journey-west-ch1/source.txt`. `inkstone plan` on that file is an estimate. After pages are stored under `comic_out/journey-west-ch1`, `inkstone structure --out comic_out/journey-west-ch1` is the check. Lettering is kept only when the whole string is a contiguous span of the source. The page images and PDF stay in `comic_out/` and are not part of the repository. A local run of that excerpt passes the five checks and has 8 pages.
+Model selection lives in `.env`, but every generation command and `web` also
+accept **single-run overrides** (highest priority, never written to disk):
 
-## Web UI
-
-A zero-dependency local UI (Tailwind SPA + a `http.server` backend — **no new pip package**) wraps the same pipeline:
+| Flag | Overrides | Example |
+|---|---|---|
+| `--chat-model` | `AGNES_CHAT_MODEL` / `OPENAI_COMPAT_CHAT_MODEL` | `--chat-model agnes-3.0-flash` |
+| `--image-model` | `AGNES_IMAGE_I2I_MODEL` / `OPENAI_COMPAT_MODEL_I2I` | `--image-model agnes-image-2.5-flash` |
+| `--provider` | `PROVIDER` | `--provider openai_compat` |
+| `--base-url` | `AGNES_BASE_URL` / `OPENAI_COMPAT_BASE_URL` | `--base-url https://.../v1` |
 
 ```bash
-AGNES_API_KEY=sk-xxx uv run python web/server.py
-# open http://127.0.0.1:8000
+uv run inkstone generate --book novel.txt --chat-model agnes-3.0-flash --image-model agnes-image-2.5-flash
+uv run inkstone web --provider openai_compat --base-url https://gateway/v1
+```
+
+With `--provider openai_compat` the flags route to the `OPENAI_COMPAT_*` variables;
+otherwise to the `AGNES_*` ones. For persistent defaults, edit `.env` instead.
+See [Configuration](#configuration) for the complete variable list.
+
+### Web UI
+
+`uv run inkstone web` starts the zero-dependency local UI (Tailwind SPA + an
+`http.server` backend — **no new pip package**) around the same pipeline:
+
+```bash
+uv run inkstone web                              # http://127.0.0.1:8000
+uv run inkstone web --host 0.0.0.0 --port 9000  # custom bind (see LAN safety in Configuration)
 ```
 
 Paste a novel, optionally set a **project id** (resume the same `comic_out/<id>/`), pick webtoon/page, and hit Generate. The backend runs an **unattended supervisor** around `creative_comic`: timeouts and free-tier 503s are retried automatically with backoff until the comic finishes, or until the wall-clock deadline (`INKSTONE_RUN_DEADLINE_HOURS`, default **24h**) pauses the job with progress saved. Artifacts land under `comic_out/<project_id>/`. After generation, the UI surfaces **alias review** (merge / dismiss — never silent), **skipped** panels with retry, **redraw affected** after a merge, and **Read pages** when that project already has page images.
 
 **The same `web/index.html` is also deployed to GitHub Pages.** The SPA auto-detects whether a backend is present: locally it generates your comic; on the static site it runs in *demo mode* with the identical interface. See `https://phaethix.github.io/inkstone/`.
+
+### Startup banner & colors
+
+`generate` prints a branded banner. In a truecolor terminal it is a gradient
+panel; colors are auto-disabled for `NO_COLOR=1`, `TERM=dumb`, or non-TTY output
+(pipes, CI logs), which then gets clean plain text. Set `FORCE_COLOR=1` to force
+colors on. Machine-readable commands (`plan`, `read`, `structure`, `coverage`,
+`--help`) never print the banner, so their stdout stays parseable.
+
+> **Status:** M1–M4 (provider foundation, comic pipeline, long-form hardening and open-source release) have shipped. See the [Roadmap](docs/ROADMAP.md) for released capability, local prototypes and the approved long-form plan.
+
+`inkstone coverage` reads legacy PageScript fields and is not a quality gate. Those fields are written only when `INKSTONE_PAGE_SCRIPT=1`. `inkstone structure` checks stored source units, beats, lettering, causal order, and blocked chunks. A check with nothing to read is absent, not a pass. A chapter is validated only when every one of those checks passes and a page is stored.
+
+`inkstone coverage` reads legacy PageScript fields and is not a quality gate. Those fields are written only when `INKSTONE_PAGE_SCRIPT=1`. `inkstone structure` checks stored source units, beats, lettering, causal order, and blocked chunks. A check with nothing to read is absent, not a pass. A chapter is validated only when every one of those checks passes and a page is stored.
+
+The long-form sample is the public-domain excerpt `examples/showcase/journey-west-ch1/source.txt`. `inkstone plan` on that file is an estimate. After pages are stored under `comic_out/journey-west-ch1`, `inkstone structure --out comic_out/journey-west-ch1` is the check. Lettering is kept only when the whole string is a contiguous span of the source. The page images and PDF stay in `comic_out/` and are not part of the repository. A local run of that excerpt passes the five checks and has 8 pages.
 
 ## Harness A/B
 
@@ -211,7 +266,12 @@ sequence** action after a pick; the APIs are `GET /api/sequences`,
 
 ## Configuration
 
-Inkstone is configured through environment variables (copy `.env.example` → `.env`):
+Inkstone is configured through environment variables (copy `.env.example` → `.env`).
+The CLI loads `.env` automatically, so no manual `export` is needed. The model
+variables below (`AGNES_CHAT_MODEL`, `AGNES_IMAGE_I2I_MODEL`, `PROVIDER`,
+`AGNES_BASE_URL`, and their `OPENAI_COMPAT_*` equivalents) can also be overridden
+per run with `--chat-model` / `--image-model` / `--provider` / `--base-url` on
+`generate` and `web` — see [Customize the model](#customize-the-model).
 
 | Variable | Required | Default | Description |
 |----------|:---:|---|---|
@@ -248,7 +308,6 @@ PDF export prefers the optional `manga2pdf` CLI for two-page / right-to-left man
 
 - **Implementation status** — [docs/ROADMAP.md](docs/ROADMAP.md)
 - **Developer onboarding** — [docs/ONBOARDING.md](docs/ONBOARDING.md)
-- **Colab CLI** — [docs/guides/colab-cli.md](docs/guides/colab-cli.md) + [`scripts/colab_run.sh`](scripts/colab_run.sh)
 - **Historical plans / specs** — [docs/superpowers/](docs/superpowers/)
 - **Contributing guide** — [CONTRIBUTING.md](CONTRIBUTING.md)
 - **Issues & feedback** — [GitHub Issues](https://github.com/phaethix/inkstone/issues)
