@@ -51,7 +51,11 @@ def _progress_display(stream=None):
         def on_progress(stage: str, percent: float | None) -> None:
             pbar.set_postfix_str(stage, refresh=False)
             if percent is not None:
-                pbar.n = percent * 100
+                # A resumed run derives its fraction from a checkpoint; a later
+                # chunk can enlarge the canon and re-divide the portrait share,
+                # so the derived number may dip. Never rewind the bar the user
+                # is watching (the Web UI clamps the same way).
+                pbar.n = max(pbar.n, percent * 100)
                 pbar.update(0)
             pbar.refresh()
 
