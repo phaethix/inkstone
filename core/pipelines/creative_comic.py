@@ -1836,13 +1836,21 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                 effective_style = style_guide or elements.style_guide
             portrait_style = effective_style
 
-            async def _render_portrait(
+            def _portrait_sent_prompt(
                 name: str,
                 *,
                 style: str = portrait_style,
                 _state: ProjectState = state,
                 _chunk: str = chunk,
-            ) -> tuple[str, str]:
+            ) -> str:
+                """The exact prompt that would be sent for one portrait row.
+
+                Shared by the renderer and the dedup grouping so the bytes we
+                group on are the bytes the model actually sees. Everything here
+                is derived from the canon + stage + bible, never from the row's
+                own mutable prompt, so a ``Name@default`` variant lands on the
+                same string as its base row.
+                """
                 asset = resolve_character_asset(name, _state.characters, _state.visual_bible)
                 if asset is None:
                     asset = _state.characters[name]
@@ -1868,13 +1876,26 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                 comic_style = (
                     f"{style}, {DEFAULT_PORTRAIT_STYLE}" if style else DEFAULT_PORTRAIT_STYLE
                 )
+                return f"{prompt}, {comic_style}"
+
+            async def _render_portrait(
+                name: str,
+                *,
+                style: str = portrait_style,
+                _state: ProjectState = state,
+                _chunk: str = chunk,
+            ) -> tuple[str, str]:
+                asset = resolve_character_asset(name, _state.characters, _state.visual_bible)
+                if asset is None:
+                    asset = _state.characters[name]
+                ensure_character_l1(asset, source_text=_chunk)
+                sent = _portrait_sent_prompt(name, style=style, _state=_state, _chunk=_chunk)
                 refs: list[str] = []
                 base_ref = canonical_portrait_ref(name, _state.characters, _state.visual_bible)
                 if base_ref and _is_within(base_ref, output_dir) and Path(base_ref).is_file():
                     refs = [base_ref]
                 async with image_semaphore:
                     _charge("portrait", name)
-                    sent = f"{prompt}, {comic_style}"
                     image_intent(
                         output_dir,
                         stage="portrait",
@@ -1910,6 +1931,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                 )
 
             portrait_names = []
+            portrait_keys: dict[str, str] = {}
             for name, asset in state.characters.items():
                 # The key must be computed from the same material ``_render_portrait``
                 # will stamp, and that function normalises the prompt first
@@ -1925,17 +1947,54 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                     env=snapshot.t2i,
                     stage_src=_PORTRAIT_STAGE_SRC,
                 )
+                portrait_keys[name] = key_for_portrait
                 if _portrait_file_ok(asset) and asset.portrait_action_key == key_for_portrait:
                     continue
                 if _portrait_file_ok(asset) and not asset.portrait_action_key:
                     asset.portrait_action_key = key_for_portrait
                     continue
                 portrait_names.append(name)
-            base_names = [name for name in portrait_names if "@" not in name]
-            stage_names = [name for name in portrait_names if "@" in name]
+
+            # One face, one billable call. ``portrait_action_key`` includes the
+            # row name, so ``Name`` and ``Name@default`` (identical sent prompt)
+            # never share a key and would each pay for an image. Group by the
+            # exact bytes the renderer would send and draw only the
+            # representative; a genuine stage variant (different sent prompt)
+            # keeps its own image. Reuse rows still get a valid portrait path
+            # and a stable per-name action key so resume and prune stay correct.
+            # One face, one billable call. ``portrait_action_key`` includes the
+            # row name, so ``Name`` and ``Name@default`` (identical sent prompt)
+            # never share a key and would each pay for an image. Group *within
+            # one base character* by the exact bytes the renderer would send:
+            # two unrelated characters that happen to share a prompt (the
+            # alias-merge probe builds exactly that pair) must stay distinct.
+            # A genuine stage variant (different sent prompt) keeps its own
+            # image. Base rows are drawn first, in their own batch, so a stage
+            # variant can use the base portrait as its i2i reference
+            # (canonical_portrait_ref) once that file is on disk.
+            by_sent: dict[tuple[str, str], str] = {}
+            reuse_of: dict[str, list[str]] = {}
+            ordered = [n for n in portrait_names if "@" not in n] + [
+                n for n in portrait_names if "@" in n
+            ]
+            for name in ordered:
+                sent = _portrait_sent_prompt(name)
+                base, _stage = parse_stage_ref(name)
+                representative = by_sent.get((base, sent))
+                if representative is None:
+                    by_sent[(base, sent)] = name
+                    reuse_of[name] = []
+                else:
+                    reuse_of[representative].append(name)
+            representatives = list(by_sent.values())
+            draw_batches = [
+                [n for n in representatives if "@" not in n],
+                [n for n in representatives if "@" in n],
+            ]
+
             portrait_results: list = []
             assigned_names: list[str] = []
-            for group in (base_names, stage_names):
+            for group in draw_batches:
                 group_results = await asyncio.gather(
                     *(_render_portrait(name) for name in group),
                     return_exceptions=True,
@@ -1949,8 +2008,14 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                     if isinstance(result, Exception):
                         continue
                     _, path = result
-                    state.characters[name].portrait_local = path
-                    state.generated.portraits[name] = path
+                    for member in (name, *reuse_of.get(name, [])):
+                        state.characters[member].portrait_local = path
+                        state.generated.portraits[member] = path
+                        # Each row keeps its own name-derived action key. A
+                        # reuse row borrowing the representative's key would
+                        # fail the resume check on the next chunk (its own key
+                        # computes differently) and get drawn a second time.
+                        state.characters[member].portrait_action_key = portrait_keys[member]
                     # Phase 0d (§12 consequence 1): record the authoritative
                     # reference. A first-ever portrait establishes the version
                     # without flagging pages we cannot yet enumerate; a
