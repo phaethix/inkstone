@@ -65,6 +65,7 @@ def test_result_block_is_aligned():
         pass
 
     class State:
+        render_mode = "panel_compose"
         panels_done = [1, 2, 3]
         skipped: list = []
         needs_review: list = []
@@ -84,3 +85,61 @@ def test_result_block_is_aligned():
     assert lines[2] == "  project   : demo"
     assert any("pdf       : comic_out/comic.pdf" in line for line in lines)
     assert any("stale     : 1 panel(s) need redraw" in line for line in lines)
+
+
+def test_finished_page_result_reports_rendered_pages_not_panels():
+    """A finished_page run draws whole pages; it must not report a '0 generated' panel count."""
+
+    class State:
+        render_mode = "finished_page"
+        pages_done = [
+            "c0000-p0000",
+            "c0000-p0001",
+            "c0000-p0002",
+            "c0001-p0000",
+            "c0001-p0001",
+        ]
+        skipped_pages: list = []
+        panels_done: list = []
+        skipped: list = []
+        needs_review: list = []
+        stale_panels: list = []
+
+    class Proj:
+        project_id = "demo"
+        pages = [1, 2, 3, 4, 5]
+        pdf = None
+        webtoon = None
+        cbz = None
+        state = State()
+
+    block = "\n".join(cli_generate._result_lines(Proj()))
+    assert "panels" not in block
+    assert "0 generated" not in block
+    assert "5 pages rendered" in block
+    assert "0 skipped (content filter)" in block
+
+
+def test_panel_compose_result_still_reports_panels():
+    """The panel_compose wording and counts stay unchanged."""
+
+    class State:
+        render_mode = "panel_compose"
+        panels_done = [1, 2, 3]
+        skipped = ["rejected"]
+        pages_done: list = []
+        skipped_pages: list = []
+        needs_review: list = []
+        stale_panels: list = []
+
+    class Proj:
+        project_id = "demo"
+        pages = [1, 2]
+        pdf = None
+        webtoon = None
+        cbz = None
+        state = State()
+
+    block = "\n".join(cli_generate._result_lines(Proj()))
+    assert "panels    : 3 generated, 1 skipped (content filter)" in block
+    assert "pages rendered" not in block

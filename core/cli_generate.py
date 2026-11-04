@@ -61,10 +61,16 @@ def _result_lines(proj) -> list[str]:
         lines.append(f"{_REPORT_INDENT}webtoon   : {proj.webtoon}")
     if proj.cbz:
         lines.append(f"{_REPORT_INDENT}cbz       : {proj.cbz}")
-    lines.append(
-        f"{_REPORT_INDENT}panels    : {len(proj.state.panels_done)} generated, "
-        f"{len(proj.state.skipped)} skipped (content filter)"
-    )
+    if getattr(proj.state, "render_mode", "panel_compose") == "finished_page":
+        lines.append(
+            f"{_REPORT_INDENT}render    : {len(proj.state.pages_done)} pages rendered, "
+            f"{len(proj.state.skipped_pages)} skipped (content filter)"
+        )
+    else:
+        lines.append(
+            f"{_REPORT_INDENT}panels    : {len(proj.state.panels_done)} generated, "
+            f"{len(proj.state.skipped)} skipped (content filter)"
+        )
     if proj.state.needs_review:
         lines.append(
             f"{_REPORT_INDENT}review    : {len(proj.state.needs_review)} alias suggestion(s)"
