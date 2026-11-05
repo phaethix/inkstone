@@ -25,6 +25,14 @@ __all__ = ["DEFAULT_WEBTOON_MAX_PIXELS", "LayoutEngine", "PanelImage"]
 # Smallest CJK size a caption bar will step down to. Below this the bar clips.
 _MIN_CAPTION_SIZE = 9
 
+# Inner padding of a dialogue bubble, shared with the box-fitting code in
+# page_lettering so measuring and drawing wrap at exactly the same width.
+BUBBLE_PAD = 10
+# Soft warm paper tone: light enough for black ink, but not the glaring pure
+# white of a UI sticker against cel-shaded art.
+_BUBBLE_FILL = (250, 247, 240)
+_BUBBLE_OUTLINE = (70, 62, 54)
+
 
 def _webtoon_max_pixels() -> int:
     return webtoon_max_pixels()
@@ -258,11 +266,15 @@ class LayoutEngine:
         self, draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int], text: str
     ) -> None:
         x, y, w, h = box
-        pad = 10
+        pad = BUBBLE_PAD
         # Pillow treats the right and bottom as inclusive, so the outline
         # ends on the last pixel inside the box.
         draw.rounded_rectangle(
-            [x, y, x + w - 1, y + h - 1], radius=12, fill="white", outline="black", width=2
+            [x, y, x + w - 1, y + h - 1],
+            radius=12,
+            fill=_BUBBLE_FILL,
+            outline=_BUBBLE_OUTLINE,
+            width=1,
         )
         max_w = w - 2 * pad
         font, lines = self._fitted_caption(text, max(1, max_w), h)

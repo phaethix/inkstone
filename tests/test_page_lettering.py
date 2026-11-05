@@ -1,5 +1,6 @@
-from PIL import Image, ImageChops
+from PIL import Image, ImageChops, ImageDraw
 
+from core.comic import fonts as _fonts
 from core.comic.layout import LayoutEngine
 from core.comic.page_lettering import (
     LETTERING_VERSION,
@@ -9,6 +10,13 @@ from core.comic.page_lettering import (
     resolve_lettering_jobs,
 )
 from core.schemas import ComicPagePlan
+
+
+def _system_cjk_font() -> str | None:
+    for path in _fonts._CJK_FONT_CANDIDATES:
+        if _fonts._try_load(path, _fonts.DEFAULT_CJK_FONT_SIZE) is not None:
+            return path
+    return None
 
 
 def test_resolve_uses_boxes_then_heuristics():
@@ -150,4 +158,94 @@ def test_resolve_strips_pinyin_before_overlay():
     jobs = resolve_lettering_jobs(plan, source_text="祥子在北平。")
     assert len(jobs) == 1
     assert jobs[0][2] == "海甸的小店，三日昏迷"
-    assert LETTERING_VERSION == "deferred_v3"
+    assert LETTERING_VERSION == "deferred_v4"
+
+
+def test_short_dialogue_stays_on_one_line_after_box_fit():
+    """A line that fits must not be re-wrapped into a broken two-character word.
+
+    ``这首歌，倒是比人坦诚。`` is 154px on one line. Shrinking the bubble to the
+    width of a *wrapped* line and then re-wrapping inside ``_draw_bubble`` split
+    ``坦诚`` across ``坦`` / ``诚。``. The fitted box must be wide enough that the
+    drawer renders the whole sentence on one line.
+    """
+    path = _system_cjk_font()
+    if path is None:
+        import pytest
+
+        pytest.skip("no CJK font on this system")
+    text = "这首歌，倒是比人坦诚。"
+    engine = LayoutEngine(font_path=path)
+    page = (768, 1088)
+    box = fit_lettering_box(
+        engine,
+        "dialogue",
+        text,
+        (61, 87, 276, 130),
+        page,
+    )
+    font, _ = _fonts.resolve_font(text, font_path=path)
+    # _draw_bubble wraps at (box_width - 2*pad); the fitted box must leave that
+    # inner width >= the single-line text width.
+    inner = box[2] - 20
+    assert font.getlength(text) <= inner, (
+        "fitted bubble is too narrow: the drawer will re-wrap and break 坦诚"
+    )
+    drawn_lines = engine._wrap_text(text, font, max_width=inner)
+    assert drawn_lines == [text]
+
+
+def test_letter_finished_page_keeps_short_dialogue_on_one_line():
+    """End-to-end: overlay the real sentence and confirm it is not split mid-word."""
+    path = _system_cjk_font()
+    if path is None:
+        import pytest
+
+        pytest.skip("no CJK font on this system")
+    text = "这首歌，倒是比人坦诚。"
+    blank = Image.new("RGB", (768, 1088), (200, 200, 200))
+    plan = ComicPagePlan.model_validate(
+        {
+            "page_id": "p1",
+            "panels": [{"panel_id": "1", "dialogue": text, "speaker": "沈知意"}],
+            "lettering_boxes": [
+                {"kind": "dialogue", "panel_id": "1", "x": 0.08, "y": 0.08, "w": 0.36, "h": 0.12},
+            ],
+        }
+    )
+    out = letter_finished_page(blank, plan, font_path=path, source_text=text)
+    assert out.size == blank.size
+    assert ImageChops.difference(out, blank).getbbox() is not None
+    # The rendered bubble must be a single-line box (height ≈ one line + pad),
+    # not the two-line box that split 坦诚.
+    engine = LayoutEngine(font_path=path)
+    jobs = resolve_lettering_jobs(plan, source_text=text)
+    for _pid, kind, t, (nx, ny, nw, nh) in jobs:
+        if kind != "dialogue":
+            continue
+        anchor = (int(nx * 768), int(ny * 1088), int(nw * 768), int(nh * 1088))
+        box = fit_lettering_box(engine, kind, t, anchor, (768, 1088))
+        font, _ = _fonts.resolve_font(t, font_path=path)
+        assert engine._wrap_text(t, font, max_width=box[2] - 20) == [t]
+
+
+def test_bubble_uses_a_soft_fill_not_a_harsh_white_sticker():
+    """The dialogue bubble should read as part of the art, not a UI sticker.
+
+    A pure-white, 2px black-outlined rounded rectangle is visually loud against
+    soft cel-shaded art. The new style uses a soft translucent-ish fill that is
+    clearly lighter than the art but not glaring white, with a thin soft border.
+    """
+    path = _system_cjk_font()
+    if path is None:
+        import pytest
+
+        pytest.skip("no CJK font on this system")
+    engine = LayoutEngine(font_path=path)
+    canvas = Image.new("RGB", (320, 120), (200, 200, 200))
+    engine._draw_bubble(ImageDraw.Draw(canvas), (20, 20, 260, 80), "你好，世界。")
+    # Sample the bubble's inner fill (well inside the border, away from glyphs).
+    fill = canvas.getpixel((30, 30))
+    # Not pure white (255,255,255) — a soft warm paper tone instead.
+    assert fill != (255, 255, 255)
+    assert min(fill) >= 235, "fill should stay light enough for black text"

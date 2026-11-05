@@ -5,17 +5,18 @@ from __future__ import annotations
 from PIL import Image, ImageDraw
 
 from core.comic.fonts import resolve_font
-from core.comic.layout import LayoutEngine, _line_height
+from core.comic.layout import BUBBLE_PAD, LayoutEngine, _line_height
 from core.comic.lettering_lang import sanitize_lettering_text, source_lettering_script
 from core.schemas import ComicPagePlan
 
 # Bump when overlay geometry/chrome behavior changes so resume can re-letter blanks.
-LETTERING_VERSION = "deferred_v3"
+LETTERING_VERSION = "deferred_v4"
 
 _MARGIN_FRAC = 0.04
 _MAX_W_FRAC = 0.36
 _MAX_H_FRAC = 0.16
-_PAD = 8
+# Shared with LayoutEngine._draw_bubble so fitting and drawing wrap identically.
+_PAD = BUBBLE_PAD
 
 
 def resolve_lettering_jobs(
@@ -116,6 +117,10 @@ def fit_lettering_box(
     else:
         lines = engine._wrap_text(text, font, max(8, max_w - 2 * _PAD))
         longest = max((font.getlength(line) for line in lines), default=0)
+        # _PAD must match _draw_bubble's pad: fitting wraps at (max_w - 2*_PAD)
+        # and the drawer re-wraps at (need_w - 2*_PAD). When they disagree the
+        # drawer folds a short sentence that fit on one line, splitting words
+        # like 「坦诚」. Sharing the pad constant keeps both widths identical.
         need_w = min(max_w, max(24, int(longest) + 2 * _PAD))
         need_h = min(max_h, engine._bubble_height(text, need_w))
 
