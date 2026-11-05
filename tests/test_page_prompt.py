@@ -151,3 +151,73 @@ def test_page_prompt_omits_a_character_who_is_not_on_the_page():
     assert "UNIQUE_ON_PAGE" in text
     assert "UNIQUE_OFF_PAGE" not in text
     assert list(bible_entries_for_page(bible, ["福贵"])) == ["福贵"]
+
+
+def test_character_lock_is_written_once_even_when_spanning_many_panels():
+    """A character appearing in 4 panels must be declared once, not 4 times.
+
+    Repeating ``character X:`` / ``identity:`` per panel makes the image model
+    read one character as several look-alike people. The lock is page-scoped.
+    """
+    plan = ComicPagePlan.model_validate(
+        {
+            "page_id": "p1",
+            "purpose": "she watches the river, then turns, then reacts, then smiles",
+            "layout_intent": "four panels on the same character",
+            "panels": [
+                {"panel_id": "a", "action": "gaze", "characters": ["沈知意"]},
+                {"panel_id": "b", "action": "pull scarf", "characters": ["沈知意"]},
+                {"panel_id": "c", "action": "turn to lighthouse", "characters": ["沈知意"]},
+                {"panel_id": "d", "action": "smile", "characters": ["沈知意", "少年"]},
+            ],
+            "reference_characters": ["沈知意", "少年"],
+        }
+    )
+    chars = {
+        "沈知意": CharacterAsset(name="沈知意", l1_prompt="young woman, dark hair, scarf"),
+        "少年": CharacterAsset(name="少年", l1_prompt="young man with guitar"),
+    }
+    text = render_finished_page_prompt(
+        plan,
+        characters_by_name=chars,
+        settings_by_name={},
+    )
+    assert text.count("character 沈知意:") == 1
+    assert text.count("character 少年:") == 1
+    # The single lock still carries the description, and both names remain on the page.
+    assert "young woman, dark hair, scarf" in text
+    assert "young man with guitar" in text
+
+
+def test_character_lock_once_with_visual_bible_identity_line():
+    """With a bible, the identity line is also page-scoped, not per panel."""
+    bible = VisualBible(
+        characters={
+            "沈知意": CharacterCanon(
+                canonical_name="沈知意", gender="female", narrative_function="protagonist"
+            ),
+        }
+    )
+    plan = ComicPagePlan.model_validate(
+        {
+            "page_id": "p1",
+            "purpose": "three beats of the same character",
+            "layout_intent": "wide",
+            "panels": [
+                {"panel_id": "a", "action": "gaze", "characters": ["沈知意"]},
+                {"panel_id": "b", "action": "turn", "characters": ["沈知意"]},
+                {"panel_id": "c", "action": "smile", "characters": ["沈知意"]},
+            ],
+            "reference_characters": ["沈知意"],
+        }
+    )
+    text = render_finished_page_prompt(
+        plan,
+        characters_by_name={
+            "沈知意": CharacterAsset(name="沈知意", l1_prompt="young woman, dark hair"),
+        },
+        settings_by_name={},
+        visual_bible=bible,
+    )
+    assert text.count("character 沈知意:") == 1
+    assert text.count("identity: 沈知意") == 1

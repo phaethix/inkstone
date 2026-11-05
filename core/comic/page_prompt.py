@@ -167,6 +167,28 @@ def render_finished_page_prompt(
             "CRITICAL character identity (Chinese nicknames are metaphorical — draw HUMANS only):"
         )
         lines.extend(metaphor_identity_lock_line(name) for name in metaphor_names)
+    # Character locks are page-scoped: one declaration per unique character.
+    # Emitting the lock inside the per-panel loop repeats the same face for each
+    # panel it appears in, which the image model reads as several look-alike
+    # people instead of one recurring character.
+    page_names = list(plan.reference_characters)
+    for panel in plan.panels:
+        page_names.extend(panel.characters)
+    for name in dict.fromkeys(page_names):
+        asset = resolve_character_asset(name, characters_by_name, visual_bible)
+        if asset:
+            ensure_character_l1(asset)
+            desc = _character_desc_for_prompt(name, asset, visual_bible)
+            if desc:
+                lines.append(f"  character {name}: {desc}")
+            if visual_bible is not None:
+                base, _stage = parse_stage_ref(name)
+                canon = visual_bible.characters.get(base)
+                if canon is None:
+                    base = resolve_canonical_name(base, visual_bible)
+                    canon = visual_bible.characters.get(base)
+                if canon is not None:
+                    lines.append(f"  {format_identity_line(name, canon)}")
     for i, panel in enumerate(plan.panels, start=1):
         lines.append(
             f"Panel {i} ({panel.panel_id}): role={panel.role}, shape={panel.shape_hint}, "
@@ -183,21 +205,6 @@ def render_finished_page_prompt(
             setting = settings_by_name.get(panel.setting_ref)
             scene = getattr(setting, "scene_prompt", "") if setting else ""
             lines.append(f"  setting={panel.setting_ref}: {scene}".rstrip(": "))
-        for name in panel.characters:
-            asset = resolve_character_asset(name, characters_by_name, visual_bible)
-            if asset:
-                ensure_character_l1(asset)
-                desc = _character_desc_for_prompt(name, asset, visual_bible)
-                if desc:
-                    lines.append(f"  character {name}: {desc}")
-                if visual_bible is not None:
-                    base, _stage = parse_stage_ref(name)
-                    canon = visual_bible.characters.get(base)
-                    if canon is None:
-                        base = resolve_canonical_name(base, visual_bible)
-                        canon = visual_bible.characters.get(base)
-                    if canon is not None:
-                        lines.append(f"  {format_identity_line(name, canon)}")
         if lettering == "in_image":
             if panel.caption:
                 lines.append(f"  CAPTION (exact): {panel.caption}")
