@@ -149,6 +149,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Render past the sample gate without human confirmation; audited into runs.jsonl",
     )
     p_gen.add_argument(
+        "--fresh",
+        action="store_true",
+        help="Clear the --out project and regenerate from scratch instead of resuming",
+    )
+    p_gen.add_argument(
         "--harness-dir",
         default=None,
         help="Run chat stages with this validated harness tree (default: builtin)",
@@ -991,6 +996,7 @@ def _run_generate(args: argparse.Namespace) -> None:
             gate_yes=args.yes,
             density=args.density,
             harness_dir=args.harness_dir,
+            fresh=args.fresh,
         )
     )
 

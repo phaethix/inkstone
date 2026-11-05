@@ -12,6 +12,7 @@ Usage via CLI: ``inkstone generate <source> [--out DIR] [--project ID] [--format
 import argparse
 import asyncio
 import logging
+import shutil
 import sys
 from contextlib import contextmanager
 from pathlib import Path
@@ -28,6 +29,29 @@ logger = logging.getLogger(__name__)
 
 # Prefix shared by every report line so the final block reads as one section.
 _REPORT_INDENT = "  "
+
+
+def _reset_out_dir(out: str | Path) -> None:
+    """Empty an existing --out directory so a run starts from scratch.
+
+    ``--fresh`` is the explicit, auditable equivalent of deleting ``comic_out``
+    by hand. Refuse paths that could wipe a working tree, home, or filesystem
+    root; create nothing when the directory does not yet exist (the pipeline
+    does that itself). The source text lives outside ``out`` and is untouched.
+    """
+    path = Path(out).expanduser().resolve()
+    unsafe = {Path.home().resolve(), Path("/"), Path.cwd().resolve()}
+    if path in unsafe or not path.name or path == path.anchor:
+        raise ValueError(f"refusing --fresh on unsafe output directory: {path}")
+    if path.is_file():
+        raise ValueError(f"--fresh output path is a file, not a directory: {path}")
+    if not path.exists():
+        return
+    for child in path.iterdir():
+        if child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
 
 
 class _TqdmLoggingHandler(logging.Handler):
@@ -267,8 +291,14 @@ def run_generate(
     gate_yes: bool = False,
     density: str | None = None,
     harness_dir: str | None = None,
+    fresh: bool = False,
 ) -> int:
-    """Validate inputs and run the pipeline. Returns a process exit code."""
+    """Validate inputs and run the pipeline. Returns a process exit code.
+
+    With ``fresh=True`` the resolved ``out`` directory is emptied first, so a
+    completed project does not short-circuit into a resume and the whole comic
+    is regenerated. The source file (outside ``out``) is never touched.
+    """
     if budget is not None and budget < 0:
         print("budget must be >= 0", file=sys.stderr)
         return 2
@@ -291,6 +321,14 @@ def run_generate(
 
     if out is None:
         out = str(Path("comic_out") / project_id) if project_id else "comic_out"
+
+    if fresh:
+        try:
+            _reset_out_dir(out)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        print(f"fresh run: cleared {out}, regenerating from scratch", file=sys.stderr)
 
     _configure_background_logging()
     asyncio.run(
@@ -359,6 +397,11 @@ def _parse_args(argv=None) -> argparse.Namespace:
         help="Render past the sample gate without human confirmation; audited into runs.jsonl",
     )
     p.add_argument(
+        "--fresh",
+        action="store_true",
+        help="Ignore any existing project in --out and regenerate from scratch",
+    )
+    p.add_argument(
         "--density",
         choices=["A", "B", "C"],
         default=None,
@@ -385,6 +428,7 @@ def main() -> None:
             carry_over=args.carry_over,
             gate_yes=args.yes,
             density=args.density,
+            fresh=args.fresh,
         )
     )
 

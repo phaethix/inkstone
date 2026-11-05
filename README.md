@@ -133,7 +133,7 @@ Run `uv run inkstone <command> --help` for the full flag list of any command.
 
 | Command | What it does |
 |---|---|
-| `generate` | Run the full comic pipeline (calls the API). `--book PATH` selects the novel; `--format page\|webtoon\|cbz`; `--density A\|B\|C`; `--budget N` pauses at a call limit; `--out DIR`; `--project ID` for resume. |
+| `generate` | Run the full comic pipeline (calls the API). `--book PATH` selects the novel; `--format page\|webtoon\|cbz`; `--density A\|B\|C`; `--budget N` pauses at a call limit; `--out DIR`; `--project ID` for resume; `--fresh` clears an existing `--out` project and regenerates from scratch instead of resuming. |
 | `plan` | Offline density / cost / duration estimate, no model calls (`--book`, `--density`, `--format`, `--api`). |
 | `web` | Launch the local Web UI (`--host`, `--port`; model flags below). |
 | `gate` / `identity` | Sample-gate decisions and the character-consistency ledger. |
