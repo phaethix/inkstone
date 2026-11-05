@@ -91,11 +91,51 @@ def _run_web(args: argparse.Namespace) -> int:
     return 0
 
 
+_TOP_LEVEL_EPILOG = """\
+Quick start (every run goes through one command; the repo-root .env is loaded
+automatically, so no manual `export` of a key is needed):
+
+  uv run inkstone                         generate the bundled demo -> comic_out
+  uv run inkstone generate --book novel.txt --density B --format cbz
+  uv run inkstone plan --book novel.txt    offline size/cost estimate, draws nothing
+  uv run inkstone web                     local Web UI at http://127.0.0.1:8000
+
+Common generate flags:
+  --book PATH            novel text (positional source works too; defaults to examples/scene1.txt)
+  --out DIR              output directory (default comic_out, or comic_out/<project> with --project)
+  --project ID           stable id for resume; re-running reuses cached pages and costs nothing
+  --fresh                clear an existing --out project and regenerate from scratch
+  --format page|webtoon|cbz   output format (default page = PDF)
+  --density A|B|C        panel budget (A overview, B chapter-complete, C near-original)
+  --budget N             pause after N billable calls
+  --chat-model / --image-model / --provider / --base-url
+                         single-run model overrides (highest priority, never written to .env)
+
+Commands by purpose:
+  generate               full comic pipeline (calls the API)
+  plan                   offline density / cost / duration estimate
+  web                    local Web UI
+  gate / identity        sample-gate decisions and the character ledger
+  read / structure / coverage     reader, stored-structure checks, legacy PageScript report
+  verify / migrate / rebuild / prune / gc    project maintenance and asset reclaim
+  prompt / harness / lesson / experiment / stages    prompt & harness inspection and A/B probes
+
+Colors: `generate` prints a single-color thin-line banner on a truecolor TTY.
+NO_COLOR=1, TERM=dumb, or non-TTY output (pipes, CI, Colab) degrades to clean
+plain text; FORCE_COLOR=1 forces color on. Machine-readable commands and
+`--help` never print the banner, so their stdout stays parseable.
+
+For the full flag list of any command, run `uv run inkstone <command> --help`.
+"""
+
+
 def _build_parser() -> argparse.ArgumentParser:
     """构造顶层解析器。"""
     parser = argparse.ArgumentParser(
         prog="inkstone",
         description="Inkstone novel-to-comic generator",
+        epilog=_TOP_LEVEL_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
