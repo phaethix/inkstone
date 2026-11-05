@@ -1,4 +1,4 @@
-"""tests/test_banner.py — 启动横幅的回归约束（彩色 / 纯文本降级）。"""
+"""tests/test_banner.py — 启动横幅的回归约束（单色细线 / 纯文本降级）。"""
 
 import io
 import re
@@ -6,84 +6,69 @@ import re
 import pytest
 
 from core import banner
-from core.banner import (
-    _ANSI_RE,
-    _GLYPHS,
-    _INNER_W,
-    _TAGLINE,
-    _gradient_at,
-    _paint,
-    _render,
-    print_banner,
-)
+from core.banner import print_banner
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+_ANSI_FG_RE = re.compile(r"\x1b\[(38;2;\d+;\d+;\d+)m")
 
 
 def _strip(text: str) -> str:
     return _ANSI_RE.sub("", text)
 
 
-def test_glyphs_are_uniform_and_cover_the_word():
-    assert set("INKSTONE") <= set(_GLYPHS)
-    for glyph in _GLYPHS.values():
-        assert len(glyph) == 5
-        assert all(len(row) == 5 for row in glyph)
-
-
-def test_render_produces_five_equal_width_rows():
-    rows = _render("INKSTONE")
+def test_art_is_single_color_thin_lines_not_blocks():
+    """细线字形：不含实心方块，且所有可见非空白字符都是轻量线字符。"""
+    rows = banner._ART_ROWS
     assert len(rows) == 5
-    assert len({len(row) for row in rows}) == 1
-    assert all("█" in row for row in rows)
+    assert all("█" not in row for row in rows)
+    assert all(len(row) == len(rows[0]) for row in rows)
+    # 参照图的细线字符集，不含任何实心 / 填充块。
+    allowed = set(" _|/\\()<>`-.'")
+    assert all(ch in allowed for row in rows for ch in row)
 
 
-def test_gradient_endpoints_and_midpoint():
-    assert _gradient_at(0.0) == banner._TEAL
-    assert _gradient_at(1.0) == banner._CINNABAR
-    assert _gradient_at(0.5) == banner._CREAM
+def test_line_title_has_name_dash_and_slogan():
+    """说明行复刻参照图的『名称 - 描述』结构，保留原 slogan。"""
+    title = banner._LINE_TITLE
+    assert "Inkstone" in title
+    assert " - " in title
+    assert banner._TAGLINE in title
 
 
-def test_colored_banner_has_frame_brand_and_truecolor(capsys):
+def test_colored_banner_is_single_color_no_frame_no_blocks(capsys):
+    """彩色模式：单色 truecolor、无圆角边框、无实心块、无加粗。"""
     print_banner(color=True)
     out = capsys.readouterr().out
-    assert "Grind your novel into comics." in out
-    assert "╭" in out and "╰" in out  # 圆角边框
-    assert "\x1b[38;2;" in out  # truecolor
-    assert "█" in out
+    plain = _strip(out)
+    assert "╭" not in plain and "│" not in plain and "╰" not in plain
+    assert "█" not in plain
+    assert banner._TAGLINE in plain
+    assert "\x1b[1m" not in out  # 不加粗
+    colors = set(_ANSI_FG_RE.findall(out))
+    assert len(colors) == 1  # 整体只用一种前景色
+    assert next(iter(colors)).startswith("38;2;")  # truecolor 单色
 
 
-def test_colored_banner_is_compact_single_tagline(capsys):
-    print_banner(color=True)
-    out = _strip(capsys.readouterr().out)
-    assert out.count(_TAGLINE) == 1  # 文字区只有一行标语
-    assert "砚" not in out  # 无印章分隔线
-    assert "AI-Powered Novel-to-Comic Generator" not in out  # 无副标题
-    assert not re.search(r"v\d+\.\d+\.\d+", out)  # 无版本行
-
-
-def test_colored_frame_lines_have_consistent_display_width(capsys):
-    import unicodedata
-
-    print_banner(color=True)
-    frame = [
-        line for line in capsys.readouterr().out.splitlines() if line.startswith("│") or "│" in line
-    ]
-    widths = set()
-    for line in frame:
-        plain = _strip(line)
-        widths.add(sum(2 if unicodedata.east_asian_width(c) in ("W", "F") else 1 for c in plain))
-    assert len(widths) == 1
-    assert widths.pop() == _INNER_W + 2  # 两条边框竖线
-
-
-def test_plain_banner_has_no_ansi_and_no_frame():
+def test_plain_banner_has_no_ansi_no_frame_no_blocks():
+    """纯文本降级：无 ANSI、无边框、无实心块，但保留细线字形与说明。"""
     buf = io.StringIO()
     print_banner(stream=buf, color=False)
     out = buf.getvalue()
     assert "\x1b[" not in out
-    assert "╭" not in out and "│" not in out
-    assert "Grind your novel into comics." in out
-    assert "█" in out
+    assert "╭" not in out and "│" not in out and "╰" not in out
+    assert "█" not in out
+    assert banner._TAGLINE in out
+    for row in banner._ART_ROWS:
+        assert row.rstrip() in out
+
+
+def test_colored_banner_is_compact_single_tagline(capsys):
+    """文字区只有一行说明，无副标题 / 版本 / 印章分隔线。"""
+    print_banner(color=True)
+    out = _strip(capsys.readouterr().out)
+    assert out.count(banner._TAGLINE) == 1
     assert "砚" not in out
+    assert "AI-Powered Novel-to-Comic Generator" not in out
     assert not re.search(r"v\d+\.\d+\.\d+", out)
 
 
@@ -117,11 +102,4 @@ def test_no_color_degrades_to_plain(monkeypatch, capsys):
 
 def test_print_banner_writes_to_stdout_by_default(capsys):
     print_banner(color=False)
-    assert "Grind your novel into comics." in capsys.readouterr().out
-
-
-def test_paint_wraps_with_reset():
-    colored = _paint("x", banner._CINNABAR)
-    assert colored.startswith("\x1b[38;2;")
-    assert colored.endswith("\x1b[0m")
-    assert re.search(r"\x1b\[38;2;\d+;\d+;\d+m", colored)
+    assert banner._TAGLINE in capsys.readouterr().out

@@ -1,22 +1,22 @@
-# 启动横幅美化设计（水墨印章 · 渐变面板）
+# 启动横幅设计（单色细线 · 极简）
 
-日期：2026-11-04
+日期：2026-11-04（2026-11-05 改为极简版，取代最初的渐变面板方案）
 范围：单文件视觉调整，零业务逻辑。
 
 ## 目标
 
-让 `uv run inkstone`（`generate` 路径）的启动横幅与项目品牌视觉一致，尽量美观。
+让 `uv run inkstone`（`generate` 路径）的启动横幅克制、安静，贴近参照图的
+单色细线 ASCII 风格，不再"花里胡哨"。
 
 ## 视觉语言
 
-配色取自 `assets/logo.svg` 与 README hero：墨黑 `#1B212C`、朱砂 `#C0412B`、
-米白 `#F0ECE4`、青绿 `#63D3BE`、紫灰 `#8A8594`。
-
-- 大字：保留 5×5 方块字形（已验证对齐），按列做 truecolor 水平渐变
-  （青绿 → 米白 → 亮朱砂），深色终端上清晰。
-- 容器：圆角 Unicode 边框面板，石板灰描边，左右留白。
-- 点睛：朱砂「砚」印章 + 细分隔线，呼应 hero 里的印章圆点。
-- 排版：标语（米白加粗）、副标题（紫灰）、版本号（亮朱砂）分级居中。
+- 标志：figlet `standard` 字体拼出 `INKSTONE`，只用 `_ | / \ ( )` 等轻量线字符，
+  5 行等宽，左缩进两格；无边框、无渐变、无实心块、无加粗。
+- 配色：标志整体只用一种柔和青灰绿 `#7FB0C0`（比品牌青绿 `#63D3BE` 更灰更淡，
+  truecolor），说明行保持终端默认前景色，不做颜色分级。
+- 说明行：复刻参照图的"名称 - 描述"结构 `Inkstone - Grind your novel into comics.`，
+  只一行，无副标题、无版本号、无印章分隔线。
+- 排版：前导空行、标志、空行、说明行、尾空行，留出呼吸感。
 
 ## 降级策略
 
@@ -30,15 +30,19 @@
 
 ## 改动范围
 
-- `core/banner.py`：重写渲染与配色，公开 `print_banner(stream, color, version)`；
-  保留 `_GLYPHS` / `_render` 供测试与预览复用。
+- `core/banner.py`：重写渲染为单色细线；公开 `print_banner(stream, color)` 不变；
+  字形存为 `_ART_ROWS` 常量，说明存为 `_LINE_TITLE`，不引入外部字体依赖。
 - `core/cli.py`：调用点保持 `print_banner()` 不变。
-- `tests/test_banner.py`：覆盖彩色分支、纯文本降级、自动检测、字形结构。
+- `tests/test_banner.py`：覆盖细线字形（无实心块 / 字符集）、单色 truecolor、
+  无边框 / 无加粗、说明行结构、纯文本降级、自动检测。
+- 本文档：记录极简方案。
 
 ## 验证
 
-`uvx ruff format .`、相关 pytest、实跑 `uv run inkstone`（彩色与管道降级两种）。
+`uvx ruff format .`、`uvx ruff check .`、`uv run pytest -q`（含 banner 用例），
+实跑 `print_banner(color=True)` 与 `print_banner(color=False)` 核对彩色 / 纯文本两种效果。
 
 ## 不在范围内
 
-不引入任何新依赖；不改动 generate 管线；不改 CLI 子命令分发。
+不引入任何新依赖（figlet 字形以静态常量落地）；不改动 generate 管线；
+不改 CLI 子命令分发；不处理 `--fresh` 等重跑入口（另案）。
