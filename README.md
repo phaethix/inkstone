@@ -133,20 +133,11 @@ Run `uv run inkstone <command> --help` for the full flag list of any single comm
 
 `uv run inkstone web` starts the zero-dependency local UI (Tailwind SPA + an
 `http.server` backend — **no new pip package**) around the same pipeline. Paste a
-novel, optionally set a **project id** (resume the same `comic_out/<id>/`), pick
-webtoon/page, and hit Generate. The backend runs an **unattended supervisor**
-around `creative_comic`: timeouts and free-tier 503s are retried automatically
-with backoff until the comic finishes, or until the wall-clock deadline
-(`INKSTONE_RUN_DEADLINE_HOURS`, default **24h**) pauses the job with progress
-saved. Artifacts land under `comic_out/<project_id>/`. After generation, the UI
-surfaces **alias review** (merge / dismiss — never silent), **skipped** panels
-with retry, **redraw affected** after a merge, and **Read pages** when that
-project already has page images.
+novel and hit Generate; artifacts land under `comic_out/<project_id>/`.
 
-**The same `web/index.html` is also deployed to GitHub Pages.** The SPA auto-detects
-whether a backend is present: locally it generates your comic; on the static site
-it runs in *demo mode* with the identical interface. See
-`https://phaethix.github.io/inkstone/`.
+The same `web/index.html` is also deployed to [GitHub Pages](https://phaethix.github.io/inkstone/):
+locally it generates your comic, on the static site it runs in *demo mode* with
+the identical interface.
 
 > **Status:** M1–M4 (provider foundation, comic pipeline, long-form hardening and open-source release) have shipped. See the [Roadmap](docs/ROADMAP.md) for released capability, local prototypes and the approved long-form plan.
 
