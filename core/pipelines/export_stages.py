@@ -365,12 +365,19 @@ def finished_page_files(pages_dir: Path) -> list[Path]:
     return sorted(p for p in pages_dir.glob("page_*.png") if p.match("page_c*_p*.png"))
 
 
-def prepare_finished_page_export(pages_dir: Path, state=None) -> list[Path]:
-    """Collect finished-page assets and drop stale panel-compose ``page_NN.png`` files.
+def prepare_finished_page_export(
+    pages_dir: Path,
+    state=None,
+    export_mode: str = "art_only",
+) -> list[Path]:
+    """Collect finished-page assets for binding into the exported book.
 
-    With a project state, the list is the current plan (skipped pages omitted).
-    Without one, every ``page_c*_p*.png`` is collected, which is what older
-    callers did.
+    ``export_mode="art_only"`` binds the un-lettered ``pages/blank/`` art;
+    ``"lettered"`` binds the deferred-lettering pages (with dialogue). The
+    choice is the caller's: hardcoding one mode either puts speech bubbles back
+    on every regeneration or turns the book into a silent movie. Blank art that
+    is missing falls back to the lettered page so older projects lose nothing.
+    Stale panel-compose ``page_NN.png`` sheets are dropped as before.
     """
     if state is None:
         finished = finished_page_files(pages_dir)
@@ -378,6 +385,13 @@ def prepare_finished_page_export(pages_dir: Path, state=None) -> list[Path]:
         from core.pipelines.resume import finished_plan_files
 
         finished = finished_plan_files(state, pages_dir)
+    if export_mode == "art_only":
+        blank_dir = pages_dir / "blank"
+        chosen: list[Path] = []
+        for page in finished:
+            blank = blank_dir / page.name
+            chosen.append(blank if blank.is_file() else page)
+        finished = chosen
     for stale in pages_dir.glob("page_*.png"):
         if not stale.match("page_c*_p*.png"):
             stale.unlink()

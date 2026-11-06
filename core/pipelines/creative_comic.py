@@ -1088,6 +1088,7 @@ class ComicRunOptions:
     sample_gate_size: int | None = None
     density: str | None = None
     harness_dir: str | Path | None = None
+    export_mode: str = "art_only"
 
 
 async def creative_comic(
@@ -1110,6 +1111,7 @@ async def creative_comic(
     sample_gate_size: int | None = None,
     density: str | None = None,
     harness_dir: str | Path | None = None,
+    export_mode: str = "art_only",
 ) -> ComicProject:
     """Generate a project while holding its process-level mutation lock.
 
@@ -1136,6 +1138,7 @@ async def creative_comic(
         sample_gate_size=sample_gate_size,
         density=density,
         harness_dir=harness_dir,
+        export_mode=export_mode,
     )
     with _project_lock(Path(output_dir)):
         return await _creative_comic(options)
@@ -1230,6 +1233,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
     sample_gate_size = options.sample_gate_size
     density = options.density
     harness_dir = options.harness_dir
+    export_mode = options.export_mode
 
     output_dir = Path(output_dir)
     clear_audit()
@@ -3188,7 +3192,11 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
         # pages into a single vertical strip.
         state.stage = "export"
         _report("export", max(0.90, _pct()))
-        page_files = prepare_finished_page_export(pages_dir, state) if pages_dir.exists() else []
+        page_files = (
+            prepare_finished_page_export(pages_dir, state, export_mode=export_mode)
+            if pages_dir.exists()
+            else []
+        )
         if page_files:
             if output_format == "webtoon":
                 node = _schedule_export("export.webtoon")

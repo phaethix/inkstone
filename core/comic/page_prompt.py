@@ -49,7 +49,9 @@ FINISHED_PAGE_NEGATIVE_PROMPT = (
     "posters with writing, labels with writing, screen text, UI text, "
     "monochrome black-and-white character sketch insets, uncolored lineart "
     "figures, rough character doodles, half-finished or unshaded panel art, "
-    "character design sheet fragments inside the finished page, "
+    "character design sheet fragments inside the finished page, character design "
+    "sheets, turnarounds, multi-view reference collages, model sheets, "
+    "uncolored white-background lineart boxes, small sketch sub-frames, "
     "palette swatches, color charts, hex codes, reference labels, "
     "floating portrait insets, headshot cutouts copied from a design sheet, "
     "open books, sheet music, letters, notebooks, paper props, "
@@ -116,7 +118,19 @@ def render_finished_page_prompt(
         "Finished readable manga/comic page, portrait single image,",
         "dynamic panel layout with gutters (not a flat labeled grid collage),",
         "every panel fully colored and shaded the same way, flat colors,",
+        "each panel a separate framed composition with a clear empty gutter between",
+        "cells: draw each person as a complete figure (whole body when standing),",
+        "never slice a head, neck, or body at a gutter, and do not let any figure,",
+        "hair, or prop cross, bleed, or spill into a neighboring panel,",
+        "reference portraits are fully colored painted art of one person each, "
+        "not a layout to copy and not a sheet to trace: painted face, hair, clothes, "
+        "each character keeps the same outfit in every panel, and each prop belongs to",
+        "its named owner only: only the character the action names may hold it; a prop",
+        "does not hand itself to a different character,",
     ]
+    scene_for_page = _page_scene(plan, settings_by_name)
+    if scene_for_page:
+        lines.append(f"Scene setting for the whole page: {scene_for_page}")
     if lettering == "deferred":
         # Naming the forbidden things here makes the model draw them. The ban
         # lives entirely in the negative prompt; the positive side only says
@@ -292,6 +306,26 @@ def _strip_lineart_words(text: str) -> str:
     cleaned = re.sub(r"\s{2,}", " ", cleaned)
     cleaned = re.sub(r"\s+([,.;:])", r"\1", cleaned)
     return re.sub(r"([,;:])\s*[,;:]+", r"\1", cleaned).strip(" ,;")
+
+
+def _page_scene(plan: ComicPagePlan, settings_by_name: dict[str, Setting]) -> str:
+    """One top-level setting directive for the whole page.
+
+    A chapter's setting used to appear only as a trailing ``setting=`` line on
+    each panel, where the global riverside look drowned it out and the second
+    chapter still rendered a river. Lifting the distinct scene descriptions to
+    the top makes the current chapter's location dominate the inherited look.
+    """
+    scenes: list[str] = []
+    for panel in plan.panels:
+        if not panel.setting_ref:
+            continue
+        setting = settings_by_name.get(panel.setting_ref)
+        scene = getattr(setting, "scene_prompt", "") if setting else ""
+        scene = _strip_lineart_words(scene).strip()
+        if scene and scene not in scenes:
+            scenes.append(scene)
+    return "; ".join(scenes)
 
 
 def _color_block_for_image(block: str) -> str:

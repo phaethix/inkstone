@@ -188,6 +188,7 @@ async def _run(
     gate_yes: bool = False,
     density: str | None = None,
     harness_dir: str | None = None,
+    export_mode: str = "art_only",
 ) -> None:
     text = Path(source).read_text(encoding="utf-8")
     spec = None
@@ -213,6 +214,7 @@ async def _run(
             gate_yes=gate_yes,
             density=density,
             harness_dir=harness_dir,
+            export_mode=export_mode,
         )
 
     if isinstance(result, PausedRun):
@@ -292,6 +294,7 @@ def run_generate(
     density: str | None = None,
     harness_dir: str | None = None,
     fresh: bool = False,
+    export_mode: str = "art_only",
 ) -> int:
     """Validate inputs and run the pipeline. Returns a process exit code.
 
@@ -342,6 +345,7 @@ def run_generate(
             gate_yes=gate_yes,
             density=density,
             harness_dir=harness_dir,
+            export_mode=export_mode,
         )
     )
     return 0
@@ -402,6 +406,12 @@ def _parse_args(argv=None) -> argparse.Namespace:
         help="Ignore any existing project in --out and regenerate from scratch",
     )
     p.add_argument(
+        "--export-lettered",
+        action="store_true",
+        help="Bind the deferred-lettering pages (with dialogue bubbles) into the book; "
+        "default binds the clean art-only pages",
+    )
+    p.add_argument(
         "--density",
         choices=["A", "B", "C"],
         default=None,
@@ -429,6 +439,7 @@ def main() -> None:
             gate_yes=args.yes,
             density=args.density,
             fresh=args.fresh,
+            export_mode="lettered" if getattr(args, "export_lettered", False) else "art_only",
         )
     )
 

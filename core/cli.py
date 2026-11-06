@@ -194,6 +194,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Clear the --out project and regenerate from scratch instead of resuming",
     )
     p_gen.add_argument(
+        "--export-lettered",
+        action="store_true",
+        help="Bind deferred-lettering pages (with dialogue) into the book; "
+        "default binds the clean art-only pages",
+    )
+    p_gen.add_argument(
         "--harness-dir",
         default=None,
         help="Run chat stages with this validated harness tree (default: builtin)",
@@ -1037,6 +1043,7 @@ def _run_generate(args: argparse.Namespace) -> None:
             density=args.density,
             harness_dir=args.harness_dir,
             fresh=args.fresh,
+            export_mode="lettered" if getattr(args, "export_lettered", False) else "art_only",
         )
     )
 

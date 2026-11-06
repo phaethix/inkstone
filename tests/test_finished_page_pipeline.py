@@ -306,8 +306,12 @@ def test_finished_page_mode_writes_generated_pages(tmp_path, monkeypatch):
     chat, img = FakeChat(), FakeImage()
     proj = asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=chat, image=img))
 
+    # The exported book is art-only: proj.pages names the blank pages that
+    # were bound, not the lettered pages with deferred speech bubbles.
     page_files = sorted((tmp_path / "pages").glob("page_*.png"))
     assert page_files
+    blank_files = sorted((tmp_path / "pages" / "blank").glob("page_*.png"))
+    assert blank_files
 
     assert proj.state.render_mode == "finished_page"
     # The state names the file that holds the source, not the directory it sits
@@ -324,7 +328,7 @@ def test_finished_page_mode_writes_generated_pages(tmp_path, monkeypatch):
     assert Path(generated_page.local).exists()
 
     assert proj.pdf and Path(proj.pdf).exists()
-    assert proj.pages == [str(p) for p in page_files]
+    assert proj.pages == [str(p) for p in blank_files]
 
     assert img.calls == 2  # 1 portrait + 1 page
     assert chat.calls == 4  # extract + reconcile + extract_key_beats + plan_comic_pages

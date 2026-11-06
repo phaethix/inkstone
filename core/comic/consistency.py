@@ -42,8 +42,9 @@ DEFAULT_PANEL_STYLE = (
 # reference images stay in the same manhua/comic world as the panels.
 DEFAULT_PORTRAIT_STYLE = (
     "one fully colored character, single front view, plain background, "
-    "manhua comic style, clean black ink line art, soft cel shading, flat colors, "
-    "consistent character reference, no turnaround, no model sheet, no color chart"
+    "manhua comic style, soft cel shading, flat colors, "
+    "a single complete painted portrait of one person, full color throughout, "
+    "consistent character reference"
 )
 
 
