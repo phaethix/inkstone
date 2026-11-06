@@ -13,10 +13,7 @@ _FIRST_PERSON_LETTER_RE = re.compile(
     re.IGNORECASE,
 )
 
-TIMELINE_PRESENT_LINE = (
-    "Timeline=present: stage the scene as it happens now, in its own setting; "
-    "do not add a reader, a letter, or a book unless the action calls for one."
-)
+TIMELINE_PRESENT_LINE = "Timeline=present: stage the scene as it happens now, in its own setting."
 TIMELINE_PAST_LINE = (
     "Timeline=past: warmer memory staging with slight film grain; depict lived scenes "
     "in environment — do not default to letter-holding unless action requires it."

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 from core.comic.identity import (
@@ -16,7 +17,6 @@ from core.comic.visual_bible import (
     ANTI_CHARACTER_SHEET_LINE,
     ANTI_MULTI_AGE_COLLAGE_LINE,
     COSTUME_CHANGE_LOCK_LINE,
-    DIEGETIC_TEXT_LINE,
     HAIR_STABILITY_LINE,
     format_color_bible_block,
     format_identity_line,
@@ -51,6 +51,9 @@ FINISHED_PAGE_NEGATIVE_PROMPT = (
     "monochrome black-and-white character sketch insets, uncolored lineart "
     "figures, rough character doodles, half-finished or unshaded panel art, "
     "character design sheet fragments inside the finished page, "
+    "palette swatches, color charts, hex codes, reference labels, "
+    "floating portrait insets, headshot cutouts copied from a design sheet, "
+    "open books, sheet music, letters, notebooks, paper props, "
     "extra unnamed people, duplicate copies of a character, crowd of bystanders"
 )
 
@@ -116,19 +119,12 @@ def render_finished_page_prompt(
         "clean black ink line art, soft cel shading, flat colors,",
     ]
     if lettering == "deferred":
-        lines.extend(
-            [
-                "NO speech bubbles, caption bars, SFX glyphs, or lettering chrome in the image,",
-                "leave clean panel art only — text will be added in post-processing,",
-                "do not render any readable text, letters, or glyphs (no Latin, no CJK),",
-                "do not cover faces, hands, or key action with placeholders.",
-                DIEGETIC_TEXT_LINE,
-            ]
-        )
+        # Naming the forbidden things here makes the model draw them. The ban
+        # lives entirely in the negative prompt; the positive side only says
+        # what the picture is.
+        lines.append("picture only, empty panel art, no writing anywhere,")
         if strict:
-            lines.append(
-                "STRICT: zero readable characters and zero bubble/caption chrome anywhere."
-            )
+            lines.append("STRICT: picture only, empty panels, nothing written.")
     else:
         lines.extend(
             [
@@ -149,22 +145,26 @@ def render_finished_page_prompt(
     if effective_style:
         lines.append(f"Style: {effective_style}")
     if visual_bible is not None:
-        color_block = format_color_bible_block(visual_bible)
+        color_block = _color_block_for_image(format_color_bible_block(visual_bible))
         if color_block:
             lines.append(color_block)
         lines.append(COSTUME_CHANGE_LOCK_LINE)
+        lines.append(
+            "Match each character to their reference portrait: same face, hair, "
+            "scarf color, and coat. The reference is one person, not a layout to copy."
+        )
         lines.append(ANTI_CHARACTER_SHEET_LINE)
         lines.append(wardrobe_banline_for_bible(visual_bible))
         lines.append(ANTI_MULTI_AGE_COLLAGE_LINE)
         lines.append(HAIR_STABILITY_LINE)
-        lines.append(ANTI_CENTER_STANDEE_LINE)
+        lines.append(_image_safe(ANTI_CENTER_STANDEE_LINE))
     lines.append(f"Page purpose: {plan.purpose}")
     lines.append(f"Layout intent: {plan.layout_intent}")
-    beat_line = covers_beats_prompt_line(plan)
+    beat_line = _image_safe(covers_beats_prompt_line(plan) or "")
     if beat_line:
         lines.append(beat_line)
     for line in timeline_prompt_lines(getattr(plan, "timeline", "") or ""):
-        lines.append(line)
+        lines.append(_image_safe(line))
     metaphor_names = metaphor_names_on_page(plan, characters_by_name)
     if metaphor_names:
         lines.append(
@@ -209,12 +209,12 @@ def render_finished_page_prompt(
     for i, panel in enumerate(plan.panels, start=1):
         lines.append(
             f"Panel {i} ({panel.panel_id}): role={panel.role}, shape={panel.shape_hint}, "
-            f"shot={panel.shot}, action={panel.action}"
+            f"shot={panel.shot}, action={_image_safe(panel.action)}"
         )
         panel_tl = getattr(panel, "timeline", "") or ""
         if panel_tl:
             for line in timeline_prompt_lines(panel_tl):
-                lines.append(f"  {line}")
+                lines.append(f"  {_image_safe(line)}")
         speaker = getattr(panel, "speaker", "") or ""
         if speaker:
             lines.append(f"  speaker={speaker}")
@@ -231,7 +231,58 @@ def render_finished_page_prompt(
                 lines.append(f"  SFX (exact): {panel.sfx}")
             if panel.lettering_notes:
                 lines.append(f"  lettering: {panel.lettering_notes}")
-        else:
-            if panel.lettering_notes:
-                lines.append(f"  leave clear space for lettering: {panel.lettering_notes}")
+    return "\n".join(lines)
+
+
+# A positive prompt that names comic chrome draws the chrome, even in a
+# negation ("no speech bubble", "not holding a letter"). These clauses are
+# stripped; a letter the action actually stages ("reads a letter") stays.
+_CHROME_CLAUSE_RE = re.compile(
+    r"(?ix)\b(?:"
+    r"speech bubbles?|thought bubbles?|bubbles?|caption bars?|caption boxes?|"
+    r"sfx glyphs?|lettering chrome|lettering|post-processing|placeholders?|"
+    r"diegetic|pseudo-script|blank aged paper|letterforms?|glyphs?|"
+    r"readable text|readable characters?"
+    r")\b"
+)
+_NEGATED_PROP_RE = re.compile(
+    r"(?ix)\b(?:no|not|never|without|avoid|unless)\b[^.]*\b(?:"
+    r"letters?|books?|newspapers?|sheet music|notebooks?"
+    r")\b"
+)
+_LETTER_USAGE_RE = re.compile(r"(?i)\b(outlines and lettering|lettering)\b")
+
+
+def _image_safe(text: str) -> str:
+    """Drop clauses that name bubbles, captions, or a forbidden paper prop.
+
+    The planner writes actions such as "a speech bubble carries her line" and
+    shared lines such as "not holding a letter". Either phrase puts the object
+    on the page. A clause is one comma- or semicolon-separated piece; only the
+    pieces that name the object are removed, so the staging around them stays.
+    An action that really stages the prop ("reads a letter") is kept.
+    """
+    if not text:
+        return ""
+    kept: list[str] = []
+    # A sentence is its own clause: "She smiles. A speech bubble carries her
+    # line." must lose the second sentence, not the smile.
+    for clause in re.split(r"(?<=[,;])\s+|(?<=[.!?])\s+|\s+—\s+", text):
+        if _CHROME_CLAUSE_RE.search(clause) or _NEGATED_PROP_RE.search(clause):
+            continue
+        kept.append(clause)
+    return " ".join(kept).strip(" ,;")
+
+
+def _color_block_for_image(block: str) -> str:
+    """A palette swatch labelled "for lettering" makes the page draw a chart."""
+    if not block:
+        return ""
+    lines = []
+    for line in block.splitlines():
+        cleaned = _LETTER_USAGE_RE.sub("", line)
+        cleaned = re.sub(r"\(\s*\)", "", cleaned)
+        cleaned = re.sub(r"\s{2,}", " ", cleaned).rstrip()
+        if cleaned.strip():
+            lines.append(cleaned)
     return "\n".join(lines)

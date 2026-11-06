@@ -37,7 +37,9 @@ def test_prompt_includes_layout_lettering_and_identity():
     assert "This map is moving." not in text
     assert "CAPTION (exact):" not in text
     assert "DIALOGUE (exact):" not in text
-    assert "no readable" in text.lower() or "no speech bubbles" in text.lower()
+    # Naming the ban in the positive prompt makes the model draw the thing.
+    assert "speech bubble" not in text.lower()
+    assert "picture only" in text.lower()
     assert "young woman, dark hair" in text
     assert "2x2" not in text.lower()  # renderer must not collapse intent to grid slogan
     assert "Wide top archive" in text
@@ -70,8 +72,9 @@ def test_deferred_prompt_omits_glyph_strings_and_forbids_readable_text():
     assert "DIALOGUE (exact):" not in text
     assert "你好" not in text
     assert "傍晚" not in text
-    assert "no readable" in text.lower() or "no speech bubbles" in text.lower()
-    assert "post-processing" in text.lower() or "leave clear space" in text.lower()
+    assert "speech bubble" not in text.lower()
+    assert "lettering" not in text.lower()
+    assert "picture only" in text.lower()
 
 
 def test_in_image_lettering_mode_still_includes_exact_strings():
@@ -281,6 +284,55 @@ def test_single_character_page_still_forbids_a_second_person():
     lowered = text.lower()
     assert "only people on this page are 沈知意" in lowered
     assert "second copy" in lowered or "bystander" in lowered
+
+
+def test_deferred_prompt_drops_the_words_that_summon_chrome():
+    """A clause that names a bubble or a forbidden letter draws that object."""
+    plan = ComicPagePlan.model_validate(
+        {
+            "page_id": "p1",
+            "purpose": "she answers",
+            "layout_intent": "close",
+            "covers_beats": ["smile"],
+            "panels": [
+                {
+                    "panel_id": "1",
+                    "action": (
+                        "She smiles. A single clean speech bubble carries her line, "
+                        "top-right of the panel."
+                    ),
+                    "characters": ["沈知意"],
+                    "lettering_notes": "Dialogue bubble in the top-right.",
+                }
+            ],
+            "reference_characters": ["沈知意"],
+        }
+    )
+    text = render_finished_page_prompt(
+        plan,
+        characters_by_name={
+            "沈知意": CharacterAsset(name="沈知意", l1_prompt="young woman"),
+        },
+        settings_by_name={},
+    )
+    lowered = text.lower()
+    assert "speech bubble" not in lowered
+    assert "lettering" not in lowered
+    assert "holding a letter" not in lowered
+    assert "she smiles" in lowered
+
+
+def test_a_letter_the_action_stages_is_kept():
+    plan = ComicPagePlan.model_validate(
+        {
+            "page_id": "p1",
+            "purpose": "reads letter",
+            "layout_intent": "close",
+            "panels": [{"panel_id": "1", "action": "R reads a letter at the desk"}],
+        }
+    )
+    text = render_finished_page_prompt(plan, characters_by_name={}, settings_by_name={})
+    assert "reads a letter" in text
 
 
 def test_page_with_no_characters_omits_the_cast_lock():

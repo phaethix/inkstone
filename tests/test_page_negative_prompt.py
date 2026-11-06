@@ -80,6 +80,8 @@ def test_negative_prompt_bans_extra_people():
     lowered = render_finished_page_negative_prompt().lower()
     assert "extra unnamed" in lowered or "bystander" in lowered
     assert "duplicate" in lowered
+    assert "palette" in lowered or "color chart" in lowered
+    assert "sheet music" in lowered or "open books" in lowered
 
 
 def test_negative_prompt_never_leaks_plan_strings():

@@ -20,9 +20,9 @@ LAYOUT_CATALOG: frozenset[str] = frozenset(
 )
 
 ANTI_CENTER_STANDEE_LINE = (
-    "Avoid repeating a centered full-body standing hero (especially holding a letter "
-    "or book) as the page focus; prefer environmental staging, action blocking, and "
-    "varied shots unless layout_intent is explicitly splash_action."
+    "Avoid repeating a centered full-body standing hero as the page focus; "
+    "prefer environmental staging, action blocking, and varied shots unless "
+    "layout_intent is explicitly splash_action."
 )
 
 

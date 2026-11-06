@@ -218,7 +218,11 @@ def test_page_prompt_includes_era_gender_diegetic():
         lettering="deferred",
     )
     lower = text.lower()
-    assert "diegetic" in lower or "pseudo-script" in lower or "blank aged paper" in lower
+    # The diegetic ban moved to the negative channel: naming paper in the
+    # positive prompt made the model draw the paper.
+    assert "diegetic" not in lower
+    assert "blank aged paper" not in lower
+    assert "picture only" in lower
     assert "identity: r (male, letter_reader)" in lower
     assert "vienna" in lower or "period-accurate" in lower or "hoodie" in lower
     ban = wardrobe_banline_for_bible(bible)
