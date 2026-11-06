@@ -123,6 +123,8 @@ def test_prompt_forbids_character_sheets_and_modern_athleisure():
         visual_bible=bible,
     )
     lower = text.lower()
-    assert "design sheet" in lower or "turnaround" in lower or "model sheet" in lower
+    assert "fully colored" in lower
+    assert "line art" not in lower
+    assert "design sheet" not in lower
     assert "hoodie" in lower or "period-accurate" in lower or "period accurate" in lower
     assert "flashback" in lower or "multiple age" in lower

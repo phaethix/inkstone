@@ -32,7 +32,7 @@ def test_prompt_includes_layout_lettering_and_identity():
         settings_by_name={},
         style_guide="manhua comic style",
     )
-    assert "A4 portrait" in text or "portrait comic page" in text.lower()
+    assert "portrait" in text.lower()
     assert "MIDNIGHT AT THE SKY ARCHIVE" not in text
     assert "This map is moving." not in text
     assert "CAPTION (exact):" not in text
@@ -333,6 +333,46 @@ def test_a_letter_the_action_stages_is_kept():
     )
     text = render_finished_page_prompt(plan, characters_by_name={}, settings_by_name={})
     assert "reads a letter" in text
+
+
+def test_finished_page_prompt_does_not_ask_for_a_sketch():
+    """ "Line art" and "design sheet" became an uncolored panel of a stranger."""
+    plan = ComicPagePlan.model_validate(
+        {
+            "page_id": "p1",
+            "purpose": "dock",
+            "layout_intent": "wide",
+            "panels": [
+                {
+                    "panel_id": "1",
+                    "action": "the boy plays",
+                    "characters": ["少年"],
+                    "setting_ref": "dock",
+                }
+            ],
+            "reference_characters": ["少年"],
+        }
+    )
+    text = render_finished_page_prompt(
+        plan,
+        characters_by_name={
+            "少年": CharacterAsset(name="少年", l1_prompt="young man, red scarf"),
+        },
+        settings_by_name={},
+        style_guide="clean black ink line art, soft cel shading",
+        visual_bible=VisualBible(
+            style_guide="manhua, clean black ink line art",
+            characters={
+                "少年": CharacterCanon(canonical_name="少年", gender="male", face_lock="shy smile")
+            },
+        ),
+    )
+    lowered = text.lower()
+    assert "line art" not in lowered
+    assert "design sheet" not in lowered
+    assert "turnaround" not in lowered
+    assert "fully colored" in lowered
+    assert "exact outfit" in lowered
 
 
 def test_page_with_no_characters_omits_the_cast_lock():

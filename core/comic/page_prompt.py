@@ -14,7 +14,6 @@ from core.comic.identity import (
 from core.comic.key_beats import covers_beats_prompt_line
 from core.comic.layout_diversity import ANTI_CENTER_STANDEE_LINE
 from core.comic.visual_bible import (
-    ANTI_CHARACTER_SHEET_LINE,
     ANTI_MULTI_AGE_COLLAGE_LINE,
     COSTUME_CHANGE_LOCK_LINE,
     HAIR_STABILITY_LINE,
@@ -114,9 +113,9 @@ def render_finished_page_prompt(
         page_names.extend(panel.characters)
     visual_bible = page_scoped_bible(visual_bible, page_names)
     lines: list[str] = [
-        "Finished readable manga/comic page, A4 portrait single image,",
+        "Finished readable manga/comic page, portrait single image,",
         "dynamic panel layout with gutters (not a flat labeled grid collage),",
-        "clean black ink line art, soft cel shading, flat colors,",
+        "every panel fully colored and shaded the same way, flat colors,",
     ]
     if lettering == "deferred":
         # Naming the forbidden things here makes the model draw them. The ban
@@ -143,17 +142,17 @@ def render_finished_page_prompt(
         else style_guide
     )
     if effective_style:
-        lines.append(f"Style: {effective_style}")
+        lines.append(f"Style: {_strip_lineart_words(effective_style)}")
     if visual_bible is not None:
         color_block = _color_block_for_image(format_color_bible_block(visual_bible))
         if color_block:
             lines.append(color_block)
         lines.append(COSTUME_CHANGE_LOCK_LINE)
         lines.append(
-            "Match each character to their reference portrait: same face, hair, "
-            "scarf color, and coat. The reference is one person, not a layout to copy."
+            "Each character wears the exact outfit declared below in every panel: "
+            "same garment, same color. Copy the reference portrait's face, hair, "
+            "and clothes; do not redraw them."
         )
-        lines.append(ANTI_CHARACTER_SHEET_LINE)
         lines.append(wardrobe_banline_for_bible(visual_bible))
         lines.append(ANTI_MULTI_AGE_COLLAGE_LINE)
         lines.append(HAIR_STABILITY_LINE)
@@ -221,6 +220,7 @@ def render_finished_page_prompt(
         if panel.setting_ref:
             setting = settings_by_name.get(panel.setting_ref)
             scene = getattr(setting, "scene_prompt", "") if setting else ""
+            scene = _strip_lineart_words(scene)
             lines.append(f"  setting={panel.setting_ref}: {scene}".rstrip(": "))
         if lettering == "in_image":
             if panel.caption:
@@ -272,6 +272,26 @@ def _image_safe(text: str) -> str:
             continue
         kept.append(clause)
     return " ".join(kept).strip(" ,;")
+
+
+# "Ink line art" and "design sheet" in a positive prompt become an uncolored
+# sketch panel. The finished page is fully colored; those phrases are removed
+# from style and setting text before it is sent.
+_LINEART_PHRASE_RE = re.compile(
+    r"(?i)\b(?:clean\s+)?black\s+ink\s+line\s*art\b|\bink\s+line\s*art\b|\bline\s*art\b"
+    r"|\bcharacter\s+design\s+sheets?\b|\bdesign\s+sheets?\b|\bmodel\s+sheets?\b"
+    r"|\bturnarounds?\b"
+)
+
+
+def _strip_lineart_words(text: str) -> str:
+    """Remove the phrases that make a colored page sprout a sketch panel."""
+    if not text:
+        return ""
+    cleaned = _LINEART_PHRASE_RE.sub("", text)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    cleaned = re.sub(r"\s+([,.;:])", r"\1", cleaned)
+    return re.sub(r"([,;:])\s*[,;:]+", r"\1", cleaned).strip(" ,;")
 
 
 def _color_block_for_image(block: str) -> str:
