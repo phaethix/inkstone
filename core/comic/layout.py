@@ -263,16 +263,23 @@ class LayoutEngine:
         return max(50, len(lines) * _line_height(font) + 20)
 
     def _draw_bubble(
-        self, draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int], text: str
+        self,
+        draw: ImageDraw.ImageDraw,
+        box: tuple[int, int, int, int],
+        text: str,
+        *,
+        fill: tuple[int, int, int] | None = None,
+        ink: str = "black",
     ) -> None:
         x, y, w, h = box
         pad = BUBBLE_PAD
+        bubble_fill = fill if fill is not None else _BUBBLE_FILL
         # Pillow treats the right and bottom as inclusive, so the outline
         # ends on the last pixel inside the box.
         draw.rounded_rectangle(
             [x, y, x + w - 1, y + h - 1],
             radius=12,
-            fill=_BUBBLE_FILL,
+            fill=bubble_fill,
             outline=_BUBBLE_OUTLINE,
             width=1,
         )
@@ -286,7 +293,7 @@ class LayoutEngine:
                 break
             if max_w < 1 or font.getlength(line) > max_w:
                 continue
-            draw.text((x + pad, ty), line, fill="black", font=font)
+            draw.text((x + pad, ty), line, fill=ink, font=font)
             ty += line_h
 
     def _caption_block_height(self, font: ImageFont.ImageFont, lines: list[str]) -> int:
@@ -317,12 +324,25 @@ class LayoutEngine:
         return font, lines
 
     def _draw_caption(
-        self, draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int], text: str
+        self,
+        draw: ImageDraw.ImageDraw,
+        box: tuple[int, int, int, int],
+        text: str,
+        *,
+        fill: tuple[int, int, int] | None = None,
+        ink: str = "black",
     ) -> None:
-        """Rectangular narration bar (not a speech bubble)."""
+        """Soft narration bar (not a speech bubble, not a hard white sticker)."""
         x, y, w, h = box
         pad = 10
-        draw.rectangle([x, y, x + w - 1, y + h - 1], fill=(245, 245, 240), outline="black", width=2)
+        bubble_fill = fill if fill is not None else _BUBBLE_FILL
+        draw.rounded_rectangle(
+            [x, y, x + w - 1, y + h - 1],
+            radius=8,
+            fill=bubble_fill,
+            outline=_BUBBLE_OUTLINE,
+            width=1,
+        )
         max_w = w - 2 * pad
         font, lines = self._fitted_caption(text, max(1, max_w), h)
         ty = y + pad
@@ -333,7 +353,7 @@ class LayoutEngine:
                 break
             if max_w < 1 or font.getlength(line) > max_w:
                 continue
-            draw.text((x + pad, ty), line, fill="black", font=font)
+            draw.text((x + pad, ty), line, fill=ink, font=font)
             ty += line_h
 
     def _draw_sfx(

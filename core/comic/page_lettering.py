@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageStat
 
 from core.comic.fonts import resolve_font
 from core.comic.layout import BUBBLE_PAD, LayoutEngine, _line_height
@@ -17,6 +17,110 @@ _MAX_W_FRAC = 0.36
 _MAX_H_FRAC = 0.16
 # Shared with LayoutEngine._draw_bubble so fitting and drawing wrap identically.
 _PAD = BUBBLE_PAD
+
+
+def _luma(rgb: tuple[int, int, int]) -> float:
+    return 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]
+
+
+def text_ink_for_fill(fill: tuple[int, int, int]) -> str:
+    """Black ink on light fills, white ink on dark ones (legibility)."""
+    return "white" if _luma(fill) < 128 else "black"
+
+
+def blend_fill_with_art(
+    image: Image.Image,
+    box: tuple[int, int, int, int],
+) -> tuple[int, int, int]:
+    """Sample the artwork just outside the box and derive a tone that belongs.
+
+    A fixed warm-white paper block reads as a sticker on a dark night scene.
+    Instead we take the mean color of a ring of surrounding pixels and pull the
+    fill toward it, lifting slightly so glyphs stay readable. The result is a
+    scene-derived tone (dark blue on a night page, pale on a bright page) rather
+    than a one-size-fits-all white.
+    """
+    x, y, w, h = box
+    iw, ih = image.size
+    ring = 18
+    left = max(0, x - ring)
+    top = max(0, y - ring)
+    right = min(iw, x + w + ring)
+    bottom = min(ih, y + h + ring)
+    acc = [0.0, 0.0, 0.0]
+    total = 0
+    # Four strips around the box (skip the box interior so text area is excluded).
+    for rect in (
+        (left, top, right, max(top + 1, y)),
+        (left, min(bottom - 1, y + h), right, bottom),
+        (left, top, max(left + 1, x), bottom),
+        (min(right - 1, x + w), top, right, bottom),
+    ):
+        if rect[0] < rect[2] and rect[1] < rect[3]:
+            crop = image.crop(rect).convert("RGB")
+            mean = ImageStat.Stat(crop).mean
+            weight = crop.size[0] * crop.size[1]
+            for c in range(3):
+                acc[c] += mean[c] * weight
+            total += weight
+    if total == 0:
+        return (250, 247, 240)
+    avg = tuple(int(acc[c] / total) for c in range(3))
+    # Blend 70% toward the scene, keep a gentle lift for contrast.
+    lift = 26
+    base = (250, 247, 240)
+    blended = tuple(int(0.3 * base[c] + 0.7 * avg[c]) for c in range(3))
+    return tuple(min(255, v + lift) for v in blended)
+
+
+def pick_lettering_region(
+    image: Image.Image,
+    frac_box: tuple[float, float, float, float],
+) -> tuple[int, int, int, int]:
+    """Choose a flat, empty area via deterministic content analysis.
+
+    The LLM-supplied normalized box is only a size/preferred-location hint. We
+    score a grid of candidate cells by local luminance variance (low variance =
+    calm sky / empty space, high variance = busy subject we must not cover) and
+    keep the calmest cell near the preferred location. This replaces hardcoded
+    corner coordinates with a decision driven by the actual artwork.
+    """
+    iw, ih = image.size
+    fx, fy, fw, fh = frac_box
+    want_w = max(0.08, min(fw, 1.0 - 2 * _MARGIN_FRAC)) * iw
+    want_h = max(0.05, min(fh, 1.0 - 2 * _MARGIN_FRAC)) * ih
+    pref_cx = (fx + fw / 2) * iw
+    pref_cy = (fy + fh / 2) * ih
+    gray = image.convert("L")
+    cols, rows = 6, 8
+    cw, ch = iw / cols, ih / rows
+    best: tuple[float, int, int] | None = None
+    for r in range(rows):
+        for c in range(cols):
+            cx0, cy0 = int(c * cw), int(r * ch)
+            cx1, cy1 = int((c + 1) * cw), int((r + 1) * ch)
+            if cx1 <= cx0 or cy1 <= cy0:
+                continue
+            cell = gray.crop((cx0, cy0, cx1, cy1))
+            # Variance = stddev^2; calm regions score low.
+            variance = ImageStat.Stat(cell).stddev[0] ** 2
+            cx = (cx0 + cx1) / 2
+            cy = (cy0 + cy1) / 2
+            # The hinted location dominates: each lettering job has its own
+            # intended area (right-top dialogue, left-bottom caption, ...).
+            # Calmness only breaks ties nearby, so different jobs never all
+            # collapse onto the single flattest cell in the whole image.
+            distance = ((cx - pref_cx) ** 2 + (cy - pref_cy) ** 2) ** 0.5
+            score = distance + min(variance, 400.0) * 0.5
+            if best is None or score < best[0]:
+                best = (score, int(cx), int(cy))
+    _, ccx, ccy = best or (0.0, int(pref_cx), int(pref_cy))
+    bw, bh = int(want_w), int(want_h)
+    margin_x = int(iw * _MARGIN_FRAC)
+    margin_y = int(ih * _MARGIN_FRAC)
+    x = min(max(int(ccx - bw / 2), margin_x), iw - margin_x - bw)
+    y = min(max(int(ccy - bh / 2), margin_y), ih - margin_y - bh)
+    return (x, y, bw, bh)
 
 
 def resolve_lettering_jobs(
@@ -77,6 +181,15 @@ def _safe_anchor(
         else:
             y = band_y0 + band_h * 0.72
         y = min(max(y, _MARGIN_FRAC), 1.0 - _MARGIN_FRAC - h)
+    # Narration captions must never sit across the middle of the finished page:
+    # that is where the figures are. Anime faces defeat cv2, and a per-panel
+    # band midpoint is meaningless on a full-bleed page, so apply a page-level
+    # edge-band rule that holds regardless of which band placed the caption.
+    if kind == "caption":
+        cy = y + h / 2
+        if 0.2 <= cy <= 0.8:
+            y = _MARGIN_FRAC if cy <= 0.5 else 1.0 - _MARGIN_FRAC - h
+            y = min(max(y, _MARGIN_FRAC), 1.0 - _MARGIN_FRAC - h)
     return _clamp_box(x, y, w, h)
 
 
@@ -204,26 +317,42 @@ def letter_finished_page(
     *,
     font_path: str | None = None,
     source_text: str = "",
+    placement_boxes: list[tuple[int, int, int, int]] | None = None,
 ) -> Image.Image:
     img = blank.convert("RGB").copy()
     draw = ImageDraw.Draw(img)
     engine = LayoutEngine(font_path=font_path)
     w, h = img.size
     faces = detect_page_faces(img)
+    jobs = resolve_lettering_jobs(plan, source_text=source_text)
+    use_vision = placement_boxes is not None and len(placement_boxes) == len(jobs)
     occupied: list[tuple[int, int, int, int]] = []
-    for _pid, kind, text, (nx, ny, nw, nh) in resolve_lettering_jobs(plan, source_text=source_text):
-        anchor = (int(nx * w), int(ny * h), max(8, int(nw * w)), max(8, int(nh * h)))
+    for i, (_pid, kind, text, anchor_frac) in enumerate(jobs):
+        if use_vision:
+            # Vision model chose the *position*; keep it (do not let the
+            # band/caption edge heuristics push it away), but recompute the box
+            # size from the real text so the chrome stays tight.
+            anchor = (placement_boxes or [])[i]
+        else:
+            # Fallback: deterministic flat-area analysis near the hinted spot.
+            region = pick_lettering_region(blank, anchor_frac)
+            ax, ay, aw, ah = region
+            anchor = (ax, ay, aw, ah)
         box = fit_lettering_box(engine, kind, text, anchor, (w, h))
         box = _shift_off_faces(box, faces, (w, h))
         box = _avoid_overlap(box, occupied, (w, h))
         box = _shift_off_faces(box, faces, (w, h))
         occupied.append(box)
+        # Derive the bubble tone from the local artwork so it blends into the
+        # scene instead of reading as a fixed white sticker.
+        fill = blend_fill_with_art(blank, box)
+        ink = text_ink_for_fill(fill)
         if kind == "caption":
-            engine._draw_caption(draw, box, text)
+            engine._draw_caption(draw, box, text, fill=fill, ink=ink)
         elif kind == "sfx":
             engine._draw_sfx(draw, box, text)
         else:
-            engine._draw_bubble(draw, box, text)
+            engine._draw_bubble(draw, box, text, fill=fill, ink=ink)
     return img
 
 
