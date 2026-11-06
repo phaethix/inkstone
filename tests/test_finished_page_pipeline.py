@@ -1035,17 +1035,23 @@ class RecordingRefsImage(FakeImage):
 
 
 @patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
-def test_finished_pages_pass_portrait_and_cross_chunk_blank_refs(tmp_path, monkeypatch):
+def test_finished_pages_pass_portraits_but_not_the_previous_page(tmp_path, monkeypatch):
+    """The previous finished page must not become the next page's reference.
+
+    Feeding it in copied an invented third person, and then the wrong setting,
+    from one page onto the next. Each page keeps only its character portraits.
+    """
     monkeypatch.setenv("INKSTONE_RENDER_MODE", "finished_page")
+    monkeypatch.setenv("INKSTONE_PANEL_CONTINUITY", "1")
     src = "第一章\n福贵在村口。\n第二章\n福贵在读书。"
     image = RecordingRefsImage()
     asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=FakeChat(), image=image))
     assert len(image.page_refs) == 2
     assert image.page_refs[0], "first page should i2i from the character portrait"
     assert image.page_refs[1], "second chunk should keep portrait refs"
-    first_refs = set(image.page_refs[0])
-    second_refs = set(image.page_refs[1])
-    assert second_refs - first_refs, "second chunk first page should add previous blank"
+    blanks = {path.name for path in (tmp_path / "pages" / "blank").glob("*.png")}
+    for refs in image.page_refs:
+        assert not any(Path(ref).name in blanks for ref in refs)
 
 
 @patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)

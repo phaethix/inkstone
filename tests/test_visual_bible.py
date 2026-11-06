@@ -424,6 +424,37 @@ def test_the_previous_blank_is_gated_by_panel_continuity():
     assert "/tmp/prev.png" not in off
 
 
+def test_continuity_off_keeps_the_character_portraits():
+    """Closing the previous-page channel must not drop the identity refs."""
+    plan = ComicPagePlan.model_validate(
+        {
+            "page_id": "p1",
+            "purpose": "two people on the dock",
+            "layout_intent": "wide",
+            "panels": [{"panel_id": "1", "characters": ["沈知意", "少年"], "action": "lean"}],
+            "reference_characters": ["沈知意", "少年"],
+        }
+    )
+    chars = {
+        "沈知意": CharacterAsset(name="沈知意", portrait_local="/tmp/shen.png"),
+        "少年": CharacterAsset(name="少年", portrait_local="/tmp/boy.png"),
+    }
+    bible = VisualBible(
+        version="bible_v1",
+        style_guide="",
+        color=ColorBible(palette=[], lighting="", forbidden=[]),
+        characters={},
+    )
+    refs = collect_finished_page_refs(
+        plan,
+        chars,
+        bible,
+        prev_blank="/tmp/prev.png",
+        panel_continuity=False,
+    )
+    assert refs == ["/tmp/shen.png", "/tmp/boy.png"]
+
+
 def test_ensure_stage_portrait_assets_creates_portrait_key_rows():
     state = ProjectState(
         project_id="p",

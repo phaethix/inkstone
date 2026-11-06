@@ -77,6 +77,18 @@ def test_sanitize_moves_writer_voice_off_reader_dialogue():
     assert not any(b.kind == "dialogue" for b in out.lettering_boxes)
 
 
+def test_present_timeline_does_not_invent_a_letter_reader():
+    """``present`` used to mean "the letter-reader, now".
+
+    On a story with no letters that line put a reader and a book into every
+    panel, which the model drew as a second copy of the protagonist.
+    """
+    present = " ".join(timeline_prompt_lines("present")).casefold()
+    assert "present" in present
+    assert "letter-reader" not in present
+    assert "reading-frame" not in present
+
+
 def test_timeline_prompt_lines_and_page_injection():
     assert any("present" in line.casefold() for line in timeline_prompt_lines("present"))
     past_lines = timeline_prompt_lines("past")

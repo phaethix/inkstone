@@ -14,8 +14,8 @@ _FIRST_PERSON_LETTER_RE = re.compile(
 )
 
 TIMELINE_PRESENT_LINE = (
-    "Timeline=present: cool static reading-frame atmosphere; calm interior; "
-    "focus on the letter-reader now."
+    "Timeline=present: stage the scene as it happens now, in its own setting; "
+    "do not add a reader, a letter, or a book unless the action calls for one."
 )
 TIMELINE_PAST_LINE = (
     "Timeline=past: warmer memory staging with slight film grain; depict lived scenes "

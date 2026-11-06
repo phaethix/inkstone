@@ -221,3 +221,76 @@ def test_character_lock_once_with_visual_bible_identity_line():
     )
     assert text.count("character 沈知意:") == 1
     assert text.count("identity: 沈知意") == 1
+
+
+def test_multi_character_page_forces_visual_distinction_rule():
+    """A page with two locked genders must forbid look-alike duplication.
+
+    The image model collapsed 沈知意 (female) and 少年 (male) into two identical
+    scarf-wearing girls. A diffuser needs an explicit rule to keep multiple
+    characters on one page visually distinct and gender-locked.
+    """
+    plan = ComicPagePlan.model_validate(
+        {
+            "page_id": "p1",
+            "purpose": "two people lean on the railing",
+            "layout_intent": "wide two-shot",
+            "panels": [
+                {
+                    "panel_id": "1",
+                    "action": "both lean on the railing",
+                    "characters": ["沈知意", "少年"],
+                }
+            ],
+            "reference_characters": ["沈知意", "少年"],
+        }
+    )
+    chars = {
+        "沈知意": CharacterAsset(name="沈知意", l1_prompt="young woman, scarf"),
+        "少年": CharacterAsset(name="少年", l1_prompt="young man with guitar"),
+    }
+    text = render_finished_page_prompt(plan, characters_by_name=chars, settings_by_name={})
+    lowered = text.lower()
+    assert "visually distinct" in lowered
+    assert "gender" in lowered
+    assert "look-alike" in lowered or "lookalike" in lowered
+
+
+def test_single_character_page_still_forbids_a_second_person():
+    """One declared character is exactly where the extra reader appeared.
+
+    The dock page named only 沈知意 and the model drew her twice, once as a
+    hoodie-wearing reader. A one-person page needs the cast lock too.
+    """
+    plan = ComicPagePlan.model_validate(
+        {
+            "page_id": "p1",
+            "purpose": "one woman watches the river",
+            "layout_intent": "single shot",
+            "panels": [{"panel_id": "1", "action": "gaze", "characters": ["沈知意"]}],
+            "reference_characters": ["沈知意"],
+        }
+    )
+    text = render_finished_page_prompt(
+        plan,
+        characters_by_name={
+            "沈知意": CharacterAsset(name="沈知意", l1_prompt="young woman, scarf"),
+        },
+        settings_by_name={},
+    )
+    lowered = text.lower()
+    assert "only people on this page are 沈知意" in lowered
+    assert "second copy" in lowered or "bystander" in lowered
+
+
+def test_page_with_no_characters_omits_the_cast_lock():
+    plan = ComicPagePlan.model_validate(
+        {
+            "page_id": "p1",
+            "purpose": "the river only",
+            "layout_intent": "wide",
+            "panels": [{"panel_id": "1", "action": "water", "characters": []}],
+        }
+    )
+    text = render_finished_page_prompt(plan, characters_by_name={}, settings_by_name={})
+    assert "only people on this page" not in text.lower()

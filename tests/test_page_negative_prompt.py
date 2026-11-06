@@ -58,6 +58,30 @@ def test_negative_prompt_is_stable_across_calls():
     assert render_finished_page_negative_prompt() == render_finished_page_negative_prompt()
 
 
+def test_negative_prompt_bans_monochrome_character_sketches():
+    """Lineart character sketches leaked into finished pages 3 and 4.
+
+    A model appended an uncolored black-and-white character doodle inset beside
+    the fully shaded panels. The negative channel must name these explicitly —
+    "NO design sheets" alone did not stop a small monochrome figure.
+    """
+    lowered = render_finished_page_negative_prompt().lower()
+    assert "monochrome" in lowered or "black-and-white" in lowered
+    assert "lineart" in lowered or "line art" in lowered or "uncolored" in lowered
+    assert "sketch" in lowered
+
+
+def test_negative_prompt_bans_extra_people():
+    """A second copy of a locked character is the consistency failure.
+
+    Positive cast locks did not stop the model adding an unnamed reader beside
+    the declared cast, so the negative channel names the extra person too.
+    """
+    lowered = render_finished_page_negative_prompt().lower()
+    assert "extra unnamed" in lowered or "bystander" in lowered
+    assert "duplicate" in lowered
+
+
 def test_negative_prompt_never_leaks_plan_strings():
     """A negative prompt listing the dialogue would draw the dialogue."""
     negative = render_finished_page_negative_prompt()

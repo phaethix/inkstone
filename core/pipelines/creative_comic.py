@@ -2408,9 +2408,12 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                     if not _page_needs_generation(_state, state_key):
                         return
                     check_cancel(cancel_check)
-                    prev_blank_path = previous_page_blank(
-                        _state, _pageset, chunk_index=_chunk_index, page_index=page_index
-                    )
+                    # A finished page is its own composition. Conditioning it on
+                    # the previous page's full image copies that page's cast,
+                    # poses, and setting forward — an extra figure invented on one
+                    # page then appears on every page after it. Identity stays
+                    # with the character portraits. The panel_compose path still
+                    # honors INKSTONE_PANEL_CONTINUITY; this call site does not.
                     prompt = render_finished_page_prompt(
                         plan,
                         characters_by_name=_state.characters,
@@ -2429,9 +2432,8 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                             plan,
                             _state.characters,
                             _state.visual_bible,
-                            prev_blank=prev_blank_path,
                             reference_paths=ledger_refs,
-                            panel_continuity=image_config.panel_continuity,
+                            panel_continuity=False,
                         )
                     else:
                         refs = [
@@ -2442,9 +2444,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                     refs = [
                         ref for ref in refs if _is_within(ref, output_dir) and Path(ref).is_file()
                     ]
-                    ref_policy = finished_page_ref_policy(
-                        panel_continuity=image_config.panel_continuity
-                    )
+                    ref_policy = finished_page_ref_policy(panel_continuity=False)
                     active_size = page_size
                     if page_size != _FALLBACK_PAGE_SIZE and _state.rejected_page_size == page_size:
                         active_size = _FALLBACK_PAGE_SIZE

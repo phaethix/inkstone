@@ -47,7 +47,11 @@ FINISHED_PAGE_NEGATIVE_PROMPT = (
     "typography, calligraphy, "
     "newspaper headlines, printed columns of text, book pages with writing, "
     "signposts with writing, station signs with writing, shop signs with writing, "
-    "posters with writing, labels with writing, screen text, UI text"
+    "posters with writing, labels with writing, screen text, UI text, "
+    "monochrome black-and-white character sketch insets, uncolored lineart "
+    "figures, rough character doodles, half-finished or unshaded panel art, "
+    "character design sheet fragments inside the finished page, "
+    "extra unnamed people, duplicate copies of a character, crowd of bystanders"
 )
 
 _NEGATIVE_PROMPT_STRICT_SUFFIX = ", absolutely no text of any kind anywhere in the image"
@@ -174,7 +178,8 @@ def render_finished_page_prompt(
     page_names = list(plan.reference_characters)
     for panel in plan.panels:
         page_names.extend(panel.characters)
-    for name in dict.fromkeys(page_names):
+    unique_page_names = list(dict.fromkeys(page_names))
+    for name in unique_page_names:
         asset = resolve_character_asset(name, characters_by_name, visual_bible)
         if asset:
             ensure_character_l1(asset)
@@ -189,6 +194,18 @@ def render_finished_page_prompt(
                     canon = visual_bible.characters.get(base)
                 if canon is not None:
                     lines.append(f"  {format_identity_line(name, canon)}")
+    if unique_page_names:
+        cast = ", ".join(unique_page_names)
+        lines.append(
+            f"CRITICAL cast lock: the only people on this page are {cast}. "
+            "Draw each of them once per panel they appear in, and keep them "
+            "visually distinct: the locked gender, face, hairstyle and outfit "
+            "declared above. Do not add a "
+            "bystander, a reader, a second copy, or any person the panel action "
+            "does not name. Never render two look-alike copies of the same "
+            "person, never swap a character's gender, and never merge two "
+            "characters into one look."
+        )
     for i, panel in enumerate(plan.panels, start=1):
         lines.append(
             f"Panel {i} ({panel.panel_id}): role={panel.role}, shape={panel.shape_hint}, "
