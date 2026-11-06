@@ -23,6 +23,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -543,9 +544,62 @@ def _placement_stage_src(placement_boxes: list[tuple[int, int, int, int]] | None
     return f"{_LETTER_STAGE_SRC}:vp-{digest}"
 
 
+# A reusable identity portrait must lock FACE / HAIR / OUTFIT only. Held props
+# belong to a panel's action, not to the character: when "抱着一把旧吉他" was
+# baked into the boy's portrait prompt, the model also drew a guitar in Shen
+# Zhiyi's portrait, and the finished pages showed the WRONG person holding it.
+# Props are stripped clause-wise so an identity cue like "red scarf" survives.
+_PROP_CLAUSE_RE = re.compile(
+    r"(?i)(吉他|guitars?|acoustic|抱在臂弯|抱着|手持|holding|holds?|"
+    r"carr(?:y|ies|ying)|抱着一把|strumming|plucking|琴|乐器|instrument)"
+)
+
+
+def _strip_portrait_props(prompt: str) -> str:
+    """Drop held-prop clauses from a portrait prompt; keep identity intact."""
+    if not prompt or not _PROP_CLAUSE_RE.search(prompt):
+        return prompt
+    kept: list[str] = []
+    for clause in re.split(r"(?<=[,;，；。])\s+", prompt):
+        if _PROP_CLAUSE_RE.search(clause):
+            continue
+        kept.append(clause)
+    cleaned = " ".join(kept).strip(" ,;，；")
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    return cleaned or prompt
+
+
+def _page_portrait_refs(plan, characters_by_name, *, max_refs: int = 3) -> list[str]:
+    """Portrait reference paths for one finished page (visual_bible-empty path).
+
+    One page, one small set of distinct faces. A repeated name or a long cast
+    used to hand the i2i model many copies of the same portrait, which it read
+    as 'draw another copy of this person' and produced look-alike duplicates
+    across the panels. De-duplicate by path and cap the budget hard.
+    """
+    refs: list[str] = []
+    seen: set[str] = set()
+    for name in _page_reference_names(plan):
+        asset = characters_by_name.get(name)
+        loc = getattr(asset, "portrait_local", None) if asset is not None else None
+        if not loc or loc in seen:
+            continue
+        seen.add(loc)
+        refs.append(loc)
+        if len(refs) >= max_refs:
+            break
+    return refs
+
+
 def _portrait_key_material(name: str, asset, style: str) -> str:
-    """Stable portrait identity. A per-chunk source warning is not part of it."""
-    return "\n".join([name, asset.portrait_prompt or "", asset.l1_prompt or "", style or ""])
+    """Stable portrait identity. A per-chunk source warning is not part of it.
+
+    Key on the prop-stripped prompt that is actually sent, so a portrait baked
+    with a held instrument is invalidated once props become panel-only.
+    """
+    portrait = _strip_portrait_props(asset.portrait_prompt or "")
+    l1 = _strip_portrait_props(asset.l1_prompt or "")
+    return "\n".join([name, portrait, l1, style or ""])
 
 
 def _panel_key_material(panel) -> str:
@@ -1890,6 +1944,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                     asset = _state.characters[name]
                 ensure_character_l1(asset, source_text=_chunk)
                 prompt = asset.portrait_prompt or asset.l1_prompt
+                prompt = _strip_portrait_props(prompt)
                 if _state.visual_bible is not None:
                     base, stage = parse_stage_ref(name)
                     canon = _state.visual_bible.characters.get(base)
@@ -1899,10 +1954,10 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                     if canon is not None:
                         canon_prompt = l1_from_canon(canon, stage)
                         if canon_prompt:
-                            prompt = canon_prompt
+                            prompt = _strip_portrait_props(canon_prompt)
                         suffix = portrait_gender_era_suffix(_state.visual_bible, canon)
                         prompt = f"{prompt}, {suffix}"
-                prompt = harden_human_identity_prompt(name, prompt)
+                prompt = _strip_portrait_props(harden_human_identity_prompt(name, prompt))
                 if _state.visual_bible is not None:
                     color_block = format_color_bible_block(_state.visual_bible)
                     if color_block:
@@ -2488,11 +2543,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                             panel_continuity=False,
                         )
                     else:
-                        refs = [
-                            _state.characters[name].portrait_local
-                            for name in _page_reference_names(plan)
-                            if name in _state.characters and _state.characters[name].portrait_local
-                        ]
+                        refs = _page_portrait_refs(plan, _state.characters)
                     refs = [
                         ref for ref in refs if _is_within(ref, output_dir) and Path(ref).is_file()
                     ]
