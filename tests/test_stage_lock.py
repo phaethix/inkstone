@@ -198,3 +198,51 @@ def test_render_fingerprint_omits_the_manual_stage_lock_token():
     ).hexdigest()
     assert fp == expected
     assert "stage_lock" not in payload
+
+
+def test_infer_stage_rejects_story_specific_tokens():
+    """Story-specific vocabulary must not mint stages for unrelated stories."""
+    assert infer_stage_from_text("给他写信") is None
+    assert infer_stage_from_text("丧子之痛") is None
+    assert infer_stage_from_text("交际花出入舞厅") is None
+    assert infer_stage_from_text("临别的车站") is None
+    assert infer_stage_from_text("a boarding house by the sea") is None
+
+
+def test_infer_stage_keeps_generic_cues():
+    """Generic age vocabulary keeps working across any story."""
+    assert infer_stage_from_text("十三岁的少女站在门口") == "child"
+    assert infer_stage_from_text("十八岁的少年离家") == "teen"
+    assert infer_stage_from_text("as a teenager") == "teen"
+    assert infer_stage_from_text("他已是成年人") == "adult"
+    assert infer_stage_from_text("白发苍苍的老人") == "elder"
+    assert infer_stage_from_text("R stands in the study") is None
+
+
+def test_infer_stage_ignores_character_names():
+    """A character NAME like 少年 must not trigger stage inference when excluded."""
+    assert infer_stage_from_text("少年拨响吉他", excluded_names=["少年"]) is None
+    # Without the cast list the generic word still reads as a teen cue.
+    assert infer_stage_from_text("少年拨响吉他") == "teen"
+
+
+def test_resolve_panel_stage_refs_ignores_bare_cast_names():
+    canon = CharacterCanon(
+        canonical_name="少年",
+        gender="male",
+        face_lock="short dark hair",
+        stages=[
+            CharacterStage(stage="default", age_look="young boy"),
+            CharacterStage(stage="teen", age_look="teenager"),
+        ],
+    )
+    bible = VisualBible(style_guide="manga", characters={"少年": canon})
+    plan = ComicPagePlan.model_validate(
+        {
+            "page_id": "p1",
+            "purpose": "duet",
+            "panels": [{"panel_id": "1", "characters": ["少年"], "action": "少年拨响吉他"}],
+        }
+    )
+    rewritten = resolve_panel_stage_refs(plan, bible)
+    assert rewritten.panels[0].characters == ["少年"]

@@ -63,21 +63,22 @@ HAIR_STABILITY_LINE = (
     "unless the character stage explicitly changes."
 )
 
-# Generic age/stage cues (CN + EN) → CharacterStageLiteral. Order matters: first match wins.
+# Generic age/stage cues (CN + EN) → CharacterStageLiteral. Order matters: first
+# match wins. Vocabulary here must hold for ANY story, not one source text:
+# tokens pinned to a specific book ("写信", "boarding school") minted stages for
+# unrelated runs and planted a second hallucinated face next to the canonical
+# one. Story-specific ages belong in the bible's per-stage age_look instead.
 _STAGE_CUE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "child",
         re.compile(
-            r"(童年|孩童|小孩|幼年|十三|12岁|13岁|少女时代|as a child|childhood|\bchild\b)",
+            r"(童年|孩童|小孩|幼年|儿童|小男孩|as a child|childhood|\bchild\b)",
             re.IGNORECASE,
         ),
     ),
     (
         "teen",
-        re.compile(
-            r"(少年|十六|17岁|18岁临别|teenager|boarding school|\bteen\b)",
-            re.IGNORECASE,
-        ),
+        re.compile(r"(青少年|青春期|少女|少年|teenager|adolescent|\bteen\b)", re.IGNORECASE),
     ),
     (
         "elder",
@@ -85,12 +86,64 @@ _STAGE_CUE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ),
     (
         "adult",
-        re.compile(
-            r"(临终|写信|成年|交际花|丧子|成人|\badult\b|dying|deathbed)",
-            re.IGNORECASE,
-        ),
+        re.compile(r"(成年|成人|临终|\badult\b|dying|deathbed)", re.IGNORECASE),
     ),
 )
+
+_CN_DIGIT_VALUES = {
+    "零": 0,
+    "一": 1,
+    "二": 2,
+    "三": 3,
+    "四": 4,
+    "五": 5,
+    "六": 6,
+    "七": 7,
+    "八": 8,
+    "九": 9,
+}
+
+
+def _cn_number_to_int(text: str) -> int | None:
+    """Parse a simple CN number (一 to 九十九); None when not parseable."""
+    if not text:
+        return None
+    if text == "十":
+        return 10
+    tens, sep, ones = text.partition("十")
+    if not sep:
+        return _CN_DIGIT_VALUES.get(text)
+    value = 10 * (_CN_DIGIT_VALUES.get(tens, 1) if tens else 1)
+    if ones:
+        digit = _CN_DIGIT_VALUES.get(ones)
+        if digit is None:
+            return None
+        value += digit
+    return value
+
+
+_AGE_RE = re.compile(r"(\d{1,3}|[一二三四五六七八九十]{1,3})\s*岁")
+
+
+def _age_from_text(blob: str) -> int | None:
+    """Extract a stated age from the text, CN or Arabic numerals."""
+    for match in _AGE_RE.finditer(blob):
+        raw = match.group(1)
+        if raw.isdigit():
+            return int(raw)
+        value = _cn_number_to_int(raw)
+        if value is not None:
+            return value
+    return None
+
+
+def _stage_for_age(age: int) -> str:
+    """Age band aligned with default_age_look_for_stage (child 10–13, teen 16–18)."""
+    if age <= 13:
+        return "child"
+    if age <= 19:
+        return "teen"
+    return "adult"
 
 
 def default_age_look_for_stage(stage: str) -> str:
@@ -105,11 +158,25 @@ def default_age_look_for_stage(stage: str) -> str:
     return mapping.get(stage, mapping["default"])
 
 
-def infer_stage_from_text(text: str) -> str | None:
-    """Infer a stage literal from action/purpose/caption cues, or None."""
+def infer_stage_from_text(text: str, excluded_names: Iterable[str] = ()) -> str | None:
+    """Infer a stage literal from action/purpose/caption cues, or None.
+
+    ``excluded_names`` are cast names removed from the text first: a character
+    literally named 少年 must not mint a teen stage every time she appears.
+    Vocabulary here is generic age language only; a stated age ("十三岁",
+    "18 years old") maps through the age band instead of per-token patterns.
+    """
     blob = text or ""
+    for name in excluded_names:
+        if name:
+            blob = blob.replace(name, " ")
     if not blob.strip():
         return None
+    # A stated age is more precise than any vocabulary cue: "十三岁的少女" is
+    # a 13-year-old, whatever 少女 says.
+    age = _age_from_text(blob)
+    if age is not None:
+        return _stage_for_age(age)
     for stage, pattern in _STAGE_CUE_PATTERNS:
         if pattern.search(blob):
             return stage
@@ -149,13 +216,16 @@ def resolve_panel_stage_refs(plan: ComicPagePlan, bible: VisualBible) -> ComicPa
         )
         if part
     )
-    page_stage = infer_stage_from_text(page_cue)
+    cast_names = set(updated.reference_characters)
+    for panel in updated.panels:
+        cast_names.update(panel.characters)
+    page_stage = infer_stage_from_text(page_cue, excluded_names=cast_names)
 
     for panel in updated.panels:
         panel_cue = " ".join(
             part for part in (panel.action or "", panel.caption or "", panel.dialogue or "") if part
         )
-        stage = infer_stage_from_text(panel_cue) or page_stage
+        stage = infer_stage_from_text(panel_cue, excluded_names=cast_names) or page_stage
         if not stage:
             continue
         panel.characters = [_rewrite_name_to_stage(name, stage, bible) for name in panel.characters]
@@ -445,41 +515,44 @@ def gender_prefix(gender: str, age_look: str = "") -> str:
 
 
 def _age_look_is_young(age_look: str) -> bool:
-    """True when the stage's age_look describes a child or adolescent."""
+    """True when the stage's age_look describes a child or adolescent.
+
+    Structural test, not a story vocabulary list: CN/EN young markers plus
+    bare age numbers (1x, 2-12) read as young unless an adult marker cancels
+    them. A specific word like 少年 belongs to the bible's age_look text, not
+    to this predicate.
+    """
     text = (age_look or "").lower()
     if not text:
         return False
+    if any(marker in text for marker in ("adult", "elder", "elderly", "中年", "成年")):
+        return False
     young_markers = (
         "child",
-        "children",
         "boy",
         "girl",
         "teen",
         "adolescent",
         "kid",
         "young",
-        "child",
+        "youth",
         "小孩",
         "孩子",
-        "少女",
-        "少年",
         "幼",
+        "儿童",
+        "青",
     )
-    adult_markers = ("adult", "elder", "elderly", "中年", "成年", "老")
-    if any(marker in text for marker in young_markers) and not any(
-        marker in text for marker in adult_markers
-    ):
+    if any(marker in text for marker in young_markers):
         return True
-    return "1" in text or "about 1" in text
+    # Bare ages: "about 16-18 years old", "12 years old", "age 8".
+    return bool(re.search(r"\b(?:1[0-9]|[2-9])\b", text))
 
 
 def _young_gender_phrase(gender: str, age_look: str = "") -> str:
     """Teen-age the phrase when the age_look reads adolescent, child-age otherwise."""
     text = (age_look or "").lower()
-    teen = any(
-        marker in text
-        for marker in ("teen", "adolescent", "16", "17", "18", "少年", "十六", "十七", "十八")
-    )
+    # Adolescent when the text says so, or pins an age in the teen band.
+    teen = "adolescent" in text or bool(re.search(r"\b1[6-9]\b", text))
     if gender == "male":
         return "teenage boy" if teen else "young boy"
     if gender == "female":
