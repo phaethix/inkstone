@@ -33,6 +33,7 @@ from core.comic.lettering_lang import scrub_lettering_panel
 from core.comic.visual_bible import (
     backfill_panel_characters,
     canonicalize_page_plan,
+    enforce_page_cast,
     resolve_panel_stage_refs,
 )
 from core.comic.voice import sanitize_plan_voice
@@ -257,11 +258,27 @@ def plan_ready_to_letter(state: ProjectState, plan: ComicPagePlan) -> ComicPageP
         plan = sanitize_plan_voice(plan, state.visual_bible)
     else:
         plan = sanitize_plan_voice(plan, None)
-    return canonicalize_page_plan(
+    plan = canonicalize_page_plan(
         plan,
         known_names=known_character_names(state),
         visual_bible=state.visual_bible,
     )
+    # The cast lock and the panel action must agree about who is on the page:
+    # a character the action stages but the cast omits makes the model duplicate
+    # the one reference face it is allowed.
+    return enforce_page_cast(
+        ComicPagePlanSet(pages=[plan]),
+        known_names=known_character_names(state),
+        beats=state.beat_cache.get(_plan_chunk_key(state, plan)),
+    ).pages[0]
+
+
+def _plan_chunk_key(state: ProjectState, plan: ComicPagePlan) -> str:
+    """The beat-cache key of the chunk whose pageset contains ``plan``, if found."""
+    for cache_key, pageset in state.page_cache.items():
+        if any(page.page_id == plan.page_id for page in pageset.pages):
+            return cache_key
+    return ""
 
 
 def page_chunk_complete(

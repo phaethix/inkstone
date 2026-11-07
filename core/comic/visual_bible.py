@@ -19,6 +19,7 @@ from core.schemas import (
     ColorSwatch,
     ComicPagePlan,
     ComicPagePlanSet,
+    KeyBeatSet,
     ProjectState,
     VisualBible,
     VisualBibleReconcileResult,
@@ -348,13 +349,23 @@ def outfit_has_modern_tokens(outfit: str) -> bool:
     return bool(_MODERN_WARDROBE_RE.search(outfit or ""))
 
 
-def repair_outfit_lock(outfit: str, *, era: str, style_guide: str = "") -> str:
-    """Fill blank outfits and rewrite modern tokens under historical eras."""
+def repair_outfit_lock(
+    outfit: str,
+    *,
+    era: str = "",
+    style_guide: str = "",
+    canonical_name: str = "",
+) -> str:
+    """Fill blank or vacuous outfits and rewrite modern tokens under historical eras."""
     text = (outfit or "").strip()
     era_class = classify_era(era, style_guide)
-    if not text:
+    if not text or _VACUOUS_OUTFIT_RE.search(text):
+        if canonical_name:
+            return deterministic_outfit_lock(canonical_name)
         return default_outfit_for_era(era, style_guide)
     if era_class == "historical" and outfit_has_modern_tokens(text):
+        if canonical_name:
+            return deterministic_outfit_lock(canonical_name)
         return default_outfit_for_era(era, style_guide)
     return text
 
@@ -411,8 +422,19 @@ def infer_gender(
     return "unknown"
 
 
-def gender_prefix(gender: str) -> str:
-    """Idempotent face_lock gender phrase."""
+def gender_prefix(gender: str, age_look: str = "") -> str:
+    """Age-aware idempotent face_lock gender phrase.
+
+    A hard-coded ``adult man`` prefix used to contradict a young ``age_look``
+    written further along the same L1 (``adult man, …, young boy``): the image
+    model sampled whichever clause it liked per page, and the boy rendered as a
+    different person on every page. The gender phrase now follows the stage age
+    instead of asserting adulthood.
+    """
+    if age_look and _age_look_is_young(age_look):
+        young = _young_gender_phrase(gender, age_look)
+        if young:
+            return young
     if gender == "male":
         return "adult man"
     if gender == "female":
@@ -422,15 +444,60 @@ def gender_prefix(gender: str) -> str:
     return ""
 
 
-def apply_gender_to_face_lock(face_lock: str, gender: str) -> str:
+def _age_look_is_young(age_look: str) -> bool:
+    """True when the stage's age_look describes a child or adolescent."""
+    text = (age_look or "").lower()
+    if not text:
+        return False
+    young_markers = (
+        "child",
+        "children",
+        "boy",
+        "girl",
+        "teen",
+        "adolescent",
+        "kid",
+        "young",
+        "child",
+        "小孩",
+        "孩子",
+        "少女",
+        "少年",
+        "幼",
+    )
+    adult_markers = ("adult", "elder", "elderly", "中年", "成年", "老")
+    if any(marker in text for marker in young_markers) and not any(
+        marker in text for marker in adult_markers
+    ):
+        return True
+    return "1" in text or "about 1" in text
+
+
+def _young_gender_phrase(gender: str, age_look: str = "") -> str:
+    """Teen-age the phrase when the age_look reads adolescent, child-age otherwise."""
+    text = (age_look or "").lower()
+    teen = any(
+        marker in text
+        for marker in ("teen", "adolescent", "16", "17", "18", "少年", "十六", "十七", "十八")
+    )
+    if gender == "male":
+        return "teenage boy" if teen else "young boy"
+    if gender == "female":
+        return "teenage girl" if teen else "young girl"
+    if gender == "nonbinary":
+        return "teenage person" if teen else "young person"
+    return ""
+
+
+def apply_gender_to_face_lock(face_lock: str, gender: str, age_look: str = "") -> str:
     """Prepend gender phrase when known; strip duplicate prefixes."""
     face = normalize_face_lock(face_lock) or (face_lock or "").strip()
-    prefix = gender_prefix(gender)
+    prefix = gender_prefix(gender, age_look)
     if not prefix:
         return face
     # Strip existing gender lead-ins for idempotency.
     face = re.sub(
-        r"(?i)^(adult\s+)?(man|woman|male|female|nonbinary person)\s*,\s*",
+        r"(?i)^((adult\s+|young\s+)?(man|woman|male|female|nonbinary person|boy|girl))\s*,\s*",
         "",
         face,
     ).strip()
@@ -499,13 +566,25 @@ def format_identity_line(name: str, canon: CharacterCanon) -> str:
     return f"identity: {name} ({gender}, {function})"
 
 
-def portrait_gender_era_suffix(bible: VisualBible, canon: CharacterCanon) -> str:
+def portrait_gender_era_suffix(
+    bible: VisualBible,
+    canon: CharacterCanon,
+    age_look: str = "",
+) -> str:
     """Extra portrait prompt clauses for gender + era wardrobe."""
     parts = [GENDER_NO_SWAP_LINE]
     if canon.gender in {"male", "female", "nonbinary"}:
-        parts.insert(0, f"gender-locked {gender_prefix(canon.gender)}")
+        stage_age = age_look or _canon_default_age_look(canon)
+        parts.insert(0, f"gender-locked {gender_prefix(canon.gender, stage_age)}")
     parts.append(wardrobe_banline_for_bible(bible))
     return ", ".join(parts)
+
+
+def _canon_default_age_look(canon: CharacterCanon) -> str:
+    for stage in canon.stages:
+        if (stage.age_look or "").strip():
+            return stage.age_look
+    return ""
 
 
 def is_illegal_character_name(name: str) -> bool:
@@ -826,6 +905,36 @@ def _hair_lock_from_canon_face(canon_face: str) -> str | None:
 
 DEFAULT_OUTFIT_LOCK = "clothing matching the story setting and era"
 
+# Deterministic per-name outfit anchors (Fix 2). "each character wears the exact
+# outfit declared below" needs a garment to declare; a vacuous lock gave the
+# image model license to invent a new wardrobe on every page. The bucket index
+# comes from a SHA-256 of the character name, so the same name always gets the
+# same outfit within a project and across runs, and different names spread
+# across the buckets.
+_DETERMINISTIC_OUTFITS: tuple[str, ...] = (
+    "a plain grey high-collar shirt with dark trousers",
+    "a navy school jacket over a white shirt",
+    "a brown cardigan over a cream shirt with grey trousers",
+    "a slate-blue mandarin-collar tunic",
+    "a grey pleated skirt with a white blouse",
+    "a faded blue work shirt with dark trousers",
+    "a dark green tunic with a light sash",
+    "a mustard vest over a white shirt with brown trousers",
+)
+
+_VACUOUS_OUTFIT_RE = re.compile(
+    r"(?i)\bno specific\b|\bnot specified\b|"
+    r"\bno\s+(?:wardrobe|outfit|clothing)\s+detail\b|"
+    r"\bkeep simple period-neutral clothing\b|"
+    r"\bmatching the story setting and era\b"
+)
+
+
+def deterministic_outfit_lock(name: str) -> str:
+    """A concrete, stable outfit anchor derived from the character name."""
+    digest = hashlib.sha256((name or "").encode("utf-8")).digest()
+    return _DETERMINISTIC_OUTFITS[digest[0] % len(_DETERMINISTIC_OUTFITS)]
+
 
 def _default_outfit_lock(*, era: str = "", style_guide: str = "") -> str:
     return default_outfit_for_era(era, style_guide)
@@ -848,6 +957,7 @@ def ensure_stage_locks(
         (stage.outfit_lock or "").strip(),
         era=era,
         style_guide=style_guide,
+        canonical_name=canonical_name or stage.portrait_key,
     )
     portrait_key = (stage.portrait_key or "").strip()
     if canonical_name and (not portrait_key or is_illegal_character_name(portrait_key)):
@@ -1866,17 +1976,26 @@ def format_color_bible_block(bible: VisualBible) -> str:
 def l1_from_canon(canon: CharacterCanon, stage: str = "default") -> str:
     """Build an L1 identity string from canon face lock and stage outfit/hair locks."""
     parts: list[str] = []
-    prefix = gender_prefix(canon.gender or "unknown")
     face = (canon.face_lock or "").strip()
+    stage_row = next((s for s in canon.stages if s.stage == stage), None)
+    if stage_row is None and canon.stages:
+        stage_row = canon.stages[0]
+    stage_age = (stage_row.age_look or "").strip() if stage_row is not None else ""
+    prefix = gender_prefix(canon.gender or "unknown", stage_age)
+    # A face_lock frozen with the old hard-coded ``adult man`` lead must not
+    # contradict the stage age: strip the stale prefix here and let the
+    # age-aware one replace it.
+    face = re.sub(
+        r"(?i)^((adult\s+|young\s+)?(man|woman|male|female|nonbinary person|boy|girl))\s*,\s*",
+        "",
+        face,
+    ).strip()
     if prefix and not face.casefold().startswith(prefix.casefold()):
         parts.append(prefix)
     if face:
         parts.append(face)
     if canon.palette_notes:
         parts.append(canon.palette_notes)
-    stage_row = next((s for s in canon.stages if s.stage == stage), None)
-    if stage_row is None and canon.stages:
-        stage_row = canon.stages[0]
     if stage_row is not None:
         if stage_row.age_look:
             parts.append(stage_row.age_look)
@@ -1925,6 +2044,50 @@ def backfill_panel_characters(
                 found.append(name)
                 seen.add(name)
         panel.characters = found
+    return updated
+
+
+def enforce_page_cast(
+    pageset: ComicPagePlanSet,
+    known_names: Iterable[str],
+    beats: KeyBeatSet | None = None,
+) -> ComicPagePlanSet:
+    """Add characters the panels stage but the cast omits (Fix 3).
+
+    A page whose action says "the two of them, one playing, one listening" while
+    the cast lists only the boy makes the cast lock and the panel action lie to
+    each other: the image model, allowed one reference face, duplicates it into
+    the second figure. The planner also drops a beat's characters from the page
+    cast. Both are repaired here — any *known* character an action text or a
+    covering beat names is added to that panel and to the page references, so
+    the cast lock and the staged action agree again. Idempotent.
+    """
+    known = [name for name in known_names if name]
+    beat_characters: dict[str, list[str]] = {}
+    if beats is not None:
+        for beat in beats.beats:
+            beat_characters[beat.beat_id] = [name for name in (beat.characters or []) if name]
+    updated = pageset.model_copy(deep=True)
+    for plan in updated.pages:
+        page_refs = list(plan.reference_characters)
+        for panel in plan.panels:
+            cast = list(panel.characters)
+            action = panel.action or ""
+            added = False
+            for name in known:
+                if name in cast:
+                    continue
+                if (name and name in action) or name in beat_characters.get(
+                    " ".join(panel.beat_ids or []), []
+                ):
+                    cast.append(name)
+                    added = True
+            if added:
+                panel.characters = cast
+            for name in cast:
+                if name not in page_refs:
+                    page_refs.append(name)
+        plan.reference_characters = page_refs
     return updated
 
 
@@ -1979,6 +2142,76 @@ def _portrait_path_for_name(
     if char is not None and char.portrait_local:
         return char.portrait_local
     return None
+
+
+# Markers the reconcile model writes when it could not ground a stage in the
+# source text. Such stages cost a portrait each and plant a second (hallucinated)
+# face next to the canonical one; the source this project renders has no time
+# span, so any child/teen/elder stage here was invented.
+_UNSOURCED_AGE_LOOK_RE = re.compile(
+    r"(?i)not\s+referenced\s+in\s+source|no\s+source\s+evidence|"
+    r"\bnot\s+in\s+source\b|\bungrounded\b"
+)
+
+_AGE_STAGE_LITERALS = {"child", "teen", "adult", "elder"}
+
+
+def _stage_looks_unsourced(stage: CharacterStage) -> bool:
+    age_look = (stage.age_look or "").strip()
+    if not age_look:
+        return False
+    return bool(_UNSOURCED_AGE_LOOK_RE.search(age_look))
+
+
+def prune_unsourced_age_stages(state: ProjectState) -> list[str]:
+    """Drop age stages with no source evidence; return the removed portrait keys.
+
+    A stage whose age_look says "not referenced in source" was minted by the
+    reconcile model, not by the story. It bills a portrait and introduces a face
+    the plan may then reference as ``Name@teen``. The stage, its orphan
+    ``Name@stage`` row, and any plan references are rewritten to the canonical
+    name. A stage with real evidence or a grounded age_look is kept untouched.
+    """
+    bible = state.visual_bible
+    if bible is None:
+        return []
+    dropped_keys: list[str] = []
+    for key, canon in bible.characters.items():
+        canonical = canon.canonical_name or key
+        kept: list[CharacterStage] = []
+        for stage in canon.stages:
+            if stage.stage != "default" and _stage_looks_unsourced(stage):
+                portrait_key = (stage.portrait_key or "").strip()
+                dropped_keys.append(portrait_key or f"{canonical}@{stage.stage}")
+                continue
+            kept.append(stage)
+        if len(kept) != len(canon.stages):
+            canon.stages = kept or [
+                CharacterStage(
+                    stage="default",
+                    outfit_lock="",
+                    hair_lock="",
+                    portrait_key=canonical,
+                )
+            ]
+    if not dropped_keys:
+        return []
+
+    for portrait_key in dropped_keys:
+        state.characters.pop(portrait_key, None)
+        state.generated.portraits.pop(portrait_key, None)
+
+    rewrite_map = {key: parse_stage_ref(key)[0] for key in dropped_keys}
+    for cache_key, pageset in list(state.page_cache.items()):
+        updated = pageset.model_copy(deep=True)
+        for plan in updated.pages:
+            plan.reference_characters = _remap_names(plan.reference_characters, rewrite_map)
+            for panel in plan.panels:
+                panel.characters = _remap_names(panel.characters, rewrite_map)
+        state.page_cache[cache_key] = updated
+
+    state.visual_bible = refresh_bible_hash(bible)
+    return dropped_keys
 
 
 # The L2 reference budget (§4). The priority order itself is not mirrored in a

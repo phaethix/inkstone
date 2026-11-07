@@ -1,6 +1,6 @@
 from core.comic.visual_bible import (
-    DEFAULT_OUTFIT_LOCK,
     apply_reconcile,
+    deterministic_outfit_lock,
     ensure_canon_locks,
     is_illegal_character_name,
     roles_incompatible,
@@ -86,7 +86,9 @@ def test_ensure_canon_locks_fills_empty_and_strips_outfit_from_face():
     fixed = ensure_canon_locks(canon)
     assert "hoodie" not in fixed.face_lock.lower()
     assert fixed.stages[0].hair_lock == "dark hair"
-    assert fixed.stages[0].outfit_lock == DEFAULT_OUTFIT_LOCK
+    # Vacuous defaults were replaced by deterministic per-name garments: the
+    # "exact outfit declared below" line needs an actual outfit to declare.
+    assert fixed.stages[0].outfit_lock == deterministic_outfit_lock("R")
 
 
 def test_ensure_canon_locks_outfit_not_style_guide():
@@ -99,7 +101,7 @@ def test_ensure_canon_locks_outfit_not_style_guide():
         ],
     )
     fixed = ensure_canon_locks(canon)
-    assert fixed.stages[0].outfit_lock == DEFAULT_OUTFIT_LOCK
+    assert fixed.stages[0].outfit_lock == deterministic_outfit_lock("R")
     assert "Manhua" not in fixed.stages[0].outfit_lock
     assert style_guide not in fixed.stages[0].outfit_lock
 

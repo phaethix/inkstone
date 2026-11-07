@@ -148,6 +148,7 @@ from core.comic.visual_bible import (
     l1_from_canon,
     parse_stage_ref,
     portrait_gender_era_suffix,
+    prune_unsourced_age_stages,
     refresh_bible_hash,
     resolve_canonical_name,
     resolve_character_asset,
@@ -1531,6 +1532,11 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
         state.save(state_path)
 
     if sanitize_visual_bible_state(state):
+        _soft_invalidate_render(state)
+        state.render_fingerprint = _render_for_bible(state.visual_bible)
+        state.save(state_path)
+
+    if prune_unsourced_age_stages(state):
         _soft_invalidate_render(state)
         state.render_fingerprint = _render_for_bible(state.visual_bible)
         state.save(state_path)

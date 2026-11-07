@@ -235,6 +235,7 @@ def render_finished_page_prompt(
             setting = settings_by_name.get(panel.setting_ref)
             scene = getattr(setting, "scene_prompt", "") if setting else ""
             scene = _strip_lineart_words(scene)
+            scene = _strip_setting_people(scene, list(panel.characters))
             lines.append(f"  setting={panel.setting_ref}: {scene}".rstrip(": "))
         if lettering == "in_image":
             if panel.caption:
@@ -308,6 +309,42 @@ def _strip_lineart_words(text: str) -> str:
     return re.sub(r"([,;:])\s*[,;:]+", r"\1", cleaned).strip(" ,;")
 
 
+# A setting description that stages *people* ("one young man sits at the
+# counter, one young woman reads nearby") fights the cast lock: the cast may
+# name fewer people than the prose asserts, and the model duplicates the one
+# reference face it has to satisfy both. Setting prose is scenery authority;
+# people are declared by the character lines only. Clauses naming a known cast
+# member are kept (they describe that character's staging), the rest of the
+# scenery is kept too.
+_SETTING_PERSON_RE = re.compile(
+    r"(?i)\b(?:one|two|three|a|an|another)\s+"
+    r"(?:young\s+|old\s+|elderly\s+|middle-aged\s+|teenage\s+|teen\s+)?"
+    r"(?:man|woman|boy|girl|person|figure|male|female|gentleman|lady)s?\b"
+    r"[^,;.]*"
+)
+_SETTING_PEOPLE_PAIR_RE = re.compile(
+    r"(?i)\btwo\s+(?:young\s+)?(?:men|women|people|figures|boys|girls)s?\b[^,;.]*"
+)
+
+
+def _strip_setting_people(text: str, cast_names: list[str] | None = None) -> str:
+    """Drop clauses from *setting* prose that assert extra people."""
+    if not text:
+        return ""
+    cast = [name for name in (cast_names or []) if name]
+    kept: list[str] = []
+    for clause in re.split(r"(?<=[,;.])\s+", text):
+        if _SETTING_PEOPLE_PAIR_RE.search(clause) or _SETTING_PERSON_RE.search(clause):
+            # A clause that names a cast member describes that character's
+            # staging, not an extra person: keep it.
+            if not any(name and name in clause for name in cast):
+                continue
+        kept.append(clause)
+    cleaned = " ".join(kept).strip(" ,;")
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    return cleaned
+
+
 def _page_scene(plan: ComicPagePlan, settings_by_name: dict[str, Setting]) -> str:
     """One top-level setting directive for the whole page.
 
@@ -316,6 +353,9 @@ def _page_scene(plan: ComicPagePlan, settings_by_name: dict[str, Setting]) -> st
     chapter still rendered a river. Lifting the distinct scene descriptions to
     the top makes the current chapter's location dominate the inherited look.
     """
+    cast_names = list(plan.reference_characters)
+    for panel in plan.panels:
+        cast_names.extend(panel.characters)
     scenes: list[str] = []
     for panel in plan.panels:
         if not panel.setting_ref:
@@ -323,6 +363,7 @@ def _page_scene(plan: ComicPagePlan, settings_by_name: dict[str, Setting]) -> st
         setting = settings_by_name.get(panel.setting_ref)
         scene = getattr(setting, "scene_prompt", "") if setting else ""
         scene = _strip_lineart_words(scene).strip()
+        scene = _strip_setting_people(scene, cast_names)
         if scene and scene not in scenes:
             scenes.append(scene)
     return "; ".join(scenes)
