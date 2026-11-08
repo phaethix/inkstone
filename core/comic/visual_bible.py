@@ -425,17 +425,21 @@ def repair_outfit_lock(
     era: str = "",
     style_guide: str = "",
     canonical_name: str = "",
+    gender: str = "",
 ) -> str:
     """Fill blank or vacuous outfits and rewrite modern tokens under historical eras."""
     text = (outfit or "").strip()
     era_class = classify_era(era, style_guide)
-    if not text or _VACUOUS_OUTFIT_RE.search(text):
+    # A held prop is not a garment. "holding an old acoustic guitar" used to
+    # survive as the outfit lock, so the portrait and the page had no clothes
+    # to keep stable and borrowed the shared palette instead.
+    if not text or _VACUOUS_OUTFIT_RE.search(text) or _outfit_is_held_prop(text):
         if canonical_name:
-            return deterministic_outfit_lock(canonical_name)
+            return deterministic_outfit_lock(canonical_name, gender=gender)
         return default_outfit_for_era(era, style_guide)
     if era_class == "historical" and outfit_has_modern_tokens(text):
         if canonical_name:
-            return deterministic_outfit_lock(canonical_name)
+            return deterministic_outfit_lock(canonical_name, gender=gender)
         return default_outfit_for_era(era, style_guide)
     return text
 
@@ -995,6 +999,30 @@ _DETERMINISTIC_OUTFITS: tuple[str, ...] = (
     "a mustard vest over a white shirt with brown trousers",
 )
 
+# Gender-split anchors. The mixed list above hashed 少年 onto a pleated skirt,
+# so a male character whose source named no clothes was painted as a woman and
+# then copied onto every other face on the page.
+_MALE_OUTFITS: tuple[str, ...] = (
+    "a plain grey high-collar shirt with dark trousers",
+    "a navy jacket over a white shirt and dark trousers",
+    "a brown cardigan over a cream shirt with grey trousers",
+    "a slate-blue mandarin-collar tunic with dark trousers",
+    "a faded blue work shirt with dark trousers",
+    "a dark green tunic with matching trousers",
+    "a mustard vest over a white shirt with brown trousers",
+    "a charcoal shirt with dark trousers",
+)
+_FEMALE_OUTFITS: tuple[str, ...] = (
+    "a cream blouse with a long charcoal skirt",
+    "a navy jacket over a white blouse and a grey skirt",
+    "a brown cardigan over a cream dress",
+    "a slate-blue mandarin-collar blouse with a dark skirt",
+    "a grey pleated skirt with a white blouse",
+    "a faded blue blouse with a dark skirt",
+    "a dark green tunic with a light sash",
+    "a mustard vest over a white blouse and a brown skirt",
+)
+
 _VACUOUS_OUTFIT_RE = re.compile(
     r"(?i)\bno specific\b|\bnot specified\b|"
     r"\bno\s+(?:wardrobe|outfit|clothing)\s+detail\b|"
@@ -1003,8 +1031,44 @@ _VACUOUS_OUTFIT_RE = re.compile(
 )
 
 
-def deterministic_outfit_lock(name: str) -> str:
-    """A concrete, stable outfit anchor derived from the character name."""
+def _outfit_is_held_prop(outfit: str) -> bool:
+    """True when an outfit lock describes something in the hands, not worn.
+
+    The reconcile model writes the one grounded source quote into outfit_lock.
+    For a boy whose only quote is "抱着一把旧吉他", that stores the guitar as
+    his clothes. A garment word in the same clause ("red scarf") is clothing
+    and stays.
+    """
+    text = (outfit or "").strip()
+    if not text:
+        return False
+    if not re.search(
+        r"(?i)(吉他|guitars?|acoustic|抱着|手持|holding|holds?|"
+        r"carr(?:y|ies|ying)|strumming|plucking|乐器|instrument)",
+        text,
+    ):
+        return False
+    return not re.search(
+        r"(?i)(shirt|blouse|jacket|coat|dress|skirt|tunic|vest|cardigan|"
+        r"trousers|scarf|sash|robe|gown|hanfu|kimono|衫|裙|袍|衣|裤|围巾)",
+        text,
+    )
+
+
+def deterministic_outfit_lock(name: str, gender: str = "") -> str:
+    """A concrete, stable outfit anchor derived from the character name.
+
+    A known gender picks from that gender's wardrobe, so a missing source
+    description cannot dress a man in a skirt or a woman in his jacket.
+    """
+    digest = hashlib.sha256((name or "").encode("utf-8")).digest()
+    if gender == "male":
+        wardrobe = _MALE_OUTFITS
+    elif gender == "female":
+        wardrobe = _FEMALE_OUTFITS
+    else:
+        wardrobe = _DETERMINISTIC_OUTFITS
+    return wardrobe[digest[0] % len(wardrobe)]
     digest = hashlib.sha256((name or "").encode("utf-8")).digest()
     return _DETERMINISTIC_OUTFITS[digest[0] % len(_DETERMINISTIC_OUTFITS)]
 
@@ -1020,6 +1084,7 @@ def ensure_stage_locks(
     canonical_name: str = "",
     era: str = "",
     style_guide: str = "",
+    gender: str = "",
 ) -> CharacterStage:
     """Fill empty stage locks and repair illegal ``portrait_key`` values."""
     hair_lock = (stage.hair_lock or "").strip()
@@ -1031,6 +1096,7 @@ def ensure_stage_locks(
         era=era,
         style_guide=style_guide,
         canonical_name=canonical_name or stage.portrait_key,
+        gender=gender,
     )
     portrait_key = (stage.portrait_key or "").strip()
     if canonical_name and (not portrait_key or is_illegal_character_name(portrait_key)):
@@ -1073,6 +1139,7 @@ def ensure_canon_locks(
             canonical_name=canon.canonical_name,
             era=era,
             style_guide=style_guide,
+            gender=gender,
         )
         for stage in canon.stages
     ]
@@ -2043,7 +2110,14 @@ def format_color_bible_block(bible: VisualBible) -> str:
         lines.append(f"forbidden: {', '.join(color.forbidden)}")
     if not lines:
         return ""
-    return "Color bible:\n" + "\n".join(f"  {line}" for line in lines)
+    # The palette is scenery. A swatch named "scarf and clothing accent" used
+    # to be read as every character's clothes, so two different people left
+    # the page wearing the same plum scarf.
+    return (
+        "Color bible (scene and lighting colors only, not clothing):\n"
+        + "\n".join(f"  {line}" for line in lines)
+        + "\n  Do not dress every character in one palette color."
+    )
 
 
 def l1_from_canon(canon: CharacterCanon, stage: str = "default") -> str:
@@ -2072,8 +2146,11 @@ def l1_from_canon(canon: CharacterCanon, stage: str = "default") -> str:
     if stage_row is not None:
         if stage_row.age_look:
             parts.append(stage_row.age_look)
-        if stage_row.outfit_lock:
-            parts.append(stage_row.outfit_lock)
+        outfit = (stage_row.outfit_lock or "").strip()
+        if outfit:
+            if _outfit_is_held_prop(outfit):
+                outfit = deterministic_outfit_lock(canon.canonical_name, gender=canon.gender or "")
+            parts.append(outfit)
         if stage_row.hair_lock:
             parts.append(stage_row.hair_lock)
     body = ", ".join(parts)

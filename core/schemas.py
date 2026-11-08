@@ -1245,6 +1245,14 @@ class GeneratedPage(BaseModel):
     # Empty until this page is rendered under an action key. A matching key
     # reuses the stored blank.
     render_action_key: str = ""
+    # Prompt-facing inputs of the render key, without the font digest. A
+    # resume compares these so an identity-prompt change repaints the page
+    # while a font change only re-letters it. Empty on pages written before
+    # the field existed.
+    prompt_inputs: list[str] = Field(default_factory=list)
+    # "" on pages painted before each reference image was bound to one
+    # character. A newer value means the page was painted with that binding.
+    reference_binding: str = ""
     page_id: str = ""
     unit_index: int = 0
     page_index: int = 0

@@ -592,6 +592,26 @@ def _page_portrait_refs(plan, characters_by_name, *, max_refs: int = 3) -> list[
     return refs
 
 
+def _art_plan_json(plan) -> str:
+    """Plan identity for the painted page, without the lettering overlay.
+
+    Caption, dialogue, and sound effects are drawn after the blank exists.
+    Scrubbing one of them must re-letter the page, not send it back to the
+    image model.
+    """
+    payload = json.loads(_plan_json(plan))
+    for panel in payload.get("panels") or []:
+        for lettering_field in ("caption", "dialogue", "sfx", "lettering_notes"):
+            panel.pop(lettering_field, None)
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+# Pages painted before reference images were numbered carry "". A page painted
+# by this code records the version, so a later resume can tell the two apart
+# without repainting on a font change.
+_REFERENCE_BINDING = "labeled-v1"
+
+
 def _portrait_key_material(name: str, asset, style: str) -> str:
     """Stable portrait identity. A per-chunk source warning is not part of it.
 
@@ -1680,6 +1700,19 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                 elif not cached.extract_action_key:
                     cached.extract_action_key = extract_key
             pageset = state.page_cache.get(key)
+            if mode == "finished_page" and pageset is not None:
+                for page_index, _page in enumerate(pageset.pages):
+                    page_key = page_state_key(ci, page_index)
+                    generated = state.generated.pages.get(page_key)
+                    if (
+                        generated is not None
+                        and generated.reference_binding != _REFERENCE_BINDING
+                        and page_key not in state.stale_pages
+                        and page_key not in state.skipped_pages
+                    ):
+                        # Before the chunk-complete check. A page painted
+                        # without a labeled reference binding is not done.
+                        state.stale_pages.append(page_key)
             if _scrub_chunk_lettering(state, key, chunk):
                 state.save(state_path)
             known_beats = key_beats_for_chunk(state, key, chunks)
@@ -2464,6 +2497,59 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                     # change reuses that blank: the letter key misses, and only the
                     # overlay is drawn again.
                     page_is_stale = state_key in _state.stale_pages
+                    if (
+                        blank_ok
+                        and existing is not None
+                        and existing.render_action_key
+                        and not page_is_stale
+                    ):
+                        # Recompute the render key before the lettering shortcut.
+                        # ``pages_done`` would otherwise keep a page whose prompt
+                        # now names each reference portrait. The negative prompt
+                        # is part of that key, so it is fixed before the call.
+                        early_negative = render_finished_page_negative_prompt()
+                        if _state.visual_bible is not None:
+                            early_ledger_refs = {
+                                name: entry.reference.path
+                                for name, entry in ledger.characters.items()
+                                if entry.reference.path and Path(entry.reference.path).is_file()
+                            }
+                            early_refs = collect_finished_page_refs(
+                                plan,
+                                _state.characters,
+                                _state.visual_bible,
+                                reference_paths=early_ledger_refs,
+                                panel_continuity=False,
+                            )
+                        else:
+                            early_refs = _page_portrait_refs(plan, _state.characters)
+                        early_refs = [
+                            ref
+                            for ref in early_refs
+                            if _is_within(ref, output_dir) and Path(ref).is_file()
+                        ]
+                        early_prompt = render_finished_page_prompt(
+                            plan,
+                            characters_by_name=_state.characters,
+                            settings_by_name=_state.settings,
+                            style_guide=_style,
+                            visual_bible=_state.visual_bible,
+                            reference_images=early_refs,
+                        )
+                        early_inputs = render_page_inputs(
+                            _art_plan_json(plan), early_prompt, early_negative
+                        )
+                        # An unlabeled page was painted before each reference
+                        # image was bound to one character. A recorded binding
+                        # only repaints when the art plan or the prompt changed,
+                        # so a font change still reuses the blank.
+                        identity_changed = existing.reference_binding != _REFERENCE_BINDING or (
+                            bool(existing.prompt_inputs) and existing.prompt_inputs != early_inputs
+                        )
+                        if identity_changed:
+                            if state_key not in _state.stale_pages:
+                                _state.stale_pages.append(state_key)
+                            page_is_stale = True
                     if blank_ok and existing is not None and not page_is_stale:
                         local = _page_asset_path(pages_dir, _chunk_index, page_index)
                         # Multimodal placement: look at the finished (blank)
@@ -2527,13 +2613,6 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                     # page then appears on every page after it. Identity stays
                     # with the character portraits. The panel_compose path still
                     # honors INKSTONE_PANEL_CONTINUITY; this call site does not.
-                    prompt = render_finished_page_prompt(
-                        plan,
-                        characters_by_name=_state.characters,
-                        settings_by_name=_state.settings,
-                        style_guide=_style,
-                        visual_bible=_state.visual_bible,
-                    )
                     negative_prompt = render_finished_page_negative_prompt()
                     if _state.visual_bible is not None:
                         ledger_refs = {
@@ -2553,6 +2632,14 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                     refs = [
                         ref for ref in refs if _is_within(ref, output_dir) and Path(ref).is_file()
                     ]
+                    prompt = render_finished_page_prompt(
+                        plan,
+                        characters_by_name=_state.characters,
+                        settings_by_name=_state.settings,
+                        style_guide=_style,
+                        visual_bible=_state.visual_bible,
+                        reference_images=refs,
+                    )
                     ref_policy = finished_page_ref_policy(panel_continuity=False)
                     active_size = page_size
                     if page_size != _FALLBACK_PAGE_SIZE and _state.rejected_page_size == page_size:
@@ -2615,6 +2702,10 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                                     lettering_version=LETTERING_VERSION,
                                     resolved_size=active_size,
                                     render_action_key=render_key,
+                                    prompt_inputs=render_page_inputs(
+                                        _art_plan_json(plan), prompt, negative_prompt
+                                    ),
+                                    reference_binding=_REFERENCE_BINDING,
                                     page_id=page_id,
                                     unit_index=_chunk_index,
                                     page_index=page_index,
@@ -2709,6 +2800,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                                     style_guide=_style,
                                     strict=True,
                                     visual_bible=_state.visual_bible,
+                                    reference_images=refs,
                                 )
                                 negative_prompt = render_finished_page_negative_prompt(strict=True)
                                 logger.warning(
@@ -2738,7 +2830,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                         text=prompt, resolved_size=active_size, scope="render"
                     )
                     stored_render_inputs = render_page_inputs(
-                        _plan_json(plan), prompt, negative_prompt
+                        _art_plan_json(plan), prompt, negative_prompt
                     )
                     stored_render_key = render_page_action_key(
                         plan_json=_plan_json(plan),
@@ -2793,6 +2885,8 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                             lettering_version=LETTERING_VERSION,
                             resolved_size=active_size,
                             render_action_key=stored_render_key,
+                            prompt_inputs=list(stored_render_inputs),
+                            reference_binding=_REFERENCE_BINDING,
                             page_id=page_id,
                             unit_index=_chunk_index,
                             page_index=page_index,

@@ -98,6 +98,34 @@ def _character_desc_for_prompt(
     return harden_human_identity_prompt(name, asset.l1_prompt or "")
 
 
+def _reference_bindings(
+    names: list[str],
+    characters_by_name: dict[str, CharacterAsset],
+    reference_images: list[str] | None,
+    visual_bible: VisualBible | None = None,
+) -> list[tuple[int, str]]:
+    """Pair each sent reference image with the character who owns it.
+
+    The provider receives portraits as an ordered array and does not label
+    them. The prompt has to say which array slot is which person, in the same
+    order the array is sent, or the model assigns the faces itself.
+    """
+    if not reference_images:
+        return []
+    owners: dict[str, str] = {}
+    for name in names:
+        asset = resolve_character_asset(name, characters_by_name, visual_bible)
+        path = getattr(asset, "portrait_local", None) if asset is not None else None
+        if path and path not in owners:
+            owners[path] = name
+    bindings: list[tuple[int, str]] = []
+    for index, path in enumerate(reference_images, start=1):
+        owner = owners.get(path)
+        if owner:
+            bindings.append((index, owner))
+    return bindings
+
+
 def render_finished_page_prompt(
     plan: ComicPagePlan,
     *,
@@ -107,6 +135,7 @@ def render_finished_page_prompt(
     strict: bool = False,
     lettering: Literal["deferred", "in_image"] = "deferred",
     visual_bible: VisualBible | None = None,
+    reference_images: list[str] | None = None,
 ) -> str:
     # Character locks are page-scoped. Style, era, and color stay; an off-page
     # canon must not enter the prompt or a future key.
@@ -128,6 +157,26 @@ def render_finished_page_prompt(
         "its named owner only: only the character the action names may hold it; a prop",
         "does not hand itself to a different character,",
     ]
+    roster = list(plan.reference_characters)
+    for panel in plan.panels:
+        roster.extend(panel.characters)
+    unique_page_names = list(dict.fromkeys(name for name in roster if name))
+    reference_bindings = _reference_bindings(
+        unique_page_names, characters_by_name, reference_images, visual_bible
+    )
+    if reference_bindings:
+        # An unlabeled list of portraits has no owner. The model then copies
+        # the strongest face onto every figure and the page has one person.
+        lines.append(
+            "Each reference image is one specific person, in this order: "
+            + "; ".join(
+                f"reference image {index} is exactly {name}, and nobody else"
+                for index, name in reference_bindings
+            )
+            + ". Draw that person with the face, hair, and clothes of their own "
+            "numbered reference. Do not give one character another's face, hair, "
+            "or outfit, and do not blend two references into one look."
+        )
     scene_for_page = _page_scene(plan, settings_by_name)
     if scene_for_page:
         lines.append(f"Scene setting for the whole page: {scene_for_page}")
@@ -164,8 +213,9 @@ def render_finished_page_prompt(
         lines.append(COSTUME_CHANGE_LOCK_LINE)
         lines.append(
             "Each character wears the exact outfit declared below in every panel: "
-            "same garment, same color. Copy the reference portrait's face, hair, "
-            "and clothes; do not redraw them."
+            "same garment, same color. Copy each character only from the reference "
+            "image numbered for that character; do not redraw them and do not copy "
+            "a different reference."
         )
         lines.append(wardrobe_banline_for_bible(visual_bible))
         lines.append(ANTI_MULTI_AGE_COLLAGE_LINE)
@@ -188,10 +238,6 @@ def render_finished_page_prompt(
     # Emitting the lock inside the per-panel loop repeats the same face for each
     # panel it appears in, which the image model reads as several look-alike
     # people instead of one recurring character.
-    page_names = list(plan.reference_characters)
-    for panel in plan.panels:
-        page_names.extend(panel.characters)
-    unique_page_names = list(dict.fromkeys(page_names))
     for name in unique_page_names:
         asset = resolve_character_asset(name, characters_by_name, visual_bible)
         if asset:
