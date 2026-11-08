@@ -44,7 +44,7 @@ When completing a change:
 
 | Area | Status | Notes |
 |---|---|---|
-| Core TXT → comic pipeline | Released | Segmentation, extraction, portraits, storyboard, panels, layout, PDF / Webtoon export, `state.json` resume. **Default render mode is `finished_page`** (one image per comic page); `panel_compose` is the explicit legacy fallback (`INKSTONE_RENDER_MODE=panel_compose`). **Finished-page text:** deferred lettering — blank art + font overlay ([spec](superpowers/specs/2026-07-31-deferred-lettering-design.md)). |
+| Core TXT → comic pipeline | Released | Segmentation, extraction, portraits, storyboard, panels, layout, PDF / Webtoon export, `state.json` resume. **Default render mode is `panel_compose`** (page-plan → per-panel images → local compose + font overlay); `finished_page` is the whole-page fallback (`INKSTONE_RENDER_MODE=finished_page`), and `storyboard` keeps the legacy grid path. **Finished-page text:** deferred lettering — blank art + font overlay ([spec](superpowers/specs/2026-07-31-deferred-lettering-design.md)). |
 | Providers and reliability | Released | Agnes + OpenAI-compatible routing, rate limit, retry and JSONL error collection. Default Agnes host is `https://apihub.agnes-ai.com/v1` ([Agnes 3.0 Flash](https://agnes-ai.com/en/docs/agnes-30-flash)); `AGNES_BASE_URL` overrides it. |
 | Cross-chapter identity | Released | L1/L2 consistency, alias review, stale-only redraw; L3 is experimental and off by default |
 | Web UI and unattended supervisor | Released | Local browser UI, cancel, retry, review, deadline pause / resume; job/project JSON exposes `render_mode`, `pages_done`, `skipped_pages` |

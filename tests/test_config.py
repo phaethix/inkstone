@@ -4,11 +4,11 @@ from pathlib import Path
 import core.config
 
 
-def test_render_mode_defaults_finished_page(monkeypatch):
+def test_render_mode_defaults_panel_compose(monkeypatch):
     monkeypatch.delenv("INKSTONE_RENDER_MODE", raising=False)
     from core.config import render_mode
 
-    assert render_mode() == "finished_page"
+    assert render_mode() == "panel_compose"
 
 
 def test_render_mode_panel_compose(monkeypatch):

@@ -6,9 +6,9 @@ from core.config import panel_size, render_mode
 from core.pipelines.creative_comic import _required_budget_stages
 
 
-def test_render_mode_defaults_to_finished_page_for_now(monkeypatch):
+def test_render_mode_defaults_to_panel_compose(monkeypatch):
     monkeypatch.delenv("INKSTONE_RENDER_MODE", raising=False)
-    assert render_mode() == "finished_page"
+    assert render_mode() == "panel_compose"
 
 
 def test_render_mode_recognizes_storyboard(monkeypatch):
@@ -24,7 +24,7 @@ def test_render_mode_recognizes_storyboard(monkeypatch):
         ("compose", "panel_compose"),
         ("finished_page", "finished_page"),
         ("legacy_storyboard", "storyboard"),
-        ("bogus", "finished_page"),
+        ("bogus", "panel_compose"),
     ],
 )
 def test_render_mode_aliases(monkeypatch, raw, expected):

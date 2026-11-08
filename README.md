@@ -58,7 +58,7 @@ Inkstone is an **independent implementation, not a fork** — inspired by [`lcy3
 
 > **An honest trade-off.** Free, cloud-only Agnes with no GPU caps how far character consistency can reach. The strongest approaches (IP-Adapter / InsightFace) need a local GPU running SDXL/Flux — incompatible with Inkstone's zero-cost premise. So Inkstone trades *perfect* consistency for *zero-cost + no-GPU + out-of-the-box*, using L1+L2. L3 is opt-in and off by default. Stated plainly, not hidden.
 
-**Finished-page mode (default)** generates whole-page art with empty lettering chrome; Inkstone overlays caption/dialogue/sfx using real fonts (CJK-capable). This avoids model-painted glyph distortion. Set `INKSTONE_RENDER_MODE=panel_compose` for the legacy per-panel path. Unlettered art is cached under `pages/blank/` so resume can re-letter without another image API call.
+**Panel-compose mode (default)** plans comic pages, generates each panel as its own image, and composes pages locally with the `LayoutEngine`; caption/dialogue/sfx are overlaid with real fonts (CJK-capable), never model-painted. Set `INKSTONE_RENDER_MODE=finished_page` for the whole-page fallback (one image per page, empty lettering chrome overlaid the same way); set `INKSTONE_RENDER_MODE=storyboard` for the legacy per-panel grid path. Unlettered art is cached under `pages/blank/` so resume can re-letter without another image API call.
 
 <p align="center">
   <img src="assets/readme/section-how.svg" width="100%" alt="How it works" />
@@ -68,7 +68,7 @@ Inkstone is an **independent implementation, not a fork** — inspired by [`lcy3
   <img src="assets/readme/pipeline.svg" width="100%" alt="Pipeline: Split → Extract → Board → Paint → Export" />
 </p>
 
-A `txt` novel is split into segments → characters & scenes are extracted with `agnes-3.0-flash` → **finished-page mode (default)** plans one comic page per image call (blank lettering chrome on the art) → each page is painted → Inkstone overlays text with real fonts → pages are bound to PDF, zipped as CBZ, or stacked into a webtoon PNG. For the legacy path, set `INKSTONE_RENDER_MODE=panel_compose`: storyboard prompts → per-panel generation → `LayoutEngine` grid layout → export.
+A `txt` novel is split into segments → characters & scenes are extracted with `agnes-3.0-flash` → **panel-compose mode (default)** plans one comic page layout per chunk, paints each panel as its own image, and composes the page locally → Inkstone overlays text with real fonts → pages are bound to PDF, zipped as CBZ, or stacked into a webtoon PNG. Set `INKSTONE_RENDER_MODE=finished_page` for the whole-page fallback (one image per page). The legacy path (`INKSTONE_RENDER_MODE=storyboard`) runs storyboard prompts → per-panel generation → `LayoutEngine` grid layout → export.
 
 The core challenge — **cross-panel character consistency without a GPU** — is handled by a layered strategy:
 
@@ -236,7 +236,8 @@ per run with `--chat-model` / `--image-model` / `--provider` / `--base-url` on
 | `INKSTONE_HARNESS` | | `1` | One-release fallback. `0` forces the builtin tree, ignores the harness dir, forces `general` genre, and disables craft-lesson injection. The review manifest records `harness_fallback: true`. |
 | `INKSTONE_PAGE_SCRIPT` | | `0` | Write legacy PageScript metadata. Off. Not a quality gate. |
 | `INKSTONE_DATA_DIR` | | `~/.inkstone` | Shared quota, budget, and sample-gate files. |
-| `INKSTONE_RENDER_MODE` | | `finished_page` | Default: one finished comic page per image call. Set `panel_compose` to use the legacy storyboard → panel → layout path (recovery when finished pages fail). |
+| `INKSTONE_RENDER_MODE` | | `panel_compose` | Default: page-plan → per-panel images → local page compose, text overlaid with real fonts. `finished_page` is the whole-page fallback (one image per page). `storyboard` runs the legacy storyboard → panel → layout grid path. |
+| `INKSTONE_PANEL_SIZE` | | `1024x1024` | Single-panel image size in panel-compose mode. |
 | `INKSTONE_PAGE_SIZE` | | `1024x1536` | Finished-page image size. If the provider rejects the size, Inkstone retries once with `1024x1024`. |
 | `INKSTONE_FONT_PATH` | | (auto) | TrueType/OpenType font for dialogue bubbles. |
 | `INKSTONE_WEBTOON_MAX_PIXELS` | | `200000000` | Refuse single-strip webtoon compose above this pixel budget. `0` disables. |

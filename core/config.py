@@ -292,12 +292,14 @@ def supervisor_backoff_cap() -> float:
 
 
 def render_mode() -> str:
-    raw = _get(ENV_RENDER_MODE, "finished_page").strip().lower()
+    raw = _get(ENV_RENDER_MODE, "panel_compose").strip().lower()
     if raw in {"panel_compose", "panel", "compose"}:
         return "panel_compose"
     if raw in {"storyboard", "legacy_storyboard"}:
         return "storyboard"
-    return "finished_page"
+    if raw in {"finished_page", "finished", "page"}:
+        return "finished_page"
+    return "panel_compose"
 
 
 def panel_size() -> str:
