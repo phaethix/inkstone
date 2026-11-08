@@ -32,6 +32,7 @@ ENV_SUPERVISOR_BACKOFF_BASE = "INKSTONE_SUPERVISOR_BACKOFF_BASE"
 ENV_SUPERVISOR_BACKOFF_CAP = "INKSTONE_SUPERVISOR_BACKOFF_CAP"
 ENV_RENDER_MODE = "INKSTONE_RENDER_MODE"
 ENV_PAGE_SIZE = "INKSTONE_PAGE_SIZE"
+ENV_PANEL_SIZE = "INKSTONE_PANEL_SIZE"
 ENV_PROVIDER = "PROVIDER"
 ENV_AGNES_API_KEY = "AGNES_API_KEY"
 ENV_AGNES_BASE_URL = "AGNES_BASE_URL"
@@ -294,7 +295,15 @@ def render_mode() -> str:
     raw = _get(ENV_RENDER_MODE, "finished_page").strip().lower()
     if raw in {"panel_compose", "panel", "compose"}:
         return "panel_compose"
+    if raw in {"storyboard", "legacy_storyboard"}:
+        return "storyboard"
     return "finished_page"
+
+
+def panel_size() -> str:
+    """Canvas size for one page-plan panel image (panel_compose mode)."""
+    raw = _get(ENV_PANEL_SIZE, "1024x1024").strip()
+    return raw or "1024x1024"
 
 
 def finished_page_size() -> str:

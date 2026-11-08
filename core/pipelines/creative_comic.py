@@ -1227,12 +1227,12 @@ def _required_budget_stages(mode: str, page_script: bool) -> set[str]:
     ``_charge`` site.
     """
     required = {"extract", "bible", "portrait", "render"}
-    if mode == "finished_page":
-        required.update({"beats", "page_plan"})
-    else:
+    if mode == "storyboard":
         required.add("storyboard")
         if page_script:
             required.add("page_script")
+    else:
+        required.update({"beats", "page_plan"})
     return required
 
 
