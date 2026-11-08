@@ -629,6 +629,36 @@ def _panel_key_material(panel) -> str:
     return "\n".join([panel.action or "", panel.setting_ref or "", names, panel.size or ""])
 
 
+def _page_panel_reference_paths(
+    panel,
+    characters_by_name: dict,
+    visual_bible,
+    ledger_refs: dict[str, str],
+    output_dir: Path,
+) -> list[str]:
+    """Portrait paths for ONE page-plan panel: its cast only, deduped, on disk.
+
+    panel_compose sends each panel only the portraits of the characters that
+    panel names, so the model cannot borrow a face the cast lock does not
+    declare. Paths outside ``output_dir`` or missing on disk are dropped —
+    a stale state entry must not resurrect a deleted file.
+    """
+    paths: list[str] = []
+    seen: set[str] = set()
+    for name in panel.characters:
+        asset = resolve_character_asset(name, characters_by_name, visual_bible)
+        loc = getattr(asset, "portrait_local", None) if asset is not None else None
+        if not loc and ledger_refs:
+            base = parse_stage_ref(name)[0]
+            if visual_bible is not None:
+                base = resolve_canonical_name(base, visual_bible)
+            loc = ledger_refs.get(base) or ledger_refs.get(name)
+        if loc and loc not in seen and _is_within(loc, output_dir) and Path(loc).is_file():
+            seen.add(loc)
+            paths.append(loc)
+    return paths
+
+
 def _panel_render_key(panel, style: str, state_key: str, image_model: str) -> str:
     return render_panel_action_key(
         panel_json=_panel_key_material(panel),

@@ -87,3 +87,28 @@ def test_panel_prompt_strict_ban_and_reference_bindings(tmp_path):
     )
     assert "absolutely no text" in prompt
     assert "reference image 1 is 沈知意" in prompt
+
+
+def test_page_panel_refs_only_panel_cast(tmp_path):
+    from core.pipelines.creative_comic import _page_panel_reference_paths
+
+    shen = tmp_path / "shen.png"
+    fu = tmp_path / "fu.png"
+    shen.write_bytes(b"p")
+    fu.write_bytes(b"p")
+    assets = {
+        "沈知意": CharacterAsset(name="沈知意", l1_prompt="x", portrait_local=str(shen)),
+        "福贵": CharacterAsset(name="福贵", l1_prompt="x", portrait_local=str(fu)),
+    }
+    panel_a = PagePanelSpec(panel_id="1", characters=["沈知意"])
+    panel_b = PagePanelSpec(panel_id="2", characters=["福贵", "沈知意"])
+    assert _page_panel_reference_paths(panel_a, assets, None, {}, tmp_path) == [str(shen)]
+    assert _page_panel_reference_paths(panel_b, assets, None, {}, tmp_path) == [str(fu), str(shen)]
+
+
+def test_page_panel_refs_drop_missing_files(tmp_path):
+    from core.pipelines.creative_comic import _page_panel_reference_paths
+
+    assets = {"沈知意": CharacterAsset(name="沈知意", l1_prompt="x", portrait_local="/nope.png")}
+    panel = PagePanelSpec(panel_id="1", characters=["沈知意"])
+    assert _page_panel_reference_paths(panel, assets, None, {}, tmp_path) == []
