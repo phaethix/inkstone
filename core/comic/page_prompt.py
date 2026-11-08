@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import Literal
 
+from core.comic.consistency import DEFAULT_PANEL_STYLE
 from core.comic.identity import (
     ensure_character_l1,
     harden_human_identity_prompt,
@@ -27,7 +28,7 @@ from core.comic.visual_bible import (
     wardrobe_banline_for_bible,
 )
 from core.comic.voice import timeline_prompt_lines
-from core.schemas import CharacterAsset, ComicPagePlan, Setting, VisualBible
+from core.schemas import CharacterAsset, ComicPagePlan, PagePanelSpec, Setting, VisualBible
 
 # A positive prompt that says "NO speech bubbles" still reminds a diffusion
 # model that bubbles are a thing comics have, so it draws one full of
@@ -364,13 +365,68 @@ def _strip_lineart_words(text: str) -> str:
 # scenery is kept too.
 _SETTING_PERSON_RE = re.compile(
     r"(?i)\b(?:one|two|three|a|an|another)\s+"
-    r"(?:young\s+|old\s+|elderly\s+|middle-aged\s+|teenage\s+|teen\s+)?"
+    r"(?:[a-z-]+\s+){0,2}?"
     r"(?:man|woman|boy|girl|person|figure|male|female|gentleman|lady)s?\b"
     r"[^,;.]*"
 )
 _SETTING_PEOPLE_PAIR_RE = re.compile(
-    r"(?i)\btwo\s+(?:young\s+)?(?:men|women|people|figures|boys|girls)s?\b[^,;.]*"
+    r"(?i)\btwo\s+(?:[a-z-]+\s+){0,2}?(?:men|women|people|figures|boys|girls)s?\b[^,;.]*"
 )
+
+
+_PANEL_NO_TEXT_BAN = (
+    "no text, no speech bubbles, no captions, no sound effects, "
+    "no letters, no numbers, no watermarks, no subtitles"
+)
+
+
+def render_page_panel_prompt(
+    plan: ComicPagePlan,
+    panel: PagePanelSpec,
+    *,
+    characters_by_name: dict[str, CharacterAsset],
+    settings_by_name: dict[str, Setting],
+    style_guide: str,
+    visual_bible: VisualBible | None = None,
+    reference_images: list[str] | None = None,
+    strict: bool = False,
+) -> str:
+    """Prompt for ONE panel of a page plan, drawn as its own image.
+
+    Identity comes from the character descriptions plus the reference images;
+    the cast count is asserted so the model cannot invent extra figures, the
+    action is scrubbed of people-assertions the cast does not name, and beat
+    bookkeeping never reaches the image prompt.
+    """
+    scene = _page_scene(plan, settings_by_name)
+    cast_names = [parse_stage_ref(name)[0] for name in panel.characters if name]
+    descs: list[str] = []
+    for name in panel.characters:
+        asset = resolve_character_asset(name, characters_by_name, visual_bible)
+        if asset is not None:
+            descs.append(_character_desc_for_prompt(name, asset, visual_bible))
+    count = len(cast_names)
+    if count == 0:
+        count_line = "No people in this panel; scenery only"
+    elif count == 1:
+        count_line = f"Exactly 1 character in this panel: {cast_names[0]}"
+    else:
+        count_line = f"Exactly {count} characters in this panel: {', '.join(cast_names)}"
+    action = _strip_setting_people(panel.action or "", cast_names)
+    if strict:
+        ban = "absolutely no text or lettering of any kind anywhere in the image"
+    else:
+        ban = _PANEL_NO_TEXT_BAN
+    if reference_images:
+        bindings = _reference_bindings(
+            list(panel.characters), characters_by_name, reference_images, visual_bible
+        )
+        owners = ", ".join(f"reference image {index} is {name}" for index, name in bindings)
+        if owners:
+            ban = f"{ban}; {owners}"
+    style = f"{style_guide}, {DEFAULT_PANEL_STYLE}" if style_guide else DEFAULT_PANEL_STYLE
+    parts = [p for p in (scene, *descs, count_line, action, ban, style) if p]
+    return ", ".join(parts)
 
 
 def _strip_setting_people(text: str, cast_names: list[str] | None = None) -> str:
