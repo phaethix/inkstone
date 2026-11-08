@@ -58,6 +58,7 @@ from core.config import (
     ENV_OPENAI_COMPAT_MODEL_T2I,
     ENV_PAGE_SCRIPT,
     ENV_PAGE_SIZE,
+    ENV_PANEL_SIZE,
     ENV_PDF_BATCH,
     ENV_PROVIDER,
     ENV_RENDER_MODE,
@@ -88,6 +89,7 @@ H_ENV_REGISTERED: frozenset[str] = frozenset(
     {
         ENV_L3,
         ENV_PAGE_SIZE,
+        ENV_PANEL_SIZE,
         ENV_PAGE_SCRIPT,
         ENV_RENDER_MODE,
         ENV_PROVIDER,

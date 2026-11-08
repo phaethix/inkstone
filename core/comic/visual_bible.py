@@ -496,6 +496,16 @@ def infer_gender(
     return "unknown"
 
 
+_STALE_AGE_PREFIX_RE = re.compile(
+    r"(?i)^((adult\s+|young\s+)?(man|woman|male|female|nonbinary person|boy|girl))\s*,\s*"
+)
+
+
+def strip_stale_age_prefix(face: str) -> str:
+    """Drop a leading gender/age phrase; callers re-add the age-aware one."""
+    return _STALE_AGE_PREFIX_RE.sub("", (face or "").strip()).strip()
+
+
 def gender_prefix(gender: str, age_look: str = "") -> str:
     """Age-aware idempotent face_lock gender phrase.
 
@@ -1087,6 +1097,12 @@ def ensure_stage_locks(
     gender: str = "",
 ) -> CharacterStage:
     """Fill empty stage locks and repair illegal ``portrait_key`` values."""
+    canon_face = strip_stale_age_prefix(canon_face)
+    age_look = (stage.age_look or "").strip() or default_age_look_for_stage(stage.stage)
+    if canon_face:
+        prefix = gender_prefix(gender or "unknown", age_look)
+        if prefix and not canon_face.casefold().startswith(prefix.casefold()):
+            canon_face = f"{prefix}, {canon_face}"
     hair_lock = (stage.hair_lock or "").strip()
     if not hair_lock:
         # Prefer a short hair hint from the canon face's first clause before generic default.
@@ -1101,7 +1117,6 @@ def ensure_stage_locks(
     portrait_key = (stage.portrait_key or "").strip()
     if canonical_name and (not portrait_key or is_illegal_character_name(portrait_key)):
         portrait_key = f"{canonical_name}@{stage.stage}"
-    age_look = (stage.age_look or "").strip() or default_age_look_for_stage(stage.stage)
     return CharacterStage(
         stage=stage.stage,
         appearance=stage.appearance,
@@ -2132,11 +2147,7 @@ def l1_from_canon(canon: CharacterCanon, stage: str = "default") -> str:
     # A face_lock frozen with the old hard-coded ``adult man`` lead must not
     # contradict the stage age: strip the stale prefix here and let the
     # age-aware one replace it.
-    face = re.sub(
-        r"(?i)^((adult\s+|young\s+)?(man|woman|male|female|nonbinary person|boy|girl))\s*,\s*",
-        "",
-        face,
-    ).strip()
+    face = strip_stale_age_prefix(face)
     if prefix and not face.casefold().startswith(prefix.casefold()):
         parts.append(prefix)
     if face:
@@ -2172,6 +2183,44 @@ def _rewrite_name_list(names: list[str], mapping: dict[str, str]) -> list[str]:
     return out
 
 
+def _name_in_text(name: str, text: str, known_names: Iterable[str] = ()) -> bool:
+    """``name in text`` that does not fire inside a longer known name.
+
+    A bare substring test made an alias that is a substring of another known
+    name match the longer name's occurrence: with 方鸿渐 and the alias 鸿渐
+    both known, ``鸿渐 in action`` fired on every 方鸿渐 panel and pulled the
+    merged-away alias back into the cast, changing the page's reference set
+    and repainting an unaffected page on re-run. An occurrence of ``name``
+    now counts only when no occurrence of a longer known name covers it;
+    CJK needs no word boundaries (沈知意坐 is still a mention).
+    """
+    needle = (name or "").strip()
+    haystack = text or ""
+    if not needle:
+        return False
+    covered: list[tuple[int, int]] = []
+    for other in known_names:
+        longer = (other or "").strip()
+        if len(longer) <= len(needle):
+            continue
+        scan = 0
+        while True:
+            idx = haystack.find(longer, scan)
+            if idx < 0:
+                break
+            covered.append((idx, idx + len(longer)))
+            scan = idx + 1
+    scan = 0
+    while True:
+        idx = haystack.find(needle, scan)
+        if idx < 0:
+            return False
+        end = idx + len(needle)
+        if not any(cs <= idx and end <= ce for cs, ce in covered):
+            return True
+        scan = idx + 1
+
+
 def backfill_panel_characters(
     plan: ComicPagePlan,
     known_names: Iterable[str],
@@ -2190,7 +2239,7 @@ def backfill_panel_characters(
                 seen.add(name)
         action = panel.action or ""
         for name in known:
-            if name in action and name not in seen:
+            if _name_in_text(name, action, known) and name not in seen:
                 found.append(name)
                 seen.add(name)
         panel.characters = found
@@ -2227,9 +2276,9 @@ def enforce_page_cast(
             for name in known:
                 if name in cast:
                     continue
-                if (name and name in action) or name in beat_characters.get(
-                    " ".join(panel.beat_ids or []), []
-                ):
+                if (
+                    _name_in_text(name, action, known) if name else False
+                ) or name in beat_characters.get(" ".join(panel.beat_ids or []), []):
                     cast.append(name)
                     added = True
             if added:
