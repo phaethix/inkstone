@@ -98,6 +98,10 @@ class LayoutEngine:
             return self._compose_webtoon(panels, output_dir)
         return self._compose_pages(panels, output_dir)
 
+    def compose_single_page(self, panels: list[PanelImage]) -> Image.Image:
+        """Render exactly these panels onto one page canvas without paginating."""
+        return self._render_page(panels)
+
     # ------------------------------------------------------------------ #
     # Page mode
     # ------------------------------------------------------------------ #
