@@ -89,6 +89,43 @@ def page_needs_generation(state: ProjectState, state_key: str) -> bool:
     return True
 
 
+def page_panel_state_key(chunk_index: int, page_index: int, panel_index: int) -> str:
+    """Pipeline identity for one panel of a planned page (panel_compose mode)."""
+    return f"{page_state_key(chunk_index, page_index)}-g{panel_index:04d}"
+
+
+def panel_page_chunk_complete(
+    state: ProjectState,
+    pageset: ComicPagePlanSet,
+    output_dir: Path,
+    chunk_index: int,
+) -> bool:
+    """True when every planned page's panels are generated or policy-skipped.
+
+    panel_compose pages are recomposed locally on every run: a complete chunk
+    needs its panel images on disk, not a letter-key hit.
+    """
+    for page_index, plan in enumerate(pageset.pages):
+        page_key = page_state_key(chunk_index, page_index)
+        if page_key in state.skipped_pages:
+            continue
+        rec = state.generated.pages.get(page_key)
+        if rec is None or page_key not in state.pages_done:
+            return False
+        if not is_within(rec.local, output_dir) or not Path(rec.local).exists():
+            return False
+        for panel_index in range(len(plan.panels)):
+            panel_key = page_panel_state_key(chunk_index, page_index, panel_index)
+            if panel_key in state.skipped:
+                continue
+            gen = state.generated.panels.get(panel_key)
+            if gen is None or panel_key not in state.panels_done:
+                return False
+            if not is_within(gen.local, output_dir) or not Path(gen.local).exists():
+                return False
+    return True
+
+
 def _unlink_page_file(path: str | None) -> None:
     """Delete a lettered page or its blank. Other recorded paths stay put."""
     if not path:
