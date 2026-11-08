@@ -52,7 +52,11 @@ _FINISHED_PAGE_FLOORS: tuple[tuple[str, int], ...] = (
     ("page_plan", 2),
     ("portrait", 1),
 )
-_PANEL_COMPOSE_FLOORS: tuple[tuple[str, int], ...] = (
+# panel_compose drives the same page-plan chain as finished_page, so its chat
+# floors are identical; only the render floor's meaning differs (per-panel
+# images instead of whole pages, more calls per page).
+_PANEL_COMPOSE_FLOORS = _FINISHED_PAGE_FLOORS
+_STORYBOARD_FLOORS: tuple[tuple[str, int], ...] = (
     ("extract", 1),
     ("bible", 1),
     ("storyboard", 1),
@@ -129,20 +133,21 @@ def allocate(
     ``page_plan`` keeps two calls because the pipeline may retry it once. The
     beat extraction's empty-answer retry needs no second floor: it happens inside
     one charge, before the pipeline charges again.
-    ``panel_compose`` funds storyboard instead of the finished-page plan
-    stages, and funds page_script only when that path is enabled. An unused
+    ``finished_page`` and ``panel_compose`` drive the same page-plan chain, so
+    they share the chat floors. ``storyboard`` funds the legacy storyboard stage
+    instead, and funds page_script only when that path is enabled. An unused
     floor would shrink the render allowance for no call.
     """
     if total < 0:
         raise ValueError("budget must be >= 0")
     if recovery_reserve is None:
         recovery_reserve = DEFAULT_RECOVERY_RESERVE if total >= 2 else 0
-    if render_mode == "panel_compose":
+    if render_mode in ("panel_compose", "finished_page"):
         floors = _PANEL_COMPOSE_FLOORS
+    elif render_mode == "storyboard":
+        floors = _STORYBOARD_FLOORS
         if not page_script:
             floors = tuple(item for item in floors if item[0] != "page_script")
-    elif render_mode == "finished_page":
-        floors = _FINISHED_PAGE_FLOORS
     else:
         raise ValueError(f"unknown render_mode: {render_mode}")
 

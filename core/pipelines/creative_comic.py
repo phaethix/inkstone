@@ -611,6 +611,20 @@ def _art_plan_json(plan) -> str:
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+def _art_panel_json(spec) -> str:
+    """Panel identity for the painted panel, without text drawn on top.
+
+    Same rule as ``_art_plan_json`` for one panel: dialogue/caption/sfx are
+    overlaid locally, and beat ids only steer which panels exist — neither
+    belongs in the image key. Scrubbed text must re-letter the page, not
+    repaint the panel.
+    """
+    payload = json.loads(spec.model_dump_json())
+    for key in ("caption", "dialogue", "sfx", "lettering_notes", "beat_ids"):
+        payload.pop(key, None)
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
 # Pages painted before reference images were numbered carry "". A page painted
 # by this code records the version, so a later resume can tell the two apart
 # without repainting on a font change.
@@ -2577,10 +2591,22 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                         return
                     negative_prompt = render_finished_page_negative_prompt()
                     panel_images: list[Image.Image] = []
+                    ledger_refs = (
+                        {
+                            name: entry.reference.path
+                            for name, entry in ledger.characters.items()
+                            if entry.reference.path and Path(entry.reference.path).is_file()
+                        }
+                        if _state.visual_bible is not None
+                        else {}
+                    )
                     for panel_index, spec in enumerate(plan.panels):
                         p_key = _page_panel_state_key(_chunk_index, page_index, panel_index)
                         if p_key in _state.skipped:
                             continue
+                        refs = _page_panel_reference_paths(
+                            spec, _state.characters, _state.visual_bible, ledger_refs, output_dir
+                        )
                         prompt = render_page_panel_prompt(
                             plan,
                             spec,
@@ -2588,23 +2614,12 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                             settings_by_name=_state.settings,
                             style_guide=_style,
                             visual_bible=_state.visual_bible,
-                        )
-                        ledger_refs = (
-                            {
-                                name: entry.reference.path
-                                for name, entry in ledger.characters.items()
-                                if entry.reference.path and Path(entry.reference.path).is_file()
-                            }
-                            if _state.visual_bible is not None
-                            else {}
-                        )
-                        refs = _page_panel_reference_paths(
-                            spec, _state.characters, _state.visual_bible, ledger_refs, output_dir
+                            reference_images=refs,
                         )
                         active_size = panel_size()
                         render_env = h_env(text=prompt, resolved_size=active_size, scope="render")
                         render_key = render_page_action_key(
-                            plan_json=spec.model_dump_json(),
+                            plan_json=_art_panel_json(spec),
                             prompt=prompt,
                             resolved_size=active_size,
                             page_key=p_key,
@@ -2692,6 +2707,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                                         settings_by_name=_state.settings,
                                         style_guide=_style,
                                         visual_bible=_state.visual_bible,
+                                        reference_images=refs,
                                         strict=True,
                                     )
                                     negative_prompt = render_finished_page_negative_prompt(
@@ -2715,6 +2731,17 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                                 break
                         local = _page_panel_asset_path(output_dir, p_key)
                         await asyncio.to_thread(out.save, str(local))
+                        record(
+                            output_dir,
+                            "render.page_panel",
+                            render_key,
+                            [(local.name, local.read_bytes())],
+                            stage_src=_RENDER_PAGE_PANEL_STAGE_SRC,
+                            env=render_env,
+                            inputs=render_page_inputs(
+                                _art_panel_json(spec), prompt, negative_prompt
+                            ),
+                        )
                         _state.generated.panels[p_key] = GeneratedPanel(
                             local=str(local),
                             chunk_index=_chunk_index,

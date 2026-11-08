@@ -30,13 +30,11 @@ def _project_state(pages_dir: Path) -> ProjectState | None:
 def page_images(pages_dir: Path) -> list[Path]:
     """Page images in filename order. A webtoon strip is not a page."""
     state = _project_state(pages_dir)
-    if state is not None and state.render_mode == "finished_page":
+    if state is not None and state.render_mode in ("finished_page", "panel_compose"):
         from core.pipelines.resume import finished_plan_files
 
         return finished_plan_files(state, pages_dir)
     pages = sorted(pages_dir.glob("page_*.png"))
-    if state is not None and state.render_mode == "panel_compose":
-        return [path for path in pages if _CHUNK_RE.match(path.name) is None]
     if not pages:
         pages = sorted(
             path for path in pages_dir.glob("*.png") if path.name.lower() != "webtoon.png"

@@ -1079,8 +1079,6 @@ def deterministic_outfit_lock(name: str, gender: str = "") -> str:
     else:
         wardrobe = _DETERMINISTIC_OUTFITS
     return wardrobe[digest[0] % len(wardrobe)]
-    digest = hashlib.sha256((name or "").encode("utf-8")).digest()
-    return _DETERMINISTIC_OUTFITS[digest[0] % len(_DETERMINISTIC_OUTFITS)]
 
 
 def _default_outfit_lock(*, era: str = "", style_guide: str = "") -> str:

@@ -69,8 +69,16 @@ def test_allocate_of_a_single_call_withholds_nothing():
     assert spec.reservations["render"] == 0
 
 
-def test_allocate_panel_compose_funds_storyboard_not_page_plan():
+def test_allocate_panel_compose_matches_page_plan_floors():
     spec = allocate(12, render_mode="panel_compose")
+    assert spec.reservations["beats"] == 1
+    assert spec.reservations["page_plan"] == 2
+    assert "storyboard" not in spec.reservations
+    assert spec.reservations["render"] == 5
+
+
+def test_allocate_storyboard_funds_storyboard_not_page_plan():
+    spec = allocate(12, render_mode="storyboard")
     assert "page_plan" not in spec.reservations
     assert spec.reservations["storyboard"] == 1
     assert spec.reservations["page_script"] == 1

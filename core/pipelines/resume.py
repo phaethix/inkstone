@@ -30,6 +30,7 @@ from core.comic.cas import letter_action_key, read_manifest_entry, stored_output
 from core.comic.env_snapshot import h_env
 from core.comic.identity import page_state_key
 from core.comic.lettering_lang import scrub_lettering_panel
+from core.comic.page_lettering import LETTERING_VERSION
 from core.comic.visual_bible import (
     backfill_panel_characters,
     canonicalize_page_plan,
@@ -103,21 +104,28 @@ def panel_page_chunk_complete(
     """True when every planned page's panels are generated or policy-skipped.
 
     panel_compose pages are recomposed locally on every run: a complete chunk
-    needs its panel images on disk, not a letter-key hit.
+    needs its panel images on disk, not a letter-key hit. Stale wins over done
+    — a redraw request must not be swallowed by the chunk-complete shortcut.
     """
     for page_index, plan in enumerate(pageset.pages):
         page_key = page_state_key(chunk_index, page_index)
         if page_key in state.skipped_pages:
             continue
+        if page_key in state.stale_pages:
+            return False
         rec = state.generated.pages.get(page_key)
         if rec is None or page_key not in state.pages_done:
             return False
         if not is_within(rec.local, output_dir) or not Path(rec.local).exists():
             return False
+        if rec.lettering_version != LETTERING_VERSION:
+            return False
         for panel_index in range(len(plan.panels)):
             panel_key = page_panel_state_key(chunk_index, page_index, panel_index)
             if panel_key in state.skipped:
                 continue
+            if panel_key in state.stale_panels:
+                return False
             gen = state.generated.panels.get(panel_key)
             if gen is None or panel_key not in state.panels_done:
                 return False

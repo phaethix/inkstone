@@ -164,13 +164,15 @@ def test_the_beats_retry_costs_no_extra_budget_reservation():
     assert allocate(5).reservations["page_plan"] == 1, "a beat retry starved the plan"
 
 
-def test_a_panel_compose_run_does_not_pay_for_a_beats_stage_it_never_calls():
-    """The panel-compose path has no beat stage, so it must not fund one.
+def test_a_storyboard_run_does_not_pay_for_a_beats_stage_it_never_calls():
+    """The storyboard path has no beat stage, so it must not fund one.
 
     Funding a stage a run never charges would shrink the render allowance for no
-    call, which ``allocate`` explicitly avoids.
+    call, which ``allocate`` explicitly avoids. ``panel_compose`` drives the
+    page-plan chain and does charge beats, so only the storyboard mode skips it.
     """
     from core.comic.budget import allocate
 
-    spec = allocate(12, render_mode="panel_compose")
+    spec = allocate(12, render_mode="storyboard")
     assert "beats" not in spec.reservations
+    assert allocate(12, render_mode="panel_compose").reservations["beats"] == 1

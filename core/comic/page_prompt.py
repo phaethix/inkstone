@@ -374,10 +374,7 @@ _SETTING_PEOPLE_PAIR_RE = re.compile(
 )
 
 
-_PANEL_NO_TEXT_BAN = (
-    "no text, no speech bubbles, no captions, no sound effects, "
-    "no letters, no numbers, no watermarks, no subtitles"
-)
+_PANEL_NO_TEXT_BAN = "clean artwork with no overlays; art only, ready for text to be placed on top"
 
 
 def render_page_panel_prompt(
@@ -414,7 +411,7 @@ def render_page_panel_prompt(
         count_line = f"Exactly {count} characters in this panel: {', '.join(cast_names)}"
     action = _strip_setting_people(panel.action or "", cast_names)
     if strict:
-        ban = "absolutely no text or lettering of any kind anywhere in the image"
+        ban = "absolutely clean artwork, no overlays of any kind anywhere in the image"
     else:
         ban = _PANEL_NO_TEXT_BAN
     if reference_images:

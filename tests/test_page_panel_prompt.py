@@ -46,7 +46,7 @@ def test_panel_prompt_asserts_cast_and_scrubs_extra_people():
     assert "one young man fishing" not in prompt
     assert "lakeside pavilion" in prompt
     assert "pours tea" in prompt
-    assert "no speech bubbles" in prompt
+    assert "clean artwork with no overlays" in prompt
 
 
 def test_panel_prompt_empty_cast_is_scenery_only():
@@ -85,7 +85,7 @@ def test_panel_prompt_strict_ban_and_reference_bindings(tmp_path):
         reference_images=[str(portrait)],
         strict=True,
     )
-    assert "absolutely no text" in prompt
+    assert "absolutely clean artwork" in prompt
     assert "reference image 1 is 沈知意" in prompt
 
 

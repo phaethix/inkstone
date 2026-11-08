@@ -82,6 +82,14 @@ _STAGES: dict[str, StageContract] = {
         hard_inputs=frozenset({"page_plan", "bible_entries_for_page", "prompt_renderer"}),
         soft_refs=frozenset({"l2_reference"}),
     ),
+    # panel_compose: one planned panel, not a storyboard slot. The reference
+    # portraits are the same soft class as a page's L2 image.
+    "render.page_panel": StageContract(
+        stage="render.page_panel",
+        reads_accumulated=False,
+        hard_inputs=frozenset({"page_plan", "bible_entries_for_page", "prompt_renderer"}),
+        soft_refs=frozenset({"l2_reference"}),
+    ),
     # One character. The earlier portrait of the same person is an i2i reference,
     # the same class as a page's L2 image: it changes pixels without being a key.
     "portrait": StageContract(

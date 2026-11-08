@@ -6,6 +6,7 @@ merge/dismiss (never silent), and force-regen bookkeeping for selective redraw.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 
 from core.comic.ledger import ConsistencyLedger
@@ -24,6 +25,9 @@ _HIGH_CONFIDENCE_MARKERS = (
     "normalized/substring",
     "substring match",
 )
+
+# Page-panel state key: the page key plus one grid segment (``…-gNNNN``).
+_PAGE_PANEL_KEY_RE = re.compile(r"^c\d{4}-p\d{4}-g\d{4}$")
 
 # Chinese literary nicknames often embed animal/plant glyphs metaphorically
 # (虎妞, 凤姐). Image models literalize those glyphs unless prompts forbid it.
@@ -561,6 +565,14 @@ def clear_tombstones(state: ProjectState, keys: list[str]) -> list[str]:
     state.pages_done = [k for k in state.pages_done if k not in key_set]
     state.skipped_pages = [k for k in state.skipped_pages if k not in key_set]
     state.stale_pages = [k for k in state.stale_pages if k not in key_set]
+    # A page-panel tombstone carries a ``cNNNN-pMMMM-gNNNN`` key: the same
+    # release must clear the panel sets, or the pipeline's ``skipped`` check
+    # keeps the panel skipped and ``panel_page_chunk_complete`` keeps calling
+    # the chunk done.
+    if any(_PAGE_PANEL_KEY_RE.match(key) for key in key_set):
+        state.panels_done = [k for k in state.panels_done if k not in key_set]
+        state.skipped = [k for k in state.skipped if k not in key_set]
+        state.stale_panels = [k for k in state.stale_panels if k not in key_set]
     return released
 
 

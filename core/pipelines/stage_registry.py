@@ -36,6 +36,7 @@ _SPECS: tuple[StageSpec, ...] = (
     StageSpec("page_script", PipelinePhase.PLAN, "page_script", "page_script"),
     StageSpec("portrait", PipelinePhase.RENDER, "portrait", "portrait"),
     StageSpec("render.page", PipelinePhase.RENDER, "render.page", "render.page"),
+    StageSpec("render.page_panel", PipelinePhase.RENDER, "render.page_panel", "render.page_panel"),
     StageSpec("render.panel", PipelinePhase.RENDER, "render.panel", "render.panel"),
     StageSpec("letter", PipelinePhase.RENDER, "letter", "letter"),
     StageSpec("layout", PipelinePhase.EXPORT, "layout", "layout"),
@@ -81,6 +82,11 @@ _INPUT_SOURCES: dict[str, dict[str, str]] = {
     },
     "portrait": {"bible_entry_for_character": "bible", "character_asset": EXTERNAL},
     "render.page": {
+        "page_plan": "page_plan",
+        "bible_entries_for_page": "bible",
+        "prompt_renderer": EXTERNAL,
+    },
+    "render.page_panel": {
         "page_plan": "page_plan",
         "bible_entries_for_page": "bible",
         "prompt_renderer": EXTERNAL,
