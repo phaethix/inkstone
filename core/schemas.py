@@ -305,7 +305,7 @@ Stage = Literal[
     "export",
 ]
 
-RenderMode = Literal["finished_page", "panel_compose"]
+RenderMode = Literal["finished_page", "panel_compose", "storyboard"]
 
 # LLM sometimes fuses ``"field": "X"`` into a single key ``field："X”…`` / ``field: X``.
 _FUSED_FIELD_KEY = re.compile(

@@ -102,6 +102,7 @@ from core.comic.lettering_lang import (
     truncate_lettering,
 )
 from core.comic.locks import exclusive_lock
+from core.comic.page_compose import compose_page_panels
 from core.comic.page_lettering import (
     LETTERING_VERSION,
     _avoid_overlap,
@@ -123,6 +124,7 @@ from core.comic.page_lettering import (
 from core.comic.page_prompt import (
     render_finished_page_negative_prompt,
     render_finished_page_prompt,
+    render_page_panel_prompt,
 )
 from core.comic.review_packet import ReviewPacket
 from core.comic.runs import bind_audit, clear_audit, image_failure, image_intent, image_result
@@ -164,6 +166,7 @@ from core.config import (
     l3_enabled,
     lessons_enabled,
     page_script_enabled,
+    panel_size,
     review_packet_enabled,
 )
 from core.config import (
@@ -223,7 +226,9 @@ from core.pipelines.resume import letter_resume_status as _letter_resume_status
 from core.pipelines.resume import page_asset_path as _page_asset_path
 from core.pipelines.resume import page_chunk_complete as _page_chunk_complete
 from core.pipelines.resume import page_needs_generation as _page_needs_generation
+from core.pipelines.resume import page_panel_state_key as _page_panel_state_key
 from core.pipelines.resume import panel_needs_generation as _panel_needs_generation
+from core.pipelines.resume import panel_page_chunk_complete as _panel_page_chunk_complete
 from core.pipelines.resume import plan_json as _plan_json
 from core.pipelines.resume import plan_ready_to_letter as _plan_ready_to_letter
 from core.pipelines.resume import scrub_chunk_lettering as _scrub_chunk_lettering
@@ -690,6 +695,37 @@ def _sync_stored_panel_key(
         state.panels_done.remove(state_key)
 
 
+def _page_panel_asset_path(output_dir: Path, panel_key: str) -> Path:
+    """Position-stable file for one page-panel: ``panels/<panel_key>.png``.
+
+    Position-derived (not a content hash) so regenerating a stale/missing
+    panel always rewrites the same file, mirroring the page naming rule.
+    """
+    target = (output_dir / "panels" / f"{panel_key}.png").resolve()
+    if not _is_within(target, output_dir):
+        raise ValueError(f"unsafe panel asset path for key {panel_key!r}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    return target
+
+
+def _sync_page_panel_key(state: ProjectState, panel_key: str, render_key: str) -> None:
+    """Stamp a page-panel, or drop it from the done set when its key misses.
+
+    A missing file still has to be painted. A stale panel is left for the
+    existing stale check.
+    """
+    existing = state.generated.panels.get(panel_key)
+    if existing is None or not Path(existing.local).is_file():
+        return
+    if panel_key in state.stale_panels:
+        return
+    if not existing.render_action_key:
+        existing.render_action_key = render_key
+        return
+    if existing.render_action_key != render_key and panel_key in state.panels_done:
+        state.panels_done.remove(panel_key)
+
+
 _EXTRACT_STAGE_SRC = stage_source_hash(build_extract_request, extract_story_elements)
 _BEATS_STAGE_SRC = stage_source_hash(build_beats_request, extract_key_beats)
 _BIBLE_STAGE_SRC = stage_source_hash(build_bible_request, reconcile_visual_bible)
@@ -713,6 +749,9 @@ _PORTRAIT_STAGE_SRC = stage_source_hash(_portrait_key_material)
 _RENDER_PANEL_STAGE_SRC = stage_source_hash(_panel_key_material)
 _RENDER_PAGE_STAGE_SRC = stage_source_hash(
     render_finished_page_prompt, render_finished_page_negative_prompt
+)
+_RENDER_PAGE_PANEL_STAGE_SRC = stage_source_hash(
+    render_page_panel_prompt, render_finished_page_negative_prompt
 )
 
 
@@ -1054,6 +1093,9 @@ def _mark_page_chunk_done_if_complete(
     key: str,
     pageset: ComicPagePlanSet,
     chunk_index: int,
+    output_dir: Path,
+    *,
+    render_mode: str = "finished_page",
 ) -> None:
     """Record chunks_done only after every planned page is done or skipped."""
     for page_index in range(len(pageset.pages)):
@@ -1062,6 +1104,10 @@ def _mark_page_chunk_done_if_complete(
             return
         if state_key not in state.pages_done and state_key not in state.skipped_pages:
             return
+    if render_mode == "panel_compose" and not _panel_page_chunk_complete(
+        state, pageset, output_dir, chunk_index
+    ):
+        return
     if key not in state.chunks_done:
         state.chunks_done.append(key)
 
@@ -1693,7 +1739,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                 ledger.record_escalation_stop(output_dir)
                 state.save(state_path)
                 raise ContinuityReviewPaused(escalated)
-            if mode == "finished_page":
+            if mode in ("finished_page", "panel_compose"):
                 render_nodes_by_chunk = _expand_page_render_nodes(render_graph, state, len(chunks))
             else:
                 render_nodes_by_chunk, batch_panel_keys = _expand_panel_render_nodes(
@@ -1730,7 +1776,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                 elif not cached.extract_action_key:
                     cached.extract_action_key = extract_key
             pageset = state.page_cache.get(key)
-            if mode == "finished_page" and pageset is not None:
+            if mode in ("finished_page", "panel_compose") and pageset is not None:
                 for page_index, _page in enumerate(pageset.pages):
                     page_key = page_state_key(ci, page_index)
                     generated = state.generated.pages.get(page_key)
@@ -1749,7 +1795,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
             if board is not None and known_beats is not None:
                 if stamp_storyboard_beats(board, known_beats):
                     state.save(state_path)
-            if mode == "finished_page" and pageset is not None:
+            if mode in ("finished_page", "panel_compose") and pageset is not None:
                 cached_beats = state.beat_cache.get(key)
                 if cached_beats is not None and cached_beats.beats:
                     if stamp_page_panel_beats(pageset, cached_beats):
@@ -1759,7 +1805,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
             # permanent, so drop both and extract again. A plan made earlier
             # in this same run is still what the render pass draws.
             if (
-                mode == "finished_page"
+                mode in ("finished_page", "panel_compose")
                 and cacheable_beats(state.beat_cache.get(key)) is None
                 and key not in ephemeral_page_plans
             ):
@@ -1778,22 +1824,32 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
             # a chunk committed to a character table this build would no longer
             # produce, which is how a project with no characters stayed that way
             # across every resume.
-            if mode == "finished_page":
-                chunk_complete = (
-                    pageset is not None
-                    and elements is not None
-                    and cacheable_beats(state.beat_cache.get(key)) is not None
-                    and key in set(state.chunks_done)
-                    and _page_chunk_complete(
-                        state,
-                        pageset,
-                        output_dir,
-                        ci,
-                        chunk,
-                        stage_src=_LETTER_STAGE_SRC,
+            if mode in ("finished_page", "panel_compose"):
+                if mode == "panel_compose":
+                    chunk_complete = (
+                        pageset is not None
+                        and elements is not None
+                        and cacheable_beats(state.beat_cache.get(key)) is not None
+                        and key in set(state.chunks_done)
+                        and _panel_page_chunk_complete(state, pageset, output_dir, ci)
+                        and panel_key_filter is None
                     )
-                    and panel_key_filter is None
-                )
+                else:
+                    chunk_complete = (
+                        pageset is not None
+                        and elements is not None
+                        and cacheable_beats(state.beat_cache.get(key)) is not None
+                        and key in set(state.chunks_done)
+                        and _page_chunk_complete(
+                            state,
+                            pageset,
+                            output_dir,
+                            ci,
+                            chunk,
+                            stage_src=_LETTER_STAGE_SRC,
+                        )
+                        and panel_key_filter is None
+                    )
                 if chunk_complete:
                     # The panel branch below does not require a visual bible,
                     # and a finished page does not read one: both resume paths
@@ -2230,7 +2286,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
             state.save(state_path)
             _report("portrait", _pct())
 
-            if mode == "finished_page":
+            if mode in ("finished_page", "panel_compose"):
                 if pageset is not None and state.visual_bible is not None:
                     pageset = rewrite_pageset_from_bible(pageset, state.visual_bible)
                 beats_request = build_beats_request(
@@ -2501,6 +2557,212 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                 state.stage = "pages"
                 check_cancel(cancel_check)
 
+                async def _render_page_panels_node(
+                    plan: ComicPagePlan,
+                    *,
+                    page_index: int,
+                    state_key: str,
+                    _state: ProjectState = state,
+                    _chunk_index: int = ci,
+                    _style: str = effective_style,
+                ) -> None:
+                    """panel_compose: each panel is its own image; compose locally."""
+                    page_is_stale = state_key in _state.stale_pages
+                    if page_is_stale:
+                        for panel_index in range(len(plan.panels)):
+                            p_key = _page_panel_state_key(_chunk_index, page_index, panel_index)
+                            if p_key in _state.panels_done:
+                                _state.panels_done.remove(p_key)
+                    if not gate.allow(state_key, _chunk_index, total_chunks=total_chunks):
+                        return
+                    negative_prompt = render_finished_page_negative_prompt()
+                    panel_images: list[Image.Image] = []
+                    for panel_index, spec in enumerate(plan.panels):
+                        p_key = _page_panel_state_key(_chunk_index, page_index, panel_index)
+                        if p_key in _state.skipped:
+                            continue
+                        prompt = render_page_panel_prompt(
+                            plan,
+                            spec,
+                            characters_by_name=_state.characters,
+                            settings_by_name=_state.settings,
+                            style_guide=_style,
+                            visual_bible=_state.visual_bible,
+                        )
+                        ledger_refs = (
+                            {
+                                name: entry.reference.path
+                                for name, entry in ledger.characters.items()
+                                if entry.reference.path and Path(entry.reference.path).is_file()
+                            }
+                            if _state.visual_bible is not None
+                            else {}
+                        )
+                        refs = _page_panel_reference_paths(
+                            spec, _state.characters, _state.visual_bible, ledger_refs, output_dir
+                        )
+                        active_size = panel_size()
+                        render_env = h_env(text=prompt, resolved_size=active_size, scope="render")
+                        render_key = render_page_action_key(
+                            plan_json=spec.model_dump_json(),
+                            prompt=prompt,
+                            resolved_size=active_size,
+                            page_key=p_key,
+                            ref_policy="panel_page",
+                            env=render_env,
+                            stage_src=_RENDER_PAGE_PANEL_STAGE_SRC,
+                            negative_prompt=negative_prompt,
+                        )
+                        _sync_page_panel_key(_state, p_key, render_key)
+                        if not _panel_needs_generation(_state, p_key):
+                            gen = _state.generated.panels.get(p_key)
+                            if gen is not None and Path(gen.local).is_file():
+                                panel_images.append(Image.open(gen.local))
+                                continue
+                        recorded = read_manifest_entry(
+                            output_dir, render_key, stage="render.page_panel"
+                        )
+                        if recorded is not None and recorded.outcome != "ok":
+                            continue
+                        if p_key not in _state.stale_panels:
+                            cached = stored_output(
+                                output_dir, render_key, stage="render.page_panel"
+                            )
+                            if cached is not None:
+                                local = _page_panel_asset_path(output_dir, p_key)
+                                local.write_bytes(cached)
+                                panel_images.append(Image.open(local))
+                                _mark_panel_done(_state, p_key)
+                                continue
+                        check_cancel(cancel_check)
+                        stricter_attempted = False
+                        while True:
+                            _charge("render", p_key)
+                            image_intent(
+                                output_dir,
+                                stage="render",
+                                key=p_key,
+                                prompt=prompt,
+                                size=active_size,
+                            )
+                            t0 = time.monotonic()
+                            try:
+                                async with image_semaphore:
+                                    with perf.measure("panel"):
+                                        out = await image.generate_single_image(
+                                            prompt,
+                                            reference_image_paths=refs,
+                                            size=active_size,
+                                            negative_prompt=negative_prompt,
+                                        )
+                            except Exception as exc:  # noqa: BLE001 — preserve policy skip behavior
+                                image_result(
+                                    output_dir,
+                                    stage="render",
+                                    key=p_key,
+                                    duration_ms=round((time.monotonic() - t0) * 1000),
+                                    status="error",
+                                )
+                                image_failure(output_dir, stage="render", key=p_key, error=exc)
+                                if is_content_policy_rejection(exc):
+                                    logger.warning(
+                                        "panel %s skipped: content filter rejected it (%s)",
+                                        p_key,
+                                        exc,
+                                    )
+                                    _state.tombstones[p_key] = Tombstone(
+                                        outcome="rejected",
+                                        reason="content_policy",
+                                        stage="render.page_panel",
+                                    )
+                                    if p_key in _state.panels_done:
+                                        _state.panels_done.remove(p_key)
+                                    if p_key not in _state.skipped:
+                                        _state.skipped.append(p_key)
+                                    if state_key not in _state.skipped_pages:
+                                        _state.skipped_pages.append(state_key)
+                                    _state.save(state_path, caches=False)
+                                    return
+                                if not stricter_attempted:
+                                    stricter_attempted = True
+                                    prompt = render_page_panel_prompt(
+                                        plan,
+                                        spec,
+                                        characters_by_name=_state.characters,
+                                        settings_by_name=_state.settings,
+                                        style_guide=_style,
+                                        visual_bible=_state.visual_bible,
+                                        strict=True,
+                                    )
+                                    negative_prompt = render_finished_page_negative_prompt(
+                                        strict=True
+                                    )
+                                    logger.warning(
+                                        "panel %s image failed (%s); retrying once stricter",
+                                        p_key,
+                                        exc,
+                                    )
+                                    continue
+                                raise
+                            else:
+                                image_result(
+                                    output_dir,
+                                    stage="render",
+                                    key=p_key,
+                                    duration_ms=round((time.monotonic() - t0) * 1000),
+                                    status="ok",
+                                )
+                                break
+                        local = _page_panel_asset_path(output_dir, p_key)
+                        await asyncio.to_thread(out.save, str(local))
+                        _state.generated.panels[p_key] = GeneratedPanel(
+                            local=str(local),
+                            chunk_index=_chunk_index,
+                            panel_index=panel_index,
+                            source_panel_id=spec.panel_id,
+                            render_action_key=render_key,
+                        )
+                        _mark_panel_done(_state, p_key)
+                        _state.save(state_path, caches=False)
+                        if p_key in _state.stale_panels:
+                            _state.stale_panels = [k for k in _state.stale_panels if k != p_key]
+                        panel_images.append(Image.open(local))
+                    if len(panel_images) != len(plan.panels):
+                        return
+                    pages_dir.mkdir(parents=True, exist_ok=True)
+                    blank_dir = pages_dir / "blank"
+                    blank_dir.mkdir(parents=True, exist_ok=True)
+                    blank_path = _page_asset_path(blank_dir, _chunk_index, page_index)
+                    local = _page_asset_path(pages_dir, _chunk_index, page_index)
+                    await asyncio.to_thread(
+                        compose_page_panels, plan, panel_images, blank_path, local
+                    )
+                    record_page_artifact(
+                        _state,
+                        state_key,
+                        GeneratedPage(
+                            local=str(local),
+                            blank_local=str(blank_path),
+                            lettering_version=LETTERING_VERSION,
+                            resolved_size=panel_size(),
+                            render_action_key="panel_compose",
+                            prompt_inputs=[_plan_json(plan)],
+                            reference_binding=_REFERENCE_BINDING,
+                            page_id=plan.page_id,
+                            unit_index=_chunk_index,
+                            page_index=page_index,
+                            mode="finished_lettered",
+                        ),
+                    )
+                    if state_key in _state.stale_pages:
+                        _state.stale_pages = [k for k in _state.stale_pages if k != state_key]
+                    if state_key not in _state.pages_done:
+                        _state.pages_done.append(state_key)
+                    if ledger.rebuild_from_state(_state):
+                        ledger.save(ledger_path)
+                    _state.save(state_path, caches=False)
+                    _report("pages", _pct())
+
                 async def _render_page_node(
                     page_index: int,
                     plan: ComicPagePlan,
@@ -2514,6 +2776,11 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                     plan = _plan_ready_to_letter(_state, plan)
                     page_id = plan.page_id
                     state_key = page_state_key(_chunk_index, page_index)
+                    if mode == "panel_compose":
+                        await _render_page_panels_node(
+                            plan, page_index=page_index, state_key=state_key
+                        )
+                        return
                     existing = _state.generated.pages.get(state_key)
                     blank_ok = bool(
                         existing
@@ -2954,7 +3221,9 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                     )
                     completed_render_nodes.add(page_node.node_id)
 
-                _mark_page_chunk_done_if_complete(state, key, pageset, ci)
+                _mark_page_chunk_done_if_complete(
+                    state, key, pageset, ci, output_dir, render_mode=mode
+                )
                 ledger.rebuild_from_state(state)
                 ledger.save(ledger_path)
                 state.save(state_path, caches=False)
@@ -3367,10 +3636,11 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
     cbz: str | None = None
     pages: list[str] = []
 
-    if mode == "finished_page":
+    if mode in ("finished_page", "panel_compose"):
         # No LayoutEngine collage for page mode: each page image was already
-        # saved directly by the loop above. Webtoon mode stacks those finished
-        # pages into a single vertical strip.
+        # saved directly by the loop above. panel_compose composed its pages
+        # locally from panel images the same way. Webtoon mode stacks those
+        # finished pages into a single vertical strip.
         state.stage = "export"
         _report("export", max(0.90, _pct()))
         page_files = (

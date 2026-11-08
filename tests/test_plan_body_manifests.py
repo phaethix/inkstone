@@ -388,10 +388,10 @@ def test_storyboard_restores_from_its_manifest_with_zero_calls(tmp_path: Path, m
 
     The finished-page tests above cannot reach this branch: that flow never runs
     a storyboard stage at all, so a broken board restore would pass every one of
-    them. Here the suite default (``panel_compose`` from ``conftest.py``) applies,
+    them. Here the explicit ``storyboard`` mode below applies,
     and losing ``cache.json`` has to come back from the board manifest.
     """
-    monkeypatch.setenv("INKSTONE_RENDER_MODE", "panel_compose")
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "storyboard")
 
     chat, img = D2FakeChat(), FakeImageWithCount()
     asyncio.run(creative_comic(_PANEL_SRC, output_dir=str(tmp_path), chat=chat, image=img))
@@ -432,7 +432,7 @@ def test_page_script_restores_from_its_manifest_with_zero_calls(
     proves the opposite direction. This test does: with the manifest intact and
     ``cache.json`` gone, the script comes back without a provider call.
     """
-    monkeypatch.setenv("INKSTONE_RENDER_MODE", "panel_compose")
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "storyboard")
     monkeypatch.setenv("INKSTONE_PAGE_SCRIPT", "1")
 
     chat = D2FakeChat()

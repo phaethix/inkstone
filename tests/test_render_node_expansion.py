@@ -60,7 +60,7 @@ def test_panel_continuity_renders_storyboard_planned_during_render(tmp_path, mon
             output_dir=str(tmp_path),
             chat=PanelChat(),
             image=PanelImage(),
-            render_mode="panel_compose",
+            render_mode="storyboard",
         )
     )
 
@@ -86,7 +86,7 @@ def test_panel_batch_renders_storyboard_planned_during_render(tmp_path, monkeypa
             output_dir=str(tmp_path),
             chat=PanelChat(),
             image=PanelImage(),
-            render_mode="panel_compose",
+            render_mode="storyboard",
         )
     )
 

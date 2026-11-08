@@ -98,7 +98,7 @@ def test_a_lost_cache_restores_the_script_without_a_call(tmp_path: Path, monkeyp
     catch it on their own: they hold the elements still, while the real run
     mutates the shared objects between planning the script and saving the state.
     """
-    monkeypatch.setenv("INKSTONE_RENDER_MODE", "panel_compose")
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "storyboard")
     monkeypatch.setenv("INKSTONE_PAGE_SCRIPT", "1")
 
     chat = D2FakeChat()
@@ -127,7 +127,7 @@ def test_the_stamp_survives_the_bible_rewrite_within_one_run(tmp_path: Path, mon
     stage computed later in the *same* run, so even a warm ``cache.json`` was
     only safe because the check tolerates an empty stamp.
     """
-    monkeypatch.setenv("INKSTONE_RENDER_MODE", "panel_compose")
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "storyboard")
     monkeypatch.setenv("INKSTONE_PAGE_SCRIPT", "1")
 
     asyncio.run(

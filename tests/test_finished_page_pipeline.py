@@ -523,8 +523,8 @@ def test_finished_page_stale_page_repaints_instead_of_reusing_blank(tmp_path, mo
 
 @patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)
 def test_finished_page_kwarg_overrides_env_default(tmp_path, monkeypatch):
-    # Env says panel_compose; explicit kwarg should win.
-    monkeypatch.setenv("INKSTONE_RENDER_MODE", "panel_compose")
+    # Env says storyboard; explicit kwarg should win.
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "storyboard")
     src = "第一章\n福贵在村口。"
     chat, img = FakeChat(), FakeImage()
     proj = asyncio.run(

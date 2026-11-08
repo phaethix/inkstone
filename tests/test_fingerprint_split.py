@@ -356,7 +356,7 @@ def test_panel_compose_does_not_reuse_a_finished_page_completion(tmp_path, monke
     assert saved.chunk_cache
     assert all(cached.storyboard is None for cached in saved.chunk_cache.values())
 
-    monkeypatch.setenv("INKSTONE_RENDER_MODE", "panel_compose")
+    monkeypatch.setenv("INKSTONE_RENDER_MODE", "storyboard")
     chat = _StoryboardChat()
     proj = asyncio.run(creative_comic(src, output_dir=str(tmp_path), chat=chat, image=FakeImage()))
 
