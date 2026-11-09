@@ -169,7 +169,21 @@ class LayoutEngine:
         canvas = Image.new("RGB", (self.page_width, offsets[-1]), self.bg)
         for idx, panel in enumerate(page_panels):
             r, c = divmod(idx, cols)
-            box = (c * cell_w, offsets[r], (c + 1) * cell_w, offsets[r] + row_heights[r])
+            x0 = c * cell_w
+            # The last row of an odd count leaves one grid slot empty (a
+            # user-visible blank rectangle on page_c0001_p0001): stretch the
+            # row's panels across the full page width instead.
+            in_row = page_panels[r * cols : (r + 1) * cols]
+            row_cell_w = (
+                self.page_width // len(in_row) if r == rows - 1 and len(in_row) < cols else cell_w
+            )
+            x0 = c * row_cell_w if r == rows - 1 and len(in_row) < cols else x0
+            box = (
+                x0,
+                offsets[r],
+                x0 + row_cell_w,
+                offsets[r] + row_heights[r],
+            )
             self._place_panel(canvas, panel, box)
         return canvas
 

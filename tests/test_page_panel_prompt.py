@@ -113,6 +113,47 @@ def test_panel_prompt_count_line_claims_the_whole_frame():
     assert "the ONLY people in the image" in prompt
 
 
+def test_panel_prompt_count_line_bans_duplicate_copies():
+    """A wide shot drew the same young man twice (two boys in green on
+    page_c0000_p0002): the cast line must forbid rendering one character
+    more than once, or the model splits a named character into copies."""
+    plan = _plan("沈知意 waits at the rail", ["沈知意"])
+    prompt = render_page_panel_prompt(
+        plan,
+        plan.panels[0],
+        characters_by_name=_assets(),
+        settings_by_name={},
+        style_guide="manhua",
+    )
+    assert "only once" in prompt
+
+
+def test_panel_prompt_scrubs_line_metaphors_from_action():
+    """``the line lands`` / ``she delivers the line`` use *line* for dialogue:
+    page_c0001_p0001 p2-s4/p2-s5 drew a speech bubble of pseudo-script from
+    those phrasings, so every dialogue-metaphor clause must be scrubbed."""
+    plan = _plan("沈知意 looks up; she delivers the line as a quiet observation", ["沈知意"])
+    prompt = render_page_panel_prompt(
+        plan,
+        plan.panels[0],
+        characters_by_name=_assets(),
+        settings_by_name={},
+        style_guide="manhua",
+    )
+    assert "delivers the line" not in prompt
+    assert "the line lands" not in prompt or "delivers" not in prompt
+    assert "looks up" in prompt
+
+
+def test_panel_prompt_scrubs_the_line_lands_clause():
+    plan = _plan("The boy's hand stops on the strings; a beat of stillness as the line lands", [])
+    prompt = render_page_panel_prompt(
+        plan, plan.panels[0], characters_by_name={}, settings_by_name={}, style_guide="manhua"
+    )
+    assert "the line lands" not in prompt
+    assert "strings" in prompt
+
+
 def test_panel_prompt_style_has_no_white_frame_words():
     """Panel style must not say line art / design sheet: those words drew
     white bordered frames around the art (page_c0001_p0000-g0002) because the

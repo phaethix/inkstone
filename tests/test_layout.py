@@ -71,6 +71,22 @@ def test_compose_paginates_past_four(tmp_path):
     assert all(p.endswith(".png") for p in paths)
 
 
+def test_compose_single_page_odd_count_has_no_blank_half_row(tmp_path):
+    """A 5-panel page packed 2-up leaves row 3 with one panel and one blank
+    cell — the user-visible blank slot on page_c0001_p0001. The last row of
+    a single-page compose must stretch its panel(s) across the full width."""
+    eng = LayoutEngine()
+    panels = [PanelImage(_img()) for _ in range(5)]
+    canvas = eng.compose_single_page(panels)
+    import numpy as np
+
+    arr = np.array(canvas.convert("L"))
+    # The trailing grid slot is a blank rectangle: bottom row, right half.
+    bottom_right = arr[arr.shape[0] * 2 // 3 :, arr.shape[1] // 2 :]
+    nonwhite = (bottom_right <= 245).mean()
+    assert nonwhite > 0.4, f"blank slot: only {nonwhite:.1%} non-white pixels"
+
+
 def test_dialogue_bubble_draws_non_background_pixels():
     eng = LayoutEngine()
     img = Image.new("RGB", (200, 120), (255, 255, 255))

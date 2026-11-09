@@ -274,7 +274,9 @@ def render_finished_page_prompt(
             f"CRITICAL cast lock: the only people on this page are {cast}. "
             "Draw each of them once per panel they appear in, and keep them "
             "visually distinct: the locked gender, face, hairstyle and outfit "
-            "declared above. Do not add a "
+            "declared above. Draw each named character exactly once per panel — "
+            "never render the same person twice in one panel as two separate "
+            "figures. Do not add a "
             "bystander, a reader, a second copy, or any person the panel action "
             "does not name. Never render two look-alike copies of the same "
             "person, never swap a character's gender, and never merge two "
@@ -319,7 +321,19 @@ _CHROME_CLAUSE_RE = re.compile(
     r"sfx glyphs?|lettering chrome|lettering|post-processing|placeholders?|"
     r"diegetic|pseudo-script|blank aged paper|letterforms?|glyphs?|"
     r"readable text|readable characters?|"
-    r"line of dialogue|dialogue\b"
+    r"line of dialogue|dialogue\b|"
+    # "she delivers the line", "as the line lands", "the line hangs": *line*
+    # standing in for a spoken sentence drew a pseudo-script bubble
+    # (page_c0001_p0001 p2-s4/p2-s5). Only the metaphor sense — a line of
+    # speech — must go; staging a real line ("holds the fishing line") has no
+    # article-free "the line" collocation with these verbs, and "deliver(s)
+    # the line" / "the line lands|hangs" are always speech. Verbose mode
+    # strips literal spaces from the pattern, so gaps are written as \s+.
+    r"delivers?\s+the\s+line|delivering\s+the\s+line|"
+    r"the\s+line\s+(?:lands|landed|hangs|hung|drops|dropped)|"
+    r"(?:says|speaks|utters|murmurs|whispers|delivers)\b[^,;.]*\b(?:his|her|their|its)?\s*(?:line|lines)\b|"
+    r"the\s+(?:lines?)\b(?![^,;.]*\b(?:fishing|wire|rope|power|phone|story|plot|horizon|"
+    r"coast|shore|ridg|front|battle|hold|draw|writ|read|ink|finger|bass|guitar|melody|brow)\b)"
     r")\b"
 )
 _NEGATED_PROP_RE = re.compile(
@@ -434,11 +448,14 @@ def render_page_panel_prompt(
         count_line = "No people in this panel; scenery only"
     elif count == 1:
         count_line = (
-            f"Exactly 1 character in this panel: {cast_names[0]} — the ONLY people in the image"
+            f"Exactly 1 character in this panel: {cast_names[0]} — "
+            f"draw {cast_names[0]} only once, the ONLY people in the image"
         )
     else:
+        joined = ", ".join(cast_names)
         count_line = (
-            f"Exactly {count} characters in this panel: {', '.join(cast_names)} — "
+            f"Exactly {count} characters in this panel: {joined} — "
+            "each drawn exactly once, no character appears twice, "
             "the ONLY people in the image"
         )
     action = _image_safe(_strip_setting_people(panel.action or "", cast_names))
