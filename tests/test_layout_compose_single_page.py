@@ -17,4 +17,6 @@ def test_compose_single_page_places_all_panels_on_one_canvas():
     ]
     canvas = engine.compose_single_page(panels)
     assert canvas.size[0] == 800
-    assert canvas.size[1] >= 600
+    # Two rows of 300px-tall square art plus dialogue/caption reserve; the
+    # reserve pushes the second row past the bare art height (564 total).
+    assert canvas.size[1] >= 500

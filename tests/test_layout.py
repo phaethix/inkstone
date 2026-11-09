@@ -15,7 +15,9 @@ def test_compose_single_panel_is_one_page(tmp_path):
     paths = eng.compose([PanelImage(_img())], tmp_path, layout_mode="page")
     assert len(paths) == 1
     out = Image.open(paths[0])
-    assert out.size == (1400, 1000)
+    # One square panel fills a full-width row: 1400 wide, 1400 tall — the row
+    # height follows the art instead of a fixed 1000px cell.
+    assert out.size == (1400, 1400)
 
 
 def test_place_panel_preserves_aspect_with_letterbox():
@@ -56,7 +58,9 @@ def test_compose_four_panels_fill_one_page_2x2(tmp_path):
     paths = eng.compose(panels, tmp_path, layout_mode="page")
     assert len(paths) == 1
     out = Image.open(paths[0])
-    assert out.size == (1400, 2000)
+    # 2x2 rows of square art: each row is as tall as its contained panels
+    # (700px), not a fixed 1000px cell with letterbox bands.
+    assert out.size == (1400, 1400)
 
 
 def test_compose_paginates_past_four(tmp_path):

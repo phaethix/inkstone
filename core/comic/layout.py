@@ -139,20 +139,37 @@ class LayoutEngine:
             reserve += self._bubble_height(panel.sfx, int(cell_w * 0.45)) + 16
         return reserve
 
+    def _row_height(self, row_panels: list[PanelImage], cell_w: int) -> int:
+        """Height a row actually needs: the tallest contained panel plus any
+        lettering reserve. A fixed cell height letterboxes square art into tall
+        cells — 1024x1024 panels in a 3-up row left the page over half blank."""
+        fitted = 0
+        reserve = 0
+        for panel in row_panels:
+            img = panel.image
+            fitted = max(fitted, int(cell_w * img.height / img.width) if img.width else 0)
+            reserve = max(reserve, self._lettering_reserve(panel, cell_w))
+        return max(fitted + reserve, 1)
+
     def _render_page(self, page_panels: list[PanelImage]) -> Image.Image:
+        if not page_panels:
+            return Image.new("RGB", (self.page_width, self.cell_height), self.bg)
         n = len(page_panels)
         cols = self._cols_for(n)
         rows = ceil(n / cols) if n else 1
         cell_w = self.page_width // cols
-        required = max(
-            (self._lettering_reserve(panel, cell_w) for panel in page_panels),
-            default=0,
-        )
-        cell_h = max(self.cell_height, required)
-        canvas = Image.new("RGB", (self.page_width, cell_h * rows), self.bg)
+        # Row height follows the row's own art: no stranded letterbox bands
+        # when a square panel shares a page with nothing taller.
+        row_heights = [
+            self._row_height(page_panels[r * cols : (r + 1) * cols], cell_w) for r in range(rows)
+        ]
+        offsets = [0]
+        for height in row_heights:
+            offsets.append(offsets[-1] + height)
+        canvas = Image.new("RGB", (self.page_width, offsets[-1]), self.bg)
         for idx, panel in enumerate(page_panels):
             r, c = divmod(idx, cols)
-            box = (c * cell_w, r * cell_h, (c + 1) * cell_w, (r + 1) * cell_h)
+            box = (c * cell_w, offsets[r], (c + 1) * cell_w, offsets[r] + row_heights[r])
             self._place_panel(canvas, panel, box)
         return canvas
 
