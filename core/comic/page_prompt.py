@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Literal
 
-from core.comic.consistency import DEFAULT_PANEL_STYLE
+from core.comic.consistency import DEFAULT_PANEL_STYLE  # noqa: F401  (finished-page style)
 from core.comic.identity import (
     ensure_character_l1,
     harden_human_identity_prompt,
@@ -79,6 +79,20 @@ def render_finished_page_negative_prompt(
     if strict:
         return FINISHED_PAGE_NEGATIVE_PROMPT + _NEGATIVE_PROMPT_STRICT_SUFFIX
     return FINISHED_PAGE_NEGATIVE_PROMPT
+
+
+# ``l1_from_canon`` appends the planner's verbatim evidence quotes
+# ("source: “倚着栏杆”"). Those quotes exist for the *audit* trail: Qwen's text
+# encoder reads Chinese, and a quote in the image prompt letters those glyphs
+# onto the art (page_c0000_p0002 rendered a caption bar reading 倚着栏杆).
+_SOURCE_QUOTES_RE = re.compile(r";\s*source:\s*.*$")
+
+
+def _strip_source_quotes(text: str) -> str:
+    """Drop the trailing ``; source: “…”`` evidence block from an L1 string."""
+    if not text:
+        return ""
+    return _SOURCE_QUOTES_RE.sub("", text).strip(" ,;")
 
 
 def _character_desc_for_prompt(
@@ -304,7 +318,8 @@ _CHROME_CLAUSE_RE = re.compile(
     r"speech bubbles?|thought bubbles?|bubbles?|caption bars?|caption boxes?|"
     r"sfx glyphs?|lettering chrome|lettering|post-processing|placeholders?|"
     r"diegetic|pseudo-script|blank aged paper|letterforms?|glyphs?|"
-    r"readable text|readable characters?"
+    r"readable text|readable characters?|"
+    r"line of dialogue|dialogue\b"
     r")\b"
 )
 _NEGATED_PROP_RE = re.compile(
@@ -376,6 +391,17 @@ _SETTING_PEOPLE_PAIR_RE = re.compile(
 
 _PANEL_NO_TEXT_BAN = "clean artwork with no overlays; art only, ready for text to be placed on top"
 
+# Style for a single full-bleed panel image. The finished-page style constant
+# says "comic panel" and the visual-bible block says "design sheets", and both
+# words drew a white border frame around the art (page_c0001_p0000-g0002):
+# the workflow's negative node is empty, so a positive "no white borders"
+# would only remind the model borders exist. Describe the wanted geometry
+# instead: art all the way to every edge.
+PANEL_FULL_BLEED_STYLE = (
+    "one single full-bleed illustration, edge-to-edge artwork with no white "
+    "borders or margins, soft cel shading, flat colors, cinematic composition"
+)
+
 
 def render_page_panel_prompt(
     plan: ComicPagePlan,
@@ -402,14 +428,20 @@ def render_page_panel_prompt(
         asset = resolve_character_asset(name, characters_by_name, visual_bible)
         if asset is not None:
             descs.append(_character_desc_for_prompt(name, asset, visual_bible))
+    descs = [_strip_source_quotes(desc) for desc in descs]
     count = len(cast_names)
     if count == 0:
         count_line = "No people in this panel; scenery only"
     elif count == 1:
-        count_line = f"Exactly 1 character in this panel: {cast_names[0]}"
+        count_line = (
+            f"Exactly 1 character in this panel: {cast_names[0]} — the ONLY people in the image"
+        )
     else:
-        count_line = f"Exactly {count} characters in this panel: {', '.join(cast_names)}"
-    action = _strip_setting_people(panel.action or "", cast_names)
+        count_line = (
+            f"Exactly {count} characters in this panel: {', '.join(cast_names)} — "
+            "the ONLY people in the image"
+        )
+    action = _image_safe(_strip_setting_people(panel.action or "", cast_names))
     if strict:
         ban = "absolutely clean artwork, no overlays of any kind anywhere in the image"
     else:
@@ -421,7 +453,7 @@ def render_page_panel_prompt(
         owners = ", ".join(f"reference image {index} is {name}" for index, name in bindings)
         if owners:
             ban = f"{ban}; {owners}"
-    style = f"{style_guide}, {DEFAULT_PANEL_STYLE}" if style_guide else DEFAULT_PANEL_STYLE
+    style = f"{style_guide}, {PANEL_FULL_BLEED_STYLE}" if style_guide else PANEL_FULL_BLEED_STYLE
     parts = [p for p in (scene, *descs, count_line, action, ban, style) if p]
     return ", ".join(parts)
 

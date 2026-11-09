@@ -49,6 +49,89 @@ def test_panel_prompt_asserts_cast_and_scrubs_extra_people():
     assert "clean artwork with no overlays" in prompt
 
 
+def test_panel_prompt_drops_source_quotes():
+    """The evidence quotes in an L1 string must not reach an image prompt.
+
+    Qwen's text encoder reads Chinese: ``source: “倚着栏杆”`` taught the model
+    to letter those exact glyphs onto the art (page_c0000_p0002 drew a caption
+    bar reading 倚着栏杆 verbatim).
+    """
+    assets = {
+        "沈知意": CharacterAsset(
+            name="沈知意",
+            l1_prompt=(
+                "young Chinese woman, thin knit scarf; source: “沈知意把围巾拢了拢”; “倚着栏杆”"
+            ),
+        )
+    }
+    plan = _plan("沈知意 waits at the rail", ["沈知意"])
+    prompt = render_page_panel_prompt(
+        plan,
+        plan.panels[0],
+        characters_by_name=assets,
+        settings_by_name={},
+        style_guide="manhua",
+    )
+    assert "source:" not in prompt
+    assert "沈知意把围巾拢了拢" not in prompt
+    assert "倚着栏杆" not in prompt
+    assert "thin knit scarf" in prompt
+
+
+def test_panel_prompt_scrubs_chrome_clauses_from_action():
+    """An action that names dialogue/bubble chrome must not carry it into a
+    per-panel prompt: ``the line of dialogue hangs in the air`` drew a speech
+    bubble full of pseudo-script (page_c0001_p0001)."""
+    plan = _plan(
+        "沈知意 listens; the line of dialogue hangs in the air between them",
+        ["沈知意"],
+    )
+    prompt = render_page_panel_prompt(
+        plan,
+        plan.panels[0],
+        characters_by_name=_assets(),
+        settings_by_name={},
+        style_guide="manhua",
+    )
+    assert "dialogue" not in prompt
+    assert "hangs in the air" not in prompt
+    assert "listens" in prompt
+
+
+def test_panel_prompt_count_line_claims_the_whole_frame():
+    """The cast line must claim the entire image, not just the panel: wide
+    establishing shots sprouted an extra bystander (page_c0000_p0000 drew a
+    third man in green although the plan named one character)."""
+    plan = _plan("沈知意 waits at the rail", ["沈知意"])
+    prompt = render_page_panel_prompt(
+        plan,
+        plan.panels[0],
+        characters_by_name=_assets(),
+        settings_by_name={},
+        style_guide="manhua",
+    )
+    assert "the ONLY people in the image" in prompt
+
+
+def test_panel_prompt_style_has_no_white_frame_words():
+    """Panel style must not say line art / design sheet: those words drew
+    white bordered frames around the art (page_c0001_p0000-g0002) because the
+    finished page ban list names them and the workflow has no negative
+    channel."""
+    assets = {"沈知意": CharacterAsset(name="沈知意", l1_prompt="a shy young woman")}
+    plan = _plan("沈知意 waits", ["沈知意"])
+    prompt = render_page_panel_prompt(
+        plan,
+        plan.panels[0],
+        characters_by_name=assets,
+        settings_by_name={},
+        style_guide="",
+    )
+    lowered = prompt.lower()
+    assert "line art" not in lowered
+    assert "design sheet" not in lowered
+
+
 def test_panel_prompt_empty_cast_is_scenery_only():
     plan = _plan("the boat drifts", [])
     prompt = render_page_panel_prompt(
