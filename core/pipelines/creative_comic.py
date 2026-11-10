@@ -648,6 +648,36 @@ def _panel_key_material(panel) -> str:
     return "\n".join([panel.action or "", panel.setting_ref or "", names, panel.size or ""])
 
 
+def _trimmed_reference_path(loc: str) -> str:
+    """Return ``loc`` with any white border cropped off, as a sidecar copy.
+
+    Character reference portraits are often drawn on a pure-white canvas. Sent
+    unmodified, the i2i model treats the white canvas and its border as part of
+    the desired art style and repaints them around the panel (every bordered
+    panel traced back to the white-canvas portrait). The trim is written to a
+    sidecar next to the asset — the original file stays untouched, and a clean
+    reference keeps its own path so nothing is rewritten needlessly.
+    """
+    from PIL import Image, ImageChops
+
+    src = Path(loc)
+    diff_box = None
+    try:
+        with Image.open(src) as img:
+            rgb = img.convert("RGB")
+            # Background = the corner color; diff against it, crop the envelope.
+            bg = Image.new("RGB", rgb.size, rgb.getpixel((0, 0)))
+            diff_box = ImageChops.difference(rgb, bg).getbbox()
+    except OSError:
+        return loc
+    if diff_box is None or diff_box == (0, 0, rgb.width, rgb.height):
+        return loc
+    sidecar = src.with_name(f"{src.stem}_trimmed{src.suffix}")
+    with Image.open(src) as img:
+        img.convert("RGB").crop(diff_box).save(sidecar)
+    return str(sidecar)
+
+
 def _page_panel_reference_paths(
     panel,
     characters_by_name: dict,
@@ -674,7 +704,7 @@ def _page_panel_reference_paths(
             loc = ledger_refs.get(base) or ledger_refs.get(name)
         if loc and loc not in seen and _is_within(loc, output_dir) and Path(loc).is_file():
             seen.add(loc)
-            paths.append(loc)
+            paths.append(_trimmed_reference_path(loc))
     return paths
 
 
