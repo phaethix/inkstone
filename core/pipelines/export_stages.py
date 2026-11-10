@@ -40,7 +40,7 @@ from core.comic.export import (
     _pdf_dpi,
 )
 from core.comic.fonts import text_requires_cjk
-from core.comic.layout import LayoutEngine, PanelImage, _line_height
+from core.comic.layout import LayoutEngine, PanelImage, _line_height, _trim_generated_border
 from core.comic.stage_contract import stage_source_hash
 from core.pipelines.stage_runner import run_stage
 
@@ -82,6 +82,7 @@ _LAYOUT_SOURCES = (
     LayoutEngine._paginate,
     LayoutEngine._place_panel,
     LayoutEngine._render_page,
+    _trim_generated_border,
 )
 _WEBTOON_SOURCES = (
     *_DRAW_SOURCES,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Literal
 
 from core.comic.consistency import DEFAULT_PANEL_STYLE  # noqa: F401  (finished-page style)
@@ -95,6 +96,66 @@ def _strip_source_quotes(text: str) -> str:
     return _SOURCE_QUOTES_RE.sub("", text).strip(" ,;")
 
 
+_PLACEHOLDER_L1_RE = re.compile(r"⚠|unverified evidence|generic placeholder")
+
+
+def _is_placeholder_l1(text: str) -> bool:
+    """True when an L1 string is an audit placeholder, not drawable identity.
+
+    The extractor writes Chinese-only audit notes ("少年, 次要角色，抱旧吉他的
+    腼腆少年; ⚠ unverified evidence") when it has no verified appearance. Sent
+    as the panel's identity line, the model gets no face, hair, or age and
+    invents a different person per panel (the same 少年 drew as a small child
+    in one panel and near-grown in the next).
+    """
+    return bool(_PLACEHOLDER_L1_RE.search(text or ""))
+
+
+def _resolvable_character_asset(
+    name: str, characters_by_name: dict[str, CharacterAsset]
+) -> CharacterAsset | None:
+    """Resolve *name*, falling back to a stage variant when the base is a stub.
+
+    Stage plans may reference a character by its bare name while only the
+    ``@stage`` variant (``少年@teen``) carries the hardened English identity.
+    The base asset's Chinese audit placeholder gives the image model nothing to
+    hold onto, so the same character ages per panel. Variants of the same
+    character share the portrait, so preferring a variant's L1 keeps the locked
+    face and pins one age.
+    """
+    asset = characters_by_name.get(name)
+    if asset is None:
+        return None
+    if not _is_placeholder_l1(asset.l1_prompt or ""):
+        return asset
+    base, _stage = parse_stage_ref(name)
+    best: CharacterAsset | None = None
+    for other_name, other in characters_by_name.items():
+        other_base, _other_stage = parse_stage_ref(other_name)
+        if other_base != base or other is asset:
+            continue
+        if _is_placeholder_l1(other.l1_prompt or ""):
+            continue
+        if best is None:
+            best = other
+    return best or asset
+
+
+def _age_lock_line(name: str) -> str:
+    """One fixed age per character across every panel.
+
+    The model aged the same character differently per panel (child, teen,
+    adult variants of one 少年 on consecutive pages) even with a stable L1.
+    A short per-character assertion pins the age band to whatever the identity
+    line states.
+    """
+    return (
+        f"AGE LOCK {name}: draw this character at exactly the age described above, "
+        "the same age in every panel — never a younger child version, never an "
+        "older or teenage version, no age progression or regression"
+    )
+
+
 def _character_desc_for_prompt(
     name: str,
     asset: CharacterAsset,
@@ -123,7 +184,9 @@ def _reference_bindings(
 
     The provider receives portraits as an ordered array and does not label
     them. The prompt has to say which array slot is which person, in the same
-    order the array is sent, or the model assigns the faces itself.
+    order the array is sent, or the model assigns the faces itself. A sent
+    path may be a border-trimmed sidecar (``<stem>_trimmed``) of the asset's
+    portrait, so match on the de-suffixed stem as well as the raw path.
     """
     if not reference_images:
         return []
@@ -136,6 +199,12 @@ def _reference_bindings(
     bindings: list[tuple[int, str]] = []
     for index, path in enumerate(reference_images, start=1):
         owner = owners.get(path)
+        if owner is None:
+            stem = Path(path).stem
+            if stem.endswith("_trimmed"):
+                owner = owners.get(
+                    str(Path(path).with_name(stem[: -len("_trimmed")] + Path(path).suffix))
+                )
         if owner:
             bindings.append((index, owner))
     return bindings
@@ -438,10 +507,16 @@ def render_page_panel_prompt(
     scene = _page_scene(plan, settings_by_name)
     cast_names = [parse_stage_ref(name)[0] for name in panel.characters if name]
     descs: list[str] = []
+    age_locks: list[str] = []
     for name in panel.characters:
         asset = resolve_character_asset(name, characters_by_name, visual_bible)
+        if asset is None or _is_placeholder_l1(asset.l1_prompt or ""):
+            fallback = _resolvable_character_asset(name, characters_by_name)
+            if fallback is not None:
+                asset = fallback
         if asset is not None:
             descs.append(_character_desc_for_prompt(name, asset, visual_bible))
+            age_locks.append(_age_lock_line(name))
     descs = [_strip_source_quotes(desc) for desc in descs]
     count = len(cast_names)
     if count == 0:
@@ -471,7 +546,7 @@ def render_page_panel_prompt(
         if owners:
             ban = f"{ban}; {owners}"
     style = f"{style_guide}, {PANEL_FULL_BLEED_STYLE}" if style_guide else PANEL_FULL_BLEED_STYLE
-    parts = [p for p in (scene, *descs, count_line, action, ban, style) if p]
+    parts = [p for p in (scene, *descs, count_line, *age_locks, action, ban, style) if p]
     return ", ".join(parts)
 
 

@@ -64,6 +64,53 @@ def _line_height(font) -> int:
         return 12
 
 
+# A border thinner than this is deliberate art (a vignette), not the model's
+# frame. The generated frames measured 12–20px on 1024px panels.
+_MAX_TRIM_RATIO = 0.04
+
+
+def _trim_generated_border(image: Image.Image) -> Image.Image:
+    """Crop a white frame the image model drew around a panel.
+
+    The full-bleed style line suppresses most frames, but some panels still
+    come back with a 100% white border on all four edges
+    (c0000-p0000-g0000/g0002, c0001-p0000-g0003); placed as-is, the page shows
+    white-frame cells and the row heights then disagree with their unframed
+    neighbors. Only an all-edge frame is trimmed, and never more than
+    ``_MAX_TRIM_RATIO`` of the side, so deliberate white vignettes survive.
+    """
+    rgb = image.convert("RGB")
+    width, height = rgb.size
+    limit = max(2, int(min(width, height) * _MAX_TRIM_RATIO))
+
+    def _white(col: tuple[int, int, int]) -> bool:
+        return col[0] > 238 and col[1] > 238 and col[2] > 238
+
+    def _row_white(y: int) -> bool:
+        return all(_white(rgb.getpixel((x, y))) for x in range(0, width, 8))
+
+    def _col_white(x: int) -> bool:
+        return all(_white(rgb.getpixel((x, y))) for y in range(0, height, 8))
+
+    top = 0
+    while top < limit and _row_white(top):
+        top += 1
+    bottom = height
+    while bottom > max(top + 1, height - limit) and _row_white(bottom - 1):
+        bottom -= 1
+    left = 0
+    while left < limit and _col_white(left):
+        left += 1
+    right = width
+    while right > max(left + 1, width - limit) and _col_white(right - 1):
+        right -= 1
+    if top == 0 and bottom == height and left == 0 and right == width:
+        return image
+    if (bottom - top) < 16 or (right - left) < 16:
+        return image
+    return rgb.crop((left, top, right, bottom))
+
+
 class LayoutEngine:
     """Compose panel images into pages or a vertical webtoon strip."""
 
@@ -140,16 +187,20 @@ class LayoutEngine:
         return reserve
 
     def _row_height(self, row_panels: list[PanelImage], cell_w: int) -> int:
-        """Height a row actually needs: the tallest contained panel plus any
-        lettering reserve. A fixed cell height letterboxes square art into tall
-        cells — 1024x1024 panels in a 3-up row left the page over half blank."""
+        """Height a row actually needs: the tallest contained panel. A fixed
+        cell height letterboxes square art into tall cells — 1024x1024 panels
+        in a 3-up row left the page over half blank.
+
+        Lettering (caption/dialogue/sfx) is *overlaid* on the art by
+        ``_place_panel``, so it adds no height: a reserve here inflated rows
+        with a talkative panel and left white bands under its silent
+        neighbors (page_c0001_p0000 row 2).
+        """
         fitted = 0
-        reserve = 0
         for panel in row_panels:
             img = panel.image
             fitted = max(fitted, int(cell_w * img.height / img.width) if img.width else 0)
-            reserve = max(reserve, self._lettering_reserve(panel, cell_w))
-        return max(fitted + reserve, 1)
+        return max(fitted, 1)
 
     def _render_page(self, page_panels: list[PanelImage]) -> Image.Image:
         if not page_panels:
@@ -160,30 +211,27 @@ class LayoutEngine:
         cell_w = self.page_width // cols
         # Row height follows the row's own art: no stranded letterbox bands
         # when a square panel shares a page with nothing taller.
-        row_heights = [
-            self._row_height(page_panels[r * cols : (r + 1) * cols], cell_w) for r in range(rows)
-        ]
-        offsets = [0]
-        for height in row_heights:
-            offsets.append(offsets[-1] + height)
-        canvas = Image.new("RGB", (self.page_width, offsets[-1]), self.bg)
+        # The last row of an odd count leaves grid slots empty (a user-visible
+        # blank rectangle on page_c0001_p0001): stretch that row's panels
+        # across the full page width, and recompute its height from the
+        # stretched width so the art fills the wider cells instead of
+        # letterboxing in the middle.
+        y = 0
+        row_layouts: list[tuple[int, int]] = []
+        for r in range(rows):
+            in_row = page_panels[r * cols : (r + 1) * cols]
+            stretch = r == rows - 1 and rows > 1 and len(in_row) < cols
+            width = self.page_width // len(in_row) if stretch else cell_w
+            height = self._row_height(in_row, width)
+            row_layouts.append((y, width))
+            y += height
+        canvas = Image.new("RGB", (self.page_width, y), self.bg)
         for idx, panel in enumerate(page_panels):
             r, c = divmod(idx, cols)
-            x0 = c * cell_w
-            # The last row of an odd count leaves one grid slot empty (a
-            # user-visible blank rectangle on page_c0001_p0001): stretch the
-            # row's panels across the full page width instead.
-            in_row = page_panels[r * cols : (r + 1) * cols]
-            row_cell_w = (
-                self.page_width // len(in_row) if r == rows - 1 and len(in_row) < cols else cell_w
-            )
-            x0 = c * row_cell_w if r == rows - 1 and len(in_row) < cols else x0
-            box = (
-                x0,
-                offsets[r],
-                x0 + row_cell_w,
-                offsets[r] + row_heights[r],
-            )
+            row_y, width = row_layouts[r]
+            row_h = row_layouts[r + 1][0] - row_y if r + 1 < len(row_layouts) else y - row_y
+            x0 = c * width
+            box = (x0, row_y, x0 + width, row_y + row_h)
             self._place_panel(canvas, panel, box)
         return canvas
 
@@ -192,8 +240,10 @@ class LayoutEngine:
     ) -> None:
         x0, y0, x1, y1 = box
         cw, ch = x1 - x0, y1 - y0
-        # Contain (letterbox) — never stretch into the cell aspect.
-        fitted = ImageOps.contain(panel.image.convert("RGB"), (cw, ch))
+        # Contain (letterbox) — never stretch into the cell aspect. A white
+        # frame the model drew around the panel is cropped first: placed as-is
+        # it draws white-frame cells and desynchronizes row heights.
+        fitted = ImageOps.contain(_trim_generated_border(panel.image), (cw, ch))
         px = x0 + (cw - fitted.width) // 2
         py = y0 + (ch - fitted.height) // 2
         canvas.paste(fitted, (px, py))
@@ -201,16 +251,16 @@ class LayoutEngine:
         sfx_top = y0 + 12
         if panel.caption:
             bw = int(cw * 0.9)
-            bh = self._bubble_height(panel.caption, bw)
+            bh = min(self._bubble_height(panel.caption, bw), max(ch - 8, 1))
             bx = x0 + (cw - bw) // 2
-            by = y0 + 12
+            by = y0 + 4
             self._draw_caption(draw, (bx, by, bw, bh), panel.caption)
             sfx_top = by + bh + 8
         if panel.dialogue:
             bw = int(cw * 0.8)
-            bh = self._bubble_height(panel.dialogue, bw)
+            bh = min(self._bubble_height(panel.dialogue, bw), max(ch - 8, 1))
             bx = x0 + (cw - bw) // 2
-            by = y1 - bh - 20
+            by = max(y0, y1 - bh - 20)
             self._draw_bubble(draw, (bx, by, bw, bh), panel.dialogue)
         if panel.sfx:
             bw = int(cw * 0.45)

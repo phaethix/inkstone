@@ -1,5 +1,7 @@
 """tests/test_page_panel_prompt.py — per-panel prompt for panel_compose."""
 
+from pathlib import Path
+
 from core.comic.page_prompt import render_page_panel_prompt
 from core.schemas import CharacterAsset, ComicPagePlan, PagePanelSpec, Setting
 
@@ -236,3 +238,162 @@ def test_page_panel_refs_drop_missing_files(tmp_path):
     assets = {"沈知意": CharacterAsset(name="沈知意", l1_prompt="x", portrait_local="/nope.png")}
     panel = PagePanelSpec(panel_id="1", characters=["沈知意"])
     assert _page_panel_reference_paths(panel, assets, None, {}, tmp_path) == []
+
+
+def test_page_panel_refs_trim_white_border(tmp_path):
+    """A white-background portrait sent as i2i reference bleeds its border into
+    the panel (3/3 bordered panels were the white-canvas portrait cast). The
+    sent reference must be a border-trimmed copy, and the original asset file
+    must survive untouched."""
+    from PIL import Image
+
+    from core.pipelines.creative_comic import _page_panel_reference_paths
+
+    portrait = tmp_path / "shen.png"
+    img = Image.new("RGB", (64, 64), (255, 255, 255))
+    for x in range(20, 44):
+        for y in range(20, 44):
+            img.putpixel((x, y), (90, 110, 130))
+    img.save(portrait)
+    assets = {"沈知意": CharacterAsset(name="沈知意", l1_prompt="x", portrait_local=str(portrait))}
+    panel = PagePanelSpec(panel_id="1", characters=["沈知意"])
+
+    refs = _page_panel_reference_paths(panel, assets, None, {}, tmp_path)
+
+    assert len(refs) == 1
+    sent = Path(refs[0])
+    assert sent != portrait, "must not send the raw white-canvas portrait"
+    assert sent.is_file(), "trimmed reference must exist on disk"
+    assert portrait.read_bytes() != sent.read_bytes() or sent != portrait
+    sent_img = Image.open(sent).convert("RGB")
+    w, h = sent_img.size
+    assert w < 64 and h < 64, f"border must be trimmed away, got {w}x{h}"
+    corners = [sent_img.getpixel(p) for p in ((0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1))]
+    assert all(sum(c) / 3 < 245 for c in corners), (
+        f"trimmed image corners must not be white, got {corners}"
+    )
+    assert Image.open(portrait).size == (64, 64), "original asset must be untouched"
+
+
+def test_reference_bindings_match_trimmed_sidecar(tmp_path):
+    """The sent reference may be a border-trimmed sidecar of the portrait; the
+    owner label must still resolve or the face tag silently disappears from
+    the prompt and the model reassigns faces."""
+    from PIL import Image
+
+    from core.comic.page_prompt import _reference_bindings
+
+    portrait = tmp_path / "shen.png"
+    Image.new("RGB", (32, 32), (255, 255, 255)).save(portrait)
+    assets = {"沈知意": CharacterAsset(name="沈知意", l1_prompt="x", portrait_local=str(portrait))}
+    sidecar = str(tmp_path / "shen_trimmed.png")
+    assert _reference_bindings(["沈知意"], assets, [sidecar], None) == [(1, "沈知意")]
+
+
+def test_page_panel_refs_keep_clean_reference_as_is(tmp_path):
+    """A reference with no white border is sent unmodified — trimming must not
+    crop into real artwork or rewrite files needlessly."""
+    from PIL import Image
+
+    from core.pipelines.creative_comic import _page_panel_reference_paths
+
+    portrait = tmp_path / "fu.png"
+    Image.new("RGB", (64, 64), (90, 110, 130)).save(portrait)
+    assets = {"福贵": CharacterAsset(name="福贵", l1_prompt="x", portrait_local=str(portrait))}
+    panel = PagePanelSpec(panel_id="1", characters=["福贵"])
+
+    refs = _page_panel_reference_paths(panel, assets, None, {}, tmp_path)
+
+    assert refs == [str(portrait)]
+
+
+def test_panel_prompt_falls_back_to_stage_variant_identity():
+    """A bare-name asset whose L1 is a Chinese-only placeholder gives the image
+    model no identity: the same 少年 rendered as a small child in one panel and
+    a teenager in another (page_c0000 p2a vs page_c0001 p02). When a stage
+    variant of the same character carries a real English identity line, the
+    panel prompt must adopt it so every panel draws the same person."""
+    assets = {
+        "少年": CharacterAsset(
+            name="少年",
+            l1_prompt=(
+                "少年, 次要角色，抱旧吉他的腼腆少年, 旧吉他; "
+                "⚠ unverified evidence for: distinguishing"
+            ),
+        ),
+        "少年@teen": CharacterAsset(
+            name="少年@teen",
+            l1_prompt=(
+                "young boy, tender East-Asian teenage boy face, shy, "
+                "early-to-mid teens, plain muted tunic"
+            ),
+        ),
+    }
+    plan = _plan("少年 tunes the old guitar", ["少年"])
+    prompt = render_page_panel_prompt(
+        plan,
+        plan.panels[0],
+        characters_by_name=assets,
+        settings_by_name={},
+        style_guide="manhua",
+    )
+    assert "teenage boy face" in prompt, "stage-variant identity must reach the prompt"
+    assert "抱旧吉他的腼腆少年" not in prompt, "Chinese placeholder must not be the identity"
+
+
+def test_panel_prompt_prefers_clean_variant_over_flagged_default():
+    """Among stage variants, an unflagged English identity wins over a
+    placeholder-flagged @default one."""
+    assets = {
+        "沈知意": CharacterAsset(
+            name="沈知意", l1_prompt="沈知意, 女主角，乘船去上游的旅人; ⚠ unverified evidence"
+        ),
+        "沈知意@default": CharacterAsset(
+            name="沈知意@default",
+            l1_prompt="adult woman, soft face; ⚠ no source evidence; using generic placeholder",
+        ),
+        "沈知意@adult": CharacterAsset(
+            name="沈知意@adult",
+            l1_prompt="adult woman, soft delicate East-Asian female face, early-20s, warm scarf",
+        ),
+    }
+    plan = _plan("沈知意 waits at the rail", ["沈知意"])
+    prompt = render_page_panel_prompt(
+        plan,
+        plan.panels[0],
+        characters_by_name=assets,
+        settings_by_name={},
+        style_guide="manhua",
+    )
+    assert "early-20s" in prompt
+    assert "using generic placeholder" not in prompt
+
+
+def test_panel_prompt_locks_one_age_per_character():
+    """The model aged the same boy differently per panel; the prompt must pin
+    one fixed age per character."""
+    assets = {
+        "沈知意": CharacterAsset(name="沈知意", l1_prompt="a shy young woman in her early twenties")
+    }
+    plan = _plan("沈知意 waits at the rail", ["沈知意"])
+    prompt = render_page_panel_prompt(
+        plan,
+        plan.panels[0],
+        characters_by_name=assets,
+        settings_by_name={},
+        style_guide="manhua",
+    )
+    assert "AGE LOCK" in prompt
+    assert "never a younger" in prompt
+
+
+def test_panel_prompt_omits_age_lock_for_scenery_only():
+    plan = _plan("empty deck in the fog", [])
+    prompt = render_page_panel_prompt(
+        plan,
+        plan.panels[0],
+        characters_by_name={},
+        settings_by_name=_settings(),
+        style_guide="manhua",
+    )
+    assert "AGE LOCK" not in prompt

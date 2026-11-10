@@ -71,6 +71,51 @@ def test_compose_paginates_past_four(tmp_path):
     assert all(p.endswith(".png") for p in paths)
 
 
+def test_single_panel_row_matches_art_aspect(tmp_path):
+    """A stretched single-panel row must size itself to the art, not to the
+    old 2-up cell width: stretching the cell to 1400 while keeping the row at
+    700px tall letterboxes the square art in the middle with 350px white
+    bands on both sides (page_c0001_p0000 row 4)."""
+    eng = LayoutEngine(bg=(255, 255, 255))
+    red = (200, 0, 0)
+    panels = [PanelImage(Image.new("RGB", (200, 200), red)) for _ in range(5)]
+    canvas = eng.compose_single_page(panels)
+    import numpy as np
+
+    arr = np.asarray(canvas)
+    # 5 panels 2-up: rows 1-2 are 700px tall, row 3 stretches to full width.
+    red_mask = (arr[:, :, 0] > 150) & (arr[:, :, 1] < 100)
+    rows = np.where(red_mask.any(axis=1))[0]
+    last_row = rows.max()
+    seg = red_mask[last_row - 199 : last_row + 1]
+    cols = np.where(seg.any(axis=0))[0]
+    assert cols.min() == 0 and cols.max() == canvas.width - 1, (
+        f"stretched row content spans x={cols.min()}..{cols.max()} on a "
+        f"{canvas.width}px page: the art is letterboxed instead of filling "
+        "the stretched cell"
+    )
+
+
+def test_row_height_ignores_lettering_reserve_for_art_height():
+    """A row's art area must stay full-bleed even when a neighbor panel in the
+    same row carries dialogue: the reserve inflated the row above the art and
+    left a white band under the silent panel (page_c0001_p0000 row 2)."""
+    eng = LayoutEngine(bg=(255, 255, 255))
+    silent = PanelImage(_img(700, 700))
+    talkative = PanelImage(_img(700, 700), dialogue="一句很长的台词" * 10)
+    canvas = eng.compose_single_page([silent, talkative])
+    import numpy as np
+
+    arr = np.asarray(canvas.convert("RGB"))
+    # Left cell: square art in a 700-wide cell must touch the cell's top and
+    # bottom edges with no white bands above or below.
+    left = arr[:, :700]
+    row_white = (left > 245).all(axis=2).mean(axis=1)
+    nonwhite_rows = np.where(row_white < 0.95)[0]
+    assert nonwhite_rows.min() == 0, "white band above the silent panel"
+    assert nonwhite_rows.max() == arr.shape[0] - 1, "white band below the silent panel"
+
+
 def test_compose_single_page_odd_count_has_no_blank_half_row(tmp_path):
     """A 5-panel page packed 2-up leaves row 3 with one panel and one blank
     cell — the user-visible blank slot on page_c0001_p0001. The last row of
@@ -136,7 +181,11 @@ def test_page_expands_for_long_dialogue(tmp_path):
     text = "很长的对白" * 200
     paths = eng.compose([PanelImage(_img(400, 100), dialogue=text)], tmp_path, layout_mode="page")
 
-    assert Image.open(paths[0]).height > 100
+    out = Image.open(paths[0])
+    # The row height follows the art (100px); the oversized bubble is clamped
+    # inside the cell and its text shrinks to fit instead of inflating the
+    # page with white reserve bands.
+    assert out.size == (400, 100)
 
 
 def test_explicit_newlines_expand_dialogue_bubble(tmp_path):
@@ -153,7 +202,9 @@ def test_explicit_newlines_expand_dialogue_bubble(tmp_path):
         layout_mode="webtoon",
     )
 
-    assert Image.open(page[0]).height > 100
+    # Page rows keep art-first heights; the bubble clamps inside the cell.
+    assert Image.open(page[0]).size == (400, 100)
+    # Webtoon strips still expand below each panel for its bubble.
     assert Image.open(webtoon[0]).height > 100
 
 
@@ -247,3 +298,46 @@ def test_an_empty_collage_does_not_delete_the_sheets_on_disk(tmp_path, monkeypat
 
     assert produced == []
     assert survivor.exists(), "an empty collage must not wipe existing sheets"
+
+
+def test_place_panel_trims_a_generated_white_border():
+    """The image model still emits a white frame around some panels despite the
+    full-bleed style line (c0000-p0000-g0000/g0002, c0001-p0000-g0003 all had
+    100% white borders): the frame must be cropped before the panel is placed,
+    or the page shows white-frame cells and misaligned rows."""
+    eng = LayoutEngine(bg=(255, 255, 255))
+    art_color, frame = (120, 140, 160), (255, 255, 255)
+    img = Image.new("RGB", (100, 100), art_color)
+    for a in range(100):
+        for b in range(2):
+            img.putpixel((a, b), frame)
+            img.putpixel((a, 99 - b), frame)
+            img.putpixel((b, a), frame)
+            img.putpixel((99 - b, a), frame)
+    canvas = Image.new("RGB", (200, 100), (255, 255, 255))
+    eng._place_panel(canvas, PanelImage(img), (0, 0, 100, 100))
+    # Every corner of the cell must be art, not the model's white frame.
+    corners = [(2, 2), (97, 2), (2, 97), (97, 97)]
+    assert all(canvas.getpixel(c) == art_color for c in corners), (
+        "white frame reached the cell corners: the border was not trimmed"
+    )
+
+
+def test_trimmed_panel_keeps_centered_letterbox_behavior():
+    """A bordered panel placed into an off-aspect cell still contains and
+    centers after the trim — trimming must not stretch the art."""
+    eng = LayoutEngine(bg=(255, 255, 255))
+    art_color = (0, 128, 0)
+    img = Image.new("RGB", (100, 100), art_color)
+    for a in range(100):
+        for b in range(2):
+            img.putpixel((a, b), (255, 255, 255))
+            img.putpixel((a, 99 - b), (255, 255, 255))
+            img.putpixel((b, a), (255, 255, 255))
+            img.putpixel((99 - b, a), (255, 255, 255))
+    canvas = Image.new("RGB", (200, 100), (255, 255, 255))
+    eng._place_panel(canvas, PanelImage(img), (0, 0, 200, 100))
+    # 88x88 art into a 200x100 cell: contain -> 100x100 minus borders scaled,
+    # centered; the cell edges stay background.
+    assert canvas.getpixel((0, 50)) == (255, 255, 255)
+    assert canvas.getpixel((100, 50)) == art_color
