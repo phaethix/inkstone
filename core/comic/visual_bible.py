@@ -2244,10 +2244,152 @@ def backfill_panel_characters(
     return updated
 
 
+# English epithets the planner uses to stage a person without naming them:
+# "the boy's hands", "the guitar boy", "a second boy", "one young woman".
+# Extended with the adjective ("guitar boy", "smirting boy") so the match
+# fires on the compound form too. Word-ish boundaries keep "boy" out of
+# "boyhood"; a leading determiner keeps "boy" out of "boyfriend" via the
+# adjective slot.
+_EPITHET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
+    (gender, re.compile(pattern, re.IGNORECASE))
+    for gender, pattern in (
+        (
+            "male",
+            r"\b(?:a|an|the|one|another|second|third|other)\s+(?:[a-z-]+\s+){0,2}?boys?\b",
+        ),
+        (
+            "male",
+            r"\b(?:a|an|the|one|another|second|third|other)\s+(?:[a-z-]+\s+){0,2}?men\b",
+        ),
+        (
+            "female",
+            r"\b(?:a|an|the|one|another|second|third|other)\s+(?:[a-z-]+\s+){0,2}?girls?\b",
+        ),
+        (
+            "female",
+            r"\b(?:a|an|the|one|another|second|third|other)\s+(?:[a-z-]+\s+){0,2}?women\b",
+        ),
+    )
+)
+
+_FEMALE_TOKENS = ("女", "妇", "她", "girl", "woman", "female", "lady", "mother", "sister")
+_MALE_TOKENS = (
+    "男",
+    "他",
+    "少年",
+    "男孩",
+    "boy",
+    "man",
+    "male",
+    "gentleman",
+    "father",
+    "brother",
+)
+
+# 'female' contains 'male' as a substring; bare substring matching made a
+# "female traveler" read as both genders and defensibly gender nobody.
+# English tokens match on word boundaries; CJK has none and stays substring.
+_FEMALE_RE = re.compile(r"(女|妇|她)|\b(?:girl|woman|female|lady|mother|sister)\b", re.IGNORECASE)
+_MALE_RE = re.compile(
+    r"(男|他|少年|男孩)|\b(?:boy|man|male|gentleman|father|brother)\b", re.IGNORECASE
+)
+
+
+def _character_gender(name: str, visual_bible: VisualBible | None) -> str:
+    """Best-effort gender for a known character name ('male'/'female'/'').
+
+    The bible canon's gender wins; without a bible the name's own tokens
+    decide ("少年" / "沈知意" has none). No gendered token at all returns
+    '' — an ungendered character must not claim an epithet, because a
+    coin-flip attaches the wrong face to a page that was already fine.
+    """
+    if visual_bible is not None:
+        canon = visual_bible.characters.get(name)
+        if canon is not None:
+            gender = (canon.gender or "").strip().casefold()
+            if gender in ("female", "woman"):
+                return "female"
+            if gender in ("male", "man"):
+                return "male"
+    lowered = name or ""
+    if _FEMALE_RE.search(lowered):
+        return "female"
+    if _MALE_RE.search(lowered):
+        return "male"
+    return ""
+
+
+def _asset_gender(name: str, characters_by_name: dict | None) -> str:
+    """Gender from a CharacterAsset's role + L1 text, '' when ungendered."""
+    asset = (characters_by_name or {}).get(name)
+    if asset is None:
+        return ""
+    text = f"{getattr(asset, 'role', '')} {getattr(asset, 'l1_prompt', '')}"
+    female = _FEMALE_RE.search(text) is not None
+    male = _MALE_RE.search(text) is not None
+    if female and not male:
+        return "female"
+    if male and not female:
+        return "male"
+    return ""
+
+
+def _epithet_matches(
+    action: str,
+    cast: list[str],
+    known_names: list[str],
+    visual_bible: VisualBible | None = None,
+    characters_by_name: dict | None = None,
+) -> list[str]:
+    """Known characters a gendered epithet in *action* stages but the cast omits.
+
+    Fires only when every epithet gender in the action maps to exactly one
+    not-yet-cast candidate; any ambiguity returns additions for nobody.
+    A candidate with no determinable gender cannot claim an epithet.
+    """
+    text = action or ""
+    if not text or not known_names:
+        return []
+    genders_needed: set[str] = set()
+    for gender, pattern in _EPITHET_PATTERNS:
+        if pattern.search(text):
+            genders_needed.add(gender)
+    if not genders_needed:
+        return []
+    cast_set = set(cast)
+    additions: list[str] = []
+    for gender in sorted(genders_needed):
+        seen_names: set[str] = set()
+        candidates: list[str] = []
+        for name in known_names:
+            if name in cast_set:
+                continue
+            gendered = _character_gender(name, visual_bible)
+            if gendered == "":
+                gendered = _asset_gender(name, characters_by_name)
+            if gendered != gender:
+                continue
+            # 少年 and 少年@teen are one person: fold candidates to their
+            # stage-ref base (works without a bible, which
+            # resolve_canonical_name needs) so stage variants don't read as
+            # a second boy. The base name is what page plans reference.
+            base = parse_stage_ref(name)[0]
+            if base in seen_names:
+                continue
+            seen_names.add(base)
+            candidates.append(base)
+        if len(candidates) != 1:
+            return []
+        additions.append(candidates[0])
+    return additions
+
+
 def enforce_page_cast(
     pageset: ComicPagePlanSet,
     known_names: Iterable[str],
     beats: KeyBeatSet | None = None,
+    visual_bible: VisualBible | None = None,
+    characters_by_name: dict | None = None,
 ) -> ComicPagePlanSet:
     """Add characters the panels stage but the cast omits (Fix 3).
 
@@ -2258,6 +2400,15 @@ def enforce_page_cast(
     cast. Both are repaired here — any *known* character an action text or a
     covering beat names is added to that panel and to the page references, so
     the cast lock and the staged action agree again. Idempotent.
+
+    Planner prose stages people by epithet, not only by name: "the boy's
+    hands", "the guitar boy", "a second boy" (page_plan.c0001 stages the boy
+    in eight panels whose casts list only 沈知意 — the Chinese name never
+    substring-matches English text). A gendered epithet is matched to a
+    character only when exactly one candidate of that gender is known;
+    with two or more candidates the epithet is ambiguous and nobody is
+    backfilled — a wrong guess attaches the wrong face to a page that was
+    already fine.
     """
     known = [name for name in known_names if name]
     beat_characters: dict[str, list[str]] = {}
@@ -2278,6 +2429,12 @@ def enforce_page_cast(
                     _name_in_text(name, action, known) if name else False
                 ) or name in beat_characters.get(" ".join(panel.beat_ids or []), []):
                     cast.append(name)
+                    added = True
+            for epithet_name in _epithet_matches(
+                action, cast, known, visual_bible, characters_by_name
+            ):
+                if epithet_name not in cast:
+                    cast.append(epithet_name)
                     added = True
             if added:
                 panel.characters = cast

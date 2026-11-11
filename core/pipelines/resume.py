@@ -315,6 +315,8 @@ def plan_ready_to_letter(state: ProjectState, plan: ComicPagePlan) -> ComicPageP
         ComicPagePlanSet(pages=[plan]),
         known_names=known_character_names(state),
         beats=state.beat_cache.get(_plan_chunk_key(state, plan)),
+        visual_bible=state.visual_bible,
+        characters_by_name=state.characters,
     ).pages[0]
 
 

@@ -126,6 +126,7 @@ from core.comic.page_prompt import (
     render_finished_page_prompt,
     render_page_panel_prompt,
 )
+from core.comic.panel_size import panel_size_for_shape
 from core.comic.review_packet import ReviewPacket
 from core.comic.runs import bind_audit, clear_audit, image_failure, image_intent, image_result
 from core.comic.segmentation import (
@@ -2646,7 +2647,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                             visual_bible=_state.visual_bible,
                             reference_images=refs,
                         )
-                        active_size = panel_size()
+                        active_size = panel_size_for_shape(spec.shape_hint, default=panel_size())
                         render_env = h_env(text=prompt, resolved_size=active_size, scope="render")
                         render_key = render_page_action_key(
                             plan_json=_art_panel_json(spec),

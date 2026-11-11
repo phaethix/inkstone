@@ -227,6 +227,60 @@ def test_enforce_page_cast_is_idempotent():
     assert once.pages[0].panels[0].characters == twice.pages[0].panels[0].characters
 
 
+def test_enforce_page_cast_backfills_epithet_figures():
+    """Planner English refers to cast by epithet, not by name.
+
+    page_plan.c0001 stages the boy in every panel action ("Close on the
+    boy's hands", "the guitar boy's hand stops") while every cast lists
+    only 沈知意. The Chinese name never substring-matches English prose, so
+    the boy got no identity line and no reference portrait — the model
+    invented his age and wardrobe per panel (green scarf vs beige sweater
+    on facing pages). Epithets unambiguously matching one male cast
+    character must backfill that character into the panel cast.
+    """
+    pageset = _pageset(
+        [
+            PagePanelSpec(
+                panel_id="c0001-p0003-0",
+                role="detail",
+                shot="extreme_close",
+                action=(
+                    "The boy's hand lifts off the guitar strings, "
+                    "fingertips trailing a final ghost of vibration"
+                ),
+                characters=["沈知意"],
+            )
+        ],
+        refs=["沈知意"],
+    )
+    guarded = enforce_page_cast(pageset, known_names={"少年", "沈知意"})
+    panel = guarded.pages[0].panels[0]
+    assert "少年" in panel.characters
+    assert "少年" in guarded.pages[0].reference_characters
+
+
+def test_enforce_page_cast_epithet_ambiguous_cast_is_left_alone():
+    """Two male candidates: an epithet cannot pick one, so add nobody.
+
+    A wrong guess would attach the wrong face to "the boy" and repaint a
+    page that was already fine.
+    """
+    pageset = _pageset(
+        [
+            PagePanelSpec(
+                panel_id="c0001-p0003-0",
+                role="detail",
+                shot="extreme_close",
+                action="The boy's hand lifts off the guitar strings",
+                characters=["沈知意"],
+            )
+        ],
+        refs=["沈知意"],
+    )
+    guarded = enforce_page_cast(pageset, known_names={"大伟", "小树", "沈知意"})
+    assert guarded.pages[0].panels[0].characters == ["沈知意"]
+
+
 def test_setting_people_clauses_are_stripped():
     canon = _canon(
         "少年",
