@@ -77,6 +77,7 @@ _LAYOUT_SOURCES = (
     *_DRAW_SOURCES,
     LayoutEngine._cols_for,
     LayoutEngine._row_height,
+    LayoutEngine._row_layout,
     LayoutEngine._compose_pages,
     LayoutEngine._lettering_reserve,
     LayoutEngine._paginate,

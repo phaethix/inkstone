@@ -202,36 +202,59 @@ class LayoutEngine:
             fitted = max(fitted, int(cell_w * img.height / img.width) if img.width else 0)
         return max(fitted, 1)
 
+    def _row_layout(self, row_panels: list[PanelImage], page_width: int) -> tuple[list[int], int]:
+        """Column widths and row height for one row of mixed-aspect panels.
+
+        A fixed grid (``page_width // cols``) plus ``ImageOps.contain``
+        letterboxes any panel whose aspect differs from its tallest row-mate:
+        page_c0000_p0000 row 0 packed a 1536x1024 wide panel next to an
+        832x1248 tall one into two 700-wide cells, leaving 291px of pure
+        white above and below the wide art — the blank rectangles in the
+        user's comic.pdf screenshots. shape_hint-driven panel sizes made
+        the ratios even more mixed (1.5 / 0.67 / 1.0), amplifying the gaps.
+
+        Sizing each column in proportion to its panel's own aspect ratio
+        gives every panel in the row the same height:
+            width_i = page_width * ratio_i / sum(ratio)
+            height  = width_i / ratio_i = page_width / sum(ratio)
+        contain then fills each cell exactly, with no cropping, squashing,
+        or white bands. Equal ratios keep the old even split.
+        """
+        ratios = []
+        for panel in row_panels:
+            img = panel.image
+            ratios.append(max(img.width / img.height, 0.05) if img.height else 1.0)
+        total = sum(ratios)
+        widths = [int(page_width * r / total) for r in ratios]
+        # Integer rounding can leave a few pixels stranded; give them to the
+        # last column so the row still tiles the full page width exactly.
+        widths[-1] += page_width - sum(widths)
+        row_height = max(1, int(page_width / total))
+        return widths, row_height
+
     def _render_page(self, page_panels: list[PanelImage]) -> Image.Image:
         if not page_panels:
             return Image.new("RGB", (self.page_width, self.cell_height), self.bg)
         n = len(page_panels)
         cols = self._cols_for(n)
         rows = ceil(n / cols) if n else 1
-        cell_w = self.page_width // cols
-        # Row height follows the row's own art: no stranded letterbox bands
-        # when a square panel shares a page with nothing taller.
-        # The last row of an odd count leaves grid slots empty (a user-visible
-        # blank rectangle on page_c0001_p0001): stretch that row's panels
-        # across the full page width, and recompute its height from the
-        # stretched width so the art fills the wider cells instead of
-        # letterboxing in the middle.
+        # Each row packs its own panels across the full page width; a short
+        # last row (odd count) stretches to fill, so no blank grid slot is
+        # left behind (page_c0001_p0001).
         y = 0
-        row_layouts: list[tuple[int, int]] = []
+        row_layouts: list[tuple[int, list[int], int]] = []
         for r in range(rows):
             in_row = page_panels[r * cols : (r + 1) * cols]
-            stretch = r == rows - 1 and rows > 1 and len(in_row) < cols
-            width = self.page_width // len(in_row) if stretch else cell_w
-            height = self._row_height(in_row, width)
-            row_layouts.append((y, width))
+            widths, height = self._row_layout(in_row, self.page_width)
+            row_layouts.append((y, widths, height))
             y += height
         canvas = Image.new("RGB", (self.page_width, y), self.bg)
         for idx, panel in enumerate(page_panels):
             r, c = divmod(idx, cols)
-            row_y, width = row_layouts[r]
-            row_h = row_layouts[r + 1][0] - row_y if r + 1 < len(row_layouts) else y - row_y
-            x0 = c * width
-            box = (x0, row_y, x0 + width, row_y + row_h)
+            row_y, widths, row_h = row_layouts[r]
+            x0 = sum(widths[:c])
+            x1 = x0 + widths[c]
+            box = (x0, row_y, x1, row_y + row_h)
             self._place_panel(canvas, panel, box)
         return canvas
 
