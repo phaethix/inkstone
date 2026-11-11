@@ -114,3 +114,46 @@ def test_equal_ratio_row_keeps_equal_columns():
     left = (arr[mid, :700, 0] == a[0]).all()
     right = (arr[mid, 700:, 0] == b[0]).all()
     assert left and right, "equal-ratio row must keep the 700/700 split"
+
+
+def test_trim_crops_each_edge_independently():
+    """Unit contract: each edge's contiguous pure-white run is cropped on its
+    own. c0001-p0000-g0003 came back with 76 white rows on top and 25 at the
+    bottom but clean left/right — the old all-edges-white requirement skipped
+    the trim entirely and the bars shipped inside the cell as white bands."""
+    from core.comic.layout import _trim_generated_border
+
+    art = _solid(400, 250, (30, 60, 90))
+    framed = Image.new("RGB", (400, 300), (255, 255, 255))
+    framed.paste(art, (0, 40))  # 40 white rows top, 10 bottom, clean sides
+    trimmed = _trim_generated_border(framed)
+    assert trimmed.size == (400, 250), f"single-edge bars not cropped: {trimmed.size}"
+
+
+def test_single_edge_white_bars_leave_no_bands_on_page():
+    """A top/bottom-only white bar must not show as bands on the page."""
+    eng = LayoutEngine(bg=(255, 255, 255))
+    art = _solid(400, 250, (30, 60, 90))
+    framed = Image.new("RGB", (400, 300), (255, 255, 255))
+    framed.paste(art, (0, 40))
+    clean = _solid(400, 300, (120, 60, 30))
+    canvas = eng.compose_single_page([PanelImage(framed), PanelImage(clean)])
+    fractions = _blank_cell_fraction(canvas, 2)
+    assert max(fractions) < 0.02, (
+        f"white fraction per cell {[round(f, 3) for f in fractions]}: "
+        "top/bottom-only white bars were not trimmed"
+    )
+
+
+def test_row_height_follows_trimmed_art():
+    """Row height must follow the *trimmed* aspect ratio, not the raw image:
+    after the trim the panel is wider relative to its height, so sizing the
+    row by the raw ratio letterboxes the trimmed art with residual bands."""
+    eng = LayoutEngine(bg=(255, 255, 255))
+    art = _solid(400, 250, (30, 60, 90))
+    framed = Image.new("RGB", (400, 300), (255, 255, 255))
+    framed.paste(art, (0, 40))
+    canvas = eng.compose_single_page([PanelImage(framed)])
+    # Single-panel row fills the full width; height must equal the trimmed
+    # art's height at that width: 1400 * 250/400 = 875, not 1400*300/400=1050.
+    assert canvas.size == (1400, 875), f"row sized by untrimmed ratio: {canvas.size}"

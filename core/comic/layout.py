@@ -47,6 +47,18 @@ class PanelImage:
     caption: str | None = None
     sfx: str | None = None
 
+    @property
+    def art(self) -> Image.Image:
+        """The panel's art with generated white bars cropped, cached once.
+
+        Row sizing and placement must both see the same trimmed image: sizing
+        the row by the raw ratio while placing the trimmed art letterboxes the
+        cell with residual bands (the 3.4% white on page_c0001_p0000).
+        """
+        if getattr(self, "_art_cache", None) is None:
+            self._art_cache = _trim_generated_border(self.image)
+        return self._art_cache
+
 
 def _line_height(font) -> int:
     """Line height for bubble text, robust across bitmap and truetype fonts."""
@@ -64,50 +76,59 @@ def _line_height(font) -> int:
         return 12
 
 
-# A border thinner than this is deliberate art (a vignette), not the model's
-# frame. The generated frames measured 12–20px on 1024px panels.
-_MAX_TRIM_RATIO = 0.04
+# Cap on how much of one edge may be cropped. The real bars measured up to
+# 9% of a side (76 of 832 rows); deliberate white vignettes are protected by
+# the 100%-pure-white-run test itself, since a fade's boundary rows are
+# never fully white across the whole edge.
+_MAX_TRIM_RATIO = 0.15
 
 
 def _trim_generated_border(image: Image.Image) -> Image.Image:
-    """Crop a white frame the image model drew around a panel.
+    """Crop white bars the image model drew on a panel's edges.
 
     The full-bleed style line suppresses most frames, but some panels still
-    come back with a 100% white border on all four edges
-    (c0000-p0000-g0000/g0002, c0001-p0000-g0003); placed as-is, the page shows
-    white-frame cells and the row heights then disagree with their unframed
-    neighbors. Only an all-edge frame is trimmed, and never more than
-    ``_MAX_TRIM_RATIO`` of the side, so deliberate white vignettes survive.
+    come back with white edges (c0000-p0000-g0000/g0002 framed on all four
+    sides; c0001-p0000-g0003 with 76 white rows on top and 25 at the bottom
+    but clean left/right). Requiring an all-edges frame skipped the second
+    shape entirely and shipped the bars inside the cell as white bands, so
+    each edge is now measured and cropped independently. A per-edge cap
+    (``_MAX_TRIM_RATIO`` of that side) keeps deliberate white vignettes —
+    sky glare, fog fades — alive: those fade to near-white gradually, so
+    only a fully-white run of edge rows/columns is treated as a bar.
     """
     rgb = image.convert("RGB")
     width, height = rgb.size
-    limit = max(2, int(min(width, height) * _MAX_TRIM_RATIO))
 
     def _white(col: tuple[int, int, int]) -> bool:
         return col[0] > 238 and col[1] > 238 and col[2] > 238
 
     def _row_white(y: int) -> bool:
-        return all(_white(rgb.getpixel((x, y))) for x in range(0, width, 8))
+        return all(_white(rgb.getpixel((x, y))) for x in range(0, width, 4))
 
     def _col_white(x: int) -> bool:
-        return all(_white(rgb.getpixel((x, y))) for y in range(0, height, 8))
+        return all(_white(rgb.getpixel((x, y))) for y in range(0, height, 4))
 
+    top_limit = max(2, int(height * _MAX_TRIM_RATIO))
+    bottom_limit = max(2, int(height * _MAX_TRIM_RATIO))
+    left_limit = max(2, int(width * _MAX_TRIM_RATIO))
+    right_limit = max(2, int(width * _MAX_TRIM_RATIO))
     top = 0
-    while top < limit and _row_white(top):
+    while top < top_limit and _row_white(top):
         top += 1
     bottom = height
-    while bottom > max(top + 1, height - limit) and _row_white(bottom - 1):
+    while bottom > max(top + 1, height - bottom_limit) and _row_white(bottom - 1):
         bottom -= 1
     left = 0
-    while left < limit and _col_white(left):
+    while left < left_limit and _col_white(left):
         left += 1
     right = width
-    while right > max(left + 1, width - limit) and _col_white(right - 1):
+    while right > max(left + 1, width - right_limit) and _col_white(right - 1):
         right -= 1
     if top == 0 and bottom == height and left == 0 and right == width:
         return image
     if (bottom - top) < 16 or (right - left) < 16:
         return image
+    return rgb.crop((left, top, right, bottom))
     return rgb.crop((left, top, right, bottom))
 
 
@@ -222,7 +243,7 @@ class LayoutEngine:
         """
         ratios = []
         for panel in row_panels:
-            img = panel.image
+            img = panel.art
             ratios.append(max(img.width / img.height, 0.05) if img.height else 1.0)
         total = sum(ratios)
         widths = [int(page_width * r / total) for r in ratios]
@@ -263,10 +284,10 @@ class LayoutEngine:
     ) -> None:
         x0, y0, x1, y1 = box
         cw, ch = x1 - x0, y1 - y0
-        # Contain (letterbox) — never stretch into the cell aspect. A white
-        # frame the model drew around the panel is cropped first: placed as-is
-        # it draws white-frame cells and desynchronizes row heights.
-        fitted = ImageOps.contain(_trim_generated_border(panel.image), (cw, ch))
+        # Contain (letterbox) — never stretch into the cell aspect. The art
+        # already has generated white bars cropped (cached on PanelImage.art,
+        # the same copy row sizing used, so cells fill without residual bands).
+        fitted = ImageOps.contain(panel.art, (cw, ch))
         px = x0 + (cw - fitted.width) // 2
         py = y0 + (ch - fitted.height) // 2
         canvas.paste(fitted, (px, py))
