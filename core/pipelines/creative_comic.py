@@ -679,6 +679,81 @@ def _trimmed_reference_path(loc: str) -> str:
     return str(sidecar)
 
 
+# A reference backdrop is "neutral" when its border band is a flat light
+# studio tone AND that tone occupies a large share of the frame. Scene
+# backdrops (misty river, lighthouse, railing) bleed into every i2i panel —
+# chapter 2's indoor inn rendered open river views because the portraits
+# carried the chapter-1 world inside their frames.
+_NEUTRAL_MAX_CHROMA = 18.0
+_NEUTRAL_MIN_LUMA = 200.0
+_NEUTRAL_MIN_BG_SHARE = 0.30
+
+
+def _reference_border_is_neutral(rgb) -> bool:
+    """True when a flat light studio backdrop dominates the frame."""
+    import numpy as np
+
+    arr = np.asarray(rgb, dtype=float)
+    h, w = arr.shape[:2]
+    band = max(2, min(h, w) // 20)
+    border = np.concatenate(
+        [
+            arr[:band].reshape(-1, 3),
+            arr[-band:].reshape(-1, 3),
+            arr[:, :band].reshape(-1, 3),
+            arr[:, -band:].reshape(-1, 3),
+        ]
+    )
+    chroma = (border.max(axis=1) - border.min(axis=1)).mean()
+    luma = border.mean()
+    if chroma > _NEUTRAL_MAX_CHROMA or luma < _NEUTRAL_MIN_LUMA:
+        return False
+    bg = np.median(border, axis=0)
+    matches = (np.abs(np.asarray(rgb, dtype=float) - bg).sum(axis=2) < 24).mean()
+    return matches >= _NEUTRAL_MIN_BG_SHARE
+
+
+def _neutral_reference_path(loc: str) -> str:
+    """Scene-free portrait path for i2i references; ``loc`` if already neutral.
+
+    Portrait generation asked for a "plain background" but the model painted
+    a full scene (both current portraits carry the misty river, lighthouse
+    and railing inside the frame). As an i2i reference that scenery is
+    stronger style signal than the panel prompt, so each panel inherits the
+    wrong place. Segmentation is unreliable here — chapter 1's mist matches
+    the border palette — so the composite is deterministic: the central
+    subject ellipse (face, hair, outfit) is kept pixel-exact and everything
+    outside fades smoothly to a flat studio gray, erasing the edge scenery
+    vocabulary. The file is a sidecar; the original portrait stays untouched.
+    """
+    import numpy as np
+    from PIL import Image
+
+    src = Path(loc)
+    try:
+        with Image.open(src) as img:
+            rgb = img.convert("RGB")
+            if _reference_border_is_neutral(rgb):
+                return loc
+            w, h = rgb.size
+            arr = np.asarray(rgb).astype(float)
+            yy, xx = np.mgrid[0:h, 0:w]
+            # Ellipse centered on the frame; a portrait subject always sits
+            # inside. Fade starts at 40% of the radius and completes at 80%.
+            nx = (xx - w / 2) / (w * 0.42)
+            ny = (yy - h / 2) / (h * 0.55)
+            r = np.sqrt(nx * nx + ny * ny)
+            fade = np.clip((r - 0.4) / 0.4, 0.0, 1.0)[..., None]
+            gray = np.array([238.0, 238.0, 238.0])
+            comp = arr * (1 - fade) + gray * fade
+            canvas = Image.fromarray(comp.astype("uint8"), "RGB")
+    except OSError:
+        return loc
+    sidecar = src.with_name(f"{src.stem}_neutral{src.suffix}")
+    canvas.save(sidecar)
+    return str(sidecar)
+
+
 def _page_panel_reference_paths(
     panel,
     characters_by_name: dict,
@@ -705,7 +780,7 @@ def _page_panel_reference_paths(
             loc = ledger_refs.get(base) or ledger_refs.get(name)
         if loc and loc not in seen and _is_within(loc, output_dir) and Path(loc).is_file():
             seen.add(loc)
-            paths.append(_trimmed_reference_path(loc))
+            paths.append(_trimmed_reference_path(_neutral_reference_path(loc)))
     return paths
 
 

@@ -291,20 +291,30 @@ def test_reference_bindings_match_trimmed_sidecar(tmp_path):
 
 
 def test_page_panel_refs_keep_clean_reference_as_is(tmp_path):
-    """A reference with no white border is sent unmodified — trimming must not
-    crop into real artwork or rewrite files needlessly."""
+    """A studio-neutral reference is sent unmodified — rewriting must not
+    touch files needlessly. A dark flat backdrop counts as a scene (chapter-2
+    inn panels inherited a river from scene-colored portrait backdrops), so
+    only a light studio tone passes through."""
     from PIL import Image
 
     from core.pipelines.creative_comic import _page_panel_reference_paths
 
     portrait = tmp_path / "fu.png"
-    Image.new("RGB", (64, 64), (90, 110, 130)).save(portrait)
+    Image.new("RGB", (64, 64), (238, 238, 238)).save(portrait)
     assets = {"福贵": CharacterAsset(name="福贵", l1_prompt="x", portrait_local=str(portrait))}
     panel = PagePanelSpec(panel_id="1", characters=["福贵"])
 
     refs = _page_panel_reference_paths(panel, assets, None, {}, tmp_path)
 
     assert refs == [str(portrait)]
+
+    scene = tmp_path / "scene.png"
+    Image.new("RGB", (64, 64), (90, 110, 130)).save(scene)
+    assets2 = {"福贵": CharacterAsset(name="福贵", l1_prompt="x", portrait_local=str(scene))}
+    refs2 = _page_panel_reference_paths(panel, assets2, None, {}, tmp_path)
+    assert len(refs2) == 1 and refs2[0] != str(scene), (
+        "a scene-colored backdrop must be neutralized before i2i"
+    )
 
 
 def test_panel_prompt_falls_back_to_stage_variant_identity():

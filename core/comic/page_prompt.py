@@ -524,16 +524,28 @@ def render_page_panel_prompt(
     elif count == 1:
         count_line = (
             f"Exactly 1 character in this panel: {cast_names[0]} — "
-            f"draw {cast_names[0]} only once, the ONLY people in the image"
+            f"draw {cast_names[0]} only once, the ONLY people in the image, "
+            "no other people, no silhouettes, no background passers-by"
         )
     else:
         joined = ", ".join(cast_names)
         count_line = (
             f"Exactly {count} characters in this panel: {joined} — "
             "each drawn exactly once, no character appears twice, "
-            "the ONLY people in the image"
+            "the ONLY people in the image, no other people anywhere"
         )
     action = _image_safe(_strip_setting_people(panel.action or "", cast_names))
+    action = _strip_narrative_metaphors(action)
+    # The planner writes poetry; the image model paints it literally.
+    # c0001 p0 drew a glowing note at the boy's lips from "his lips part
+    # between notes" and a waist-high flame from "the lantern flame leans
+    # with the note". Metaphor clauses are dropped above, and symbols the
+    # models love to materialize are banned with positive geometry wording
+    # (the Agnes i2i channel drops negative prompts).
+    fidelity_line = (
+        "no floating music notes, no glowing symbols, no visible sound, "
+        "physical objects only; show the literal visible action of the scene"
+    )
     if strict:
         ban = "absolutely clean artwork, no overlays of any kind anywhere in the image"
     else:
@@ -546,8 +558,42 @@ def render_page_panel_prompt(
         if owners:
             ban = f"{ban}; {owners}"
     style = f"{style_guide}, {PANEL_FULL_BLEED_STYLE}" if style_guide else PANEL_FULL_BLEED_STYLE
-    parts = [p for p in (scene, *descs, count_line, *age_locks, action, ban, style) if p]
+    parts = [
+        p for p in (scene, *descs, count_line, *age_locks, action, fidelity_line, ban, style) if p
+    ]
     return ", ".join(parts)
+
+
+# Narrative devices the planner writes but a camera cannot photograph. Each
+# pattern removes one clause; what remains is the literal staging.
+_METAPHOR_CLAUSE_RE = re.compile(
+    r"(?i)[,;]?\s*(?:his|her|its|their)?\s*(?:lips?|mouth|flame|candle|fire|smoke|shadow|reflection"
+    r"|light|wind|melody|tune|note[s]?|music)\b[^,;.]*"
+    r"(?:\b(?:note[s]?|melody|tune|music|song|hum(?:ming)?|rhythm|breath)\b[^,;.]*|[,(]?\s*"
+    r"lean(?:s|ing)?\b[^,;.]*)"
+)
+
+
+def _strip_narrative_metaphors(action: str) -> str:
+    """Rewrite planner poetry to literal staging.
+
+    "His lips part between notes, the tune unnamed" put a glowing note at a
+    character's mouth; "the lantern flame leans with the note and settles"
+    drew a waist-high magical flame. Any clause tying a physical object to a
+    sound metaphor (notes, tune, melody, the hum) is dropped; the plain
+    action before the semicolon survives. Abstract "the tune unnamed" style
+    appositives go too.
+    """
+    if not action:
+        return action
+    cleaned = _METAPHOR_CLAUSE_RE.sub("", action)
+    # Collapse separators left behind by removed clauses.
+    cleaned = re.sub(r"\s+,", ",", cleaned)
+    cleaned = re.sub(r",\s*,", ", ", cleaned)
+    cleaned = re.sub(r";\s*,", ";", cleaned)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    cleaned = cleaned.strip(" ,;")
+    return cleaned or action
 
 
 def _strip_setting_people(text: str, cast_names: list[str] | None = None) -> str:
