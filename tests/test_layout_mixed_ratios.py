@@ -41,39 +41,40 @@ def _blank_cell_fraction(canvas: Image.Image, cols: int) -> list[float]:
 
 
 def test_mixed_aspect_row_has_no_blank_bands():
-    """A wide + tall row must be full-bleed: no large pure-white rectangle.
+    """A wide + tall page must be full-bleed: no large pure-white rectangle.
 
     Reproduces page_c0000_p0000 row 0 (1536x1024 next to 832x1248), the
-    exact cell pair in the user screenshot with 291px white bands.
+    exact cell pair in the user screenshot with 291px white bands. The DP
+    page packing puts the two shapes on separate full-width rows, so the
+    whole page must carry zero letterbox white.
     """
     eng = LayoutEngine(bg=(255, 255, 255))
     wide = _solid(1536, 1024, (30, 60, 90))
     tall = _solid(832, 1248, (120, 60, 30))
     canvas = eng.compose_single_page([PanelImage(wide), PanelImage(tall)])
-    fractions = _blank_cell_fraction(canvas, 2)
-    assert max(fractions) < 0.02, (
-        f"white fraction per cell {[round(f, 3) for f in fractions]}: "
-        "mixed-aspect row is letterboxed instead of packed"
+    arr = np.asarray(canvas.convert("RGB"))
+    white = (arr > 245).all(axis=2)
+    assert white.mean() < 0.02, (
+        f"white fraction {round(white.mean(), 3)}: "
+        "mixed-aspect page is letterboxed instead of packed"
     )
 
 
-def test_mixed_aspect_row_column_widths_follow_ratios():
-    """The wide panel must get the wider column, not an equal 700/700 split."""
+def test_mixed_aspect_rows_cover_full_width():
+    """Every row of the packed page tiles the full width: no blank margins."""
     eng = LayoutEngine(bg=(255, 255, 255))
     wide_color, tall_color = (30, 60, 90), (120, 60, 30)
     wide = _solid(1536, 1024, wide_color)
     tall = _solid(832, 1248, tall_color)
     canvas = eng.compose_single_page([PanelImage(wide), PanelImage(tall)])
     arr = np.asarray(canvas.convert("RGB"))
-    mid = arr.shape[0] // 2
-    wide_mask = (arr[mid, :, 0] == wide_color[0]) & (arr[mid, :, 2] == wide_color[2])
-    tall_mask = (arr[mid, :, 0] == tall_color[0]) & (arr[mid, :, 2] == tall_color[2])
-    wide_span = int(wide_mask.sum())
-    tall_span = int(tall_mask.sum())
-    assert wide_span > tall_span, (
-        f"wide column {wide_span}px is not wider than tall column {tall_span}px"
-    )
-    assert wide_span + tall_span == arr.shape[1], "columns must tile the full width"
+    wide_mask = (arr[:, :, 0] == wide_color[0]) & (arr[:, :, 2] == wide_color[2])
+    tall_mask = (arr[:, :, 0] == tall_color[0]) & (arr[:, :, 2] == tall_color[2])
+    # The page is exactly the two arts scaled to page width: their pixel
+    # areas must cover it with no white left over.
+    white = (arr > 245).all(axis=2)
+    assert white.mean() < 0.02, "rows leave blank margins"
+    assert wide_mask.any() and tall_mask.any(), "both panels must be visible"
 
 
 def test_four_mixed_panels_no_blank_in_either_row():
@@ -102,18 +103,17 @@ def test_four_mixed_panels_no_blank_in_either_row():
 
 
 def test_equal_ratio_row_keeps_equal_columns():
-    """Square + square still splits evenly; ratio sizing must not distort
-    the ordinary 2x2 case."""
+    """Square + square still splits evenly when sharing a row; ratio sizing
+    must not distort the ordinary equal case. The DP packing splits two
+    squares into two stacked full-width rows (page lands at 1:1, near the
+    0.72 target, versus 0.5 for a shared row), so assert on the row split
+    behavior via _row_layout directly."""
     eng = LayoutEngine(bg=(255, 255, 255))
     a, b = (10, 20, 30), (40, 50, 60)
-    canvas = eng.compose_single_page(
-        [PanelImage(_solid(1024, 1024, a)), PanelImage(_solid(1024, 1024, b))]
-    )
-    arr = np.asarray(canvas.convert("RGB"))
-    mid = arr.shape[0] // 2
-    left = (arr[mid, :700, 0] == a[0]).all()
-    right = (arr[mid, 700:, 0] == b[0]).all()
-    assert left and right, "equal-ratio row must keep the 700/700 split"
+    panels = [PanelImage(_solid(1024, 1024, a)), PanelImage(_solid(1024, 1024, b))]
+    widths, height = eng._row_layout(panels, 1400)
+    assert widths == [700, 700], f"equal ratios must split evenly: {widths}"
+    assert height == 700, f"row height must follow the square art: {height}"
 
 
 def test_trim_crops_each_edge_independently():

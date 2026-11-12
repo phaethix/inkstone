@@ -10,7 +10,6 @@ Pure PIL — no network, no external services.
 """
 
 from dataclasses import dataclass
-from math import ceil
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
@@ -130,6 +129,16 @@ def _trim_generated_border(image: Image.Image) -> Image.Image:
         return image
     return rgb.crop((left, top, right, bottom))
     return rgb.crop((left, top, right, bottom))
+
+
+def _slice_offsets(start: int, rows: list[list[PanelImage]]) -> list[tuple[int, int]]:
+    """(slice_start, slice_len) pairs for each row beginning at ``start``."""
+    offsets: list[tuple[int, int]] = []
+    pos = start
+    for row in rows:
+        offsets.append((pos, len(row)))
+        pos += len(row)
+    return offsets
 
 
 class LayoutEngine:
@@ -256,28 +265,74 @@ class LayoutEngine:
     def _render_page(self, page_panels: list[PanelImage]) -> Image.Image:
         if not page_panels:
             return Image.new("RGB", (self.page_width, self.cell_height), self.bg)
-        n = len(page_panels)
-        cols = self._cols_for(n)
-        rows = ceil(n / cols) if n else 1
-        # Each row packs its own panels across the full page width; a short
-        # last row (odd count) stretches to fill, so no blank grid slot is
-        # left behind (page_c0001_p0001).
+        # Pack panels into as many rows as the target page shape needs. One
+        # full-width row per page produced 1400x381 strips (3.67:1) that no
+        # reader displays well; rows break once the page would grow wider
+        # than the ~2:3 portrait manga page shape.
+        row_groups = self._rows_for_page(page_panels)
         y = 0
         row_layouts: list[tuple[int, list[int], int]] = []
-        for r in range(rows):
-            in_row = page_panels[r * cols : (r + 1) * cols]
+        for in_row in row_groups:
             widths, height = self._row_layout(in_row, self.page_width)
             row_layouts.append((y, widths, height))
             y += height
         canvas = Image.new("RGB", (self.page_width, y), self.bg)
-        for idx, panel in enumerate(page_panels):
-            r, c = divmod(idx, cols)
+        idx = 0
+        for r, in_row in enumerate(row_groups):
             row_y, widths, row_h = row_layouts[r]
-            x0 = sum(widths[:c])
-            x1 = x0 + widths[c]
-            box = (x0, row_y, x1, row_y + row_h)
-            self._place_panel(canvas, panel, box)
+            for c in range(len(in_row)):
+                panel = page_panels[idx]
+                x0 = sum(widths[:c])
+                x1 = x0 + widths[c]
+                box = (x0, row_y, x1, row_y + row_h)
+                self._place_panel(canvas, panel, box)
+                idx += 1
         return canvas
+
+    # Target page aspect (width / height) the packing aims for. Manga pages
+    # are ~0.68 (2:3); a single row of equal 3:2 panels lands at 0.74.
+    _TARGET_PAGE_ASPECT = 0.72
+    # Per-row penalty in the split search. Keeps pages from shattering into
+    # one-panel rows: an extra row only pays off when it moves the page
+    # aspect meaningfully closer to the target.
+    _ROW_PENALTY = 0.06
+
+    def _rows_for_page(self, page_panels: list[PanelImage]) -> list[list[PanelImage]]:
+        """Split panels into consecutive rows shaped like a manga page.
+
+        Dynamic search over consecutive splits (panels keep reading order;
+        n is at most a page budget, so 2^(n-1) candidates stay tiny). Cost is
+        the page's distance from the target aspect plus a small per-row
+        penalty, so a 3-wide-panel page becomes two rows (ratio ~1.0) instead
+        of one 3.67:1 strip or three shattered single-panel rows.
+        """
+        n = len(page_panels)
+        if n == 0:
+            return []
+        # Row heights for every consecutive slice, computed once.
+        slice_height = {}
+        for i in range(n):
+            for j in range(i + 1, n + 1):
+                _, height = self._row_layout(page_panels[i:j], self.page_width)
+                slice_height[(i, j)] = height
+        # best[i] = (cost, rows) for panels[i:].
+        best: dict[int, tuple[float, list[list[PanelImage]]]] = {n: (0.0, [])}
+        for i in range(n - 1, -1, -1):
+            for j in range(i + 1, n + 1):
+                if j not in best:
+                    continue
+                cost_rows, rows = best[j]
+                height = slice_height[(i, j)]
+                # Ratio of the full page if these rows stacked below ours.
+                total_h = height + sum(
+                    slice_height[(k, k + offset_len)] for k, offset_len in _slice_offsets(j, rows)
+                )
+                ratio = self.page_width / max(1, total_h)
+                cost = abs(ratio - self._TARGET_PAGE_ASPECT) + self._ROW_PENALTY * len(rows)
+                cost += cost_rows
+                if i not in best or cost < best[i][0]:
+                    best[i] = (cost, [page_panels[i:j]] + rows)
+        return best[0][1]
 
     def _place_panel(
         self, canvas: Image.Image, panel: PanelImage, box: tuple[int, int, int, int]

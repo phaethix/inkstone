@@ -17,6 +17,7 @@ def test_compose_single_page_places_all_panels_on_one_canvas():
     ]
     canvas = engine.compose_single_page(panels)
     assert canvas.size[0] == 800
-    # Two square panels pack side by side into one row; the row is art-height
-    # tall (400) with no lettering reserve bands.
-    assert canvas.size[1] == 400
+    # DP packing splits two squares into two stacked full-width rows (each
+    # 800 tall): page ratio 0.5 hugs the 0.72 manga target far better than
+    # the single shared row's 2.0 strip, with no lettering reserve bands.
+    assert canvas.size[1] == 1600

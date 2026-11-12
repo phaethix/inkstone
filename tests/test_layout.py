@@ -58,9 +58,11 @@ def test_compose_four_panels_fill_one_page_2x2(tmp_path):
     paths = eng.compose(panels, tmp_path, layout_mode="page")
     assert len(paths) == 1
     out = Image.open(paths[0])
-    # 2x2 rows of square art: each row is as tall as its contained panels
-    # (700px), not a fixed 1000px cell with letterbox bands.
-    assert out.size == (1400, 1400)
+    # DP packing picks a 1-over-3 split (one full-width square above a 3-up
+    # row, 466+1400=1866px tall): page ratio 0.75 hugs the 0.72 manga target
+    # closer than the old 2x2's 1.0, and every row stays art-height with no
+    # letterbox bands.
+    assert out.size == (1400, 1866)
 
 
 def test_compose_paginates_past_four(tmp_path):
