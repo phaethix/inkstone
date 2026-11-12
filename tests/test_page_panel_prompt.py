@@ -467,3 +467,105 @@ def test_setting_strip_removes_passenger_crowds():
     out = _strip_setting_people("wooden railing, passengers leaning on it", [])
     assert "passengers" not in out
     assert "wooden railing" in out
+
+
+def test_panel_prompt_style_drops_scenery_clauses_absent_from_scene():
+    """The bible's global style guide carries chapter-1 scenery words ("misty
+    river palette with warm lighthouse and riverlight accents"); chapter-2 inn
+    panels grew a lighthouse outside the window because every panel prompt
+    repeated them (page_c0001_p0002-g0000, confirmed 3/3 in repro). A style
+    clause naming scenery the panel's scene never mentions must be dropped."""
+    assets = {"沈知意": CharacterAsset(name="沈知意", l1_prompt="a shy young woman")}
+    plan = _plan("沈知意 rests her chin on her palm", ["沈知意"], setting_ref="客栈")
+    settings = {
+        "客栈": Setting(
+            name="客栈",
+            scene_prompt=(
+                "Interior of an inn at night, warm lantern light flickering, "
+                "wooden tables, quiet intimate atmosphere"
+            ),
+        )
+    }
+    style = (
+        "manhua/comic style: clean black ink line art, soft cel shading, flat colors; "
+        "cinematic panel composition; cool early-autumn misty river palette with warm "
+        "lighthouse and riverlight accents; serene, melancholic mood"
+    )
+    prompt = render_page_panel_prompt(
+        plan,
+        plan.panels[0],
+        characters_by_name=assets,
+        settings_by_name=settings,
+        style_guide=style,
+    )
+    lowered = prompt.lower()
+    assert "lighthouse" not in lowered
+    assert "river" not in lowered
+    assert "misty" not in lowered
+    assert "soft cel shading" in lowered
+    assert "serene" in lowered
+    assert "inn" in lowered
+
+
+def test_panel_prompt_style_keeps_scenery_words_when_scene_names_them():
+    """A riverside panel must keep the river palette: only scenery the current
+    scene does not name is dropped."""
+    assets = {"沈知意": CharacterAsset(name="沈知意", l1_prompt="a shy young woman")}
+    plan = _plan("沈知意 waits at the rail", ["沈知意"], setting_ref="渡船")
+    settings = {
+        "渡船": Setting(
+            name="渡船",
+            scene_prompt="a wooden ferry on a misty river at dusk, a lighthouse far away",
+        )
+    }
+    style = (
+        "manhua/comic style, soft cel shading; cool misty river palette with warm "
+        "lighthouse and riverlight accents"
+    )
+    prompt = render_page_panel_prompt(
+        plan,
+        plan.panels[0],
+        characters_by_name=assets,
+        settings_by_name=settings,
+        style_guide=style,
+    )
+    assert "misty river palette" in prompt
+    assert "lighthouse" in prompt
+
+
+def test_panel_prompt_pose_follows_action_not_reference(tmp_path):
+    """The i2i reference pins the pose too: 3/3 repro panels copied the
+    portrait's scarf-adjusting pose while the action said "chin on palm".
+    The prompt must state the pose comes from the action."""
+    portrait = tmp_path / "shen.png"
+    portrait.write_bytes(b"p")
+    assets = {
+        "沈知意": CharacterAsset(
+            name="沈知意", l1_prompt="a shy young woman", portrait_local=str(portrait)
+        )
+    }
+    plan = _plan("沈知意 rests her chin on her palm", ["沈知意"])
+    prompt = render_page_panel_prompt(
+        plan,
+        plan.panels[0],
+        characters_by_name=assets,
+        settings_by_name={},
+        style_guide="manhua",
+        reference_images=[str(portrait)],
+    )
+    assert "pose follows the action" in prompt
+
+
+def test_panel_prompt_single_cast_bans_second_child_figure():
+    """A single-cast close-up drew a small second boy holding a guitar
+    (page_c0001_p0002-g0000): the cast ban must explicitly exclude a second
+    figure of any size, adult or child."""
+    plan = _plan("沈知意 rests her chin on her palm", ["沈知意"])
+    prompt = render_page_panel_prompt(
+        plan,
+        plan.panels[0],
+        characters_by_name=_assets(),
+        settings_by_name={},
+        style_guide="manhua",
+    )
+    assert "adult or child" in prompt

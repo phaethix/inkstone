@@ -480,6 +480,80 @@ _SETTING_CROWD_RE = re.compile(
 
 _PANEL_NO_TEXT_BAN = "clean artwork with no overlays; art only, ready for text to be placed on top"
 
+# The bible's global style guide mixes craft words ("soft cel shading") with
+# chapter scenery ("cool misty river palette with warm lighthouse accents").
+# Sent wholesale into every panel prompt it leaked chapter-1 geography into
+# chapter-2 interiors: the inn panels grew a lighthouse outside the window
+# (page_c0001_p0002-g0000, reproduced 3/3). A style clause that names scenery
+# the panel's own scene never mentions is dropped; craft clauses stay.
+_PANEL_SCENE_NOUNS = (
+    "river",
+    "lighthouse",
+    "ferry",
+    "boat",
+    "ship",
+    "shore",
+    "coast",
+    "sea",
+    "ocean",
+    "lake",
+    "mist",
+    "fog",
+    "mountain",
+    "forest",
+    "city",
+    "street",
+    "harbor",
+    "harbour",
+    "pier",
+    "deck",
+    "rail",
+    "waterfall",
+    "valley",
+    "canyon",
+    "desert",
+    "snow",
+    "rain",
+    "sky",
+    "sunset",
+    "dawn",
+    "dusk",
+    "riverlight",
+    "water",
+)
+
+_SCENE_CLAUSE_SPLIT_RE = re.compile(r"[;]")
+
+
+def _strip_scene_palette(style: str, scene: str) -> str:
+    """Drop style clauses naming scenery absent from the panel's scene.
+
+    Clause = a semicolon/comma piece. A clause is dropped when it mentions a
+    scene noun that the panel's scene text does not; "soft cel shading" has
+    no scene noun and always survives, and a riverside scene keeps its
+    "misty river palette".
+    """
+    if not style:
+        return ""
+    scene_lower = (scene or "").lower()
+    kept: list[str] = []
+    # Split on semicolons and commas, keeping ", and"-style joins readable.
+    for clause in re.split(r"[;,]", style):
+        token = clause.strip()
+        if not token:
+            continue
+        lowered = token.lower()
+        offenders = [
+            noun for noun in _PANEL_SCENE_NOUNS if noun in lowered and noun not in scene_lower
+        ]
+        if offenders and not any(noun in scene_lower for noun in _PANEL_SCENE_NOUNS):
+            continue
+        kept.append(token)
+    cleaned = ", ".join(kept)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" ,;")
+    return cleaned
+
+
 # Style for a single full-bleed panel image. The finished-page style constant
 # says "comic panel" and the visual-bible block says "design sheets", and both
 # words drew a white border frame around the art (page_c0001_p0000-g0002):
@@ -524,6 +598,11 @@ def render_page_panel_prompt(
             descs.append(_character_desc_for_prompt(name, asset, visual_bible))
             age_locks.append(_age_lock_line(name))
     descs = [_strip_source_quotes(desc) for desc in descs]
+    # Character descriptions carry the bible's per-character palette notes,
+    # and those are written as scenery ("mist tones drawn from the river
+    # light in the distance"): the same chapter-1 leak as the style guide.
+    # A clause naming scenery the panel's scene never mentions goes too.
+    descs = [_strip_scene_palette(desc, scene) for desc in descs]
     count = len(cast_names)
     if count == 0:
         count_line = "No people in this panel; scenery only"
@@ -557,6 +636,12 @@ def render_page_panel_prompt(
         ban = "absolutely clean artwork, no overlays of any kind anywhere in the image"
     else:
         ban = _PANEL_NO_TEXT_BAN
+    if count == 1:
+        # A single-cast close-up drew a small second boy with a guitar
+        # (page_c0001_p0002-g0000): the model added a child-sized extra
+        # figure although the reference shows one person. Spell out both
+        # sizes it invents.
+        ban = f"{ban}; no second figure of any size, adult or child, no child"
     if reference_images:
         bindings = _reference_bindings(
             list(panel.characters), characters_by_name, reference_images, visual_bible
@@ -564,9 +649,28 @@ def render_page_panel_prompt(
         owners = ", ".join(f"reference image {index} is {name}" for index, name in bindings)
         if owners:
             ban = f"{ban}; {owners}"
+        # The i2i reference pins the pose too: repro 3/3 copied the portrait's
+        # scarf-adjusting pose while the action said "chin on palm". State
+        # where the pose comes from.
+        pose_line = "pose follows the action, not the reference pose"
+    else:
+        pose_line = ""
     style = f"{style_guide}, {PANEL_FULL_BLEED_STYLE}" if style_guide else PANEL_FULL_BLEED_STYLE
+    style = _strip_scene_palette(style, scene) if style_guide else style
     parts = [
-        p for p in (scene, *descs, count_line, *age_locks, action, fidelity_line, ban, style) if p
+        p
+        for p in (
+            scene,
+            *descs,
+            count_line,
+            *age_locks,
+            action,
+            fidelity_line,
+            pose_line,
+            ban,
+            style,
+        )
+        if p
     ]
     return ", ".join(parts)
 
