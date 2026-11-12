@@ -470,7 +470,13 @@ _SETTING_PERSON_RE = re.compile(
 _SETTING_PEOPLE_PAIR_RE = re.compile(
     r"(?i)\btwo\s+(?:[a-z-]+\s+){0,2}?(?:men|women|people|figures|boys|girls)s?\b[^,;.]*"
 )
-
+# Plural-crowd nouns: "passengers leaning on it" drew a sliced ferry-cabin
+# strip along the panel edge (page_c0000_p0000-g0001/g0002) — the model
+# materialized the crowd as a pasted band. Same treatment as named clauses.
+_SETTING_CROWD_RE = re.compile(
+    r"(?i)\b(?:passengers?|crowds?|onlookers?|bystanders?|commuters?|travelers?|"
+    r"pedestrians?|spectators?)\b[^,;.]*"
+)
 
 _PANEL_NO_TEXT_BAN = "clean artwork with no overlays; art only, ready for text to be placed on top"
 
@@ -536,6 +542,7 @@ def render_page_panel_prompt(
         )
     action = _image_safe(_strip_setting_people(panel.action or "", cast_names))
     action = _strip_narrative_metaphors(action)
+    action = _rewrite_foreground_occlusion(action)
     # The planner writes poetry; the image model paints it literally.
     # c0001 p0 drew a glowing note at the boy's lips from "his lips part
     # between notes" and a waist-high flame from "the lantern flame leans
@@ -596,14 +603,106 @@ def _strip_narrative_metaphors(action: str) -> str:
     return cleaned or action
 
 
+# Over-the-shoulder / back-to-camera / silhouette staging commands the model
+# to paste a partial figure along the panel edge. Given full-body portrait
+# references it copies one wholesale: page_c0000_p0000-g0002 grew a sliced
+# ferry-cabin strip on the left edge ("Over 沈知意's shoulder (her back ...
+# fill the left foreground)") and page_c0001_p0001-g0000 grew a black
+# silhouette block on the right ("the near figure is a dark silhouette").
+# Both figures are always named cast members, so staging both fully visible
+# loses nothing the novel wrote.
+_OCCLUSION_SILHOUETTE_RE = re.compile(
+    r"(?i)[,;]?\s*(?:the\s+)?near\s+figures?\s+is\s+(?:a|an)\s+\w*\s*silhouette\b[^,;.]*"
+    r"|[,;]?\s*\w*\s*silhouettes?\s*\([^)]*\)[^,;.]*"
+    r"|[,;]?\s*(?:two|both)?\s*small\s+silhouettes?\b[^,;.]*"
+)
+# "two small silhouettes (沈知意 in her scarf, the boy with the guitar) lean
+# on the rail" — the parenthetical must go but the action after it stays, so
+# this pattern is replaced surgically instead of clause-dropped.
+_SILHOUETTE_PAREN_RE = re.compile(r"(?i)\b(?:\w+\s+){0,2}silhouettes?\s*\([^)]*\)")
+_SILHOUETTE_PAREN_REPLACEMENT = "the two characters lean side by side"
+
+
+_OCCLUSION_SHOULDER_RE = re.compile(
+    r"(?i)^over\s+(?:the\s+)?[a-z\u4e00-\u9fff']+(?:'s)?\s+shoulder\s*:\s*"
+    r"|[,;]?\s*over\s+\S+(?:'s)?\s+shoulder\b[^,;.]*"
+    r"|[,;]?\s*\(her\s+back\s+and\s+[^)]*\)[^,;.]*"
+    r"|[,;]?\s*her\s+back\s+(?:and\s+\S+\s+edge\s+)?(?:fill|fills|filling)\s+the\s+left\s+foreground\b[^,;.]*"
+    r"|[,;]?\s*backs?\s+to\s+(?:us|the\s+camera)\b[^,;.]*"
+)
+_OCCLUSION_REPLACEMENT = (
+    "both characters fully visible in the same medium shot, complete "
+    "figures with nothing cropped at the edges"
+)
+
+
+def _rewrite_foreground_occlusion(action: str) -> str:
+    """Replace edge-pasting staging with whole-figure framing.
+
+    The planner writes camera angles ("over his shoulder", "backs to us",
+    "the near figure is a dark silhouette") that a full-body-reference i2i
+    model renders by pasting a reference image along the panel edge — a
+    straight vertical seam splitting the panel into two unrelated scenes.
+    Every figure such a clause hides is a named cast member, so the fix is
+    deterministic: drop the occlusion clauses and assert both figures are
+    fully in frame.
+    """
+    if not action:
+        return action
+    cleaned = _SILHOUETTE_PAREN_RE.sub(_SILHOUETTE_PAREN_REPLACEMENT, action)
+    cleaned = _OCCLUSION_SILHOUETTE_RE.sub("", cleaned)
+    cleaned = _OCCLUSION_SHOULDER_RE.sub("", cleaned)
+    if cleaned == action:
+        return action
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,;:")
+    if not cleaned:
+        return action
+    return f"{cleaned}, {_OCCLUSION_REPLACEMENT}"
+
+
+_CLAUSE_DELIMS = {",": "\x00", ";": "\x01", ".": "\x02"}
+_DELIM_RESTORE = {v: k for k, v in _CLAUSE_DELIMS.items()}
+
+
+def _split_clauses(text: str) -> list[str]:
+    """Split *text* on clause delimiters, ignoring separators inside parens.
+
+    Planner actions nest parentheticals ("two small silhouettes (沈知意 in
+    her scarf, the boy with the guitar) lean on the rail"); splitting
+    blindly on commas orphans the closing fragment, the cast-name check
+    loses its anchor, and the whole staging clause is dropped or mangled.
+    """
+    if not text:
+        return []
+    protected: list[str] = []
+    depth = 0
+    for ch in text:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        if depth and ch in _CLAUSE_DELIMS:
+            protected.append(_CLAUSE_DELIMS[ch])
+        else:
+            protected.append(ch)
+    clauses = re.split(r"(?<=[,;.])\s+", "".join(protected))
+    for key, char in _DELIM_RESTORE.items():
+        clauses = [clause.replace(key, char) for clause in clauses]
+    return clauses
+
+
 def _strip_setting_people(text: str, cast_names: list[str] | None = None) -> str:
     """Drop clauses from *setting* prose that assert extra people."""
     if not text:
         return ""
     cast = [name for name in (cast_names or []) if name]
     kept: list[str] = []
-    for clause in re.split(r"(?<=[,;.])\s+", text):
-        if _SETTING_PEOPLE_PAIR_RE.search(clause) or _SETTING_PERSON_RE.search(clause):
+    for clause in _split_clauses(text):
+        if (
+            _SETTING_PEOPLE_PAIR_RE.search(clause)
+            or _SETTING_PERSON_RE.search(clause)
+            or _SETTING_CROWD_RE.search(clause)
+        ):
             # A clause that names a cast member describes that character's
             # staging, not an extra person: keep it.
             if not any(name and name in clause for name in cast):

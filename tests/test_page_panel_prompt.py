@@ -407,3 +407,63 @@ def test_panel_prompt_omits_age_lock_for_scenery_only():
         style_guide="manhua",
     )
     assert "AGE LOCK" not in prompt
+
+
+def test_panel_prompt_rewrites_foreground_occlusion_staging():
+    """A shoulder/back/silhouette staging line made the model paste the
+    full-body reference along the panel edge (a sliced collage seam:
+    page_c0000_p0000-g0002 left edge, page_c0001_p0001-g0000 right edge).
+    The prompt must stage both figures fully visible instead."""
+    assets = {
+        "沈知意": CharacterAsset(name="沈知意", l1_prompt="a shy young woman"),
+        "少年": CharacterAsset(name="少年", l1_prompt="a shy boy with a guitar"),
+    }
+    plan = _plan(
+        "Over the youth's shoulder: 沈知意 across the table rests her chin on "
+        "her hand, watching him; the near figure is a dark silhouette, her face "
+        "lit by the lantern",
+        ["少年", "沈知意"],
+    )
+    prompt = render_page_panel_prompt(
+        plan,
+        plan.panels[0],
+        characters_by_name=assets,
+        settings_by_name={},
+        style_guide="manhua",
+    )
+    assert "dark silhouette" not in prompt
+    assert "over the youth's shoulder" not in prompt.lower()
+    assert "rests her chin on her hand" in prompt
+
+
+def test_panel_prompt_rewrites_back_to_camera_staging():
+    """'backs to us / back to the camera' stages a figure whose face is
+    hidden — the model then copies the reference as an edge strip."""
+    assets = {"沈知意": CharacterAsset(name="沈知意", l1_prompt="a shy young woman")}
+    plan = _plan(
+        "Low angle behind the wooden railing: two small silhouettes "
+        "(沈知意 in her scarf, the boy with the guitar) lean on the rail "
+        "side by side, backs to us",
+        ["沈知意"],
+    )
+    prompt = render_page_panel_prompt(
+        plan,
+        plan.panels[0],
+        characters_by_name=assets,
+        settings_by_name={},
+        style_guide="manhua",
+    )
+    assert "small silhouettes" not in prompt.lower()
+    assert "backs to us" not in prompt.lower()
+    assert "lean on the rail" in prompt
+
+
+def test_setting_strip_removes_passenger_crowds():
+    """'passengers leaning on it' drew a sliced ferry-cabin strip along the
+    panel edge (page_c0000_p0000-g0001/g0002). Plural-crowd nouns in setting
+    prose must be stripped like named-person clauses."""
+    from core.comic.page_prompt import _strip_setting_people
+
+    out = _strip_setting_people("wooden railing, passengers leaning on it", [])
+    assert "passengers" not in out
+    assert "wooden railing" in out
