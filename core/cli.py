@@ -200,6 +200,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "default binds the clean art-only pages",
     )
     p_gen.add_argument(
+        "--no-lettering",
+        action="store_true",
+        help="Skip local lettering overlay: publish art-only pages "
+        "(no captions, dialogue, or SFX); PDF binds the clean art.",
+    )
+    p_gen.add_argument(
         "--harness-dir",
         default=None,
         help="Run chat stages with this validated harness tree (default: builtin)",
@@ -1030,6 +1036,10 @@ def _run_prune(args: argparse.Namespace) -> int:
 def _run_generate(args: argparse.Namespace) -> None:
     """generate 子命令：运行 core.cli_generate（实现收编于 core，任何安装方式可用）。"""
     from core.cli_generate import run_generate
+    from core.config import set_lettering_env
+
+    if getattr(args, "no_lettering", False):
+        set_lettering_env(True)
 
     sys.exit(
         run_generate(

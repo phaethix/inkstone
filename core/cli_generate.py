@@ -412,6 +412,12 @@ def _parse_args(argv=None) -> argparse.Namespace:
         "default binds the clean art-only pages",
     )
     p.add_argument(
+        "--no-lettering",
+        action="store_true",
+        help="Skip local lettering overlay: publish art-only pages "
+        "(no captions, dialogue, or SFX); PDF binds the clean art.",
+    )
+    p.add_argument(
         "--density",
         choices=["A", "B", "C"],
         default=None,
@@ -428,6 +434,11 @@ def _parse_args(argv=None) -> argparse.Namespace:
 def main() -> None:
     """Standalone entry point (used by the examples/ thin wrapper)."""
     args = _parse_args()
+    from core.config import set_lettering_env
+
+    if getattr(args, "no_lettering", False):
+        set_lettering_env(True)
+
     sys.exit(
         run_generate(
             args.source,
