@@ -2131,7 +2131,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                             output_dir,
                             ci,
                             chunk,
-                            stage_src=_LETTER_STAGE_SRC,
+                            stage_src=_placement_stage_src(None, lettering=lettering_enabled()),
                         )
                         and panel_key_filter is None
                     )
@@ -3278,7 +3278,9 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                                     _chunk,
                                     output_dir,
                                     resolved_size=active_size,
-                                    stage_src=_LETTER_STAGE_SRC,
+                                    stage_src=_placement_stage_src(
+                                        None, lettering=lettering_enabled()
+                                    ),
                                 )
                                 == "tombstone"
                             ):
@@ -3462,7 +3464,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                             _chunk,
                             output_dir,
                             resolved_size=active_size,
-                            stage_src=_LETTER_STAGE_SRC,
+                            stage_src=_placement_stage_src(None, lettering=lettering_enabled()),
                         )
                         == "tombstone"
                     ):
