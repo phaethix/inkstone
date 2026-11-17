@@ -17,7 +17,10 @@ def test_lettering_falsy_values_disable(monkeypatch, raw):
 
 
 def test_set_lettering_env_true_sets_zero(monkeypatch):
-    monkeypatch.delenv(config.ENV_LETTERING, raising=False)
+    # set_lettering_env(True) writes the real os.environ (it is the CLI flag
+    # landing spot); register the key first so monkeypatch restores it on
+    # teardown instead of leaking "0" into later tests.
+    monkeypatch.setenv(config.ENV_LETTERING, "1")
     config.set_lettering_env(True)
     import os
 
