@@ -49,6 +49,7 @@ from core.config import (
     ENV_JOB_TTL_SECONDS,
     ENV_L3,
     ENV_LESSONS,
+    ENV_LETTERING,
     ENV_OPENAI_COMPAT_API_KEY,
     ENV_OPENAI_COMPAT_BASE_URL,
     ENV_OPENAI_COMPAT_CHAT_API_KEY,
@@ -162,6 +163,10 @@ H_ENV_EXCLUDED: frozenset[str] = frozenset(
         # The proxy selects a network path, not a byte: routing through one
         # cannot change the drawn output.
         ENV_HTTP_PROXY,
+        # The lettering toggle is folded into the letter stage identity
+        # (_placement_stage_src ":nl-1"); it must not invalidate render or
+        # export keys, so it stays out of h_env.
+        ENV_LETTERING,
     }
 )
 
