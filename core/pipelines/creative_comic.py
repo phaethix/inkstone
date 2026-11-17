@@ -713,8 +713,153 @@ def _reference_border_is_neutral(rgb) -> bool:
     return matches >= _NEUTRAL_MIN_BG_SHARE
 
 
+def _erase_reference_bubble(rgb):
+    """Inpaint speech-bubble chrome inside the kept subject region, in place.
+
+    Portrait models sometimes self-paint a speech bubble (the boy's reference
+    carried a "你...你来了" bubble that no prompt ever asked for). Sent as an
+    i2i reference the bubble is traced verbatim into every panel. Detection is
+    deterministic: inside the central subject ellipse, a connected bright blob
+    with dark strokes inside is a bubble — erase it by replacing its pixels
+    with a blurred sample of the blob's surround (skin/hair tone), which
+    leaves no white scar. Returns the (possibly new) image.
+    """
+    import numpy as np
+    from PIL import Image, ImageFilter
+
+    w, h = rgb.size
+    arr = np.asarray(rgb).astype(float)
+    yy, xx = np.mgrid[0:h, 0:w]
+    # Same ellipse as the neutral composite: only inside it can a bubble sit
+    # on the subject; outside already fades to studio gray.
+    nx = (xx - w / 2) / (w * 0.42)
+    ny = (yy - h / 2) / (h * 0.55)
+    r = np.sqrt(nx * nx + ny * ny)
+    inside = r <= 1.0
+
+    luma = arr.mean(axis=2)
+    bright = inside & (luma > 215)
+    if not bright.any():
+        return rgb
+
+    # Connected components over the bright mask (4-neighbour flood via BFS).
+    labels = np.zeros((h, w), dtype=np.int32)
+    current = 0
+    components: list[tuple[np.ndarray, np.ndarray]] = []
+    ys, xs = np.nonzero(bright)
+    for y0, x0 in zip(ys, xs, strict=True):
+        if labels[y0, x0]:
+            continue
+        current += 1
+        queue = [(int(y0), int(x0))]
+        labels[y0, x0] = current
+        mask_pts = []
+        while queue:
+            cy, cx = queue.pop()
+            mask_pts.append((cy, cx))
+            for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                ny_, nx_ = cy + dy, cx + dx
+                if 0 <= ny_ < h and 0 <= nx_ < w and bright[ny_, nx_] and not labels[ny_, nx_]:
+                    labels[ny_, nx_] = current
+                    queue.append((ny_, nx_))
+        pm = np.zeros((h, w), dtype=bool)
+        for py, px in mask_pts:
+            pm[py, px] = True
+        # Solidify: the plate's interior holes hold the dark strokes, and a
+        # hole-hugging stroke is chrome even though it is not bright itself.
+        solid = _fill_holes(pm)
+        components.append((solid, arr[pm]))
+
+    for blob_mask, blob_px in components:
+        if len(blob_px) < 12:
+            continue  # noise / specular highlight
+        # A bubble is a bright plate with dark strokes inside it. Fill ratio
+        # guards against erasing genuine pale artwork (white hair, pale cloth):
+        # those blobs have no dark strokes enclosed.
+        min_r, min_c = np.nonzero(blob_mask)[0].min(), np.nonzero(blob_mask)[1].min()
+        max_r, max_c = np.nonzero(blob_mask)[0].max(), np.nonzero(blob_mask)[1].max()
+        box_h, box_w = max_r - min_r + 1, max_c - min_c + 1
+        fill = len(blob_px) / max(1.0, float(box_h * box_w))
+        if fill < 0.45:
+            continue
+        ring = _dilate_mask(blob_mask, 6) & ~blob_mask & inside
+        if not ring.any():
+            continue
+        # Strokes live in the holes of the bright plate: dark-to-mid pixels
+        # hugging the blob. Real bubble outlines carry anti-aliasing and a
+        # pointer tail that stays within ~12px of the plate (the boy's traced
+        # bubble: stroke luma ~130, gray halos to ~180, tail 176 dark px all
+        # inside a 12px band). The chrome threshold sits below the bright
+        # plate but well above pale artwork (white shirt pixels stay >= 215).
+        near = _dilate_mask(blob_mask, 12) & ~blob_mask
+        dark_near = (arr.max(axis=2) < 205) & near
+        strokes = int(dark_near.sum())
+        if strokes < 3 and fill > 0.9:
+            continue  # solid bright patch with no chrome (e.g. white shirt)
+        # Erase plate + every chrome pixel in the 12px band (strokes, halos,
+        # tail tip). The band is inside the subject ellipse, so at worst it
+        # touches backdrop wash — never the face on the other side of the
+        # plate center.
+        erase_mask = blob_mask | dark_near
+        # Tone from a ring just outside the erase area: the bubble's own
+        # surround (scene wash), so the patch inherits the local backdrop.
+        ring = _dilate_mask(erase_mask, 18) & ~erase_mask & inside
+        if not ring.any():
+            ring = _dilate_mask(erase_mask, 6) & ~erase_mask & inside
+        if not ring.any():
+            continue
+        ys_r, xs_r = np.nonzero(ring)
+        tone = arr[ys_r, xs_r].mean(axis=0)
+        painted = arr.copy()
+        painted[erase_mask] = tone
+        # Blur just the painted area so the patch blends into its surround.
+        out_img = Image.fromarray(painted.astype("uint8"), "RGB")
+        blurred = out_img.filter(ImageFilter.GaussianBlur(radius=3))
+        blur_arr = np.asarray(blurred).astype(float)
+        blend = _dilate_mask(erase_mask, 2) & erase_mask
+        arr[blend] = blur_arr[blend]
+    return Image.fromarray(arr.astype("uint8"), "RGB")
+
+
+def _fill_holes(mask):
+    """Fill interior holes of a boolean mask (flood the outside, invert)."""
+    import numpy as np
+
+    h, w = mask.shape
+    outside = np.zeros((h + 2, w + 2), dtype=bool)
+    seeds = [(0, 0)]
+    outside[0, 0] = True
+    free = ~np.pad(mask, 1)
+    while seeds:
+        cy, cx = seeds.pop()
+        for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            ny_, nx_ = cy + dy, cx + dx
+            if 0 <= ny_ < h + 2 and 0 <= nx_ < w + 2 and free[ny_, nx_] and not outside[ny_, nx_]:
+                outside[ny_, nx_] = True
+                seeds.append((ny_, nx_))
+    return ~outside[1:-1, 1:-1]
+
+
+def _dilate_mask(mask, radius: int):
+    """Boolean dilation via a shifted-max stack (small radii only)."""
+    h, w = mask.shape
+    out = mask.copy()
+    for dy in range(-radius, radius + 1):
+        for dx in range(-radius, radius + 1):
+            if dy * dy + dx * dx > radius * radius:
+                continue
+            sy0, sy1 = max(0, dy), min(h, h + dy)
+            ty0, ty1 = max(0, -dy), min(h, h - dy)
+            sx0, sx1 = max(0, dx), min(w, w + dx)
+            tx0, tx1 = max(0, -dx), min(w, w - dx)
+            if sy1 <= sy0 or sx1 <= sx0:
+                continue
+            out[ty0:ty1, tx0:tx1] |= mask[sy0:sy1, sx0:sx1]
+    return out
+
+
 def _neutral_reference_path(loc: str) -> str:
-    """Scene-free portrait path for i2i references; ``loc`` if already neutral.
+    """Scene-free, chrome-free portrait path; ``loc`` if already neutral.
 
     Portrait generation asked for a "plain background" but the model painted
     a full scene (both current portraits carry the misty river, lighthouse
@@ -724,7 +869,9 @@ def _neutral_reference_path(loc: str) -> str:
     the border palette — so the composite is deterministic: the central
     subject ellipse (face, hair, outfit) is kept pixel-exact and everything
     outside fades smoothly to a flat studio gray, erasing the edge scenery
-    vocabulary. The file is a sidecar; the original portrait stays untouched.
+    vocabulary. Inside the ellipse a self-painted speech bubble is inpainted
+    away first (``_erase_reference_bubble``) so no chrome reaches the panels.
+    The file is a sidecar; the original portrait stays untouched.
     """
     import numpy as np
     from PIL import Image
@@ -735,6 +882,7 @@ def _neutral_reference_path(loc: str) -> str:
             rgb = img.convert("RGB")
             if _reference_border_is_neutral(rgb):
                 return loc
+            rgb = _erase_reference_bubble(rgb)
             w, h = rgb.size
             arr = np.asarray(rgb).astype(float)
             yy, xx = np.mgrid[0:h, 0:w]

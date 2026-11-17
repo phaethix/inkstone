@@ -45,7 +45,9 @@ DEFAULT_PORTRAIT_STYLE = (
     "manhua comic style, soft cel shading, flat colors, "
     "a single complete painted portrait of one person, full color throughout, "
     "upper body only, empty hands, the person alone with a clear silhouette, "
-    "consistent character reference"
+    "pure picture with no speech bubble, no text, no lettering, no caption, "
+    "no watermark, the character is not speaking, mouth closed or gently "
+    "smiling, consistent character reference"
 )
 
 
