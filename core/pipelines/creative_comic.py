@@ -24,6 +24,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import time
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -166,6 +167,7 @@ from core.config import (
     harness_enabled,
     l3_enabled,
     lessons_enabled,
+    lettering_enabled,
     page_script_enabled,
     panel_size,
     review_packet_enabled,
@@ -537,18 +539,24 @@ _STAGE_SOURCE_EXCLUDED = (
 _LETTER_STAGE_SRC = stage_source_hash(*_LETTER_SOURCES)
 
 
-def _placement_stage_src(placement_boxes: list[tuple[int, int, int, int]] | None) -> str:
-    """Fold vision coordinates into the letter stage identity.
+def _placement_stage_src(
+    placement_boxes: list[tuple[int, int, int, int]] | None,
+    *,
+    lettering: bool = True,
+) -> str:
+    """Fold vision coordinates (and the lettering toggle) into the stage identity.
 
     The letter cache keys on blank + plan + stage_src. Vision boxes are a new
     overlay input that is NOT in the plan, so without this a changed AI layout
-    would silently reuse the previous cached overlay.
+    would silently reuse the previous cached overlay. ``lettering=False`` adds
+    a marker so toggling the flag only invalidates letter keys, never blanks.
     """
+    base = _LETTER_STAGE_SRC
     if not placement_boxes:
-        return _LETTER_STAGE_SRC
+        return base if lettering else f"{base}:nl-1"
     canonical = json.dumps([list(b) for b in placement_boxes], separators=(",", ":"))
     digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
-    return f"{_LETTER_STAGE_SRC}:vp-{digest}"
+    return f"{base}:vp-{digest}" if lettering else f"{base}:vp-{digest}:nl-1"
 
 
 # A reusable identity portrait must lock FACE / HAIR / OUTFIT only. Held props
@@ -1145,6 +1153,7 @@ def _letter_page_from_blank(
     output_dir: Path | None = None,
     resolved_size: str | None = None,
     placement_boxes: list[tuple[int, int, int, int]] | None = None,
+    lettering: bool | None = None,
 ) -> None:
     """Render deferred lettering from a persisted blank page.
 
@@ -1153,9 +1162,14 @@ def _letter_page_from_blank(
     the page is not lettered again until ``rebuild`` releases it. A miss stores
     the new bytes. ``placement_boxes`` are optional AI-chosen positions; they
     fold into the stage identity so a changed layout re-letters the page.
+    When ``lettering`` is False the blank is copied to ``local_path`` verbatim:
+    art-only publishing with no caption, dialogue, or SFX overlay. ``None``
+    reads INKSTONE_LETTERING.
     """
+    if lettering is None:
+        lettering = lettering_enabled()
     root = Path(output_dir) if output_dir is not None else None
-    stage_src = _placement_stage_src(placement_boxes)
+    stage_src = _placement_stage_src(placement_boxes, lettering=lettering)
     key = ""
     env = ""
     plan_json = ""
@@ -1169,12 +1183,15 @@ def _letter_page_from_blank(
         )
 
     def _letter() -> list[tuple[str, bytes]]:
-        with Image.open(blank_path) as blank:
-            lettered = letter_finished_page(
-                blank, plan, source_text=source_text, placement_boxes=placement_boxes
-            )
         local_path.parent.mkdir(parents=True, exist_ok=True)
-        lettered.save(local_path)
+        if lettering:
+            with Image.open(blank_path) as blank:
+                lettered = letter_finished_page(
+                    blank, plan, source_text=source_text, placement_boxes=placement_boxes
+                )
+            lettered.save(local_path)
+        else:
+            shutil.copyfile(blank_path, local_path)
         return [(local_path.name, local_path.read_bytes())]
 
     if root is None:
@@ -3136,7 +3153,10 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                         # resume does not spend another model call. Any failure
                         # yields None -> deterministic fallback in the overlay.
                         placement_boxes: list[tuple[int, int, int, int]] | None = None
-                        if os.environ.get("INKSTONE_VISION_PLACEMENT", "1") != "0":
+                        if (
+                            lettering_enabled()
+                            and os.environ.get("INKSTONE_VISION_PLACEMENT", "1") != "0"
+                        ):
                             try:
                                 with Image.open(existing.blank_local) as _blank_img:
                                     placement_boxes = await vision_placement_boxes(
@@ -3147,7 +3167,9 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                                     )
                             except Exception:  # noqa: BLE001 — fall back, never block lettering
                                 placement_boxes = None
-                        placement_stage_src = _placement_stage_src(placement_boxes)
+                        placement_stage_src = _placement_stage_src(
+                            placement_boxes, lettering=lettering_enabled()
+                        )
                         status = _letter_resume_status(
                             Path(existing.blank_local),
                             local,
@@ -3171,6 +3193,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                                     output_dir=output_dir,
                                     resolved_size=existing.resolved_size or None,
                                     placement_boxes=placement_boxes,
+                                    lettering=lettering_enabled(),
                                 )
                             )
                             existing.local = str(local)
@@ -3269,6 +3292,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                                     source_text=_chunk,
                                     output_dir=output_dir,
                                     resolved_size=active_size,
+                                    lettering=lettering_enabled(),
                                 )
                             )
                             record_page_artifact(
@@ -3452,6 +3476,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                             source_text=_chunk,
                             output_dir=output_dir,
                             resolved_size=active_size,
+                            lettering=lettering_enabled(),
                         )
                     )
                     record_page_artifact(
