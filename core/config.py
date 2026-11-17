@@ -31,6 +31,7 @@ ENV_RUN_DEADLINE_HOURS = "INKSTONE_RUN_DEADLINE_HOURS"
 ENV_SUPERVISOR_BACKOFF_BASE = "INKSTONE_SUPERVISOR_BACKOFF_BASE"
 ENV_SUPERVISOR_BACKOFF_CAP = "INKSTONE_SUPERVISOR_BACKOFF_CAP"
 ENV_RENDER_MODE = "INKSTONE_RENDER_MODE"
+ENV_LETTERING = "INKSTONE_LETTERING"
 ENV_PAGE_SIZE = "INKSTONE_PAGE_SIZE"
 ENV_PANEL_SIZE = "INKSTONE_PANEL_SIZE"
 ENV_PROVIDER = "PROVIDER"
@@ -300,6 +301,19 @@ def render_mode() -> str:
     if raw in {"finished_page", "finished", "page"}:
         return "finished_page"
     return "panel_compose"
+
+
+def lettering_enabled() -> bool:
+    raw = _get(ENV_LETTERING, "1").strip().lower()
+    return raw not in {"0", "false", "no", "off", ""}
+
+
+def set_lettering_env(no_lettering: bool) -> None:
+    """CLI flag 落地点：True 强制关闭叠字；False 清除干预，尊重用户已有 env。"""
+    if no_lettering:
+        os.environ[ENV_LETTERING] = "0"
+    else:
+        os.environ.pop(ENV_LETTERING, None)
 
 
 def panel_size() -> str:
