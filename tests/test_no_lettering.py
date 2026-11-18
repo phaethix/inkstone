@@ -33,11 +33,10 @@ def test_lettering_off_copies_blank_as_finished_page(tmp_path, blank_and_plan, m
     blank, plan = blank_and_plan
     monkeypatch.setenv(config.ENV_LETTERING, "0")
     finished = tmp_path / "finished.png"
-    calls: list[object] = []
     monkeypatch.setattr(
         cc,
         "letter_finished_page",
-        lambda *a, **k: calls.append(a) or (_ for _ in ()).throw(AssertionError("must not letter")),
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not letter")),
     )
     cc._letter_page_from_blank(blank, finished, plan, output_dir=tmp_path)
     assert finished.is_file()
