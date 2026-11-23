@@ -4,8 +4,7 @@ Two pure helpers used by the comic pipeline:
 
 - ``segment_text`` splits a long novel into processable chunks. It prefers
   chapter/volume boundaries, then falls back to a token budget applied at
-  paragraph granularity, and overlaps the tail of one chunk into the next so
-  narration stays continuous across breaks.
+  paragraph granularity, returning exact source slices for traceability.
 - ``merge_characters`` folds freshly extracted characters into the project's
   running character table by exact name, reporting which names are new (so the
   pipeline knows which portraits to generate).
@@ -112,39 +111,56 @@ def segment_text(
     2. Within a block, accumulate lines until the estimated token count would
        exceed ``max_tokens``, then start a new chunk. A single line longer than
        the budget is kept whole (lines are not split mid-sentence).
-    3. Prepend the tail ``overlap_chars`` of the previous chunk to the next one
-       so context is not abruptly cut at a boundary.
+    3. Return exact, non-overlapping source slices. Chapter headings are hard
+       boundaries; ``overlap_chars`` is retained for signature compatibility
+       but is no longer used because injected overlap is not a source span.
 
     Args:
         text: the full source novel/scene text.
         max_tokens: per-chunk token budget (approximate).
-        overlap_chars: how many trailing characters of a chunk are repeated at
-            the head of the following chunk.
+        overlap_chars: retained for call compatibility; chunks no longer inject
+            text that is absent from the source.
 
     Returns:
         A list of non-empty text chunks in source order.
     """
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     blocks = _chapter_blocks(text)
-    chunks: list[str] = []
+    body_spans: list[tuple[int, int]] = []
+    cursor = 0
     for block in blocks:
-        tail = ""  # chapters are hard boundaries: no overlap across them
+        start = text.find(block, cursor)
+        if start < 0:
+            start = cursor
+        end = start + len(block)
+        body_spans.append((start, end))
+        cursor = end
+    chunks: list[str] = []
+    for block_index, _block in enumerate(blocks):
+        block_start, block_end = body_spans[block_index]
+        source_block = text[block_start:block_end]
+        lines = _lines(source_block)
+        line_spans: list[tuple[int, int]] = []
+        cursor = 0
+        for line in lines:
+            start = source_block.find(line, cursor)
+            if start < 0:
+                start = cursor
+            line_spans.append((start, start + len(line)))
+            cursor = start + len(line)
         cur = ""
-        for line in _lines(block):
+        cur_start = block_start
+        for line_index, line in enumerate(lines):
+            line_start, line_end = line_spans[line_index]
             candidate = f"{cur}\n\n{line}" if cur else line
             if cur and _estimate_tokens(candidate) > max_tokens:
-                seg_tail = cur[-overlap_chars:] if len(cur) > overlap_chars else cur
-                final = f"{tail}\n\n{cur}" if tail else cur
-                chunks.append(final)
-                tail = seg_tail
+                chunks.append(text[cur_start : line_start + block_start].rstrip())
                 cur = line
+                cur_start = line_start + block_start
             else:
                 cur = candidate
         if cur:
-            seg_tail = cur[-overlap_chars:] if len(cur) > overlap_chars else cur
-            final = f"{tail}\n\n{cur}" if tail else cur
-            chunks.append(final)
-            tail = seg_tail
+            chunks.append(text[cur_start:block_end])
     return chunks
 
 

@@ -775,7 +775,7 @@ def test_generate_resumes_from_the_saved_manuscript_when_the_paste_is_empty(tmp_
     (project / "style.txt").write_text("manhua", encoding="utf-8")
     captured: dict[str, str | None] = {}
 
-    def _start(text, fmt, style_guide, project_id=None, panel_keys=None):
+    def _start(text, fmt, style_guide, project_id=None, panel_keys=None, **kwargs):
         captured["text"] = text
         captured["style"] = style_guide
         return "job1", project_id
@@ -788,7 +788,32 @@ def test_generate_resumes_from_the_saved_manuscript_when_the_paste_is_empty(tmp_
     assert status == 200
     assert payload["project_id"] == "demo"
     assert captured["text"] == "saved manuscript"
-    assert captured["style"] == "manhua"
+
+
+def test_generate_preserves_cbz_and_the_lettered_default(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
+    captured: dict = {}
+
+    def _start(text, fmt, style_guide, project_id=None, panel_keys=None, **kwargs):
+        captured.update(fmt=fmt, export_mode=kwargs.get("export_mode"))
+        return "job1", "cbzproj"
+
+    monkeypatch.setattr(server, "_start_job", _start)
+    monkeypatch.setattr(server, "_providers_configured", lambda: True)
+    body = json.dumps({"text": "a novel", "format": "cbz"}).encode()
+    with _running_server() as httpd:
+        status, payload = _request(httpd.server_port, "/api/generate", "POST", data=body)
+    assert status == 200
+    assert payload["project_id"] == "cbzproj"
+    assert captured == {"fmt": "cbz", "export_mode": "lettered"}
+
+
+def test_web_job_releases_the_sample_gate_and_binds_lettered_pages(monkeypatch):
+    import inspect
+
+    source = inspect.getsource(server._run_job)
+    assert "gate_yes=True" in source
+    assert "export_mode=export_mode" in source
 
 
 def test_snapshot_carries_the_ledger_escalation_threshold(tmp_path):

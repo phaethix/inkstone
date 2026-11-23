@@ -379,15 +379,14 @@ def finished_page_files(pages_dir: Path) -> list[Path]:
 def prepare_finished_page_export(
     pages_dir: Path,
     state=None,
-    export_mode: str = "art_only",
+    export_mode: str = "lettered",
 ) -> list[Path]:
     """Collect finished-page assets for binding into the exported book.
 
-    ``export_mode="art_only"`` binds the un-lettered ``pages/blank/`` art;
-    ``"lettered"`` binds the deferred-lettering pages (with dialogue). The
-    choice is the caller's: hardcoding one mode either puts speech bubbles back
-    on every regeneration or turns the book into a silent movie. Blank art that
-    is missing falls back to the lettered page so older projects lose nothing.
+    ``"lettered"`` binds the deferred-lettering pages (with dialogue), which is
+    the readable default; ``export_mode="art_only"`` binds the un-lettered
+    ``pages/blank/`` art for a clean-art preview. Blank art that is missing
+    falls back to the lettered page so older projects lose nothing.
     Stale panel-compose ``page_NN.png`` sheets are dropped as before.
     """
     if state is None:

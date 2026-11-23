@@ -31,15 +31,9 @@ from core.comic.visual_bible import (
 from core.comic.voice import timeline_prompt_lines
 from core.schemas import CharacterAsset, ComicPagePlan, PagePanelSpec, Setting, VisualBible
 
-# A positive prompt that says "NO speech bubbles" still reminds a diffusion
-# model that bubbles are a thing comics have, so it draws one full of
-# pseudo-script ("S:cooas t9!" on page_c0000_p0000.png). The negative channel is
-# where the ban actually holds. Kept free of any plan text: naming the dialogue
-# here would summon the dialogue.
-#
-# Diegetic props need their own entries. ``DIEGETIC_TEXT_LINE`` already asks for
-# blank paper, and the model still set "WIENER MORGENPOST" on a newspaper and
-# gibberish on a station sign, so the props are named explicitly here.
+# Agnes i2i silently drops negative_prompt, so this legacy string is no longer
+# sent to the model. All constraints now live in positive prompt wording; the
+# constant is kept as an audit record of the artifacts those constraints target.
 FINISHED_PAGE_NEGATIVE_PROMPT = (
     "speech bubbles, thought bubbles, balloon tails, caption bars, caption boxes, "
     "text boxes, lettering, subtitles, watermark, signature, logo, "
@@ -60,7 +54,7 @@ FINISHED_PAGE_NEGATIVE_PROMPT = (
     "extra unnamed people, duplicate copies of a character, crowd of bystanders"
 )
 
-_NEGATIVE_PROMPT_STRICT_SUFFIX = ", absolutely no text of any kind anywhere in the image"
+_NEGATIVE_PROMPT_STRICT_SUFFIX = ""
 
 
 def render_finished_page_negative_prompt(
@@ -68,18 +62,13 @@ def render_finished_page_negative_prompt(
     strict: bool = False,
     lettering: Literal["deferred", "in_image"] = "deferred",
 ) -> str:
-    """The negative prompt for a finished page render.
+    """Deprecated: return an empty channel.
 
-    ``in_image`` lettering asks the model to letter the page, so banning
-    bubbles would fight the positive prompt; it gets no negative prompt at all.
-    ``strict`` is the retry after a failed render, where the ban is the whole
-    point, so it says the same thing with less room to interpret.
+    The Agnes i2i workflow discards the server-side negative conditioning node.
+    Keeping a non-empty value here would both fail to steer the image and make
+    the render cache key depend on a string that never reaches the model.
     """
-    if lettering != "deferred":
-        return ""
-    if strict:
-        return FINISHED_PAGE_NEGATIVE_PROMPT + _NEGATIVE_PROMPT_STRICT_SUFFIX
-    return FINISHED_PAGE_NEGATIVE_PROMPT
+    return ""
 
 
 # ``l1_from_canon`` appends the planner's verbatim evidence quotes
@@ -265,12 +254,15 @@ def render_finished_page_prompt(
     if scene_for_page:
         lines.append(f"Scene setting for the whole page: {scene_for_page}")
     if lettering == "deferred":
-        # Naming the forbidden things here makes the model draw them. The ban
-        # lives entirely in the negative prompt; the positive side only says
-        # what the picture is.
-        lines.append("picture only, empty panel art, no writing anywhere,")
+        lines.append(
+            "edge-to-edge finished artwork, clean empty panel gutters, "
+            "unmarked surfaces and physical objects only,"
+        )
         if strict:
-            lines.append("STRICT: picture only, empty panels, nothing written.")
+            lines.append(
+                "STRICT: continuous painted artwork fills every cell, "
+                "the cast and scene are the only subjects."
+            )
     else:
         lines.extend(
             [
@@ -478,7 +470,7 @@ _SETTING_CROWD_RE = re.compile(
     r"pedestrians?|spectators?)\b[^,;.]*"
 )
 
-_PANEL_NO_TEXT_BAN = "clean artwork with no overlays; art only, ready for text to be placed on top"
+_PANEL_NO_TEXT_BAN = "clean artwork, ready for text to be placed on top"
 
 # The bible's global style guide mixes craft words ("soft cel shading") with
 # chapter scenery ("cool misty river palette with warm lighthouse accents").
@@ -561,8 +553,8 @@ def _strip_scene_palette(style: str, scene: str) -> str:
 # would only remind the model borders exist. Describe the wanted geometry
 # instead: art all the way to every edge.
 PANEL_FULL_BLEED_STYLE = (
-    "one single full-bleed illustration, edge-to-edge artwork with no white "
-    "borders or margins, soft cel shading, flat colors, cinematic composition"
+    "one single full-bleed illustration, edge-to-edge artwork, "
+    "soft cel shading, flat colors, cinematic composition"
 )
 
 
@@ -629,11 +621,11 @@ def render_page_panel_prompt(
     # models love to materialize are banned with positive geometry wording
     # (the Agnes i2i channel drops negative prompts).
     fidelity_line = (
-        "no floating music notes, no glowing symbols, no visible sound, "
-        "physical objects only; show the literal visible action of the scene"
+        "physical objects only, literal visible action of the scene, "
+        "continuous painted artwork from edge to edge"
     )
     if strict:
-        ban = "absolutely clean artwork, no overlays of any kind anywhere in the image"
+        ban = "clean continuous artwork, the declared cast and scene are the only subjects"
     else:
         ban = _PANEL_NO_TEXT_BAN
     if count == 1:
@@ -641,7 +633,7 @@ def render_page_panel_prompt(
         # (page_c0001_p0002-g0000): the model added a child-sized extra
         # figure although the reference shows one person. Spell out both
         # sizes it invents.
-        ban = f"{ban}; no second figure of any size, adult or child, no child"
+        ban = f"{ban}; {cast_names[0]} is the only person at any size or age"
     if reference_images:
         bindings = _reference_bindings(
             list(panel.characters), characters_by_name, reference_images, visual_bible

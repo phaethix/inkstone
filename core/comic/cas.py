@@ -216,20 +216,16 @@ def extract_action_key(
 
 
 def render_page_inputs(plan_json: str, prompt: str, negative_prompt: str = "") -> list[str]:
-    """Ordered inputs for a finished page: the plan, then both prompts sent.
+    """Ordered inputs for a finished page: the plan and the prompt sent.
 
-    The negative prompt is an input, not a parameter, because it changes the
-    bytes the model draws. Leaving it out would serve the already-garbled page
-    from cache after the wiring was fixed. Absent and empty agree, so a project
-    rendered before the channel existed keeps its keys.
+    ``negative_prompt`` is retained for call compatibility but ignored: the
+    Agnes i2i workflow drops that channel, so it never changes rendered bytes.
+    Including it would only orphan caches or serve stale art under a new key.
     """
-    inputs = [
+    return [
         "sha256:" + _hex_digest(plan_json.encode("utf-8")),
         "sha256:" + _hex_digest(prompt.encode("utf-8")),
     ]
-    if negative_prompt:
-        inputs.append("sha256:negative:" + _hex_digest(negative_prompt.encode("utf-8")))
-    return inputs
 
 
 def render_page_action_key(

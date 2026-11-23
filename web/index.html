@@ -853,8 +853,9 @@
           <textarea id="text" placeholder="Chapter 1: The Dock&#10;&#10;The river wind carried the first chill of autumn across the deck. Shen Zhiyi pulled her scarf tighter, gazing at the lighthouse flickering in the fog..."></textarea>
           <div class="gen-row">
             <select id="format">
-              <option value="webtoon">Webtoon (PNG)</option>
               <option value="page">Paged Comic (PDF)</option>
+              <option value="webtoon">Webtoon (PNG)</option>
+              <option value="cbz">CBZ (comic archive)</option>
             </select>
             <input type="text" id="styleGuide" placeholder="Art style override (optional)" />
             <input type="text" id="projectId" placeholder="project id (optional, resume)" />
@@ -1664,7 +1665,7 @@
     }
 
     let currentProjectId = null;
-    let lastFormat = "webtoon";
+    let lastFormat = "page";
 
     async function liveRun(text, format) {
       try {

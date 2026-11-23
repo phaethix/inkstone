@@ -24,7 +24,7 @@ class StructureReport:
 
     @property
     def ok(self) -> bool:
-        return all(check.status != "fail" for check in self.checks)
+        return bool(self.checks) and all(check.status == "pass" for check in self.checks)
 
     def to_json(self) -> dict:
         payload = asdict(self)

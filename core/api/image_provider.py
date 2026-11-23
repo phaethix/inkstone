@@ -80,10 +80,9 @@ class ImageProvider(ABC):
                 errors. The free-tier image service is frequently 503 "Service busy",
                 so the default retries (5 attempts, 5s exponential backoff); tune via
                 ``AGNES_IMAGE_MAX_RETRIES`` / ``AGNES_IMAGE_RETRY_BASE_DELAY``.
-            negative_prompt: Text to steer the model away from. Pass bubble and
-                text bans here rather than in the positive prompt: a positive
-                "no speech bubbles" reminds the model that bubbles exist and it
-                draws one full of pseudo-script.
+            negative_prompt: Optional server-side negative channel. Agnes i2i
+                drops it silently; image constraints must use positive prompt
+                wording instead.
         Returns:
             An ``ImageOutput``; call ``.save(path)`` to persist.
         """

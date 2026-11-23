@@ -64,7 +64,12 @@ def test_apply_model_flags_overrides_environment(monkeypatch):
 
 
 def test_openai_compat_flags_route_to_compat_vars(monkeypatch):
-    for key in ("OPENAI_COMPAT_CHAT_MODEL", "OPENAI_COMPAT_MODEL_I2I", "OPENAI_COMPAT_BASE_URL"):
+    for key in (
+        "OPENAI_COMPAT_CHAT_MODEL",
+        "OPENAI_COMPAT_MODEL_I2I",
+        "OPENAI_COMPAT_BASE_URL",
+        "OPENAI_COMPAT_CHAT_BASE_URL",
+    ):
         monkeypatch.delenv(key, raising=False)
     args = _args(
         "web",
@@ -81,6 +86,7 @@ def test_openai_compat_flags_route_to_compat_vars(monkeypatch):
     assert os.environ["OPENAI_COMPAT_CHAT_MODEL"] == "c"
     assert os.environ["OPENAI_COMPAT_MODEL_I2I"] == "i"
     assert os.environ["OPENAI_COMPAT_BASE_URL"] == "https://y/v1"
+    assert os.environ["OPENAI_COMPAT_CHAT_BASE_URL"] == "https://y/v1"
 
 
 def test_web_command_is_not_rewritten_as_generate(monkeypatch):

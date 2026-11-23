@@ -134,7 +134,7 @@ async def run_until_complete(
     sample_gate_size: int | None = None,
     density: str | None = None,
     harness_dir: str | None = None,
-    export_mode: str = "art_only",
+    export_mode: str = "lettered",
 ) -> ComicProject | PausedRun:
     """Run ``creative_comic`` until success or wall-clock pause.
 

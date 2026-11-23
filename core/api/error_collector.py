@@ -39,6 +39,8 @@ def _redact_secrets(text: str) -> str:
     """Mask bearer tokens / API keys before persisting error payloads."""
     if not text:
         return text
+    if not isinstance(text, str):
+        text = str(text)
 
     def _sub(match: re.Match[str]) -> str:
         g = match.groups()
@@ -115,7 +117,7 @@ def collect_error(
     except OSError as e:  # Filesystem errors during writing
         logger.error(f"[ErrorCollector] OS error when writing log: {e}")
         return None
-    except (ValueError, TypeError, json.JSONEncodeError) as e:  # Data serialization issues
+    except (ValueError, TypeError) as e:  # Data serialization issues
         logger.error(f"[ErrorCollector] serialization error: {e}")
         return None
     except Exception as e:  # Catch-all safety net; cannot fail entirely

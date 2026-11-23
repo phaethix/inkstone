@@ -1,11 +1,11 @@
 """core.pipelines.creative_comic — text-to-comic orchestration.
 
-Default (``finished_page``) flow for one source text:
+Default (``panel_compose``) flow for one source text:
 
     segment -> extract -> merge characters -> (portraits)
-    -> plan_comic_pages -> one finished page image per plan -> bind PDF/webtoon
+    -> plan_comic_pages -> per-panel images -> local page compose -> bind PDF/webtoon
 
-Legacy (``panel_compose``) flow:
+Whole-page fallback (``finished_page``) flow:
 
     … -> storyboard -> per panel (L1/L2, optional L3) -> LayoutEngine -> export
 
@@ -433,7 +433,7 @@ def _render_fingerprint(
     snapshot: ModelSnapshot,
     panel_continuity: bool,
     l3_enabled: bool,
-    render_mode: str = "finished_page",
+    render_mode: str = "panel_compose",
     page_size: str = "1024x1536",
     bible_version: str | None = None,
     bible_hash: str | None = None,
@@ -1380,7 +1380,7 @@ def _mark_page_chunk_done_if_complete(
     chunk_index: int,
     output_dir: Path,
     *,
-    render_mode: str = "finished_page",
+    render_mode: str = "panel_compose",
 ) -> None:
     """Record chunks_done only after every planned page is done or skipped."""
     for page_index in range(len(pageset.pages)):
@@ -1524,7 +1524,7 @@ class ComicRunOptions:
     sample_gate_size: int | None = None
     density: str | None = None
     harness_dir: str | Path | None = None
-    export_mode: str = "art_only"
+    export_mode: str = "lettered"
 
 
 async def creative_comic(
@@ -1547,7 +1547,7 @@ async def creative_comic(
     sample_gate_size: int | None = None,
     density: str | None = None,
     harness_dir: str | Path | None = None,
-    export_mode: str = "art_only",
+    export_mode: str = "lettered",
 ) -> ComicProject:
     """Generate a project while holding its process-level mutation lock.
 
@@ -1620,10 +1620,10 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
             ``finished_page`` mode.
         cancel_check: optional callable polled at chunk/panel checkpoints;
             raises ``PipelineCancelled`` when it returns true.
-        render_mode: ``"finished_page"`` (default, one prompt/image per page,
-            no LayoutEngine collage) or ``"panel_compose"`` (legacy
-            storyboard -> panels -> LayoutEngine grid path). Falls back to
-            ``core.config.render_mode()`` when unset.
+        render_mode: ``"panel_compose"`` (default, per-panel images composed
+            locally) or ``"finished_page"`` (one prompt/image per page, no
+            LayoutEngine collage). Falls back to ``core.config.render_mode()``
+            when unset.
         budget: when set, each billable call is charged against this
             reservation and a shortfall raises ``BudgetPaused`` before the
             call (§12). ``None`` preserves the unbounded run. Budget never

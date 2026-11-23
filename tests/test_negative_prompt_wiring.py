@@ -1,15 +1,8 @@
-"""Negative prompt must reach both providers and invalidate the page cache.
+"""Agnes i2i drops negative_prompt; positive prompt wording is authoritative.
 
-Two independent holes let the garbled bubble through:
-
-1. no caller passed ``negative_prompt`` to ``generate_single_image``, so the
-   field Agnes already reads was always absent from the payload;
-2. ``OpenAICompatProvider._build_payload`` never read the kwarg at all, so the
-   fallback provider would have dropped it even after wiring the callers.
-
-A third, subtler one: ``prompt`` feeds ``render_page_action_key``. Sending the
-negative prompt out-of-band without keying it would hand the already-broken
-page back as a cache hit on every resume.
+The OpenAI-compatible fallback may still use a server-side negative channel,
+but Agnes i2i must never send one and the render key must never depend on a
+string that never reaches the model.
 """
 
 import asyncio
@@ -56,14 +49,14 @@ def _capturing_post(sink: dict):
     return fake_post
 
 
-def test_negative_prompt_changes_the_render_key():
-    assert _key() != _key(negative_prompt="no speech bubbles")
+def test_dropped_negative_prompt_does_not_change_the_render_key():
+    assert _key() == _key(negative_prompt="no speech bubbles")
 
 
-def test_different_negative_prompts_key_differently():
+def test_different_negative_prompts_keep_the_same_render_key():
     a = _key(negative_prompt="no speech bubbles")
     b = _key(negative_prompt="no captions")
-    assert a != b
+    assert a == b
 
 
 def test_empty_negative_prompt_keeps_the_legacy_key():
@@ -71,9 +64,9 @@ def test_empty_negative_prompt_keeps_the_legacy_key():
     assert _key() == _key(negative_prompt="")
 
 
-def test_render_page_inputs_lists_the_negative_prompt():
+def test_render_page_inputs_ignore_the_negative_prompt():
     assert render_page_inputs("{}", "p") == render_page_inputs("{}", "p", "")
-    assert render_page_inputs("{}", "p") != render_page_inputs("{}", "p", "no bubbles")
+    assert render_page_inputs("{}", "p") == render_page_inputs("{}", "p", "no bubbles")
 
 
 def test_openai_compat_payload_carries_negative_prompt():
@@ -119,11 +112,8 @@ def test_openai_compat_sends_no_negative_field_when_unset(monkeypatch):
     assert "negative_prompt" not in seen
 
 
-def test_agnes_sends_negative_prompt_over_the_wire(monkeypatch):
-    """Agnes had the plumbing; this pins that callers can now reach it.
-
-    Uses an i2i call because the text-image queue rejects the field outright.
-    """
+def test_agnes_i2i_never_sends_negative_prompt(monkeypatch):
+    """The Agnes i2i workflow silently drops its negative conditioning node."""
     provider = agnes_image.AgnesImageAPI(api_key="k")
     seen: dict = {}
 
@@ -137,7 +127,7 @@ def test_agnes_sends_negative_prompt_over_the_wire(monkeypatch):
             "p", reference_image_paths=["https://example.test/r.png"], negative_prompt="no bubbles"
         )
     )
-    assert seen["negative_prompt"] == "no bubbles"
+    assert "negative_prompt" not in seen
 
 
 def test_agnes_t2i_never_sends_negative_prompt(monkeypatch):
@@ -149,21 +139,21 @@ def test_agnes_t2i_never_sends_negative_prompt(monkeypatch):
     assert "negative_prompt" not in seen
 
 
-def test_render_stage_src_covers_the_negative_prompt_function():
-    """A negative-prompt edit must invalidate cached pages, like a positive one.
+def test_render_stage_src_covers_the_positive_prompt_function():
+    """A positive-prompt edit must invalidate cached pages.
 
     The pipeline keys pages with ``_RENDER_PAGE_STAGE_SRC``. If that constant
-    only hashed the positive prompt, editing the negative one would leave every
-    stored page a valid cache hit and the fix would never reach old projects.
+    omitted the positive prompt, prompt edits would leave stored pages valid
+    cache hits. The deprecated negative helper stays in the hash so old keys
+    are invalidated by its source change.
     """
     assert creative_comic._RENDER_PAGE_STAGE_SRC == stage_source_hash(
         render_finished_page_prompt, render_finished_page_negative_prompt
     )
-    assert creative_comic._RENDER_PAGE_STAGE_SRC != stage_source_hash(render_finished_page_prompt)
 
 
-def test_pipeline_source_generates_and_forwards_a_negative_prompt():
-    """Guard the call site itself: both halves must appear in the render loop."""
+def test_pipeline_source_forwards_the_compat_only_negative_channel():
+    """The compat provider may receive it; the Agnes key ignores it."""
     import ast
     import inspect
 

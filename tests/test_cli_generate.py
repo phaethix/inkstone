@@ -53,6 +53,7 @@ def test_run_generate_accepts_openai_compat_without_agnes_key(monkeypatch, capsy
 
 
 def test_run_generate_missing_source(monkeypatch, capsys):
+    monkeypatch.delenv("PROVIDER", raising=False)
     monkeypatch.setenv("AGNES_API_KEY", "sk-test")
     code = cli_generate.run_generate(
         source="/nonexistent/novel.txt", out=None, fmt="page", project_id=None
@@ -62,6 +63,7 @@ def test_run_generate_missing_source(monkeypatch, capsys):
 
 
 def test_run_generate_requires_source_when_no_bundled_scene(monkeypatch, capsys):
+    monkeypatch.delenv("PROVIDER", raising=False)
     monkeypatch.setenv("AGNES_API_KEY", "sk-test")
     monkeypatch.setattr(cli_generate, "_default_scene", lambda: None)
     code = cli_generate.run_generate(source=None, out=None, fmt="page", project_id=None)
@@ -80,6 +82,14 @@ def test_generate_yes_defaults_off():
     assert args.yes is False
     confirmed = cli._build_parser().parse_args(["generate", "book.txt", "--yes"])
     assert confirmed.yes is True
+
+
+def test_generate_exports_lettered_pages_by_default():
+    args = cli._build_parser().parse_args(["generate", "book.txt"])
+    assert args.export_lettered is False
+    assert args.export_art_only is False
+    clean = cli._build_parser().parse_args(["generate", "book.txt", "--export-art-only"])
+    assert clean.export_art_only is True
 
 
 def test_gate_show_is_its_own_command(tmp_path, monkeypatch, capsys):

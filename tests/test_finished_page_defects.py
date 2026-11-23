@@ -117,11 +117,10 @@ def test_prompt_binds_outfit_and_prop_to_the_named_character():
     assert "does not hand" in text or "prop" in text or "only the character" in text
 
 
-# Defect 5: art-only export must be opt-in, not hardcoded
+# Defect 5: lettered export is the readable default; art-only is opt-in
 def test_export_mode_selects_lettered_or_blank(tmp_path):
-    """prepare_finished_page_export hardcodes blank art, making comic.pdf a
-    silent movie. The mode must be selectable: 'lettered' keeps the deferred
-    dialogue pages, 'art_only' uses the clean blank art."""
+    """prepare_finished_page_export defaults to the deferred dialogue pages;
+    'art_only' selects the clean blank art preview."""
     pages = tmp_path / "pages"
     (pages / "blank").mkdir(parents=True)
     lettered = pages / "page_c0000_p0000.png"
@@ -131,9 +130,11 @@ def test_export_mode_selects_lettered_or_blank(tmp_path):
     stale = pages / "page_01.png"
     stale.write_bytes(b"stale")
 
+    default = prepare_finished_page_export(pages)
     art_only = prepare_finished_page_export(pages, export_mode="art_only")
     lettered_out = prepare_finished_page_export(pages, export_mode="lettered")
 
+    assert default == [lettered]
     assert art_only == [blank]
     assert lettered_out == [lettered]
     assert not stale.exists()

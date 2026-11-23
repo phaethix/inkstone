@@ -24,14 +24,14 @@ def _status(report, name: str) -> str:
     return next(check.status for check in report.checks if check.name == name)
 
 
-def test_an_empty_project_marks_missing_records_absent():
+def test_an_empty_project_marks_missing_records_absent_and_is_not_ok():
     report = structural_report(ProjectState(project_id="p"), "")
     assert _status(report, "source") == "absent"
     assert _status(report, "beats") == "absent"
     assert _status(report, "visible_text") == "absent"
     assert _status(report, "causal_order") == "absent"
     assert _status(report, "blocked") == "pass"
-    assert report.ok
+    assert not report.ok
 
 
 def test_units_that_partition_the_source_pass_and_a_gap_fails():

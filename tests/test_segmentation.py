@@ -93,6 +93,14 @@ def test_segment_text_no_heading_yields_single_block():
     assert "plain paragraph two" in chunks[0]
 
 
+def test_segment_text_chunks_are_exact_source_spans():
+    text = "第一章\n甲。\n乙。\n丙。\n丁。"
+    chunks = segment_text(text, max_tokens=4, overlap_chars=2)
+    assert chunks
+    assert all(chunk in text for chunk in chunks)
+    assert "第一章\n\n甲。" not in "".join(chunks)
+
+
 def test_detect_character_aliases_substring_variant():
     existing = {"方鸿渐": _asset("方鸿渐")}
     sugg = detect_character_aliases(existing, ["鸿渐"])

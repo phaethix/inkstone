@@ -3,7 +3,7 @@
 import asyncio
 import logging
 
-from requests import HTTPError, Response
+from requests import Response
 
 from core.api.error_collector import collect_error
 from core.api.image_provider import ImageOutput, ImageProvider
@@ -12,25 +12,6 @@ from core.config import agnes_base_url
 from utils.image import resolve_image_ref_async
 
 logger = logging.getLogger(__name__)
-
-
-def _rejects_negative_prompt(resp: Response | None) -> bool:
-    """True when the service says this queue has no ``negative_prompt``.
-
-    Matched on the message rather than the status alone: every 400 is
-    ``invalid_request`` there, and treating a content-policy rejection as a
-    field problem would resend a prompt the service has already refused.
-    """
-    if resp is None:
-        return False
-    if getattr(resp, "status_code", 200) < 400:
-        return False
-    try:
-        body = resp.text or ""
-    except Exception:  # noqa: BLE001 - a body we cannot read is not a field error
-        return False
-    lowered = body.lower()
-    return "negative_prompt" in lowered and "not supported" in lowered
 
 
 class AgnesImageAPI(ImageProvider):
@@ -87,12 +68,10 @@ class AgnesImageAPI(ImageProvider):
             "n": 1,
         }
 
-        # The text-image queue rejects the field outright ("negative_prompt is
-        # not supported by text image queue"), so only the image-to-image queue,
-        # which the page renderer always uses, is asked to honour it.
-        negative_prompt = kwargs.get("negative_prompt") or ""
-        if negative_prompt and use_i2i:
-            payload["negative_prompt"] = negative_prompt
+        # The Agnes i2i workflow silently drops its negative conditioning node.
+        # Sending negative_prompt here only creates a false sense of safety and
+        # pollutes the render key; image constraints must be positive wording
+        # inside the prompt itself.
 
         if reference_image_paths:
             resolved = [await resolve_image_ref_async(p) for p in reference_image_paths]
@@ -117,42 +96,18 @@ class AgnesImageAPI(ImageProvider):
                 final=final,
             )
 
-        try:
-            resp = await retryable_post(
-                provider_tag="[AgnesImage]",
-                url=f"{agnes_base_url()}/images/generations",
-                headers=self.headers,
-                json_payload=payload,
-                max_retries=max_retries if max_retries is not None else self.max_retries,
-                retry_base_delay=retry_base_delay
-                if retry_base_delay is not None
-                else self.retry_base_delay,
-                size=size,
-                collect=_collect,
-            )
-        except HTTPError as exc:
-            # ``retryable_post`` raises hard failures, so the rejection can only
-            # be inspected here. A queue that declines the field costs one
-            # retry, not the page; any other 4xx keeps its meaning.
-            rejected = getattr(exc, "response", None)
-            if "negative_prompt" not in payload or not _rejects_negative_prompt(rejected):
-                raise
-            logger.warning(
-                "[AgnesImage] endpoint rejected negative_prompt; retrying without the field"
-            )
-            payload.pop("negative_prompt")
-            resp = await retryable_post(
-                provider_tag="[AgnesImage]",
-                url=f"{agnes_base_url()}/images/generations",
-                headers=self.headers,
-                json_payload=payload,
-                max_retries=max_retries if max_retries is not None else self.max_retries,
-                retry_base_delay=retry_base_delay
-                if retry_base_delay is not None
-                else self.retry_base_delay,
-                size=size,
-                collect=_collect,
-            )
+        resp = await retryable_post(
+            provider_tag="[AgnesImage]",
+            url=f"{agnes_base_url()}/images/generations",
+            headers=self.headers,
+            json_payload=payload,
+            max_retries=max_retries if max_retries is not None else self.max_retries,
+            retry_base_delay=retry_base_delay
+            if retry_base_delay is not None
+            else self.retry_base_delay,
+            size=size,
+            collect=_collect,
+        )
         return await self._parse_response(resp, prompt)
 
     async def _parse_response(self, resp: Response, prompt: str) -> ImageOutput:

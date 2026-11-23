@@ -1716,7 +1716,7 @@ class ProjectState(BaseModel):
     # Per-chunk cache of extraction + storyboard results so a resume reuses them
     # instead of re-calling the (billable) chat API for already-planned chunks.
     chunk_cache: dict[str, ChunkCache] = Field(default_factory=dict)
-    render_mode: RenderMode = "finished_page"
+    render_mode: RenderMode = "panel_compose"
     page_cache: dict[str, ComicPagePlanSet] = Field(default_factory=dict)
     beat_cache: dict[str, KeyBeatSet] = Field(default_factory=dict)
     pages_done: list[str] = Field(default_factory=list)

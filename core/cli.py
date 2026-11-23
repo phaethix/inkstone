@@ -52,7 +52,10 @@ def _add_model_flags(parser: argparse.ArgumentParser) -> None:
     group.add_argument(
         "--base-url",
         default=None,
-        help="API root (overrides AGNES_BASE_URL / OPENAI_COMPAT_BASE_URL)",
+        help=(
+            "API root (overrides AGNES_BASE_URL / OPENAI_COMPAT_BASE_URL and "
+            "OPENAI_COMPAT_CHAT_BASE_URL)"
+        ),
     )
 
 
@@ -71,8 +74,11 @@ def _apply_model_flags(args: argparse.Namespace) -> None:
     if provider:
         mapping["PROVIDER"] = provider
     if getattr(args, "base_url", None):
-        key = "OPENAI_COMPAT_BASE_URL" if provider == "openai_compat" else "AGNES_BASE_URL"
-        mapping[key] = args.base_url
+        if provider == "openai_compat":
+            mapping["OPENAI_COMPAT_BASE_URL"] = args.base_url
+            mapping["OPENAI_COMPAT_CHAT_BASE_URL"] = args.base_url
+        else:
+            mapping["AGNES_BASE_URL"] = args.base_url
     for name, value in mapping.items():
         os.environ[name] = value
 
@@ -197,7 +203,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--export-lettered",
         action="store_true",
         help="Bind deferred-lettering pages (with dialogue) into the book; "
-        "default binds the clean art-only pages",
+        "this is the default; use --export-art-only for clean art pages",
+    )
+    p_gen.add_argument(
+        "--export-art-only",
+        action="store_true",
+        help="Bind the un-lettered clean art pages into the book",
     )
     p_gen.add_argument(
         "--no-lettering",
@@ -850,10 +861,8 @@ def _print_structure(report, *, validated: bool) -> None:
     print("Structural record check. These checks are not a readability or quality gate.")
     for check in report.checks:
         print(f"{check.name} : {check.status} — {check.detail}")
-    if all(check.status == "pass" for check in report.checks):
+    if report.ok:
         print("全部通过。")
-    elif report.ok:
-        print("没有失败项。缺记录的检查记为 absent，不是通过。")
     else:
         print("警告: 存在失败项（--strict 下退出码 1）。")
     print("chapter : validated" if validated else "chapter : not validated")
@@ -1053,7 +1062,7 @@ def _run_generate(args: argparse.Namespace) -> None:
             density=args.density,
             harness_dir=args.harness_dir,
             fresh=args.fresh,
-            export_mode="lettered" if getattr(args, "export_lettered", False) else "art_only",
+            export_mode="art_only" if getattr(args, "export_art_only", False) else "lettered",
         )
     )
 

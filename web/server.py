@@ -72,6 +72,7 @@ from core.config import (  # noqa: E402
     data_dir,
     experiments_dir,
     job_ttl_seconds,
+    render_mode,
     ui_allow_lan,
     ui_host,
     ui_max_body_bytes,
@@ -427,7 +428,7 @@ def _seed_job_resume_fields(project_id: str) -> dict:
     state = _load_checkpoint_state(project_id)
     if state is None:
         return {
-            "render_mode": "finished_page",
+            "render_mode": render_mode(),
             "pages_done": [],
             "skipped_pages": [],
         }
@@ -522,6 +523,7 @@ def _run_job(
     style_guide: str | None,
     project_id: str,
     panel_keys: list[str] | None = None,
+    export_mode: str = "lettered",
 ) -> None:
     job = JOBS[job_id]
     handler = _JobLogHandler(job)
@@ -559,6 +561,8 @@ def _run_job(
                 progress_callback=_on_progress,
                 cancel_check=cancel_event.is_set,
                 data_dir=str(data_dir()),
+                gate_yes=True,
+                export_mode=export_mode,
             )
         )
         if isinstance(result, PausedRun):
@@ -587,6 +591,7 @@ def _start_job(
     style_guide: str | None,
     project_id: str | None = None,
     panel_keys: list[str] | None = None,
+    export_mode: str = "lettered",
 ) -> tuple[str, str]:
     pid = validate_project_id(project_id) if project_id else uuid.uuid4().hex[:12]
     job_id = uuid.uuid4().hex[:12]
@@ -621,7 +626,7 @@ def _start_job(
         }
     threading.Thread(
         target=_run_job,
-        args=(job_id, text, fmt, style_guide, pid, panel_keys),
+        args=(job_id, text, fmt, style_guide, pid, panel_keys, export_mode),
         daemon=True,
     ).start()
     return job_id, pid
@@ -741,6 +746,7 @@ def start_regen_job(
     keys: list[str] | None = None,
     fmt: str = "webtoon",
     style_guide: str | None = None,
+    export_mode: str = "lettered",
 ) -> tuple[str, str]:
     """Force-regen stale/selected panels and start a background job."""
     out_dir = _project_dir(project_id)
@@ -775,7 +781,14 @@ def start_regen_job(
         else:
             force_regen_panels(state, target_keys)
         state.save(out_dir / "state.json")
-    return _start_job(text, fmt, style_guide, project_id=project_id, panel_keys=target_keys)
+    return _start_job(
+        text,
+        fmt,
+        style_guide,
+        project_id=project_id,
+        panel_keys=target_keys,
+        export_mode=export_mode,
+    )
 
 
 def list_projects() -> list[dict]:
@@ -1465,7 +1478,7 @@ class Handler(BaseHTTPRequestHandler):
                     "skipped_chunks": job.get("skipped_chunks", []),
                     "needs_review": job.get("needs_review", []),
                     "stale_panels": job.get("stale_panels", []),
-                    "render_mode": job.get("render_mode", "finished_page"),
+                    "render_mode": job.get("render_mode", render_mode()),
                     "pages_done": job.get("pages_done", []),
                     "skipped_pages": job.get("skipped_pages", []),
                     "stale_pages": job.get("stale_pages", []),
@@ -1559,7 +1572,8 @@ class Handler(BaseHTTPRequestHandler):
     def _post_generate(self) -> None:
         payload = self._read_json()
         text = (payload.get("text") or "").strip()
-        fmt = payload.get("format", "webtoon")
+        fmt = payload.get("format", "page")
+        export_mode = payload.get("export_mode", "lettered")
         style_guide = (payload.get("style_guide") or "").strip() or None
         project_id = (payload.get("project_id") or "").strip() or None
         if project_id:
@@ -1581,9 +1595,25 @@ class Handler(BaseHTTPRequestHandler):
                 status=503,
             )
             return
-        if fmt not in ("page", "webtoon"):
-            fmt = "webtoon"
-        job_id, pid = _start_job(text, fmt, style_guide, project_id=project_id)
+        if fmt not in ("page", "webtoon", "cbz"):
+            self._send_json(
+                {"error": f"unsupported format: {fmt!r}; use page, webtoon, or cbz"},
+                status=400,
+            )
+            return
+        if export_mode not in ("lettered", "art_only"):
+            self._send_json(
+                {"error": f"unsupported export_mode: {export_mode!r}"},
+                status=400,
+            )
+            return
+        job_id, pid = _start_job(
+            text,
+            fmt,
+            style_guide,
+            project_id=project_id,
+            export_mode=export_mode,
+        )
         self._send_json({"job_id": job_id, "project_id": pid})
 
     def _post_stop(self) -> None:
@@ -1748,9 +1778,20 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": "provider credentials incomplete"}, status=503)
             return
         payload = self._read_json()
-        fmt = payload.get("format", "webtoon")
-        if fmt not in ("page", "webtoon"):
-            fmt = "webtoon"
+        fmt = payload.get("format", "page")
+        export_mode = payload.get("export_mode", "lettered")
+        if fmt not in ("page", "webtoon", "cbz"):
+            self._send_json(
+                {"error": f"unsupported format: {fmt!r}; use page, webtoon, or cbz"},
+                status=400,
+            )
+            return
+        if export_mode not in ("lettered", "art_only"):
+            self._send_json(
+                {"error": f"unsupported export_mode: {export_mode!r}"},
+                status=400,
+            )
+            return
         style_guide = (payload.get("style_guide") or "").strip() or None
         keys = payload.get("keys") or []
         if not isinstance(keys, list):
@@ -1762,6 +1803,7 @@ class Handler(BaseHTTPRequestHandler):
             keys=[str(k) for k in keys],
             fmt=fmt,
             style_guide=style_guide,
+            export_mode=export_mode,
         )
         self._send_json({"job_id": job_id, "project_id": pid})
 

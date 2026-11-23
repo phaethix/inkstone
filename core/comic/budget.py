@@ -124,7 +124,7 @@ def allocate(
     *,
     carry_over: bool = False,
     recovery_reserve: int | None = None,
-    render_mode: str = "finished_page",
+    render_mode: str = "panel_compose",
     page_script: bool = True,
 ) -> BudgetSpec:
     """Split ``total`` into a reserve plus per-stage floors, rest to render.
