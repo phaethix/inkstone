@@ -53,6 +53,8 @@ When completing a change:
 | Density estimate (D1) | Prototype on `main` | Tiers set the planning budget. `plan` is still an uncalibrated page-count estimate |
 | Old PageScript / coverage (D2) | Prototype on `main` — do not treat as gate | Opt-in via `INKSTONE_PAGE_SCRIPT=1`; coverage never vacuous-passes skips |
 | Chapter-complete adaptation | Prototype on `main` | Source units, adaptation plans, beat ids, lettering, and `inkstone structure` are in tree. A chapter counts only when every check passes and a page is stored. The local Journey excerpt passes every check and has 8 stored pages |
+| Content-addressed store and governance | Local on `main` | `cas/` objects and `index/` manifests, `inkstone verify` / `migrate` / `gc` / `prune`, quota budget (`--budget`), sample gate, consistency ledger, stage catalog (`inkstone stages`). See the P0 content-addressed migration checklist below |
+| Prompt harness and A/B experiments | Local on `main` | External harness tree, `inkstone harness` / `prompt` / `experiment` / `lesson`, Web A/B tab, `INKSTONE_HARNESS=0` fallback |
 | CBZ, chapter reader, identity CLI | Prototype on `main` | `--format cbz`, `inkstone read`, the web Read pages link, and `identity --view` are in tree. They are not a validated-chapter gate |
 
 ### Prototype guardrail (D1/D2 on `main`)
@@ -89,7 +91,8 @@ Keep these prototypes only as migration material until they conform to the targe
   the stage source passed in rather than imported back: 3,384 → 3,261 lines.
   The work graph then moved to `core/pipelines/plan_graph.py` (227 lines, no
   provider, no key), taking `creative_comic.py` to 3,037.
-  Progress accounting then moved to `core/pipelines/progress.py` (2,961 lines).
+  Progress accounting then moved to `core/pipelines/progress.py` (157 lines),
+  taking `creative_comic.py` to 2,961.
   Still inline: the ~1,400-line `_creative_comic` body and the render-node
   closures. The closures are the next real target and the reason they are last.
   A measured capture inventory, not an estimate: `_render_page_node` is 329 lines
@@ -101,6 +104,10 @@ Keep these prototypes only as migration material until they conform to the targe
   not catch a binding semantic that changed.
   Regression: `tests/test_reconcile.py`, `tests/test_resume_rules.py`, plus the
   existing contract tests.
+  Measured 2026-11-22 (supersedes the counts above for current status):
+  `creative_comic.py` has grown back to 4,039 lines; the `_creative_comic` body
+  is 2,436 lines and `_render_page_node` 457 lines. The render-node lift is
+  still open.
 - **Local (2026-10-23, `main`):** Persistence and interface integrity.
   `state.json` carries `schema_version`; an unknown top-level field is logged at
   load and written back at save instead of being deleted by the next full dump,

@@ -9,7 +9,7 @@ All code, comments, docs, and commit messages are in English ([CONTRIBUTING.md](
 ## Project overview
 
 Inkstone is a local-first novel-to-comic generator: a `txt` novel in, comic pages
-out (PDF or webtoon PNG). It is **Agnes-native and zero-cost** — one free API key,
+out (PDF, CBZ, or webtoon PNG). It is **Agnes-native and zero-cost** — one free API key,
 no GPU, no paid plan.
 
 | | |
@@ -44,7 +44,7 @@ ChatProvider / ImageProvider   (Agnes default; openai_compat optional)
 | Planning | Extract, storyboard, finished-page plans, visual-bible reconcile, key beats | `core/screenwriter.py` |
 | Prompt harness | Editable system prompt, six stage templates, genre packs, request digest, quality tripwire, project-level override, `INKSTONE_HARNESS=0` fallback | `core/harness/` |
 | Comic domain | Consistency L1/L2/L3, bible, lettering, layout, export, alias merge | `core/comic/` |
-| Pipeline | Segment → plan → paint → letter → bind; fingerprints; resume | `core/pipelines/creative_comic.py` |
+| Pipeline | Segment → plan → paint → letter → bind; fingerprints; resume | `core/pipelines/creative_comic.py` (orchestrator); `plan_graph.py`, `resume.py`, `reconcile.py`, `progress.py`, `export_stages.py`, `stage_registry.py`, `stage_runner.py`, `stage_scheduler.py` |
 | Supervisor | Keep a job alive through free-tier failures | `core/pipelines/run_until_complete.py` |
 | Review evidence | Local `review/` packet: source, effective prompts, plans, structure report, decisions | `core/comic/review_packet.py` |
 | Lessons | Human-approved craft notes, retrieval, and `{{craft_notes}}` injection | `core/lessons.py` |
@@ -52,14 +52,17 @@ ChatProvider / ImageProvider   (Agnes default; openai_compat optional)
 | Surfaces | CLI, local web UI, examples, launch scripts | `core/cli.py`, `web/`, `examples/`, `scripts/` |
 | Config | Every env read | `core/config.py`, `.env.example` |
 
-Two render modes (`INKSTONE_RENDER_MODE`):
+Three render modes (`INKSTONE_RENDER_MODE`, resolved in `core/config.py:render_mode()`):
 
-- **`finished_page` (default)** — one image call per comic page; model paints empty
-  lettering chrome; Inkstone overlays caption / dialogue / sfx with real fonts.
-  Unlettered art is cached under `pages/blank/` so resume can re-letter without
-  another image call.
-- **`panel_compose` (legacy)** — storyboard → per-panel images → `LayoutEngine`
-  grid/strip → export. Recovery path when finished pages fail.
+- **`panel_compose` (default)** — plan each comic page, paint each panel as its
+  own image, compose the page locally, then overlay caption / dialogue / sfx
+  with real fonts.
+- **`finished_page` (fallback)** — one image call per comic page; the model paints
+  empty lettering chrome and Inkstone overlays the text the same way. Unlettered
+  art is cached under `pages/blank/` so resume can re-letter without another
+  image call.
+- **`storyboard` (legacy)** — storyboard prompts → per-panel images →
+  `LayoutEngine` grid/strip → export.
 
 ## Key concepts
 
@@ -133,8 +136,9 @@ Read in this order the first time you touch the repo.
    `VisualBible` / `CharacterCanon`, `CharacterAsset` / `Appearance` /
    `EvidenceQuote` in `core/schemas.py`. LLM tools are `to_tool_schema(...)`.
 4. **Orchestration** — `creative_comic` / `_creative_comic` in
-   `core/pipelines/creative_comic.py`. Follow `finished_page` first; treat
-   `panel_compose` as the fallback branch.
+   `core/pipelines/creative_comic.py`. Follow `panel_compose` (the default)
+   first; `finished_page` is the whole-page fallback and `storyboard` the legacy
+   grid path.
 5. **LLM planning** — `core/screenwriter.py` (`SYSTEM_PROMPT` + extract /
    `plan_comic_pages` / `reconcile_visual_bible` / `extract_key_beats`).
 6. **Identity + paint + letter** — `core/comic/visual_bible.py`,
@@ -162,6 +166,14 @@ Read in this order the first time you touch the repo.
 | File | Role |
 |---|---|
 | `core/pipelines/creative_comic.py` | End-to-end generate; project lock; fingerprints |
+| `core/pipelines/plan_graph.py` | Work graph a run plans before it draws (pure checkpoint bookkeeping, no keys) |
+| `core/pipelines/resume.py` | What a resumed run may skip and what it must redo; letter resume rules |
+| `core/pipelines/reconcile.py` | Make a resumed project agree with what is on disk; size-reject detection |
+| `core/pipelines/progress.py` | Derived progress counts and estimates (never stored, never keyed) |
+| `core/pipelines/export_stages.py` | Export, layout, webtoon, and CBZ stages |
+| `core/pipelines/stage_registry.py` | Declarative stage catalog: phase, contract, manifest stage, read edges (`inkstone stages`) |
+| `core/pipelines/stage_runner.py` | One execution unit per stage (replay check + manifest write; key passed in) |
+| `core/pipelines/stage_scheduler.py` | Ephemeral plan/render/export dependency graph |
 | `core/pipelines/run_until_complete.py` | Supervisor; `PausedRun` on deadline |
 | `core/pipelines/cancel.py` | `PipelineCancelled` |
 | `core/pipelines/timing.py` | Remaining-time estimate for the UI |
@@ -214,7 +226,7 @@ comic_out/<project_id>/
 
 | File | Role |
 |---|---|
-| `core/cli.py` | Unified `uv run inkstone` entry: `generate`, `web`, `plan`, `gate`, `identity`, `prune`, `gc`, `verify`, `rebuild`, `structure`, `read`; `coverage` is the PageScript prototype |
+| `core/cli.py` | Unified `uv run inkstone` entry: `generate`, `web`, `plan`, `gate`, `identity`, `prune`, `gc`, `stages`, `migrate`, `verify`, `rebuild`, `structure`, `read`, `prompt`, `experiment`, `lesson`, `harness`; `coverage` is the PageScript prototype |
 | `core/dotenv.py` | Loads repo-root `.env` for every subcommand |
 | `core/cli_generate.py` | tqdm + credential checks; packaged entry (not `examples/`) |
 | `web/server.py` | Local UI backend (launched via `uv run inkstone web`); jobs in memory; artifacts on disk. `/files/<id>/reader.html` writes the reader when pages are stored |
@@ -226,14 +238,14 @@ comic_out/<project_id>/
 Approach these with the matching tests; they concentrate resume, LLM repair,
 and identity logic.
 
-1. **`core/pipelines/creative_comic.py`** (~1600 lines) — dual render modes,
+1. **`core/pipelines/creative_comic.py`** (~4,000 lines) — three render modes,
    fingerprint invalidation, content-policy skip, progress. Tests:
    `tests/test_creative_comic.py`, `tests/test_finished_page_pipeline.py`,
    `tests/test_stage_lock.py`.
-2. **`core/schemas.py`** (~1500 lines) — dirty LLM JSON coerce/repair; changing
+2. **`core/schemas.py`** (~2,000 lines) — dirty LLM JSON coerce/repair; changing
    a field changes the tool schema. Tests: `tests/test_schemas*.py`,
    `tests/test_llm_payload_repair.py`.
-3. **`core/comic/visual_bible.py`** — canon merge, stage refs, era/gender gates.
+3. **`core/comic/visual_bible.py`** (~2,700 lines) — canon merge, stage refs, era/gender gates.
    Tests: `tests/test_visual_bible*.py`.
 4. **`web/server.py`** — job lifecycle, Origin/body caps, review/regen.
    Tests: `tests/test_web_server.py`.
@@ -269,10 +281,11 @@ non-overwritable `face_lock` are on the consistency/fidelity line of work.
 
 **Next approved product work** (see roadmap):
 
-- **P0** — Done for the estimator. Panel budgets stay 3/8/14. The public Journey
-  excerpt is one chunk and locks tier B at 8 panels and 2 pages
-  (`tests/test_density.py`). A generate of that text planned more pages; the
-  estimate keeps the measured 2.
+- **P0** — The density estimate is still a prototype. Panel budgets 3/8/14 are
+  experience values. Pages are measured whenever a project has them and derived
+  through `PANELS_PER_PAGE = 4` only when it does not; that divisor is an upper
+  bound, not the planner's rate (the Journey excerpt: 14 panels, 8 pages). See
+  the roadmap's prototype guardrail.
 - **P1** — The local Journey excerpt passes every structural check and has 8
   stored pages. Lettering is kept only when it is a contiguous span of the source.
 - **P2** — CBZ, the page reader, and the identity ledger view are in tree. The
