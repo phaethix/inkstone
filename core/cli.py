@@ -1045,10 +1045,6 @@ def _run_prune(args: argparse.Namespace) -> int:
 def _run_generate(args: argparse.Namespace) -> None:
     """generate 子命令：运行 core.cli_generate（实现收编于 core，任何安装方式可用）。"""
     from core.cli_generate import run_generate
-    from core.config import set_lettering_env
-
-    if getattr(args, "no_lettering", False):
-        set_lettering_env(True)
 
     sys.exit(
         run_generate(
@@ -1063,6 +1059,7 @@ def _run_generate(args: argparse.Namespace) -> None:
             harness_dir=args.harness_dir,
             fresh=args.fresh,
             export_mode="art_only" if getattr(args, "export_art_only", False) else "lettered",
+            lettering_enabled=False if getattr(args, "no_lettering", False) else None,
         )
     )
 

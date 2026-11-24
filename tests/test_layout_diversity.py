@@ -3,7 +3,6 @@ import hashlib
 import json
 
 from core.comic.layout_diversity import (
-    ANTI_CENTER_STANDEE_LINE,
     LAYOUT_CATALOG,
     consecutive_layout_streak,
     layout_diversity_instructions,
@@ -13,6 +12,7 @@ from core.comic.layout_diversity import (
 from core.comic.page_prompt import render_finished_page_prompt
 from core.pipelines.creative_comic import _render_fingerprint
 from core.schemas import CharacterAsset, ColorBible, ComicPagePlan, ModelSnapshot, VisualBible
+from tests.prompt_redlines import assert_positive_image_prompt
 
 
 def test_normalize_and_catalog():
@@ -35,8 +35,8 @@ def test_summarize_and_instructions_include_recent():
     assert "object_closeup" in summary
     text = layout_diversity_instructions(["splash_action", "splash_action"])
     assert "splash_action" in text
-    assert "Do NOT reuse" in text
-    assert "dialogue_grid" in text  # catalog token present
+    assert "fresh" in text.lower() or "varied" in text.lower()
+    assert "dialogue_grid" in text.lower()  # catalog token present
 
 
 def test_page_prompt_includes_anti_standee_line():
@@ -60,10 +60,10 @@ def test_page_prompt_includes_anti_standee_line():
             content_hash="x",
         ),
     )
-    assert "full-body standing" in text.lower() or "standee" in text.lower()
-    assert ANTI_CENTER_STANDEE_LINE.split(";")[0][:20].lower() in text.lower() or (
-        "centered full-body" in text.lower()
-    )
+    lowered = text.lower()
+    assert "environmental staging" in lowered or "varied shots" in lowered
+    assert "locked identity" in lowered or "identity" in lowered
+    assert_positive_image_prompt(text)
 
 
 def test_render_fingerprint_omits_the_manual_layout_token():

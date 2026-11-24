@@ -28,6 +28,7 @@ from core.schemas import (
     ProjectState,
     VisualBible,
 )
+from tests.prompt_redlines import assert_positive_image_prompt
 from tests.test_finished_page_pipeline import FakeChat, FakeImage, _fake_export_pdf
 
 
@@ -111,17 +112,17 @@ def test_finished_page_prompt_numbers_each_reference_portrait():
 
     assert "reference image 1 is exactly 沈知意" in text
     assert "reference image 2 is exactly 少年" in text
-    assert "do not give one character another's face" in text.lower()
-    assert "copy the reference portrait's face" not in text.lower()
+    assert "locked identity" in text.lower() or "own numbered reference" in text.lower()
+    assert_positive_image_prompt(text)
 
 
 def test_a_shared_palette_swatch_cannot_enter_an_identity_prompt():
     """One plum swatch used to dress every character in the same scarf."""
     block = format_color_bible_block(_bible())
 
-    assert "scene and lighting colors only" in block.lower()
-    assert "not clothing" in block.lower()
-    assert "do not dress every character" in block.lower()
+    assert "scene and lighting" in block.lower()
+    assert "locked outfit" in block.lower() or "wardrobe" in block.lower()
+    assert_positive_image_prompt(block)
 
 
 def test_a_held_prop_is_not_an_outfit_lock():
@@ -207,6 +208,7 @@ def test_a_stage_name_still_binds_to_its_reference_slot():
 
     assert refs == ["/tmp/teen.png"]
     assert "reference image 1 is exactly 少年@teen" in text
+    assert_positive_image_prompt(text)
 
 
 @patch("core.comic.export.ExportEngine.export_pdf", _fake_export_pdf)

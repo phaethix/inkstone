@@ -8,6 +8,7 @@ from core.schemas import (
     ComicPagePlan,
     VisualBible,
 )
+from tests.prompt_redlines import assert_positive_image_prompt
 
 
 def test_finished_page_prompt_injects_color_and_face_lock():
@@ -54,11 +55,10 @@ def test_finished_page_prompt_injects_color_and_face_lock():
     assert "manhua muted European period" in text
     assert "#E8C4A8" in text
     assert "soft even cel" in text
-    assert "neon" in text
     assert "calm dark eyes" in text
     assert "dark suit jacket" in text
-    lower = text.lower()
-    assert "do not change hair color" in lower or "unless action says costume change" in lower
+    assert "stable" in text.lower() or "locked" in text.lower()
+    assert_positive_image_prompt(text)
 
 
 def test_finished_page_prompt_resolves_alias_to_canonical():
@@ -92,6 +92,7 @@ def test_finished_page_prompt_resolves_alias_to_canonical():
     )
     assert "calm dark eyes" in text
     assert "old loose" not in text
+    assert_positive_image_prompt(text)
 
 
 def test_prompt_forbids_character_sheets_and_modern_athleisure():
@@ -124,7 +125,6 @@ def test_prompt_forbids_character_sheets_and_modern_athleisure():
     )
     lower = text.lower()
     assert "fully colored" in lower
-    assert "line art" not in lower
-    assert "design sheet" not in lower
     assert "hoodie" in lower or "period-accurate" in lower or "period accurate" in lower
-    assert "flashback" in lower or "multiple age" in lower
+    assert "stable age" in lower or "same age" in lower or "single age" in lower
+    assert_positive_image_prompt(text)

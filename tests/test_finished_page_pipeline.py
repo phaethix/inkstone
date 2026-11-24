@@ -266,6 +266,7 @@ def test_render_fingerprint_tracks_deferred_lettering_version():
             snapshot=snapshot,
             panel_continuity=False,
             l3_enabled=False,
+            render_mode="finished_page",
         )
         == hashlib.sha256(expected_payload.encode("utf-8")).hexdigest()
     )
@@ -396,9 +397,10 @@ def test_finished_page_writes_blank_and_lettered(tmp_path, monkeypatch):
         )
     )
 
-    assert any("picture only" in p.lower() for p in img.prompts)
+    assert any("edge-to-edge" in p.lower() or "painted artwork" in p.lower() for p in img.prompts)
     assert all("speech bubble" not in p.lower() for p in img.prompts)
     assert all("DIALOGUE (exact):" not in p for p in img.prompts)
+    assert all("source:" not in p.lower() for p in img.prompts)
     page_key = next(iter(proj.state.generated.pages))
     generated_page = proj.state.generated.pages[page_key]
     assert generated_page.mode == "finished_lettered"

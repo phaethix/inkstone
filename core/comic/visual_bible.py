@@ -28,39 +28,38 @@ from core.schemas import (
 logger = logging.getLogger(__name__)
 
 COSTUME_CHANGE_LOCK_LINE = (
-    "do not change hair color, outfit colors, or skin tone across panels "
-    "unless action says costume change"
+    "locked identity: hair color, outfit colors, and skin tone stay stable "
+    "across panels, with a stable age and one declared outfit per character"
 )
 
 ANTI_CHARACTER_SHEET_LINE = (
-    "NO character design sheets, turnarounds, model sheets, or multi-view "
-    "reference collages inside the page."
+    "one continuous fully colored painted scene fills the page, with the "
+    "declared cast staged in their shared environment"
 )
 
 PERIOD_WARDROBE_LINE = (
-    "Period-accurate wardrobe only; no modern hoodies, sneakers, or athleisure "
-    "unless action explicitly requires costume change."
+    "period-accurate wardrobe stays consistent across panels, and the locked "
+    "historical outfit stays on its named character"
 )
 
 CONTEMPORARY_WARDROBE_LINE = (
-    "Wardrobe must match the project era; do not force historical costume "
-    "unless action explicitly requires period dress."
+    "wardrobe matches the locked project era, with one consistent contemporary "
+    "outfit on its named character"
 )
 
 DIEGETIC_TEXT_LINE = (
-    "Diegetic props that are letters, books, newspapers, signs, or screens must "
-    "show blank aged paper or abstract ink texture only — no letterforms, no "
-    "Latin or CJK glyphs, no pseudo-script."
+    "physical props and unmarked surfaces stay integrated into the painted "
+    "scene, with continuous edge-to-edge artwork"
 )
 
 ANTI_MULTI_AGE_COLLAGE_LINE = (
-    "Do not depict multiple age versions of the same person on one page unless "
-    "layout_intent explicitly calls for a flashback split."
+    "one stable age per character across the whole page, with the declared "
+    "locked identity repeated consistently in every panel"
 )
 
 HAIR_STABILITY_LINE = (
-    "Keep hair color and hair length stable for each locked identity across panels "
-    "unless the character stage explicitly changes."
+    "locked identity: hair color and hair length stay stable for each person "
+    "across panels, matching the declared character stage"
 )
 
 # Generic age/stage cues (CN + EN) → CharacterStageLiteral. Order matters: first
@@ -238,8 +237,8 @@ def resolve_panel_stage_refs(plan: ComicPagePlan, bible: VisualBible) -> ComicPa
 
 
 GENDER_NO_SWAP_LINE = (
-    "single human matching locked gender exactly; no gender swap or androgynous "
-    "reinterpretation of a gendered canon"
+    "single human matching the locked gender exactly, with a stable human "
+    "figure and the declared face"
 )
 
 _ASCII_LETTER_RE = re.compile(r"[A-Za-z]")
@@ -447,15 +446,10 @@ def repair_outfit_lock(
 def wardrobe_banline_for_bible(bible: VisualBible) -> str:
     """Era-conditioned wardrobe hard line for image prompts."""
     era_class = classify_era(bible.era, bible.style_guide)
-    forbidden = list(bible.era_forbidden_wardrobe or [])
-    if not forbidden and era_class == "historical":
-        forbidden = ["hoodies", "sneakers", "athleisure", "sports shoes", "jeans", "t-shirts"]
     if era_class == "contemporary":
         line = CONTEMPORARY_WARDROBE_LINE
     else:
         line = PERIOD_WARDROBE_LINE
-    if forbidden:
-        line = f"{line} Forbidden wardrobe: {', '.join(forbidden)}."
     if bible.era and bible.era.strip().casefold() != "unspecified":
         line = f"Era lock: {bible.era.strip()}. {line}"
     return line
@@ -2106,7 +2100,7 @@ def sync_characters_from_bible(state: ProjectState) -> None:
 
 
 def format_color_bible_block(bible: VisualBible) -> str:
-    """Format palette, lighting, and forbidden colors for image prompts."""
+    """Format palette and lighting colors for image prompts."""
     color = bible.color
     lines: list[str] = []
     for swatch in color.palette:
@@ -2119,17 +2113,15 @@ def format_color_bible_block(bible: VisualBible) -> str:
         lines.append(detail)
     if color.lighting:
         lines.append(f"lighting: {color.lighting}")
-    if color.forbidden:
-        lines.append(f"forbidden: {', '.join(color.forbidden)}")
     if not lines:
         return ""
     # The palette is scenery. A swatch named "scarf and clothing accent" used
     # to be read as every character's clothes, so two different people left
     # the page wearing the same plum scarf.
     return (
-        "Color bible (scene and lighting colors only, not clothing):\n"
+        "Color bible (scene and lighting colors; wardrobe follows each locked outfit):\n"
         + "\n".join(f"  {line}" for line in lines)
-        + "\n  Do not dress every character in one palette color."
+        + "\n  Each character keeps the exact outfit declared for that locked identity."
     )
 
 

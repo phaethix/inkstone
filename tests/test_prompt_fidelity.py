@@ -10,6 +10,7 @@ i2i copies into every panel, even indoors.
 
 from core.comic.page_prompt import render_page_panel_prompt
 from core.schemas import CharacterAsset, ComicPagePlan, PagePanelSpec, Setting
+from tests.prompt_redlines import assert_positive_image_prompt
 
 
 def _asset(name: str, l1: str) -> CharacterAsset:
@@ -53,8 +54,8 @@ def _render(panel: PagePanelSpec) -> str:
     )
 
 
-def test_single_cast_panel_bans_extra_figures_positively():
-    """Cast-of-one must state the sole figure and that no one else is drawn.
+def test_single_cast_panel_locks_the_exclusive_cast_positively():
+    """Cast-of-one must state the sole figure and an exclusive whole-frame cast.
 
     c0001 p1 g1 declared cast=['沈知意'] yet the model added a guitar-carrying
     boy; the existing count line only says who to draw, never that nobody
@@ -68,8 +69,9 @@ def test_single_cast_panel_bans_extra_figures_positively():
         setting_ref="客栈",
     )
     prompt = _render(panel)
-    assert "no other people" in prompt
-    assert "no silhouettes" in prompt
+    assert "the ONLY people in the image" in prompt
+    assert "only once" in prompt
+    assert_positive_image_prompt(prompt)
 
 
 def test_multi_cast_panel_states_exclusive_cast():
@@ -82,7 +84,9 @@ def test_multi_cast_panel_states_exclusive_cast():
         setting_ref="客栈",
     )
     prompt = _render(panel)
-    assert "no other people" in prompt
+    assert "the ONLY people in the image" in prompt
+    assert "only once" in prompt or "exactly once" in prompt
+    assert_positive_image_prompt(prompt)
 
 
 def test_metaphor_notes_are_scrubbed_from_action():
@@ -104,10 +108,11 @@ def test_metaphor_notes_are_scrubbed_from_action():
         setting_ref="客栈",
     )
     prompt = _render(panel)
-    assert "no floating music notes" in prompt
-    assert "no glowing symbols" in prompt
+    assert "physical objects only" in prompt
+    assert "continuous painted artwork" in prompt
     # The metaphor clause itself is dropped from the action text.
     assert "between notes" not in prompt
+    assert_positive_image_prompt(prompt)
 
 
 def test_flame_personification_is_scrubbed():
@@ -126,3 +131,4 @@ def test_flame_personification_is_scrubbed():
     )
     prompt = _render(panel)
     assert "leans with the note" not in prompt
+    assert_positive_image_prompt(prompt)

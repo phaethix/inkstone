@@ -25,6 +25,7 @@ from core.schemas import (
     VisualBibleMerge,
     VisualBibleReconcileResult,
 )
+from tests.prompt_redlines import assert_positive_image_prompt
 
 
 def test_infer_gender_from_role_and_aliases():
@@ -218,15 +219,12 @@ def test_page_prompt_includes_era_gender_diegetic():
         lettering="deferred",
     )
     lower = text.lower()
-    # The diegetic ban moved to the negative channel: naming paper in the
-    # positive prompt made the model draw the paper.
-    assert "diegetic" not in lower
-    assert "blank aged paper" not in lower
-    assert "picture only" in lower
+    assert "edge-to-edge" in lower or "continuous painted artwork" in lower
     assert "identity: r (male, letter_reader)" in lower
     assert "vienna" in lower or "period-accurate" in lower or "hoodie" in lower
-    ban = wardrobe_banline_for_bible(bible)
-    assert "Era lock" in ban or "period" in ban.casefold()
+    assert_positive_image_prompt(text)
+    era_lock = wardrobe_banline_for_bible(bible)
+    assert "Era lock" in era_lock or "period" in era_lock.casefold()
 
 
 def test_infer_narrative_function_letter_roles():

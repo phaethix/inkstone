@@ -28,7 +28,7 @@ class FakeImage(ImageProvider):
 
     async def generate_single_image(self, prompt, reference_image_paths=None, size=None, **kw):
         self.calls += 1
-        if "Exactly" in prompt or "No people in this panel" in prompt:
+        if "Exactly" in prompt or "scenery only" in prompt.lower():
             self.panel_prompts.append(prompt)
         return FakeImageOutput()
 
@@ -163,7 +163,7 @@ def test_panel_compose_renders_panels_and_composes_pages(tmp_path, monkeypatch):
     assert "Exactly 1 character in this panel: 福贵" in prompt
     assert "village_gate" not in prompt
     assert "covers_beats" not in prompt
-    assert "clean artwork with no overlays" in prompt
+    assert "clean continuous artwork" in prompt or "edge-to-edge artwork" in prompt
 
     lines = [
         json.loads(line)

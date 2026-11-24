@@ -795,7 +795,11 @@ def test_generate_preserves_cbz_and_the_lettered_default(tmp_path, monkeypatch):
     captured: dict = {}
 
     def _start(text, fmt, style_guide, project_id=None, panel_keys=None, **kwargs):
-        captured.update(fmt=fmt, export_mode=kwargs.get("export_mode"))
+        captured.update(
+            fmt=fmt,
+            export_mode=kwargs.get("export_mode"),
+            lettering_enabled=kwargs.get("lettering_enabled"),
+        )
         return "job1", "cbzproj"
 
     monkeypatch.setattr(server, "_start_job", _start)
@@ -805,15 +809,21 @@ def test_generate_preserves_cbz_and_the_lettered_default(tmp_path, monkeypatch):
         status, payload = _request(httpd.server_port, "/api/generate", "POST", data=body)
     assert status == 200
     assert payload["project_id"] == "cbzproj"
-    assert captured == {"fmt": "cbz", "export_mode": "lettered"}
+    assert captured == {
+        "fmt": "cbz",
+        "export_mode": "lettered",
+        "lettering_enabled": None,
+    }
 
 
-def test_web_job_releases_the_sample_gate_and_binds_lettered_pages(monkeypatch):
+def test_web_job_binds_lettered_pages_without_gate_bypass(monkeypatch):
     import inspect
 
     source = inspect.getsource(server._run_job)
-    assert "gate_yes=True" in source
+    assert "gate_yes=True" not in source
+    assert "gate_yes" not in source
     assert "export_mode=export_mode" in source
+    assert "lettering_enabled=lettering_enabled_override" in source
 
 
 def test_snapshot_carries_the_ledger_escalation_threshold(tmp_path):

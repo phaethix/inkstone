@@ -19,11 +19,11 @@ LAYOUT_CATALOG: frozenset[str] = frozenset(
     }
 )
 
-ANTI_CENTER_STANDEE_LINE = (
-    "Avoid repeating a centered full-body standing hero as the page focus; "
-    "prefer environmental staging, action blocking, and varied shots unless "
-    "layout_intent is explicitly splash_action."
+POSITIVE_LAYOUT_VARIETY_LINE = (
+    "environmental staging, action blocking, and varied shots carry the page "
+    "composition, with the declared splash_action layout honored when selected"
 )
+ANTI_CENTER_STANDEE_LINE = POSITIVE_LAYOUT_VARIETY_LINE
 
 
 def normalize_layout_intent(intent: str) -> str:
@@ -76,7 +76,7 @@ def layout_diversity_instructions(recent_layouts: list[str] | None) -> str:
         "Layout diversity rules:\n"
         f"- Prefer layout_intent tokens from this catalog (then free detail): {catalog}.\n"
         f"- Recent layout_intent values in this project/chunk: {recent}.\n"
-        "- Do NOT reuse the same layout_intent as the immediately previous page.\n"
-        "- Avoid consecutive full-body standing hero / letter-holding standee pages; "
-        "stage environment and action instead.\n"
+        "- Choose a fresh layout_intent after the immediately previous page.\n"
+        "- Favor environmental staging, action blocking, and varied shots across "
+        "consecutive pages.\n"
     )

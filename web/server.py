@@ -15,6 +15,8 @@ Routes:
     POST /api/generate            -> {text, format?, style_guide?, project_id?}
                                     -> {job_id, project_id}
     GET  /api/job/<job_id>        -> job status + panels + review fields
+    GET  /api/project/<id>/gate   -> persisted sample-gate status
+    POST /api/project/<id>/gate   -> record a decision or audited approval
     GET  /api/projects            -> list projects from comic_out/*/state.json
     GET  /api/experiments         -> list planning-only A/B experiments
     GET  /api/sequences           -> list sequential-recursion runs
@@ -337,6 +339,89 @@ def _project_dir(project_id: str) -> Path:
     return OUTPUT_DIR / validate_project_id(project_id)
 
 
+def _gate_session(project_id: str, *, create: bool = False, yes: bool = False):
+    from core.comic.gate import GateSession
+
+    out_dir = _project_dir(project_id)
+    kwargs = {
+        "data_dir": data_dir(),
+        "output_dir": out_dir,
+        "project_id": project_id,
+    }
+    if create:
+        return GateSession.open(**kwargs, yes=yes)
+    return GateSession.load(**kwargs)
+
+
+def gate_status(project_id: str) -> dict:
+    """Return one project's persisted sample-gate decisions and pending pages."""
+    session = _gate_session(project_id)
+    if session is None:
+        return {
+            "project_id": validate_project_id(project_id),
+            "exists": False,
+            "awaiting": False,
+            "released": False,
+            "yes": False,
+            "paused_key": None,
+            "sample_size": 0,
+            "sample_keys": [],
+            "pending_keys": [],
+            "decisions": {},
+        }
+    project = session.project
+    sample_keys = list(project.sample_keys)
+    decisions = {
+        key: {
+            "choice": decision.choice,
+            "reason_tier": decision.reason_tier,
+        }
+        for key, decision in project.decisions.items()
+    }
+    pending_keys = [key for key in sample_keys if key not in project.decisions]
+    return {
+        "project_id": project_id,
+        "exists": True,
+        "awaiting": session.awaiting,
+        "released": project.released,
+        "yes": project.yes,
+        "paused_key": project.paused_key,
+        "sample_size": project.sample_size,
+        "sample_keys": sample_keys,
+        "pending_keys": pending_keys,
+        "decisions": decisions,
+    }
+
+
+def record_gate_decision(
+    project_id: str,
+    *,
+    key: str | None = None,
+    decision: str | None = None,
+    reason_tier: str | None = None,
+    approve: bool = False,
+) -> dict:
+    """Record one human decision or an explicit, audited gate approval."""
+    session = _gate_session(project_id, create=True)
+    if approve:
+        if key or decision:
+            raise ValueError("approval cannot be combined with a page decision")
+        if not session.project.sample_keys:
+            raise ValueError("approve the sample after reviewing its pages")
+        _gate_session(project_id, create=True, yes=True)
+    else:
+        if not key or not decision:
+            raise ValueError("key and decision are required")
+        state = None
+        state_path = _project_dir(project_id) / "state.json"
+        if state_path.is_file():
+            state = ProjectState.load(state_path)
+        session.record(key, decision, reason_tier=reason_tier, state=state)
+        if state is not None:
+            state.save(state_path)
+    return gate_status(project_id)
+
+
 def _state_snapshot(state: ProjectState, out_dir: Path | None = None) -> dict:
     """Snapshot state for the UI; `ledger_pending` aggregates breaks per character."""
     if out_dir is None:
@@ -524,6 +609,7 @@ def _run_job(
     project_id: str,
     panel_keys: list[str] | None = None,
     export_mode: str = "lettered",
+    lettering_enabled_override: bool | None = None,
 ) -> None:
     job = JOBS[job_id]
     handler = _JobLogHandler(job)
@@ -561,8 +647,8 @@ def _run_job(
                 progress_callback=_on_progress,
                 cancel_check=cancel_event.is_set,
                 data_dir=str(data_dir()),
-                gate_yes=True,
                 export_mode=export_mode,
+                lettering_enabled=lettering_enabled_override,
             )
         )
         if isinstance(result, PausedRun):
@@ -592,6 +678,7 @@ def _start_job(
     project_id: str | None = None,
     panel_keys: list[str] | None = None,
     export_mode: str = "lettered",
+    lettering_enabled: bool | None = None,
 ) -> tuple[str, str]:
     pid = validate_project_id(project_id) if project_id else uuid.uuid4().hex[:12]
     job_id = uuid.uuid4().hex[:12]
@@ -626,7 +713,16 @@ def _start_job(
         }
     threading.Thread(
         target=_run_job,
-        args=(job_id, text, fmt, style_guide, pid, panel_keys, export_mode),
+        args=(
+            job_id,
+            text,
+            fmt,
+            style_guide,
+            pid,
+            panel_keys,
+            export_mode,
+            lettering_enabled,
+        ),
         daemon=True,
     ).start()
     return job_id, pid
@@ -747,6 +843,7 @@ def start_regen_job(
     fmt: str = "webtoon",
     style_guide: str | None = None,
     export_mode: str = "lettered",
+    lettering_enabled: bool | None = None,
 ) -> tuple[str, str]:
     """Force-regen stale/selected panels and start a background job."""
     out_dir = _project_dir(project_id)
@@ -788,6 +885,7 @@ def start_regen_job(
         project_id=project_id,
         panel_keys=target_keys,
         export_mode=export_mode,
+        lettering_enabled=lettering_enabled,
     )
 
 
@@ -1495,6 +1593,16 @@ class Handler(BaseHTTPRequestHandler):
                 }
             self._send_json(payload)
             return
+        if self.path.startswith("/api/project/") and self.path.endswith("/gate"):
+            parts = self.path.strip("/").split("/")
+            if len(parts) != 4:
+                self._send_json({"error": "not found"}, status=404)
+                return
+            try:
+                self._send_json(gate_status(parts[2]))
+            except ValueError as exc:
+                self._send_json({"error": str(exc)}, status=400)
+            return
         self._send_json({"error": "not found"}, status=404)
 
     def do_POST(self) -> None:
@@ -1539,6 +1647,9 @@ class Handler(BaseHTTPRequestHandler):
             if self.path.startswith("/api/project/") and self.path.endswith("/regen"):
                 self._post_regen()
                 return
+            if self.path.startswith("/api/project/") and self.path.endswith("/gate"):
+                self._post_gate()
+                return
         except _BodyTooLarge as exc:
             self._send_json({"error": str(exc)}, status=413)
             return
@@ -1576,6 +1687,10 @@ class Handler(BaseHTTPRequestHandler):
         export_mode = payload.get("export_mode", "lettered")
         style_guide = (payload.get("style_guide") or "").strip() or None
         project_id = (payload.get("project_id") or "").strip() or None
+        lettering = payload.get("lettering_enabled")
+        if lettering is not None and not isinstance(lettering, bool):
+            self._send_json({"error": "lettering_enabled must be a boolean"}, status=400)
+            return
         if project_id:
             validate_project_id(project_id)
             try:
@@ -1613,8 +1728,28 @@ class Handler(BaseHTTPRequestHandler):
             style_guide,
             project_id=project_id,
             export_mode=export_mode,
+            lettering_enabled=lettering,
         )
         self._send_json({"job_id": job_id, "project_id": pid})
+
+    def _post_gate(self) -> None:
+        parts = self.path.strip("/").split("/")
+        if len(parts) != 4:
+            self._send_json({"error": "not found"}, status=404)
+            return
+        payload = self._read_json()
+        try:
+            result = record_gate_decision(
+                parts[2],
+                key=(payload.get("key") or "").strip() or None,
+                decision=(payload.get("decision") or "").strip() or None,
+                reason_tier=(payload.get("reason_tier") or "").strip() or None,
+                approve=bool(payload.get("approve")),
+            )
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, status=400)
+            return
+        self._send_json(result)
 
     def _post_stop(self) -> None:
         # /api/job/<id>/stop
@@ -1780,6 +1915,10 @@ class Handler(BaseHTTPRequestHandler):
         payload = self._read_json()
         fmt = payload.get("format", "page")
         export_mode = payload.get("export_mode", "lettered")
+        lettering = payload.get("lettering_enabled")
+        if lettering is not None and not isinstance(lettering, bool):
+            self._send_json({"error": "lettering_enabled must be a boolean"}, status=400)
+            return
         if fmt not in ("page", "webtoon", "cbz"):
             self._send_json(
                 {"error": f"unsupported format: {fmt!r}; use page, webtoon, or cbz"},
@@ -1804,6 +1943,7 @@ class Handler(BaseHTTPRequestHandler):
             fmt=fmt,
             style_guide=style_guide,
             export_mode=export_mode,
+            lettering_enabled=lettering,
         )
         self._send_json({"job_id": job_id, "project_id": pid})
 

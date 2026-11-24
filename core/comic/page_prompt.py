@@ -14,7 +14,7 @@ from core.comic.identity import (
     metaphor_names_on_page,
 )
 from core.comic.key_beats import covers_beats_prompt_line
-from core.comic.layout_diversity import ANTI_CENTER_STANDEE_LINE
+from core.comic.layout_diversity import POSITIVE_LAYOUT_VARIETY_LINE
 from core.comic.visual_bible import (
     ANTI_MULTI_AGE_COLLAGE_LINE,
     COSTUME_CHANGE_LOCK_LINE,
@@ -75,7 +75,85 @@ def render_finished_page_negative_prompt(
 # ("source: “倚着栏杆”"). Those quotes exist for the *audit* trail: Qwen's text
 # encoder reads Chinese, and a quote in the image prompt letters those glyphs
 # onto the art (page_c0000_p0002 rendered a caption bar reading 倚着栏杆).
-_SOURCE_QUOTES_RE = re.compile(r";\s*source:\s*.*$")
+_SOURCE_QUOTES_RE = re.compile(r";\s*source:\s*.*$", re.IGNORECASE | re.MULTILINE)
+_AUDIT_QUOTE_RE = re.compile(r"(?i)\bsource:\s*.*$", re.MULTILINE)
+_AUDIT_QUOTE_FRAGMENT_RE = re.compile(r"(?i)[,;]?\s*source:.*?(?=[,;]|$)")
+_AUDIT_QUOTED_TEXT_RE = re.compile(r"(?i)[,;]?\s*[“”\"']\s*[^\"“”',;]+?\s*[“”\"']\s*(?=[,;]|$)")
+_NEGATIVE_WORD_RE = re.compile(
+    r"(?i)\b(?:no|not|never|avoid|without|unless|forbidden|nothing|do not|does not)\b"
+)
+_NEGATIVE_CLAUSE_RE = re.compile(
+    r"(?i)\b(?:no|not|never|avoid|without|unless|forbidden|nothing|do not|does not)\b|"
+    r"\b(?:second copy|look-alike|bystander|younger|older|duplicate|"
+    r"age progression|age regression|extra)\b|^no\b"
+)
+_CHROME_WORD_RE = re.compile(
+    r"(?i)\b(?:caption|dialogue|sfx|lettering|speech bubble|thought bubble|"
+    r"chrome|design sheet|model sheet|turnaround|line art|readable text|glyph|"
+    r"pseudo-script|comic panel|text|text box|bubble|subtitle|watermark|"
+    r"signature|logo|letters|words|numbers|typography|calligraphy|headline|"
+    r"printed column|book page|signpost|station sign|shop sign|poster|label|"
+    r"screen text|ui text|sketch|lineart|palette swatch|color chart|hex code|"
+    r"reference label|portrait inset|headshot|sheet music|notebook|paper prop|"
+    r"diegetic|letterform|gibberish|scribble|unmarked|uncolored|white border|"
+    r"white frame|border|overlays?|grid collage|flat labeled)\b"
+)
+_EXACT_LETTERING_LINE_RE = re.compile(
+    r"(?i)^\s*(?:CAPTION|DIALOGUE|SFX)\s*\(exact\)|^\s*lettering:"
+)
+_ALLOWED_NEGATIVE_CLAUSE_RE = re.compile(r"(?i)the ONLY people in the image")
+_POSITIVE_LOCKS = (
+    "edge-to-edge fully colored painted artwork",
+    "continuous physical staging",
+    "locked identity",
+    "locked outfit",
+    "stable age",
+    "the ONLY people in the image",
+)
+_SCENERY_POSITIVE_LOCKS = tuple(lock for lock in _POSITIVE_LOCKS if lock != "stable age")
+
+
+def _positive_image_prompt(text: str, *, locks: tuple[str, ...] = _POSITIVE_LOCKS) -> str:
+    """Return model-ready prompt text with audit quotes and negative wording removed.
+
+    Agnes i2i drops ``negative_prompt`` and its text encoder reads every noun in
+    the positive prompt literally. A final scrub keeps planner-authored strings,
+    style guides, and imported helper lines from smuggling forbidden objects or
+    dialogue words back into the image.
+    """
+    if not text:
+        return ""
+    cleaned = re.sub(r"(?i)\bsource:\b.*?(?=[,;\n]|$)", "", text)
+    cleaned = _AUDIT_QUOTE_FRAGMENT_RE.sub("", cleaned)
+    cleaned = _AUDIT_QUOTED_TEXT_RE.sub("", cleaned)
+    cleaned = re.sub(r"(?i)\bchrome\b.*?(?=[,;\n]|$)", "", cleaned)
+    cleaned = re.sub(r"(?i)\bsfx\b.*?(?=[,;\n]|$)", "", cleaned)
+    lines = [
+        line.strip()
+        for line in cleaned.splitlines()
+        if line.strip() and not _EXACT_LETTERING_LINE_RE.search(line)
+    ]
+    kept_lines: list[str] = []
+    for line in lines:
+        clauses = re.split(r"(?<=[;])\s+|(?<=[.!?])\s+|\s+—\s+", line)
+        kept: list[str] = []
+        for clause in clauses:
+            cleaned_clause = _AUDIT_QUOTE_RE.sub("", _AUDIT_QUOTE_FRAGMENT_RE.sub("", clause))
+            cleaned_clause = _AUDIT_QUOTED_TEXT_RE.sub("", cleaned_clause).strip(" ,;")
+            if not cleaned_clause:
+                continue
+            if _ALLOWED_NEGATIVE_CLAUSE_RE.search(cleaned_clause) or not (
+                _CHROME_WORD_RE.search(cleaned_clause)
+                or _NEGATIVE_CLAUSE_RE.search(cleaned_clause)
+                or _NEGATIVE_WORD_RE.search(cleaned_clause)
+            ):
+                kept.append(cleaned_clause)
+        if kept:
+            kept_lines.append(", ".join(kept))
+    positive_locks = ", ".join(locks)
+    if kept_lines:
+        return "\n".join([*kept_lines, positive_locks]).strip()
+    return positive_locks
 
 
 def _strip_source_quotes(text: str) -> str:
@@ -139,9 +217,8 @@ def _age_lock_line(name: str) -> str:
     line states.
     """
     return (
-        f"AGE LOCK {name}: draw this character at exactly the age described above, "
-        "the same age in every panel — never a younger child version, never an "
-        "older or teenage version, no age progression or regression"
+        f"AGE LOCK {name}: locked identity, stable age, and the same age in "
+        "every panel, matching the age described above"
     )
 
 
@@ -159,8 +236,12 @@ def _character_desc_for_prompt(
         if canon is not None:
             canon_desc = l1_from_canon(canon, stage)
             if canon_desc:
-                return harden_human_identity_prompt(name, canon_desc)
-    return harden_human_identity_prompt(name, asset.l1_prompt or "")
+                return harden_human_identity_prompt(
+                    name, _strip_source_quotes(_strip_scene_palette(canon_desc, ""))
+                )
+    return harden_human_identity_prompt(
+        name, _strip_source_quotes(_strip_scene_palette(asset.l1_prompt or "", ""))
+    )
 
 
 def _reference_bindings(
@@ -217,18 +298,16 @@ def render_finished_page_prompt(
         page_names.extend(panel.characters)
     visual_bible = page_scoped_bible(visual_bible, page_names)
     lines: list[str] = [
-        "Finished readable manga/comic page, portrait single image,",
-        "dynamic panel layout with gutters (not a flat labeled grid collage),",
+        "Finished manga page, portrait single image,",
+        "dynamic panel layout with clean empty gutters and varied cell shapes,",
         "every panel fully colored and shaded the same way, flat colors,",
         "each panel a separate framed composition with a clear empty gutter between",
         "cells: draw each person as a complete figure (whole body when standing),",
-        "never slice a head, neck, or body at a gutter, and do not let any figure,",
-        "hair, or prop cross, bleed, or spill into a neighboring panel,",
+        "with each complete figure, hairstyle, and prop contained inside its own cell,",
         "reference portraits are fully colored painted art of one person each, "
-        "not a layout to copy and not a sheet to trace: painted face, hair, clothes, "
-        "each character keeps the same outfit in every panel, and each prop belongs to",
-        "its named owner only: only the character the action names may hold it; a prop",
-        "does not hand itself to a different character,",
+        "supplying a painted face, hair, and clothes for that locked identity,",
+        "each character keeps the same exact outfit in every panel, and each prop stays",
+        "with its named owner: the character the action names holds that prop,",
     ]
     roster = list(plan.reference_characters)
     for panel in plan.panels:
@@ -241,14 +320,12 @@ def render_finished_page_prompt(
         # An unlabeled list of portraits has no owner. The model then copies
         # the strongest face onto every figure and the page has one person.
         lines.append(
-            "Each reference image is one specific person, in this order: "
+            "Each reference image supplies one specific locked identity, in this order: "
             + "; ".join(
-                f"reference image {index} is exactly {name}, and nobody else"
-                for index, name in reference_bindings
+                f"reference image {index} is exactly {name}" for index, name in reference_bindings
             )
             + ". Draw that person with the face, hair, and clothes of their own "
-            "numbered reference. Do not give one character another's face, hair, "
-            "or outfit, and do not blend two references into one look."
+            "numbered reference, keeping each locked identity visually distinct."
         )
     scene_for_page = _page_scene(plan, settings_by_name)
     if scene_for_page:
@@ -256,7 +333,7 @@ def render_finished_page_prompt(
     if lettering == "deferred":
         lines.append(
             "edge-to-edge finished artwork, clean empty panel gutters, "
-            "unmarked surfaces and physical objects only,"
+            "plain physical surfaces and physical objects only,"
         )
         if strict:
             lines.append(
@@ -264,16 +341,14 @@ def render_finished_page_prompt(
                 "the cast and scene are the only subjects."
             )
     else:
-        lines.extend(
-            [
-                "speech bubbles, caption boxes, and SFX lettered legibly in-image,",
-                "do not cover faces, hands, or key action with text.",
-            ]
+        lines.append(
+            "edge-to-edge finished artwork, clean empty panel gutters, "
+            "plain physical surfaces and physical objects only,"
         )
         if strict:
             lines.append(
-                "STRICT: render every CAPTION, DIALOGUE, and SFX string exactly as "
-                "specified; high-contrast legible lettering; do not omit any text."
+                "STRICT: continuous painted artwork fills every cell, "
+                "the cast and scene are the only subjects."
             )
     effective_style = (
         visual_bible.style_guide
@@ -289,14 +364,13 @@ def render_finished_page_prompt(
         lines.append(COSTUME_CHANGE_LOCK_LINE)
         lines.append(
             "Each character wears the exact outfit declared below in every panel: "
-            "same garment, same color. Copy each character only from the reference "
-            "image numbered for that character; do not redraw them and do not copy "
-            "a different reference."
+            "same garment, same color, locked outfit. Match each locked identity "
+            "to the reference image numbered for that character."
         )
         lines.append(wardrobe_banline_for_bible(visual_bible))
         lines.append(ANTI_MULTI_AGE_COLLAGE_LINE)
         lines.append(HAIR_STABILITY_LINE)
-        lines.append(_image_safe(ANTI_CENTER_STANDEE_LINE))
+        lines.append(_image_safe(POSITIVE_LAYOUT_VARIETY_LINE))
     lines.append(f"Page purpose: {plan.purpose}")
     lines.append(f"Layout intent: {plan.layout_intent}")
     beat_line = _image_safe(covers_beats_prompt_line(plan) or "")
@@ -307,7 +381,8 @@ def render_finished_page_prompt(
     metaphor_names = metaphor_names_on_page(plan, characters_by_name)
     if metaphor_names:
         lines.append(
-            "CRITICAL character identity (Chinese nicknames are metaphorical — draw HUMANS only):"
+            "CRITICAL character identity: Chinese nicknames are metaphorical, "
+            "and each person is fully human:"
         )
         lines.extend(metaphor_identity_lock_line(name) for name in metaphor_names)
     # Character locks are page-scoped: one declaration per unique character.
@@ -335,13 +410,9 @@ def render_finished_page_prompt(
             f"CRITICAL cast lock: the only people on this page are {cast}. "
             "Draw each of them once per panel they appear in, and keep them "
             "visually distinct: the locked gender, face, hairstyle and outfit "
-            "declared above. Draw each named character exactly once per panel — "
-            "never render the same person twice in one panel as two separate "
-            "figures. Do not add a "
-            "bystander, a reader, a second copy, or any person the panel action "
-            "does not name. Never render two look-alike copies of the same "
-            "person, never swap a character's gender, and never merge two "
-            "characters into one look."
+            "declared above. Draw each named character exactly once per panel, "
+            "with each locked identity visually distinct and the rest of the "
+            "frame filled by scenery."
         )
     for i, panel in enumerate(plan.panels, start=1):
         lines.append(
@@ -361,16 +432,7 @@ def render_finished_page_prompt(
             scene = _strip_lineart_words(scene)
             scene = _strip_setting_people(scene, list(panel.characters))
             lines.append(f"  setting={panel.setting_ref}: {scene}".rstrip(": "))
-        if lettering == "in_image":
-            if panel.caption:
-                lines.append(f"  CAPTION (exact): {panel.caption}")
-            if panel.dialogue:
-                lines.append(f"  DIALOGUE (exact): {panel.dialogue}")
-            if panel.sfx:
-                lines.append(f"  SFX (exact): {panel.sfx}")
-            if panel.lettering_notes:
-                lines.append(f"  lettering: {panel.lettering_notes}")
-    return "\n".join(lines)
+    return _positive_image_prompt("\n".join(lines))
 
 
 # A positive prompt that names comic chrome draws the chrome, even in a
@@ -597,19 +659,20 @@ def render_page_panel_prompt(
     descs = [_strip_scene_palette(desc, scene) for desc in descs]
     count = len(cast_names)
     if count == 0:
-        count_line = "No people in this panel; scenery only"
+        count_line = "Pure scenery fills the frame; scenery only"
     elif count == 1:
         count_line = (
             f"Exactly 1 character in this panel: {cast_names[0]} — "
-            f"draw {cast_names[0]} only once, the ONLY people in the image, "
-            "no other people, no silhouettes, no background passers-by"
+            f"draw {cast_names[0]} only once as the ONLY people in the image, "
+            "with the remaining frame filled by scenery"
         )
     else:
         joined = ", ".join(cast_names)
         count_line = (
             f"Exactly {count} characters in this panel: {joined} — "
-            "each drawn exactly once, no character appears twice, "
-            "the ONLY people in the image, no other people anywhere"
+            "each drawn exactly once, each character rendered only once, "
+            "the ONLY people in the image, "
+            "with the remaining frame filled by scenery"
         )
     action = _image_safe(_strip_setting_people(panel.action or "", cast_names))
     action = _strip_narrative_metaphors(action)
@@ -627,7 +690,7 @@ def render_page_panel_prompt(
     if strict:
         ban = "clean continuous artwork, the declared cast and scene are the only subjects"
     else:
-        ban = _PANEL_NO_TEXT_BAN
+        ban = "clean continuous artwork, edge-to-edge fully colored painted surface"
     if count == 1:
         # A single-cast close-up drew a small second boy with a guitar
         # (page_c0001_p0002-g0000): the model added a child-sized extra
@@ -644,11 +707,19 @@ def render_page_panel_prompt(
         # The i2i reference pins the pose too: repro 3/3 copied the portrait's
         # scarf-adjusting pose while the action said "chin on palm". State
         # where the pose comes from.
-        pose_line = "pose follows the action, not the reference pose"
+        pose_line = "pose follows the action, with the reference portrait supplying the face"
     else:
         pose_line = ""
     style = f"{style_guide}, {PANEL_FULL_BLEED_STYLE}" if style_guide else PANEL_FULL_BLEED_STYLE
     style = _strip_scene_palette(style, scene) if style_guide else style
+    style = ", ".join(
+        clause.strip()
+        for clause in re.split(r"[,;]", style)
+        if clause.strip()
+        and not _CHROME_WORD_RE.search(clause)
+        and not _NEGATIVE_WORD_RE.search(clause)
+    )
+    panel_locks = _POSITIVE_LOCKS if count else _SCENERY_POSITIVE_LOCKS
     parts = [
         p
         for p in (
@@ -664,7 +735,7 @@ def render_page_panel_prompt(
         )
         if p
     ]
-    return ", ".join(parts)
+    return _positive_image_prompt(", ".join(parts), locks=panel_locks)
 
 
 # Narrative devices the planner writes but a camera cannot photograph. Each
@@ -728,7 +799,7 @@ _OCCLUSION_SHOULDER_RE = re.compile(
 )
 _OCCLUSION_REPLACEMENT = (
     "both characters fully visible in the same medium shot, complete "
-    "figures with nothing cropped at the edges"
+    "fully visible figures extending through the frame"
 )
 
 

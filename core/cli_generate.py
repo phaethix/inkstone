@@ -189,6 +189,7 @@ async def _run(
     density: str | None = None,
     harness_dir: str | None = None,
     export_mode: str = "lettered",
+    lettering_enabled: bool | None = None,
 ) -> None:
     text = Path(source).read_text(encoding="utf-8")
     spec = None
@@ -215,6 +216,7 @@ async def _run(
             density=density,
             harness_dir=harness_dir,
             export_mode=export_mode,
+            lettering_enabled=lettering_enabled,
         )
 
     if isinstance(result, PausedRun):
@@ -295,6 +297,7 @@ def run_generate(
     harness_dir: str | None = None,
     fresh: bool = False,
     export_mode: str = "lettered",
+    lettering_enabled: bool | None = None,
 ) -> int:
     """Validate inputs and run the pipeline. Returns a process exit code.
 
@@ -346,6 +349,7 @@ def run_generate(
             density=density,
             harness_dir=harness_dir,
             export_mode=export_mode,
+            lettering_enabled=lettering_enabled,
         )
     )
     return 0
@@ -439,10 +443,6 @@ def _parse_args(argv=None) -> argparse.Namespace:
 def main() -> None:
     """Standalone entry point (used by the examples/ thin wrapper)."""
     args = _parse_args()
-    from core.config import set_lettering_env
-
-    if getattr(args, "no_lettering", False):
-        set_lettering_env(True)
 
     sys.exit(
         run_generate(
@@ -456,6 +456,7 @@ def main() -> None:
             density=args.density,
             fresh=args.fresh,
             export_mode="art_only" if getattr(args, "export_art_only", False) else "lettered",
+            lettering_enabled=False if getattr(args, "no_lettering", False) else None,
         )
     )
 

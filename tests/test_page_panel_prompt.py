@@ -4,6 +4,7 @@ from pathlib import Path
 
 from core.comic.page_prompt import render_page_panel_prompt
 from core.schemas import CharacterAsset, ComicPagePlan, PagePanelSpec, Setting
+from tests.prompt_redlines import assert_positive_image_prompt
 
 
 def _plan(action, characters, setting_ref="亭子"):
@@ -48,7 +49,8 @@ def test_panel_prompt_asserts_cast_and_scrubs_extra_people():
     assert "one young man fishing" not in prompt
     assert "lakeside pavilion" in prompt
     assert "pours tea" in prompt
-    assert "clean artwork with no overlays" in prompt
+    assert "clean continuous artwork" in prompt or "edge-to-edge artwork" in prompt
+    assert_positive_image_prompt(prompt)
 
 
 def test_panel_prompt_drops_source_quotes():
@@ -74,10 +76,10 @@ def test_panel_prompt_drops_source_quotes():
         settings_by_name={},
         style_guide="manhua",
     )
-    assert "source:" not in prompt
     assert "沈知意把围巾拢了拢" not in prompt
     assert "倚着栏杆" not in prompt
     assert "thin knit scarf" in prompt
+    assert_positive_image_prompt(prompt)
 
 
 def test_panel_prompt_scrubs_chrome_clauses_from_action():
@@ -95,9 +97,9 @@ def test_panel_prompt_scrubs_chrome_clauses_from_action():
         settings_by_name={},
         style_guide="manhua",
     )
-    assert "dialogue" not in prompt
     assert "hangs in the air" not in prompt
     assert "listens" in prompt
+    assert_positive_image_prompt(prompt)
 
 
 def test_panel_prompt_count_line_claims_the_whole_frame():
@@ -113,6 +115,7 @@ def test_panel_prompt_count_line_claims_the_whole_frame():
         style_guide="manhua",
     )
     assert "the ONLY people in the image" in prompt
+    assert_positive_image_prompt(prompt)
 
 
 def test_panel_prompt_count_line_bans_duplicate_copies():
@@ -128,6 +131,7 @@ def test_panel_prompt_count_line_bans_duplicate_copies():
         style_guide="manhua",
     )
     assert "only once" in prompt
+    assert_positive_image_prompt(prompt)
 
 
 def test_panel_prompt_scrubs_line_metaphors_from_action():
@@ -145,6 +149,7 @@ def test_panel_prompt_scrubs_line_metaphors_from_action():
     assert "delivers the line" not in prompt
     assert "the line lands" not in prompt or "delivers" not in prompt
     assert "looks up" in prompt
+    assert_positive_image_prompt(prompt)
 
 
 def test_panel_prompt_scrubs_the_line_lands_clause():
@@ -154,6 +159,7 @@ def test_panel_prompt_scrubs_the_line_lands_clause():
     )
     assert "the line lands" not in prompt
     assert "strings" in prompt
+    assert_positive_image_prompt(prompt)
 
 
 def test_panel_prompt_style_has_no_white_frame_words():
@@ -170,9 +176,8 @@ def test_panel_prompt_style_has_no_white_frame_words():
         settings_by_name={},
         style_guide="",
     )
-    lowered = prompt.lower()
-    assert "line art" not in lowered
-    assert "design sheet" not in lowered
+    assert "fully colored" in prompt.lower()
+    assert_positive_image_prompt(prompt)
 
 
 def test_panel_prompt_empty_cast_is_scenery_only():
@@ -180,7 +185,8 @@ def test_panel_prompt_empty_cast_is_scenery_only():
     prompt = render_page_panel_prompt(
         plan, plan.panels[0], characters_by_name={}, settings_by_name={}, style_guide="manhua"
     )
-    assert "No people in this panel" in prompt
+    assert "scenery only" in prompt.lower()
+    assert_positive_image_prompt(prompt)
 
 
 def test_panel_prompt_multi_cast_counts_in_order():
@@ -191,6 +197,7 @@ def test_panel_prompt_multi_cast_counts_in_order():
         plan, plan.panels[0], characters_by_name=assets, settings_by_name={}, style_guide=""
     )
     assert "Exactly 2 characters in this panel: 沈知意, 福贵" in prompt
+    assert_positive_image_prompt(prompt)
 
 
 def test_panel_prompt_strict_ban_and_reference_bindings(tmp_path):
@@ -211,8 +218,9 @@ def test_panel_prompt_strict_ban_and_reference_bindings(tmp_path):
         reference_images=[str(portrait)],
         strict=True,
     )
-    assert "absolutely clean artwork" in prompt
+    assert "clean continuous artwork" in prompt or "edge-to-edge artwork" in prompt
     assert "reference image 1 is 沈知意" in prompt
+    assert_positive_image_prompt(prompt)
 
 
 def test_page_panel_refs_only_panel_cast(tmp_path):
@@ -349,6 +357,7 @@ def test_panel_prompt_falls_back_to_stage_variant_identity():
     )
     assert "teenage boy face" in prompt, "stage-variant identity must reach the prompt"
     assert "抱旧吉他的腼腆少年" not in prompt, "Chinese placeholder must not be the identity"
+    assert_positive_image_prompt(prompt)
 
 
 def test_panel_prompt_prefers_clean_variant_over_flagged_default():
@@ -377,6 +386,7 @@ def test_panel_prompt_prefers_clean_variant_over_flagged_default():
     )
     assert "early-20s" in prompt
     assert "using generic placeholder" not in prompt
+    assert_positive_image_prompt(prompt)
 
 
 def test_panel_prompt_locks_one_age_per_character():
@@ -393,8 +403,8 @@ def test_panel_prompt_locks_one_age_per_character():
         settings_by_name={},
         style_guide="manhua",
     )
-    assert "AGE LOCK" in prompt
-    assert "never a younger" in prompt
+    assert "stable age" in prompt.lower() or "same age" in prompt.lower()
+    assert_positive_image_prompt(prompt)
 
 
 def test_panel_prompt_omits_age_lock_for_scenery_only():
@@ -407,6 +417,8 @@ def test_panel_prompt_omits_age_lock_for_scenery_only():
         style_guide="manhua",
     )
     assert "AGE LOCK" not in prompt
+    assert "scenery only" in prompt.lower()
+    assert_positive_image_prompt(prompt)
 
 
 def test_panel_prompt_rewrites_foreground_occlusion_staging():
@@ -434,6 +446,7 @@ def test_panel_prompt_rewrites_foreground_occlusion_staging():
     assert "dark silhouette" not in prompt
     assert "over the youth's shoulder" not in prompt.lower()
     assert "rests her chin on her hand" in prompt
+    assert_positive_image_prompt(prompt)
 
 
 def test_panel_prompt_rewrites_back_to_camera_staging():
@@ -456,6 +469,7 @@ def test_panel_prompt_rewrites_back_to_camera_staging():
     assert "small silhouettes" not in prompt.lower()
     assert "backs to us" not in prompt.lower()
     assert "lean on the rail" in prompt
+    assert_positive_image_prompt(prompt)
 
 
 def test_setting_strip_removes_passenger_crowds():
@@ -502,9 +516,9 @@ def test_panel_prompt_style_drops_scenery_clauses_absent_from_scene():
     assert "lighthouse" not in lowered
     assert "river" not in lowered
     assert "misty" not in lowered
-    assert "soft cel shading" in lowered
-    assert "serene" in lowered
+    assert "clean continuous artwork" in lowered or "edge-to-edge" in lowered
     assert "inn" in lowered
+    assert_positive_image_prompt(prompt)
 
 
 def test_panel_prompt_style_keeps_scenery_words_when_scene_names_them():
@@ -531,6 +545,7 @@ def test_panel_prompt_style_keeps_scenery_words_when_scene_names_them():
     )
     assert "misty river palette" in prompt
     assert "lighthouse" in prompt
+    assert_positive_image_prompt(prompt)
 
 
 def test_panel_prompt_pose_follows_action_not_reference(tmp_path):
@@ -554,6 +569,7 @@ def test_panel_prompt_pose_follows_action_not_reference(tmp_path):
         reference_images=[str(portrait)],
     )
     assert "pose follows the action" in prompt
+    assert_positive_image_prompt(prompt)
 
 
 def test_panel_prompt_single_cast_bans_second_child_figure():
@@ -568,4 +584,5 @@ def test_panel_prompt_single_cast_bans_second_child_figure():
         settings_by_name={},
         style_guide="manhua",
     )
-    assert "adult or child" in prompt
+    assert "only person at any size or age" in prompt.lower() or "the only person" in prompt.lower()
+    assert_positive_image_prompt(prompt)

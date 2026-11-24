@@ -11,7 +11,9 @@ import logging
 import os
 import time
 from collections.abc import Callable
+from contextlib import nullcontext
 from dataclasses import dataclass
+from pathlib import Path
 
 import requests
 
@@ -20,7 +22,7 @@ from core.comic.gate import GatePaused
 from core.comic.ledger import ContinuityReviewPaused
 from core.config import run_deadline_hours, supervisor_backoff_base, supervisor_backoff_cap
 from core.pipelines.cancel import PipelineCancelled, check_cancel
-from core.pipelines.creative_comic import ComicProject, creative_comic
+from core.pipelines.creative_comic import ComicProject, _project_lock, creative_comic
 from core.schemas import ProjectState
 
 logger = logging.getLogger(__name__)
@@ -135,6 +137,8 @@ async def run_until_complete(
     density: str | None = None,
     harness_dir: str | None = None,
     export_mode: str = "lettered",
+    lettering_enabled: bool | None = None,
+    acquire_project_lock: bool = True,
 ) -> ComicProject | PausedRun:
     """Run ``creative_comic`` until success or wall-clock pause.
 
@@ -147,78 +151,16 @@ async def run_until_complete(
     cap = _backoff_cap(backoff_cap)
     attempt = 0
     pid = project_id or os.path.basename(os.path.abspath(output_dir)) or "comic"
+    lock = _project_lock(Path(output_dir)) if acquire_project_lock else nullcontext()
 
-    while True:
-        elapsed = time.monotonic() - start
-        if deadline_s > 0 and elapsed >= deadline_s:
-            reason = (
-                f"wall-clock deadline reached after {elapsed / 3600:.2f}h "
-                f"(limit {_deadline_hours(deadline_hours):g}h); progress saved — "
-                "resume with the same project_id"
-            )
-            logger.warning("%s", reason)
-            return PausedRun(
-                project_id=pid,
-                output_dir=output_dir,
-                reason=reason,
-                state=_load_state(output_dir),
-                elapsed_seconds=elapsed,
-            )
-
-        try:
-            return await creative_comic(
-                source_txt,
-                output_dir=output_dir,
-                project_id=project_id,
-                chat=chat,
-                image=image,
-                style_guide=style_guide,
-                output_format=output_format,
-                progress_callback=progress_callback,
-                panel_keys=panel_keys,
-                cancel_check=cancel_check,
-                budget=budget,
-                data_dir=data_dir,
-                budget_day=budget_day,
-                gate_yes=gate_yes,
-                sample_gate_size=sample_gate_size,
-                density=density,
-                harness_dir=harness_dir,
-                export_mode=export_mode,
-            )
-        except (BudgetPaused, GatePaused, ContinuityReviewPaused) as exc:
-            # A budget, sample-gate, or continuity-review pause is terminal for
-            # this invocation. Retrying it as a transient upstream error would
-            # spin until the wall-clock deadline without issuing the held call.
+    with lock:
+        while True:
             elapsed = time.monotonic() - start
-            logger.warning("run paused: %s", exc)
-            return PausedRun(
-                project_id=pid,
-                output_dir=output_dir,
-                reason=str(exc),
-                state=_load_state(output_dir),
-                elapsed_seconds=elapsed,
-            )
-        except PipelineCancelled as exc:
-            elapsed = time.monotonic() - start
-            logger.info("run cancelled by user: %s", exc.reason)
-            return PausedRun(
-                project_id=pid,
-                output_dir=output_dir,
-                reason=exc.reason,
-                state=_load_state(output_dir),
-                elapsed_seconds=elapsed,
-            )
-        except Exception as exc:
-            if not is_transient_error(exc):
-                raise
-            elapsed = time.monotonic() - start
-            remaining = deadline_s - elapsed if deadline_s > 0 else float("inf")
-            delay = _supervisor_backoff(attempt, base, cap)
-            if deadline_s > 0 and remaining <= 0:
+            if deadline_s > 0 and elapsed >= deadline_s:
                 reason = (
-                    f"wall-clock deadline reached after transient error ({exc!s}); "
-                    "progress saved — resume with the same project_id"
+                    f"wall-clock deadline reached after {elapsed / 3600:.2f}h "
+                    f"(limit {_deadline_hours(deadline_hours):g}h); progress saved — "
+                    "resume with the same project_id"
                 )
                 logger.warning("%s", reason)
                 return PausedRun(
@@ -228,27 +170,96 @@ async def run_until_complete(
                     state=_load_state(output_dir),
                     elapsed_seconds=elapsed,
                 )
-            if deadline_s > 0:
-                delay = min(delay, max(0.0, remaining))
-            logger.warning(
-                "transient failure (attempt %s): %s; sleeping %.1fs then resuming %s",
-                attempt + 1,
-                exc,
-                delay,
-                output_dir,
-            )
-            if progress_callback is not None:
-                progress_callback("retry", None)
+
             try:
-                check_cancel(cancel_check)
-            except PipelineCancelled as cancel_exc:
-                logger.info("run cancelled by user during retry backoff: %s", cancel_exc.reason)
+                return await creative_comic(
+                    source_txt,
+                    output_dir=output_dir,
+                    project_id=project_id,
+                    chat=chat,
+                    image=image,
+                    style_guide=style_guide,
+                    output_format=output_format,
+                    progress_callback=progress_callback,
+                    panel_keys=panel_keys,
+                    cancel_check=cancel_check,
+                    budget=budget,
+                    data_dir=data_dir,
+                    budget_day=budget_day,
+                    gate_yes=gate_yes,
+                    sample_gate_size=sample_gate_size,
+                    density=density,
+                    harness_dir=harness_dir,
+                    export_mode=export_mode,
+                    lettering_enabled_override=lettering_enabled,
+                    acquire_lock=False,
+                )
+            except (BudgetPaused, GatePaused, ContinuityReviewPaused) as exc:
+                # A budget, sample-gate, or continuity-review pause is terminal for
+                # this invocation. Retrying it as a transient upstream error would
+                # spin until the wall-clock deadline without issuing the held call.
+                elapsed = time.monotonic() - start
+                logger.warning("run paused: %s", exc)
                 return PausedRun(
                     project_id=pid,
                     output_dir=output_dir,
-                    reason=cancel_exc.reason,
+                    reason=str(exc),
                     state=_load_state(output_dir),
-                    elapsed_seconds=time.monotonic() - start,
+                    elapsed_seconds=elapsed,
                 )
-            await asyncio.sleep(delay)
-            attempt += 1
+            except PipelineCancelled as exc:
+                elapsed = time.monotonic() - start
+                logger.info("run cancelled by user: %s", exc.reason)
+                return PausedRun(
+                    project_id=pid,
+                    output_dir=output_dir,
+                    reason=exc.reason,
+                    state=_load_state(output_dir),
+                    elapsed_seconds=elapsed,
+                )
+            except Exception as exc:
+                if not is_transient_error(exc):
+                    raise
+                elapsed = time.monotonic() - start
+                remaining = deadline_s - elapsed if deadline_s > 0 else float("inf")
+                delay = _supervisor_backoff(attempt, base, cap)
+                if deadline_s > 0 and remaining <= 0:
+                    reason = (
+                        f"wall-clock deadline reached after transient error ({exc!s}); "
+                        "progress saved — resume with the same project_id"
+                    )
+                    logger.warning("%s", reason)
+                    return PausedRun(
+                        project_id=pid,
+                        output_dir=output_dir,
+                        reason=reason,
+                        state=_load_state(output_dir),
+                        elapsed_seconds=elapsed,
+                    )
+                if deadline_s > 0:
+                    delay = min(delay, max(0.0, remaining))
+                logger.warning(
+                    "transient failure (attempt %s): %s; sleeping %.1fs then resuming %s",
+                    attempt + 1,
+                    exc,
+                    delay,
+                    output_dir,
+                )
+                if progress_callback is not None:
+                    progress_callback("retry", None)
+                try:
+                    check_cancel(cancel_check)
+                except PipelineCancelled as cancel_exc:
+                    logger.info(
+                        "run cancelled by user during retry backoff: %s",
+                        cancel_exc.reason,
+                    )
+                    return PausedRun(
+                        project_id=pid,
+                        output_dir=output_dir,
+                        reason=cancel_exc.reason,
+                        state=_load_state(output_dir),
+                        elapsed_seconds=time.monotonic() - start,
+                    )
+                await asyncio.sleep(delay)
+                attempt += 1

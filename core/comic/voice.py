@@ -15,8 +15,8 @@ _FIRST_PERSON_LETTER_RE = re.compile(
 
 TIMELINE_PRESENT_LINE = "Timeline=present: stage the scene as it happens now, in its own setting."
 TIMELINE_PAST_LINE = (
-    "Timeline=past: warmer memory staging with slight film grain; depict lived scenes "
-    "in environment — do not default to letter-holding unless action requires it."
+    "Timeline=past: warmer memory staging with slight film grain; depict lived "
+    "scenes through physical action and environment."
 )
 TIMELINE_LIMINAL_LINE = (
     "Timeline=liminal: bridge present and memory; keep visual transition cues clear."
@@ -139,5 +139,6 @@ def voice_timeline_plan_instructions(bible: VisualBible | None) -> str:
         "- Narration / letter first-person / time-place → caption with empty speaker.\n"
         "- Spoken lines → dialogue with speaker = speaking character name.\n"
         f"- letter_reader canons: {reader_s}. letter_writer canons: {writer_s}.\n"
-        "- Never put letter_writer first-person confession into letter_reader dialogue bubbles.\n"
+        "- Keep letter_writer first-person confession in narration, and give "
+        "letter_reader characters their own spoken voice.\n"
     )

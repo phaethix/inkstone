@@ -378,6 +378,9 @@
     .gen-row input[type="text"] { flex: 1; min-width: 160px; }
     .gen-row input[type="text"]::placeholder { color: var(--dim); }
     .gen-actions { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+    .gen-options { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-top: 14px; font-size: 12px; color: var(--muted); }
+    .gen-options label { display: inline-flex; align-items: center; gap: 7px; margin: 0; text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 500; cursor: pointer; }
+    .gen-options input[type="checkbox"] { accent-color: var(--accent); }
 
     /* progress */
     .progress-area { margin-top: 22px; }
@@ -864,6 +867,10 @@
               <button id="go" class="btn btn-primary">Generate Comic</button>
             </div>
           </div>
+          <div class="gen-options">
+            <label for="letteringEnabled"><input id="letteringEnabled" type="checkbox" checked /> Lettered pages</label>
+            <span id="gateApprovalHint">Sample gate decisions are persisted with the project.</span>
+          </div>
 
           <div id="progressWrap" class="progress-area hidden">
             <div class="progress-meta">
@@ -875,6 +882,15 @@
             <pre id="log" class="log"></pre>
           </div>
           <div id="errorWrap" class="error hidden"></div>
+          <div id="gateWrap" class="card hidden" style="margin-top:18px;padding:18px;">
+            <h3 style="margin:0 0 8px;font-size:16px;">Sample gate</h3>
+            <p id="gateSummary" class="muted" style="font-size:12px;"></p>
+            <div id="gateDecisions"></div>
+            <div style="display:flex;gap:8px;margin-top:12px;">
+              <button id="gateRefresh" class="btn btn-secondary btn-sm" type="button">Refresh</button>
+              <button id="gateApprove" class="btn btn-primary btn-sm" type="button">Approve sample gate (audited)</button>
+            </div>
+          </div>
         </div>
 
         <div id="results" class="results hidden">
@@ -1667,6 +1683,88 @@
     let currentProjectId = null;
     let lastFormat = "page";
 
+    function esc(value) {
+      return String(value == null ? "" : value).replace(/[&<>"']/g, c => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      }[c]));
+    }
+
+    async function refreshGate(projectId) {
+      if (!projectId) {
+        $("gateWrap").classList.add("hidden");
+        return;
+      }
+      try {
+        const res = await fetch("/api/project/" + encodeURIComponent(projectId) + "/gate");
+        const gate = await res.json();
+        if (!res.ok) throw new Error(gate.error || ("HTTP " + res.status));
+        const wrap = $("gateWrap");
+        const pending = gate.pending_keys || [];
+        const decisions = gate.decisions || {};
+        if (!gate.exists && !gate.awaiting) {
+          wrap.classList.add("hidden");
+          return;
+        }
+        wrap.classList.remove("hidden");
+        $("gateSummary").textContent = gate.yes || gate.released
+          ? "Approved; the remaining pages may render."
+          : (gate.awaiting
+            ? "Review the sample pages below, record decisions, then approve to continue."
+            : "Sample decisions are being collected.");
+        const list = $("gateDecisions");
+        list.innerHTML = "";
+        (gate.sample_keys || []).forEach(key => {
+          const row = document.createElement("div");
+          row.style.cssText = "display:flex;align-items:center;gap:8px;margin:7px 0;";
+          const label = document.createElement("span");
+          label.textContent = key + (decisions[key] ? " · " + decisions[key].choice : " · undecided");
+          row.appendChild(label);
+          ["accept", "redraw", "accept-and-flag"].forEach(choice => {
+            const button = document.createElement("button");
+            button.className = "btn btn-secondary btn-sm";
+            button.type = "button";
+            button.textContent = choice;
+            button.onclick = () => recordGateDecision(projectId, key, choice);
+            row.appendChild(button);
+          });
+          list.appendChild(row);
+        });
+        $("gateApprove").disabled = Boolean(pending.length) || Boolean(gate.yes || gate.released);
+      } catch (e) {
+        $("gateWrap").classList.add("hidden");
+      }
+    }
+
+    async function recordGateDecision(projectId, key, decision) {
+      try {
+        const res = await fetch("/api/project/" + encodeURIComponent(projectId) + "/gate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key, decision }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+        await refreshGate(projectId);
+      } catch (e) {
+        fail(friendlyFetchError(e));
+      }
+    }
+
+    async function approveGate(projectId) {
+      try {
+        const res = await fetch("/api/project/" + encodeURIComponent(projectId) + "/gate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ approve: true }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+        await refreshGate(projectId);
+      } catch (e) {
+        fail(friendlyFetchError(e));
+      }
+    }
+
     async function liveRun(text, format) {
       try {
         lastFormat = format;
@@ -1675,6 +1773,7 @@
         if (style) payload.style_guide = style;
         const pid = $("projectId").value.trim();
         if (pid) payload.project_id = pid;
+        payload.lettering_enabled = $("letteringEnabled").checked;
         const res = await fetch("/api/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1684,6 +1783,7 @@
         if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
         currentProjectId = data.project_id || null;
         if (currentProjectId) $("projectId").value = currentProjectId;
+        refreshGate(currentProjectId);
         currentJobId = data.job_id;
         saveActiveJob({
           job_id: data.job_id,
@@ -2210,6 +2310,9 @@
 
     $("go").addEventListener("click", generate);
     $("stop").addEventListener("click", stopJob);
+    $("gateRefresh").addEventListener("click", () => refreshGate($("projectId").value.trim() || currentProjectId));
+    $("gateApprove").addEventListener("click", () => approveGate($("projectId").value.trim() || currentProjectId));
+    $("projectId").addEventListener("change", () => refreshGate($("projectId").value.trim() || currentProjectId));
     $("mode").addEventListener("click", detectMode);
     detectMode();
   </script>

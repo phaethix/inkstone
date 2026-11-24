@@ -30,12 +30,12 @@ _HIGH_CONFIDENCE_MARKERS = (
 _PAGE_PANEL_KEY_RE = re.compile(r"^c\d{4}-p\d{4}-g\d{4}$")
 
 # Chinese literary nicknames often embed animal/plant glyphs metaphorically
-# (虎妞, 凤姐). Image models literalize those glyphs unless prompts forbid it.
+# (虎妞, 凤姐). A camera sees a person; the image prompt states that plainly.
 _ANIMAL_METAPHOR_CHARS = frozenset("虎龙凤豹狼狮猴蛇鹤狐兔熊鹰")
 
 _HUMAN_LOCK = (
-    "human person only — the name is metaphorical; not an animal, no animal head, "
-    "no fur, no tail, no snout (not a tiger/dragon/phoenix creature)"
+    "one fully human person, a normal human face and body, with a stable "
+    "human figure from head to feet"
 )
 
 
@@ -62,10 +62,11 @@ def name_suggests_animal_metaphor(name: str) -> bool:
 
 
 def metaphor_identity_lock_line(name: str) -> str:
-    """One-line human-only lock for finished-page / portrait prompts."""
+    """One-line positive human lock for finished-page / portrait prompts."""
     return (
-        f"- {name}: human person with a normal human face; Chinese nickname only — "
-        f"NOT a literal animal; NO tiger/dragon head, NO fur, NO snout, NO anthropomorphic beast"
+        f"- {name}: one fully human person with a normal human face and body; "
+        "the Chinese nickname is metaphorical, and the human figure is "
+        "stable from head to feet"
     )
 
 
@@ -90,7 +91,7 @@ def metaphor_names_on_page(
 
 
 def harden_human_identity_prompt(name: str, prompt: str) -> str:
-    """Prefix an anti-literalization lock for metaphorical animal names.
+    """Prefix a positive human lock for metaphorical animal names.
 
     Non-metaphor names are returned unchanged. Idempotent if the lock is already
     present.
@@ -99,14 +100,14 @@ def harden_human_identity_prompt(name: str, prompt: str) -> str:
     if not name_suggests_animal_metaphor(name):
         return text
     lower = text.lower()
-    if "metaphorical" in lower and "not an animal" in lower and "human character" in lower:
+    if "metaphorical" in lower and "human character" in lower and "human face" in lower:
         return text
     core = text
     if core.startswith(name):
         core = core[len(name) :].lstrip(" ,;—-")
     lead = (
-        f"human character — {name} is a metaphorical Chinese nickname only "
-        f"(NOT a literal tiger/dragon/animal); draw a normal human face and body"
+        f"human character, {name} is a metaphorical Chinese nickname for one "
+        "fully human person with a normal human face and body"
     )
     if core:
         return f"{lead}; {core}; {_HUMAN_LOCK}"

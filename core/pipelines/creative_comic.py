@@ -27,7 +27,7 @@ import re
 import shutil
 import time
 from collections.abc import Callable
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
@@ -1525,6 +1525,8 @@ class ComicRunOptions:
     density: str | None = None
     harness_dir: str | Path | None = None
     export_mode: str = "lettered"
+    lettering_enabled: bool | None = None
+    acquire_lock: bool = True
 
 
 async def creative_comic(
@@ -1548,6 +1550,8 @@ async def creative_comic(
     density: str | None = None,
     harness_dir: str | Path | None = None,
     export_mode: str = "lettered",
+    lettering_enabled_override: bool | None = None,
+    acquire_lock: bool = True,
 ) -> ComicProject:
     """Generate a project while holding its process-level mutation lock.
 
@@ -1575,8 +1579,11 @@ async def creative_comic(
         density=density,
         harness_dir=harness_dir,
         export_mode=export_mode,
+        lettering_enabled=lettering_enabled_override,
+        acquire_lock=acquire_lock,
     )
-    with _project_lock(Path(output_dir)):
+    lock = _project_lock(Path(output_dir)) if acquire_lock else nullcontext()
+    with lock:
         return await _creative_comic(options)
 
 
@@ -1670,6 +1677,10 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
     density = options.density
     harness_dir = options.harness_dir
     export_mode = options.export_mode
+    if options.lettering_enabled is None:
+        lettering = lettering_enabled()
+    else:
+        lettering = bool(options.lettering_enabled)
 
     output_dir = Path(output_dir)
     clear_audit()
@@ -2131,7 +2142,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                             output_dir,
                             ci,
                             chunk,
-                            stage_src=_placement_stage_src(None, lettering=lettering_enabled()),
+                            stage_src=_placement_stage_src(None, lettering=lettering),
                         )
                         and panel_key_filter is None
                     )
@@ -3153,10 +3164,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                         # resume does not spend another model call. Any failure
                         # yields None -> deterministic fallback in the overlay.
                         placement_boxes: list[tuple[int, int, int, int]] | None = None
-                        if (
-                            lettering_enabled()
-                            and os.environ.get("INKSTONE_VISION_PLACEMENT", "1") != "0"
-                        ):
+                        if lettering and os.environ.get("INKSTONE_VISION_PLACEMENT", "1") != "0":
                             try:
                                 with Image.open(existing.blank_local) as _blank_img:
                                     placement_boxes = await vision_placement_boxes(
@@ -3168,7 +3176,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                             except Exception:  # noqa: BLE001 — fall back, never block lettering
                                 placement_boxes = None
                         placement_stage_src = _placement_stage_src(
-                            placement_boxes, lettering=lettering_enabled()
+                            placement_boxes, lettering=lettering
                         )
                         status = _letter_resume_status(
                             Path(existing.blank_local),
@@ -3193,7 +3201,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                                     output_dir=output_dir,
                                     resolved_size=existing.resolved_size or None,
                                     placement_boxes=placement_boxes,
-                                    lettering=lettering_enabled(),
+                                    lettering=lettering,
                                 )
                             )
                             existing.local = str(local)
@@ -3278,9 +3286,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                                     _chunk,
                                     output_dir,
                                     resolved_size=active_size,
-                                    stage_src=_placement_stage_src(
-                                        None, lettering=lettering_enabled()
-                                    ),
+                                    stage_src=_placement_stage_src(None, lettering=lettering),
                                 )
                                 == "tombstone"
                             ):
@@ -3294,7 +3300,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                                     source_text=_chunk,
                                     output_dir=output_dir,
                                     resolved_size=active_size,
-                                    lettering=lettering_enabled(),
+                                    lettering=lettering,
                                 )
                             )
                             record_page_artifact(
@@ -3464,7 +3470,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                             _chunk,
                             output_dir,
                             resolved_size=active_size,
-                            stage_src=_placement_stage_src(None, lettering=lettering_enabled()),
+                            stage_src=_placement_stage_src(None, lettering=lettering),
                         )
                         == "tombstone"
                     ):
@@ -3478,7 +3484,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                             source_text=_chunk,
                             output_dir=output_dir,
                             resolved_size=active_size,
-                            lettering=lettering_enabled(),
+                            lettering=lettering,
                         )
                     )
                     record_page_artifact(

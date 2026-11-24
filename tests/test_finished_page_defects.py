@@ -10,6 +10,7 @@ from core.comic.page_prompt import (
 )
 from core.pipelines.export_stages import prepare_finished_page_export
 from core.schemas import CharacterAsset, CharacterCanon, ComicPagePlan, Setting, VisualBible
+from tests.prompt_redlines import assert_positive_image_prompt
 
 
 def _plan(*, setting_ref="客栈", action="沈知意 smiles", chars=("沈知意",)):
@@ -48,11 +49,11 @@ def test_negative_prompt_bans_character_sheet_collages():
 def test_prompt_keeps_only_colored_reference_people():
     """The i2i portrait reference must be described as colored art to copy,
     never as a sheet/layout of sub-frames the page might replicate."""
-    text = render_finished_page_prompt(
-        _plan(), characters_by_name=_chars(), settings_by_name={}
-    ).lower()
+    prompt = render_finished_page_prompt(_plan(), characters_by_name=_chars(), settings_by_name={})
+    text = prompt.lower()
     assert "fully colored" in text
-    assert "not a layout" in text or "not a design sheet" in text or "not a sheet" in text
+    assert "painted artwork" in text or "continuous painted artwork" in text
+    assert_positive_image_prompt(prompt)
 
 
 # Defect 2: chapter setting must dominate the inherited look
@@ -63,24 +64,25 @@ def test_scene_setting_is_a_strong_top_level_directive():
     settings = {
         "客栈": Setting(name="客栈", scene_prompt="cozy ancient Chinese inn at night, oil lamp")
     }
-    text = render_finished_page_prompt(
+    prompt = render_finished_page_prompt(
         _plan(), characters_by_name=_chars(), settings_by_name=settings
     )
-    lowered = text.lower()
+    lowered = prompt.lower()
     assert "setting for the whole page" in lowered or "scene setting" in lowered
     assert "cozy ancient chinese inn" in lowered
+    assert_positive_image_prompt(prompt)
 
 
 # Defect 3: panel geometry / no slicing across gutters
 def test_prompt_constrains_panel_geometry_and_full_figures():
     """A single-image page lets the model slice a head at a gutter. The prompt
     must demand separated panels, complete figures, and no bleed between cells."""
-    text = render_finished_page_prompt(
-        _plan(), characters_by_name=_chars(), settings_by_name={}
-    ).lower()
+    prompt = render_finished_page_prompt(_plan(), characters_by_name=_chars(), settings_by_name={})
+    text = prompt.lower()
     assert "gutter" in text
     assert "complete figure" in text or "full figure" in text or "whole body" in text
-    assert "do not" in text and ("cross" in text or "bleed" in text or "spill" in text)
+    assert "separate framed composition" in text or "clear empty gutter" in text
+    assert_positive_image_prompt(prompt)
 
 
 # Defect 4: outfit and prop ownership locked per character
@@ -102,7 +104,7 @@ def test_prompt_binds_outfit_and_prop_to_the_named_character():
             ),
         },
     )
-    text = render_finished_page_prompt(
+    prompt = render_finished_page_prompt(
         _plan(chars=("沈知意", "少年")),
         characters_by_name=_chars()
         | {
@@ -112,9 +114,11 @@ def test_prompt_binds_outfit_and_prop_to_the_named_character():
         },
         settings_by_name={},
         visual_bible=bible,
-    ).lower()
+    )
+    text = prompt.lower()
     assert "same outfit" in text or "exact outfit" in text or "outfit" in text
-    assert "does not hand" in text or "prop" in text or "only the character" in text
+    assert "prop" in text or "named owner" in text or "only the character" in text
+    assert_positive_image_prompt(prompt)
 
 
 # Defect 5: lettered export is the readable default; art-only is opt-in

@@ -44,9 +44,9 @@ def beat_coverage_retry_note(uncovered: list[KeyBeat]) -> str:
     if not uncovered:
         return ""
     lines = [
-        "CRITICAL: these must_draw beats were not covered. Stage each as drawable "
-        "panels/pages (physical action + environment), not caption-only, and set "
-        "covers_beats on the covering page:"
+        "CRITICAL: these must_draw beats need coverage. Stage each as drawable "
+        "panels/pages (physical action + environment), and set covers_beats on "
+        "the covering page:"
     ]
     for beat in uncovered[:12]:
         lines.append(
@@ -65,5 +65,5 @@ def covers_beats_prompt_line(plan: ComicPagePlan) -> str | None:
         "This page covers key beats: "
         + ", ".join(ids)
         + ". Depict them as physical staged scenes (body + environment), "
-        "not as a character merely standing and holding a letter."
+        "with the action carried by the cast and their surroundings."
     )

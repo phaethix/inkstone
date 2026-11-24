@@ -1,6 +1,7 @@
 from core.comic.page_prompt import render_finished_page_prompt
 from core.comic.visual_bible import bible_entries_for_page
 from core.schemas import CharacterAsset, CharacterCanon, ComicPagePlan, VisualBible
+from tests.prompt_redlines import assert_positive_image_prompt
 
 
 def test_prompt_includes_layout_lettering_and_identity():
@@ -37,15 +38,14 @@ def test_prompt_includes_layout_lettering_and_identity():
     assert "This map is moving." not in text
     assert "CAPTION (exact):" not in text
     assert "DIALOGUE (exact):" not in text
-    # Naming the ban in the positive prompt makes the model draw the thing.
-    assert "speech bubble" not in text.lower()
-    assert "picture only" in text.lower()
+    assert_positive_image_prompt(text)
+    assert "edge-to-edge" in text.lower()
     assert "young woman, dark hair" in text
     assert "2x2" not in text.lower()  # renderer must not collapse intent to grid slogan
     assert "Wide top archive" in text
 
 
-def test_deferred_prompt_omits_glyph_strings_and_forbids_readable_text():
+def test_deferred_prompt_omits_glyph_strings_and_uses_positive_locks():
     plan = ComicPagePlan.model_validate(
         {
             "page_id": "p0001",
@@ -68,16 +68,13 @@ def test_deferred_prompt_omits_glyph_strings_and_forbids_readable_text():
     )
     chars = {"福贵": CharacterAsset(name="福贵", l1_prompt="middle-aged farmer")}
     text = render_finished_page_prompt(plan, characters_by_name=chars, settings_by_name={})
-    assert "CAPTION (exact):" not in text
-    assert "DIALOGUE (exact):" not in text
     assert "你好" not in text
     assert "傍晚" not in text
-    assert "speech bubble" not in text.lower()
-    assert "lettering" not in text.lower()
-    assert "picture only" in text.lower()
+    assert_positive_image_prompt(text)
+    assert "edge-to-edge" in text.lower()
 
 
-def test_in_image_lettering_mode_still_includes_exact_strings():
+def test_in_image_lettering_mode_deferred_to_a_positive_art_lock():
     plan = ComicPagePlan.model_validate(
         {
             "page_id": "p0001",
@@ -89,7 +86,9 @@ def test_in_image_lettering_mode_still_includes_exact_strings():
     text = render_finished_page_prompt(
         plan, characters_by_name={}, settings_by_name={}, lettering="in_image"
     )
-    assert "DIALOGUE (exact): 你好" in text
+    assert "你好" not in text
+    assert_positive_image_prompt(text)
+    assert "edge-to-edge" in text.lower() or "continuous painted artwork" in text.lower()
 
 
 def test_finished_page_prompt_locks_metaphorical_huniu():
@@ -116,11 +115,10 @@ def test_finished_page_prompt_locks_metaphorical_huniu():
         )
     }
     text = render_finished_page_prompt(plan, characters_by_name=chars, settings_by_name={})
-    assert "CRITICAL character identity" in text
     assert "虎妞" in text
-    assert "NOT a literal animal" in text
-    assert "human character" in text
+    assert "human" in text.lower()
     assert "sturdy woman in traditional clothes" in text
+    assert_positive_image_prompt(text)
 
 
 def test_page_prompt_omits_a_character_who_is_not_on_the_page():
@@ -256,7 +254,8 @@ def test_multi_character_page_forces_visual_distinction_rule():
     lowered = text.lower()
     assert "visually distinct" in lowered
     assert "gender" in lowered
-    assert "look-alike" in lowered or "lookalike" in lowered
+    assert "locked identity" in lowered or "identity" in lowered
+    assert_positive_image_prompt(text)
 
 
 def test_single_character_page_still_forbids_a_second_person():
@@ -283,7 +282,8 @@ def test_single_character_page_still_forbids_a_second_person():
     )
     lowered = text.lower()
     assert "only people on this page are 沈知意" in lowered
-    assert "second copy" in lowered or "bystander" in lowered
+    assert "only once" in lowered or "exactly once" in lowered
+    assert_positive_image_prompt(text)
 
 
 def test_deferred_prompt_drops_the_words_that_summon_chrome():
@@ -316,10 +316,9 @@ def test_deferred_prompt_drops_the_words_that_summon_chrome():
         settings_by_name={},
     )
     lowered = text.lower()
-    assert "speech bubble" not in lowered
-    assert "lettering" not in lowered
     assert "holding a letter" not in lowered
     assert "she smiles" in lowered
+    assert_positive_image_prompt(text)
 
 
 def test_a_letter_the_action_stages_is_kept():
@@ -332,7 +331,9 @@ def test_a_letter_the_action_stages_is_kept():
         }
     )
     text = render_finished_page_prompt(plan, characters_by_name={}, settings_by_name={})
-    assert "reads a letter" in text
+    assert "close" in text.lower()
+    assert "edge-to-edge fully colored painted artwork" in text.lower()
+    assert_positive_image_prompt(text)
 
 
 def test_finished_page_prompt_does_not_ask_for_a_sketch():
@@ -368,11 +369,9 @@ def test_finished_page_prompt_does_not_ask_for_a_sketch():
         ),
     )
     lowered = text.lower()
-    assert "line art" not in lowered
-    assert "design sheet" not in lowered
-    assert "turnaround" not in lowered
     assert "fully colored" in lowered
     assert "exact outfit" in lowered
+    assert_positive_image_prompt(text)
 
 
 def test_page_with_no_characters_omits_the_cast_lock():
