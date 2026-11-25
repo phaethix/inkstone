@@ -20,9 +20,12 @@ def test_harden_huniu_prompt_locks_a_human_identity():
     assert_positive_image_prompt(out)
 
 
-def test_ordinary_name_prompt_unchanged():
+def test_ordinary_name_prompt_keeps_its_text_and_adds_open_eye_locks():
     base = "middle-aged farmer in patched jacket"
-    assert harden_human_identity_prompt("祥子", base) == base
+    out = harden_human_identity_prompt("祥子", base)
+    assert out.startswith(base)
+    assert "fully open eyes" in out
+    assert "clearly defined pupils and irises" in out
 
 
 def test_ensure_character_l1_hardens_metaphor_name():

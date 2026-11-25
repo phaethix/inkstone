@@ -22,15 +22,25 @@ from core.pipelines.creative_comic import (
     _BEATS_STAGE_SRC,
     _page_plan_key,
     _render_fingerprint,
-    creative_comic,
     is_unsupported_image_size_error,
 )
+from core.pipelines.creative_comic import creative_comic as _creative_comic_impl
 from core.schemas import ModelSnapshot, ProjectState, StoryElements
 from core.screenwriter import (
     build_beats_request,
     build_page_plan_request,
     is_content_policy_rejection,
 )
+
+
+def _creative_comic(*args, **kwargs):
+    """Keep the legacy tests on the explicit lettering opt-in path."""
+    kwargs.setdefault("lettering_enabled_override", True)
+    kwargs.setdefault("export_mode", "lettered")
+    return _creative_comic_impl(*args, **kwargs)
+
+
+creative_comic = _creative_comic
 
 
 class FakeImageOutput:

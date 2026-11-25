@@ -202,8 +202,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p_gen.add_argument(
         "--export-lettered",
         action="store_true",
-        help="Bind deferred-lettering pages (with dialogue) into the book; "
-        "this is the default; use --export-art-only for clean art pages",
+        help="Opt into deferred-lettering pages (with dialogue) into the book; "
+        "ordinary runs publish clean art pages",
     )
     p_gen.add_argument(
         "--export-art-only",
@@ -1058,8 +1058,9 @@ def _run_generate(args: argparse.Namespace) -> None:
             density=args.density,
             harness_dir=args.harness_dir,
             fresh=args.fresh,
-            export_mode="art_only" if getattr(args, "export_art_only", False) else "lettered",
-            lettering_enabled=False if getattr(args, "no_lettering", False) else None,
+            export_mode="lettered" if getattr(args, "export_lettered", False) else "art_only",
+            lettering_enabled=bool(getattr(args, "export_lettered", False))
+            and not getattr(args, "no_lettering", False),
         )
     )
 

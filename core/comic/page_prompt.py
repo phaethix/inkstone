@@ -89,7 +89,8 @@ _NEGATIVE_CLAUSE_RE = re.compile(
 )
 _CHROME_WORD_RE = re.compile(
     r"(?i)\b(?:caption|dialogue|sfx|lettering|speech bubble|thought bubble|"
-    r"chrome|design sheet|model sheet|turnaround|line art|readable text|glyph|"
+    r"dialogue[_ -]?grid|spoken line|single spoken line|chrome|design sheet|"
+    r"model sheet|turnaround|line art|readable text|glyph|"
     r"pseudo-script|comic panel|text|text box|bubble|subtitle|watermark|"
     r"signature|logo|letters|words|numbers|typography|calligraphy|headline|"
     r"printed column|book page|signpost|station sign|shop sign|poster|label|"
@@ -108,6 +109,10 @@ _POSITIVE_LOCKS = (
     "locked identity",
     "locked outfit",
     "stable age",
+    "fully open eyes",
+    "clearly defined pupils and irises",
+    "gaze follows the action",
+    "pose follows the action",
     "the ONLY people in the image",
 )
 _SCENERY_POSITIVE_LOCKS = tuple(lock for lock in _POSITIVE_LOCKS if lock != "stable age")
@@ -270,11 +275,18 @@ def _reference_bindings(
     for index, path in enumerate(reference_images, start=1):
         owner = owners.get(path)
         if owner is None:
-            stem = Path(path).stem
-            if stem.endswith("_trimmed"):
-                owner = owners.get(
-                    str(Path(path).with_name(stem[: -len("_trimmed")] + Path(path).suffix))
-                )
+            candidate = Path(path)
+            while owner is None:
+                stem = candidate.stem
+                suffix = None
+                for known in ("_trimmed", "_neutral"):
+                    if stem.endswith(known):
+                        suffix = known
+                        break
+                if suffix is None:
+                    break
+                candidate = candidate.with_name(stem[: -len(suffix)] + candidate.suffix)
+                owner = owners.get(str(candidate))
         if owner:
             bindings.append((index, owner))
     return bindings
@@ -305,7 +317,7 @@ def render_finished_page_prompt(
         "cells: draw each person as a complete figure (whole body when standing),",
         "with each complete figure, hairstyle, and prop contained inside its own cell,",
         "reference portraits are fully colored painted art of one person each, "
-        "supplying a painted face, hair, and clothes for that locked identity,",
+        "supplying hair, clothes, facial proportions, and locked identity,",
         "each character keeps the same exact outfit in every panel, and each prop stays",
         "with its named owner: the character the action names holds that prop,",
     ]
@@ -324,8 +336,10 @@ def render_finished_page_prompt(
             + "; ".join(
                 f"reference image {index} is exactly {name}" for index, name in reference_bindings
             )
-            + ". Draw that person with the face, hair, and clothes of their own "
-            "numbered reference, keeping each locked identity visually distinct."
+            + ". Draw that person with the hair, clothes, facial proportions, and "
+            "locked identity of their own numbered reference, with fully open eyes, "
+            "clearly defined pupils and irises, gaze following the action, and pose "
+            "following the action, keeping each locked identity visually distinct."
         )
     scene_for_page = _page_scene(plan, settings_by_name)
     if scene_for_page:
@@ -371,8 +385,8 @@ def render_finished_page_prompt(
         lines.append(ANTI_MULTI_AGE_COLLAGE_LINE)
         lines.append(HAIR_STABILITY_LINE)
         lines.append(_image_safe(POSITIVE_LAYOUT_VARIETY_LINE))
-    lines.append(f"Page purpose: {plan.purpose}")
-    lines.append(f"Layout intent: {plan.layout_intent}")
+    lines.append(f"Page purpose: {_image_safe(plan.purpose)}")
+    lines.append(f"Layout intent: {_image_safe(plan.layout_intent)}")
     beat_line = _image_safe(covers_beats_prompt_line(plan) or "")
     if beat_line:
         lines.append(beat_line)
@@ -441,6 +455,10 @@ def render_finished_page_prompt(
 _CHROME_CLAUSE_RE = re.compile(
     r"(?ix)\b(?:"
     r"speech bubbles?|thought bubbles?|bubbles?|caption bars?|caption boxes?|"
+    r"dialogue[_ -]?grid|spoken line|single spoken line|"
+    r"eyes?\s+(?:closed|softening|half-lidded|narrowed|downcast)|"
+    r"half-lidded(?:\s+eyes?|\s+gaze)?|squint(?:s|ing|ed)?(?:\s+eyes?|\s+gaze)?|"
+    r"closed eyes?|downcast eyes?|"
     r"sfx glyphs?|lettering chrome|lettering|post-processing|placeholders?|"
     r"diegetic|pseudo-script|blank aged paper|letterforms?|glyphs?|"
     r"readable text|readable characters?|"
@@ -468,13 +486,14 @@ _LETTER_USAGE_RE = re.compile(r"(?i)\b(outlines and lettering|lettering)\b")
 
 
 def _image_safe(text: str) -> str:
-    """Drop clauses that name bubbles, captions, or a forbidden paper prop.
+    """Drop clauses that name bubbles, eye states, or a forbidden paper prop.
 
     The planner writes actions such as "a speech bubble carries her line" and
     shared lines such as "not holding a letter". Either phrase puts the object
     on the page. A clause is one comma- or semicolon-separated piece; only the
     pieces that name the object are removed, so the staging around them stays.
-    An action that really stages the prop ("reads a letter") is kept.
+    An action that really stages the prop ("reads a letter") is kept. Eye-state
+    phrasing is replaced by positive open-eye geometry rather than negated.
     """
     if not text:
         return ""
@@ -483,9 +502,18 @@ def _image_safe(text: str) -> str:
     # line." must lose the second sentence, not the smile.
     for clause in re.split(r"(?<=[,;])\s+|(?<=[.!?])\s+|\s+—\s+", text):
         if _CHROME_CLAUSE_RE.search(clause) or _NEGATED_PROP_RE.search(clause):
+            if re.search(
+                r"(?i)eyes?\s+(?:closed|softening|half-lidded|narrowed|downcast)|"
+                r"half-lidded|squint(?:s|ing|ed)?|closed eyes?",
+                clause,
+            ):
+                kept.append("fully open eyes, clearly defined pupils and irises")
             continue
         kept.append(clause)
-    return " ".join(kept).strip(" ,;")
+    cleaned = " ".join(kept).strip(" ,;")
+    cleaned = re.sub(r"(?i)[,;]?\s*[“\"'][^“\"']+[”\"']\s*(?=[,;]|$)", "", cleaned)
+    cleaned = re.sub(r"[,;]?\s*[^,;]*[\u3000-\u303f\u4e00-\u9fff][^,;]*$", "", cleaned)
+    return cleaned.strip(" ,;")
 
 
 # "Ink line art" and "design sheet" in a positive prompt become an uncolored
@@ -707,7 +735,11 @@ def render_page_panel_prompt(
         # The i2i reference pins the pose too: repro 3/3 copied the portrait's
         # scarf-adjusting pose while the action said "chin on palm". State
         # where the pose comes from.
-        pose_line = "pose follows the action, with the reference portrait supplying the face"
+        pose_line = (
+            "pose follows the action, gaze follows the action, fully open eyes, "
+            "clearly defined pupils and irises, with the reference portrait supplying "
+            "hair, clothes, facial proportions, and locked identity"
+        )
     else:
         pose_line = ""
     style = f"{style_guide}, {PANEL_FULL_BLEED_STYLE}" if style_guide else PANEL_FULL_BLEED_STYLE

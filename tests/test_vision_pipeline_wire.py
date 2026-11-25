@@ -27,7 +27,14 @@ def test_letter_page_from_blank_passes_placement_boxes(tmp_path, monkeypatch):
 
     monkeypatch.setattr(cc, "letter_finished_page", _fake_letter_finished_page)
     forced = [(20, 20, 100, 40)]
-    cc._letter_page_from_blank(blank, local, _plan(), source_text="原文", placement_boxes=forced)
+    cc._letter_page_from_blank(
+        blank,
+        local,
+        _plan(),
+        source_text="原文",
+        placement_boxes=forced,
+        lettering=True,
+    )
     assert captured["placement_boxes"] == forced
 
 

@@ -234,16 +234,22 @@ def test_a_second_letter_copies_the_stored_bytes(tmp_path, monkeypatch):
         return real(image, page_plan, **kwargs)
 
     monkeypatch.setattr("core.pipelines.creative_comic.letter_finished_page", counting)
-    _letter_page_from_blank(blank, local, plan, source_text="福贵", output_dir=tmp_path)
+    _letter_page_from_blank(
+        blank, local, plan, source_text="福贵", output_dir=tmp_path, lettering=True
+    )
     first = local.read_bytes()
     local.unlink()
-    _letter_page_from_blank(blank, local, plan, source_text="福贵", output_dir=tmp_path)
+    _letter_page_from_blank(
+        blank, local, plan, source_text="福贵", output_dir=tmp_path, lettering=True
+    )
     assert local.read_bytes() == first
     assert calls["n"] == 1
     assert verify(tmp_path) == []
 
     _blank(blank, (90, 10, 10))
-    _letter_page_from_blank(blank, local, plan, source_text="福贵", output_dir=tmp_path)
+    _letter_page_from_blank(
+        blank, local, plan, source_text="福贵", output_dir=tmp_path, lettering=True
+    )
     assert calls["n"] == 2
 
 
@@ -263,15 +269,33 @@ def test_a_fallback_size_reletters_the_stored_blank(tmp_path, monkeypatch):
 
     monkeypatch.setattr("core.pipelines.creative_comic.letter_finished_page", counting)
     _letter_page_from_blank(
-        blank, local, plan, source_text="福贵", output_dir=tmp_path, resolved_size="1024x1536"
+        blank,
+        local,
+        plan,
+        source_text="福贵",
+        output_dir=tmp_path,
+        resolved_size="1024x1536",
+        lettering=True,
     )
     assert calls["n"] == 1
     _letter_page_from_blank(
-        blank, local, plan, source_text="福贵", output_dir=tmp_path, resolved_size="1024x1536"
+        blank,
+        local,
+        plan,
+        source_text="福贵",
+        output_dir=tmp_path,
+        resolved_size="1024x1536",
+        lettering=True,
     )
     assert calls["n"] == 1
     _letter_page_from_blank(
-        blank, local, plan, source_text="福贵", output_dir=tmp_path, resolved_size="1024x1024"
+        blank,
+        local,
+        plan,
+        source_text="福贵",
+        output_dir=tmp_path,
+        resolved_size="1024x1024",
+        lettering=True,
     )
     assert calls["n"] == 2
     assert blank.read_bytes() == blank_bytes
@@ -432,18 +456,24 @@ def test_a_rejected_letter_stays_rejected_until_rebuild(tmp_path, monkeypatch):
         return real(image, page_plan, **kwargs)
 
     monkeypatch.setattr("core.pipelines.creative_comic.letter_finished_page", counting)
-    _letter_page_from_blank(blank, local, plan, source_text="福贵", output_dir=tmp_path)
+    _letter_page_from_blank(
+        blank, local, plan, source_text="福贵", output_dir=tmp_path, lettering=True
+    )
     key = _only_key(tmp_path)
     rewrite_manifest(tmp_path, key, outcome="rejected", reason="content_policy", outputs=[])
     local.unlink()
 
-    _letter_page_from_blank(blank, local, plan, source_text="福贵", output_dir=tmp_path)
+    _letter_page_from_blank(
+        blank, local, plan, source_text="福贵", output_dir=tmp_path, lettering=True
+    )
     assert calls["n"] == 1
     assert not local.exists()
 
     exit_code = _run_rebuild(argparse.Namespace(out=str(tmp_path), stage="letter", key=[key]))
     assert exit_code == 0
-    _letter_page_from_blank(blank, local, plan, source_text="福贵", output_dir=tmp_path)
+    _letter_page_from_blank(
+        blank, local, plan, source_text="福贵", output_dir=tmp_path, lettering=True
+    )
     assert calls["n"] == 2
     assert local.is_file()
     assert verify(tmp_path) == []
@@ -482,7 +512,9 @@ def test_rebuild_leaves_an_ok_letter_manifest(tmp_path):
     local = tmp_path / "page.png"
     _blank(blank, (10, 20, 30))
     plan = ComicPagePlan(page_id="p")
-    _letter_page_from_blank(blank, local, plan, source_text="福贵", output_dir=tmp_path)
+    _letter_page_from_blank(
+        blank, local, plan, source_text="福贵", output_dir=tmp_path, lettering=True
+    )
     key = _only_key(tmp_path)
 
     exit_code = _run_rebuild(argparse.Namespace(out=str(tmp_path), stage="letter", key=[key]))

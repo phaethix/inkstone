@@ -58,7 +58,7 @@ Inkstone is an **independent implementation, not a fork** — inspired by [`lcy3
 
 > **An honest trade-off.** Free, cloud-only Agnes with no GPU caps how far character consistency can reach. The strongest approaches (IP-Adapter / InsightFace) need a local GPU running SDXL/Flux — incompatible with Inkstone's zero-cost premise. So Inkstone trades *perfect* consistency for *zero-cost + no-GPU + out-of-the-box*, using L1+L2. L3 is opt-in and off by default. Stated plainly, not hidden.
 
-**Panel-compose mode (default)** plans comic pages, generates each panel as its own image, and composes pages locally with the `LayoutEngine`; caption/dialogue/sfx are overlaid with real fonts (CJK-capable), never model-painted. Set `INKSTONE_RENDER_MODE=finished_page` for the whole-page fallback (one image per page, empty lettering chrome overlaid the same way); set `INKSTONE_RENDER_MODE=storyboard` for the legacy per-panel grid path. Unlettered art is cached under `pages/blank/` so resume can re-letter without another image API call.
+**Panel-compose mode (default)** plans comic pages, generates each panel as its own image, and composes pages locally with the `LayoutEngine`. Ordinary runs publish clean art without caption/dialogue/sfx overlays; lettered pages are an explicit opt-in via `--export-lettered`, `INKSTONE_LETTERING=1`, or the Web "Lettered pages" checkbox. Set `INKSTONE_RENDER_MODE=finished_page` for the whole-page fallback (one image per page); set `INKSTONE_RENDER_MODE=storyboard` for the legacy per-panel grid path. Unlettered art is cached under `pages/blank/` so an explicit lettered run can reuse it without another image API call.
 
 <p align="center">
   <img src="assets/readme/section-how.svg" width="100%" alt="How it works" />
@@ -239,7 +239,7 @@ per run with `--chat-model` / `--image-model` / `--provider` / `--base-url` on
 | `INKSTONE_RENDER_MODE` | | `panel_compose` | Default: page-plan → per-panel images → local page compose, text overlaid with real fonts. `finished_page` is the whole-page fallback (one image per page). `storyboard` runs the legacy storyboard → panel → layout grid path. |
 | `INKSTONE_PANEL_SIZE` | | `1024x1024` | Single-panel image size in panel-compose mode. |
 | `INKSTONE_PAGE_SIZE` | | `1024x1536` | Finished-page image size. If the provider rejects the size, Inkstone retries once with `1024x1024`. |
-| `INKSTONE_LETTERING` | | `1` | Local lettering overlay (captions, dialogue bubbles, SFX). `0`/`false`/`no`/`off` publishes art-only pages; `--no-lettering` overrides it for one run. |
+| `INKSTONE_LETTERING` | | `0` | Local lettering overlay (captions, dialogue bubbles, SFX). Default publishes art-only pages; set to `1` or use `--export-lettered` / Web "Lettered pages" to opt in. `--no-lettering` forces art-only for one run. |
 | `INKSTONE_FONT_PATH` | | (auto) | TrueType/OpenType font for dialogue bubbles. |
 | `INKSTONE_WEBTOON_MAX_PIXELS` | | `200000000` | Refuse single-strip webtoon compose above this pixel budget. `0` disables. |
 | `INKSTONE_UI_HOST` / `INKSTONE_UI_PORT` | | `127.0.0.1` / `8000` | Web UI bind address. Values in `.env` apply at startup. A non-loopback host is refused unless `INKSTONE_UI_ALLOW_LAN=1`, `INKSTONE_UI_TOKEN`, and `INKSTONE_UI_ORIGIN` are all set. |

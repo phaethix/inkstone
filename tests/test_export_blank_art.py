@@ -28,8 +28,8 @@ def test_export_uses_blank_art_not_the_lettered_page(tmp_path):
     assert not stale.exists()
 
 
-def test_export_falls_back_to_lettered_when_blank_is_missing(tmp_path):
-    """An older project with no blank/ must not lose the page entirely."""
+def test_export_skips_lettered_when_blank_is_missing(tmp_path):
+    """An older lettered page must never be substituted for missing blank art."""
     pages = tmp_path / "pages"
     pages.mkdir()
     lettered = pages / "page_c0000_p0000.png"
@@ -37,4 +37,4 @@ def test_export_falls_back_to_lettered_when_blank_is_missing(tmp_path):
 
     files = prepare_finished_page_export(pages)
 
-    assert files == [lettered]
+    assert files == []

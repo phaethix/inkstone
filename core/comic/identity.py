@@ -38,6 +38,11 @@ _HUMAN_LOCK = (
     "human figure from head to feet"
 )
 
+EYE_IDENTITY_LOCK = (
+    "fully open eyes, clearly defined pupils and irises, gaze follows the action, "
+    "pose follows the action"
+)
+
 
 def page_state_key(chunk_index: int, page_index: int) -> str:
     """Return the positional identity for one finished-page position.
@@ -91,17 +96,18 @@ def metaphor_names_on_page(
 
 
 def harden_human_identity_prompt(name: str, prompt: str) -> str:
-    """Prefix a positive human lock for metaphorical animal names.
+    """Return a positive identity prompt with stable open-eye geometry.
 
-    Non-metaphor names are returned unchanged. Idempotent if the lock is already
-    present.
+    The i2i reference must carry identity, hair, and outfit only. An explicit
+    open-eye lock keeps a portrait's half-lidded expression from becoming the
+    page's eye shape.
     """
     text = (prompt or "").strip()
-    if not name_suggests_animal_metaphor(name):
-        return text
     lower = text.lower()
-    if "metaphorical" in lower and "human character" in lower and "human face" in lower:
+    if "fully open eyes" in lower and "clearly defined pupils and irises" in lower:
         return text
+    if not name_suggests_animal_metaphor(name):
+        return f"{text}; {EYE_IDENTITY_LOCK}" if text else EYE_IDENTITY_LOCK
     core = text
     if core.startswith(name):
         core = core[len(name) :].lstrip(" ,;—-")
@@ -110,8 +116,8 @@ def harden_human_identity_prompt(name: str, prompt: str) -> str:
         "fully human person with a normal human face and body"
     )
     if core:
-        return f"{lead}; {core}; {_HUMAN_LOCK}"
-    return f"{lead}; {_HUMAN_LOCK}"
+        return f"{lead}; {core}; {_HUMAN_LOCK}; {EYE_IDENTITY_LOCK}"
+    return f"{lead}; {_HUMAN_LOCK}; {EYE_IDENTITY_LOCK}"
 
 
 def build_l1_from_appearance(

@@ -790,7 +790,7 @@ def test_generate_resumes_from_the_saved_manuscript_when_the_paste_is_empty(tmp_
     assert captured["text"] == "saved manuscript"
 
 
-def test_generate_preserves_cbz_and_the_lettered_default(tmp_path, monkeypatch):
+def test_generate_preserves_cbz_and_the_art_only_default(tmp_path, monkeypatch):
     monkeypatch.setattr(server, "OUTPUT_DIR", tmp_path)
     captured: dict = {}
 
@@ -811,8 +811,8 @@ def test_generate_preserves_cbz_and_the_lettered_default(tmp_path, monkeypatch):
     assert payload["project_id"] == "cbzproj"
     assert captured == {
         "fmt": "cbz",
-        "export_mode": "lettered",
-        "lettering_enabled": None,
+        "export_mode": "art_only",
+        "lettering_enabled": False,
     }
 
 

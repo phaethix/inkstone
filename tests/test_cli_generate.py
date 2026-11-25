@@ -84,7 +84,7 @@ def test_generate_yes_defaults_off():
     assert confirmed.yes is True
 
 
-def test_generate_exports_lettered_pages_by_default():
+def test_generate_exports_art_only_pages_by_default():
     args = cli._build_parser().parse_args(["generate", "book.txt"])
     assert args.export_lettered is False
     assert args.export_art_only is False

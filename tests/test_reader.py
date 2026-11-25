@@ -77,6 +77,17 @@ def test_reader_omits_pages_the_plan_dropped_or_skipped(tmp_path):
     assert "page_c0000_p0002.png" not in html
 
 
+def test_reader_prefers_clean_blank_art_over_legacy_lettered_pages(tmp_path):
+    pages = tmp_path / "pages"
+    (pages / "blank").mkdir(parents=True)
+    _png(pages, "page_c0000_p0000.png")
+    _png(pages / "blank", "page_c0000_p0000.png")
+    groups = chapter_pages(pages)
+    assert [path.relative_to(tmp_path).as_posix() for path in groups[0][1]] == [
+        "pages/blank/page_c0000_p0000.png"
+    ]
+
+
 def test_read_refuses_to_break_out_of_the_script(tmp_path):
     pages = tmp_path / "pages"
     pages.mkdir()

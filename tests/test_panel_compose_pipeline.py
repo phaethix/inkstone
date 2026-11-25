@@ -8,7 +8,14 @@ from unittest.mock import patch
 from PIL import Image
 
 from core.api import ChatProvider, ImageProvider
-from core.pipelines.creative_comic import creative_comic
+from core.pipelines.creative_comic import creative_comic as _creative_comic_impl
+
+
+def creative_comic(*args, **kwargs):
+    """Keep the legacy lettered-page assertions on the explicit opt-in path."""
+    kwargs.setdefault("lettering_enabled_override", True)
+    kwargs.setdefault("export_mode", "lettered")
+    return _creative_comic_impl(*args, **kwargs)
 
 
 class FakeImageOutput:

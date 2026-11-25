@@ -28,8 +28,21 @@ def _project_state(pages_dir: Path) -> ProjectState | None:
 
 
 def page_images(pages_dir: Path) -> list[Path]:
-    """Page images in filename order. A webtoon strip is not a page."""
+    """Clean page images in filename order for the browser reader.
+
+    Legacy projects stored deferred lettering in ``pages/page_*.png``. The
+    browser reader shows the unlettered ``pages/blank/`` art whenever it is
+    available, so an old caption bar cannot resurface after the default
+    switched to art-only publishing.
+    """
     state = _project_state(pages_dir)
+    blank_dir = pages_dir / "blank"
+    if blank_dir.is_dir():
+        blank_pages = sorted(
+            path for path in blank_dir.glob("page_c*_p*.png") if path.name.lower() != "webtoon.png"
+        )
+        if blank_pages:
+            return blank_pages
     if state is not None and state.render_mode in ("finished_page", "panel_compose"):
         from core.pipelines.resume import finished_plan_files
 

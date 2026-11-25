@@ -53,15 +53,15 @@ def test_cli_generate_handler_wiring_passes_no_lettering_flag(monkeypatch):
     assert captured["lettering_enabled"] is False
 
 
-def test_cli_generate_handler_wiring_without_flag_does_not_touch_env(monkeypatch):
-    """未传 flag 时处理器保留 None，让已有 env/config 生效。"""
+def test_cli_generate_handler_wiring_without_flag_forces_art_only(monkeypatch):
+    """未传 flag 时处理器强制关闭叠字，避免默认出现字幕条。"""
     import core.cli as cli_module
 
     captured = _watch_run_generate(monkeypatch)
     args = _build_parser().parse_args(["generate"])
     with pytest.raises(SystemExit):
         cli_module._run_generate(args)
-    assert captured["lettering_enabled"] is None
+    assert captured["lettering_enabled"] is False
 
 
 def test_cli_generate_main_wiring_passes_no_lettering_flag(monkeypatch):
@@ -75,12 +75,12 @@ def test_cli_generate_main_wiring_passes_no_lettering_flag(monkeypatch):
     assert captured["lettering_enabled"] is False
 
 
-def test_cli_generate_main_wiring_without_flag_does_not_touch_env(monkeypatch):
-    """独立入口未传 flag 时同样不调用 set_lettering_env。"""
+def test_cli_generate_main_wiring_without_flag_forces_art_only(monkeypatch):
+    """独立入口未传 flag 时同样强制关闭叠字。"""
     import core.cli_generate as cli_generate_module
 
     captured = _watch_run_generate(monkeypatch)
     monkeypatch.setattr(sys, "argv", ["generate", "story.txt"])
     with pytest.raises(SystemExit):
         cli_generate_module.main()
-    assert captured["lettering_enabled"] is None
+    assert captured["lettering_enabled"] is False

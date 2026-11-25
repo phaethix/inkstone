@@ -188,8 +188,8 @@ async def _run(
     gate_yes: bool = False,
     density: str | None = None,
     harness_dir: str | None = None,
-    export_mode: str = "lettered",
-    lettering_enabled: bool | None = None,
+    export_mode: str = "art_only",
+    lettering_enabled: bool = False,
 ) -> None:
     text = Path(source).read_text(encoding="utf-8")
     spec = None
@@ -296,8 +296,8 @@ def run_generate(
     density: str | None = None,
     harness_dir: str | None = None,
     fresh: bool = False,
-    export_mode: str = "lettered",
-    lettering_enabled: bool | None = None,
+    export_mode: str = "art_only",
+    lettering_enabled: bool = False,
 ) -> int:
     """Validate inputs and run the pipeline. Returns a process exit code.
 
@@ -412,8 +412,8 @@ def _parse_args(argv=None) -> argparse.Namespace:
     p.add_argument(
         "--export-lettered",
         action="store_true",
-        help="Bind the deferred-lettering pages (with dialogue bubbles) into the book; "
-        "this is the default; use --export-art-only for clean art pages",
+        help="Opt into the deferred-lettering pages (with dialogue bubbles) into the book; "
+        "ordinary runs publish clean art pages",
     )
     p.add_argument(
         "--export-art-only",
@@ -455,8 +455,9 @@ def main() -> None:
             gate_yes=args.yes,
             density=args.density,
             fresh=args.fresh,
-            export_mode="art_only" if getattr(args, "export_art_only", False) else "lettered",
-            lettering_enabled=False if getattr(args, "no_lettering", False) else None,
+            export_mode="lettered" if getattr(args, "export_lettered", False) else "art_only",
+            lettering_enabled=bool(getattr(args, "export_lettered", False))
+            and not getattr(args, "no_lettering", False),
         )
     )
 

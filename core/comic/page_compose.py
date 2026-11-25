@@ -20,11 +20,15 @@ def compose_page_panels(
     panel_images: list[Image.Image],
     blank_path: Path,
     lettered_path: Path,
+    *,
+    lettering: bool = True,
 ) -> None:
     """Write the blank (art-only) and lettered page for one planned page.
 
     ``panel_images`` must align with ``plan.panels``; lettering text comes from
-    each panel's dialogue/caption/sfx.
+    each panel's dialogue/caption/sfx. With ``lettering=False`` both paths are
+    the same clean artwork, so the browser reader and export cannot expose a
+    stale lettered projection.
     """
     if len(panel_images) != len(plan.panels):
         raise ValueError(
@@ -32,11 +36,15 @@ def compose_page_panels(
         )
     engine = LayoutEngine()
     blank = engine.compose_single_page([PanelImage(img) for img in panel_images])
-    lettered = engine.compose_single_page(
-        [
-            PanelImage(img, dialogue=spec.dialogue, caption=spec.caption, sfx=spec.sfx)
-            for img, spec in zip(panel_images, plan.panels, strict=True)
-        ]
+    lettered = (
+        engine.compose_single_page(
+            [
+                PanelImage(img, dialogue=spec.dialogue, caption=spec.caption, sfx=spec.sfx)
+                for img, spec in zip(panel_images, plan.panels, strict=True)
+            ]
+        )
+        if lettering
+        else blank.copy()
     )
     blank_path.parent.mkdir(parents=True, exist_ok=True)
     lettered_path.parent.mkdir(parents=True, exist_ok=True)

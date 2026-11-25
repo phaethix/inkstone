@@ -304,7 +304,7 @@ def render_mode() -> str:
 
 
 def lettering_enabled() -> bool:
-    raw = _get(ENV_LETTERING, "1").strip().lower()
+    raw = _get(ENV_LETTERING, "0").strip().lower()
     return raw not in {"0", "false", "no", "off", ""}
 
 

@@ -648,7 +648,7 @@ def _portrait_key_material(name: str, asset, style: str) -> str:
     """
     portrait = _strip_portrait_props(asset.portrait_prompt or "")
     l1 = _strip_portrait_props(asset.l1_prompt or "")
-    return "\n".join([name, portrait, l1, style or ""])
+    return "\n".join([name, portrait, l1, style or "", DEFAULT_PORTRAIT_STYLE])
 
 
 def _panel_key_material(panel) -> str:
@@ -1524,8 +1524,8 @@ class ComicRunOptions:
     sample_gate_size: int | None = None
     density: str | None = None
     harness_dir: str | Path | None = None
-    export_mode: str = "lettered"
-    lettering_enabled: bool | None = None
+    export_mode: str = "art_only"
+    lettering_enabled: bool = False
     acquire_lock: bool = True
 
 
@@ -1549,8 +1549,8 @@ async def creative_comic(
     sample_gate_size: int | None = None,
     density: str | None = None,
     harness_dir: str | Path | None = None,
-    export_mode: str = "lettered",
-    lettering_enabled_override: bool | None = None,
+    export_mode: str = "art_only",
+    lettering_enabled_override: bool = False,
     acquire_lock: bool = True,
 ) -> ComicProject:
     """Generate a project while holding its process-level mutation lock.
@@ -1677,10 +1677,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
     density = options.density
     harness_dir = options.harness_dir
     export_mode = options.export_mode
-    if options.lettering_enabled is None:
-        lettering = lettering_enabled()
-    else:
-        lettering = bool(options.lettering_enabled)
+    lettering = bool(options.lettering_enabled)
 
     output_dir = Path(output_dir)
     clear_audit()
@@ -2383,6 +2380,8 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                     color_block = format_color_bible_block(_state.visual_bible)
                     if color_block:
                         prompt = f"{prompt}, {color_block}"
+                prompt = re.sub(r"(?i);\s*source:.*$", "", prompt)
+                prompt = re.sub(r"(?i)[“\"'][^“\"']+[”\"']", "", prompt)
                 comic_style = (
                     f"{style}, {DEFAULT_PORTRAIT_STYLE}" if style else DEFAULT_PORTRAIT_STYLE
                 )
@@ -3044,7 +3043,12 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                     blank_path = _page_asset_path(blank_dir, _chunk_index, page_index)
                     local = _page_asset_path(pages_dir, _chunk_index, page_index)
                     await asyncio.to_thread(
-                        compose_page_panels, plan, panel_images, blank_path, local
+                        compose_page_panels,
+                        plan,
+                        panel_images,
+                        blank_path,
+                        local,
+                        lettering=lettering,
                     )
                     record_page_artifact(
                         _state,
@@ -3060,7 +3064,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                             page_id=plan.page_id,
                             unit_index=_chunk_index,
                             page_index=page_index,
-                            mode="finished_lettered",
+                            mode="finished_lettered" if lettering else "finished",
                         ),
                     )
                     if state_key in _state.stale_pages:
@@ -3205,7 +3209,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                                 )
                             )
                             existing.local = str(local)
-                            existing.mode = "finished_lettered"
+                            existing.mode = "finished_lettered" if lettering else "finished"
                             existing.lettering_version = LETTERING_VERSION
                             record_page_artifact(_state, state_key, existing)
                             # Projection-only: no heavy cache changed since the
@@ -3319,7 +3323,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                                     page_id=page_id,
                                     unit_index=_chunk_index,
                                     page_index=page_index,
-                                    mode="finished_lettered",
+                                    mode="finished_lettered" if lettering else "finished",
                                 ),
                             )
                             _state.save(state_path, caches=False)
@@ -3501,7 +3505,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                             page_id=page_id,
                             unit_index=_chunk_index,
                             page_index=page_index,
-                            mode="finished_lettered",
+                            mode="finished_lettered" if lettering else "finished",
                         ),
                     )
                     if ledger.rebuild_from_state(_state):
@@ -3986,6 +3990,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
         _report("layout", max(0.90, _pct()))
         items = _ordered_generated_panels(state)
         panel_imgs = []
+        panel_lettering = bool(lettering)
         for panel_id, generated in items:
             if not _is_within(generated.local, output_dir) or not Path(generated.local).exists():
                 logger.warning("layout: panel %s missing or outside project; omitting", panel_id)
@@ -3993,9 +3998,9 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
             panel_imgs.append(
                 PanelImage(
                     Image.open(generated.local),
-                    dialogue=generated.dialogue,
-                    caption=generated.caption,
-                    sfx=generated.sfx,
+                    dialogue=generated.dialogue if panel_lettering else None,
+                    caption=generated.caption if panel_lettering else None,
+                    sfx=generated.sfx if panel_lettering else None,
                 )
             )
 

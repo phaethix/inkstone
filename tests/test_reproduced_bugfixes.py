@@ -83,8 +83,8 @@ def test_segment_chunks_are_canonical_source_slices():
     assert not any("第一章\n\n著名小说家r·" in chunk for chunk in chunks)
 
 
-def test_supervisor_defaults_to_lettered_export():
-    assert inspect.signature(run_until_complete).parameters["export_mode"].default == "lettered"
+def test_supervisor_defaults_to_art_only_export():
+    assert inspect.signature(run_until_complete).parameters["export_mode"].default == "art_only"
     assert inspect.signature(run_until_complete).parameters["gate_yes"].default is False
 
 
@@ -615,3 +615,226 @@ def test_index_html_has_gate_and_lettering_controls():
     assert 'id="letteringEnabled"' in html
     assert 'id="gateApprove"' in html
     assert "/api/project/" in html and '/gate"' in html
+
+
+def test_default_publishing_is_art_only_without_lettering_overlays():
+    """The user's standing redline: ordinary runs never draw speech bubbles."""
+    from core import cli_generate, config
+    from core.pipelines import creative_comic as pipeline
+    from core.pipelines.export_stages import prepare_finished_page_export
+
+    assert config.lettering_enabled() is False
+    assert inspect.signature(cli_generate.run_generate).parameters["export_mode"].default == (
+        "art_only"
+    )
+    assert (
+        inspect.signature(cli_generate.run_generate).parameters["lettering_enabled"].default
+        is False
+    )
+    assert inspect.signature(run_until_complete).parameters["export_mode"].default == "art_only"
+    assert inspect.signature(run_until_complete).parameters["lettering_enabled"].default is False
+    assert inspect.signature(pipeline.creative_comic).parameters["export_mode"].default == (
+        "art_only"
+    )
+    assert (
+        inspect.signature(pipeline.creative_comic).parameters["lettering_enabled_override"].default
+        is False
+    )
+    assert (
+        inspect.signature(prepare_finished_page_export).parameters["export_mode"].default
+        == "art_only"
+    )
+    assert inspect.signature(server._run_job).parameters["export_mode"].default == "art_only"
+    assert (
+        inspect.signature(server._run_job).parameters["lettering_enabled_override"].default is False
+    )
+    assert inspect.signature(server._start_job).parameters["export_mode"].default == "art_only"
+    assert inspect.signature(server._start_job).parameters["lettering_enabled"].default is False
+
+
+def test_default_export_never_binds_a_caption_bar_even_when_blank_is_missing():
+    from unittest.mock import patch
+
+    from core.pipelines.export_stages import prepare_finished_page_export
+
+    pages = Path("/in-memory-project/pages")
+    lettered = pages / "page_c0000_p0000.png"
+    exists = {lettered}
+    with (
+        patch("core.pipelines.resume.finished_plan_files", return_value=[lettered]),
+        patch("pathlib.Path.is_file", lambda self: self in exists),
+        patch("pathlib.Path.glob", lambda self, _pattern: []),
+        patch("pathlib.Path.unlink"),
+    ):
+        files = prepare_finished_page_export(pages, state=object())
+    assert files == []
+
+
+def test_default_cli_and_web_never_request_lettered_pages(monkeypatch):
+    import json
+
+    args = cli._build_parser().parse_args(["generate", "book.txt"])
+    assert args.export_lettered is False
+    assert args.export_art_only is False
+    assert args.no_lettering is False
+
+    captured: dict = {}
+
+    def fake_start(*_args, **kwargs):
+        captured.update(kwargs)
+        return "job1", "bubble-free-project"
+
+    monkeypatch.setattr(server, "_start_job", fake_start)
+    monkeypatch.setattr(server, "_providers_configured", lambda: True)
+    body = json.dumps({"text": "a novel", "format": "cbz"}).encode()
+    handler = _handler_for("/api/generate", "POST", body)
+    handler._post_generate()
+    assert handler.status == 200
+    assert captured["export_mode"] == "art_only"
+    assert captured["lettering_enabled"] is False
+
+    html = (Path("web/index.html")).read_text(encoding="utf-8")
+    assert 'id="letteringEnabled" type="checkbox" checked' not in html
+
+
+def test_image_prompts_lock_eyes_without_copying_reference_expression():
+    plan = _finished_plan(cast=["虎妞", "R"])
+    prompt = render_finished_page_prompt(
+        plan,
+        characters_by_name=_characters(),
+        settings_by_name=_settings(),
+        style_guide="",
+        visual_bible=_visual_bible(),
+        reference_images=["/tmp/1_trimmed.png", "/tmp/2_trimmed.png"],
+    )
+    assert_positive_image_prompt(prompt)
+    lowered = prompt.lower()
+    assert "fully open eyes" in lowered
+    assert "clearly defined pupils and irises" in lowered
+    assert "gaze follows the action" in lowered
+    assert "pose follows the action" in lowered
+    assert "reference portraits are fully colored painted art of one person each" in lowered
+    assert "supplying a painted face" not in lowered
+    assert "supplying the face" not in lowered
+    assert "with the face, hair, and clothes of their own" not in lowered
+
+    panel_plan, panel = _panel_plan(cast=["R"], action="R looks toward the lantern")
+    panel_prompt = render_page_panel_prompt(
+        panel_plan,
+        panel,
+        characters_by_name=_characters(),
+        settings_by_name=_settings(),
+        style_guide="",
+        visual_bible=_visual_bible(),
+        reference_images=["/tmp/3_trimmed.png"],
+    )
+    assert_positive_image_prompt(panel_prompt)
+    lowered = panel_prompt.lower()
+    assert "fully open eyes" in lowered
+    assert "clearly defined pupils and irises" in lowered
+    assert "gaze follows the action" in lowered
+    assert "pose follows the action" in lowered
+    assert "reference portrait supplying the face" not in lowered
+
+
+def test_default_portrait_prompt_asks_for_open_eyes():
+    from core.comic.identity import harden_human_identity_prompt
+
+    prompt = harden_human_identity_prompt("少年", "young man, short black hair")
+    assert "fully open eyes" in prompt
+    assert "clearly defined pupils and irises" in prompt
+
+
+def test_portrait_style_is_positive_and_changes_the_portrait_cache_key(monkeypatch):
+    from core.comic.consistency import DEFAULT_PORTRAIT_STYLE
+    from core.pipelines import creative_comic as pipeline
+
+    lowered = DEFAULT_PORTRAIT_STYLE.lower()
+    assert "fully open eyes" in lowered
+    assert "clearly defined pupils and irises" in lowered
+    assert "speech bubble" not in lowered
+    assert "caption" not in lowered
+    assert "lettering" not in lowered
+    assert "watermark" not in lowered
+    assert not re.search(r"\b(?:no|not|never|without)\b", lowered)
+
+    asset = CharacterAsset(name="少年", l1_prompt="young man, short black hair")
+    before = pipeline._portrait_key_material("少年", asset, "style")
+    monkeypatch.setattr(
+        pipeline, "DEFAULT_PORTRAIT_STYLE", DEFAULT_PORTRAIT_STYLE + ", iris detail"
+    )
+    after = pipeline._portrait_key_material("少年", asset, "style")
+    assert before != after
+
+
+def test_neutral_trimmed_reference_is_bound_to_its_character():
+    from core.comic.page_prompt import _reference_bindings
+
+    characters = {
+        "少年": CharacterAsset(
+            name="少年",
+            l1_prompt="young man, short black hair",
+            portrait_local="/tmp/boy.png",
+        )
+    }
+    refs = ["/tmp/boy_neutral_trimmed.png"]
+    assert _reference_bindings(["少年"], characters, refs) == [(1, "少年")]
+
+
+def test_eye_state_and_dialogue_grid_are_rewritten_positively():
+    plan = _finished_plan(cast=["R"])
+    plan.purpose = "dialogue_grid: a single spoken line, eyes softening"
+    plan.layout_intent = "eyes closed, half-lidded gaze"
+    plan.panels[0].action = "R looks toward the candle with eyes closed"
+    prompt = render_finished_page_prompt(
+        plan,
+        characters_by_name=_characters(),
+        settings_by_name=_settings(),
+        style_guide="",
+        visual_bible=_visual_bible(),
+    )
+    assert_positive_image_prompt(prompt)
+    lowered = prompt.lower()
+    assert "eyes closed" not in lowered
+    assert "eyes softening" not in lowered
+    assert "half-lidded" not in lowered
+    assert "dialogue_grid" not in lowered
+    assert "single spoken line" not in lowered
+    assert "fully open eyes" in lowered
+    assert "clearly defined pupils and irises" in lowered
+
+    panel_plan, panel = _panel_plan(cast=["R"], action="R squints, eyes closed")
+    panel_prompt = render_page_panel_prompt(
+        panel_plan,
+        panel,
+        characters_by_name=_characters(),
+        settings_by_name=_settings(),
+        style_guide="",
+        visual_bible=_visual_bible(),
+    )
+    assert_positive_image_prompt(panel_prompt)
+    assert "eyes closed" not in panel_prompt.lower()
+    assert "squint" not in panel_prompt.lower()
+    assert "fully open eyes" in panel_prompt.lower()
+
+
+def test_web_rejects_conflicting_lettering_and_export_modes():
+    import json
+
+    monkeypatch = pytest.MonkeyPatch()
+    try:
+        monkeypatch.setattr(server, "_providers_configured", lambda: True)
+        body = json.dumps(
+            {
+                "text": "a novel",
+                "format": "page",
+                "lettering_enabled": False,
+                "export_mode": "lettered",
+            }
+        ).encode()
+        handler = _handler_for("/api/generate", "POST", body)
+        handler._post_generate()
+        assert handler.status == 400
+        assert "requires lettering_enabled=true" in json.loads(handler.body)["error"]
+    finally:
+        monkeypatch.undo()

@@ -608,8 +608,8 @@ def _run_job(
     style_guide: str | None,
     project_id: str,
     panel_keys: list[str] | None = None,
-    export_mode: str = "lettered",
-    lettering_enabled_override: bool | None = None,
+    export_mode: str = "art_only",
+    lettering_enabled_override: bool = False,
 ) -> None:
     job = JOBS[job_id]
     handler = _JobLogHandler(job)
@@ -677,8 +677,8 @@ def _start_job(
     style_guide: str | None,
     project_id: str | None = None,
     panel_keys: list[str] | None = None,
-    export_mode: str = "lettered",
-    lettering_enabled: bool | None = None,
+    export_mode: str = "art_only",
+    lettering_enabled: bool = False,
 ) -> tuple[str, str]:
     pid = validate_project_id(project_id) if project_id else uuid.uuid4().hex[:12]
     job_id = uuid.uuid4().hex[:12]
@@ -842,8 +842,8 @@ def start_regen_job(
     keys: list[str] | None = None,
     fmt: str = "webtoon",
     style_guide: str | None = None,
-    export_mode: str = "lettered",
-    lettering_enabled: bool | None = None,
+    export_mode: str = "art_only",
+    lettering_enabled: bool = False,
 ) -> tuple[str, str]:
     """Force-regen stale/selected panels and start a background job."""
     out_dir = _project_dir(project_id)
@@ -1684,13 +1684,14 @@ class Handler(BaseHTTPRequestHandler):
         payload = self._read_json()
         text = (payload.get("text") or "").strip()
         fmt = payload.get("format", "page")
-        export_mode = payload.get("export_mode", "lettered")
+        export_mode = payload.get("export_mode", "art_only")
         style_guide = (payload.get("style_guide") or "").strip() or None
         project_id = (payload.get("project_id") or "").strip() or None
-        lettering = payload.get("lettering_enabled")
-        if lettering is not None and not isinstance(lettering, bool):
+        raw_lettering = payload.get("lettering_enabled", False)
+        if not isinstance(raw_lettering, bool):
             self._send_json({"error": "lettering_enabled must be a boolean"}, status=400)
             return
+        lettering = raw_lettering
         if project_id:
             validate_project_id(project_id)
             try:
@@ -1719,6 +1720,20 @@ class Handler(BaseHTTPRequestHandler):
         if export_mode not in ("lettered", "art_only"):
             self._send_json(
                 {"error": f"unsupported export_mode: {export_mode!r}"},
+                status=400,
+            )
+            return
+        if export_mode == "lettered":
+            if lettering is False and "export_mode" in payload:
+                self._send_json(
+                    {"error": "export_mode=lettered requires lettering_enabled=true"},
+                    status=400,
+                )
+                return
+            lettering = True
+        elif lettering is True:
+            self._send_json(
+                {"error": "lettering_enabled=true requires export_mode=lettered"},
                 status=400,
             )
             return
@@ -1914,11 +1929,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         payload = self._read_json()
         fmt = payload.get("format", "page")
-        export_mode = payload.get("export_mode", "lettered")
-        lettering = payload.get("lettering_enabled")
-        if lettering is not None and not isinstance(lettering, bool):
+        export_mode = payload.get("export_mode", "art_only")
+        raw_lettering = payload.get("lettering_enabled", False)
+        if not isinstance(raw_lettering, bool):
             self._send_json({"error": "lettering_enabled must be a boolean"}, status=400)
             return
+        lettering = raw_lettering
         if fmt not in ("page", "webtoon", "cbz"):
             self._send_json(
                 {"error": f"unsupported format: {fmt!r}; use page, webtoon, or cbz"},
@@ -1928,6 +1944,20 @@ class Handler(BaseHTTPRequestHandler):
         if export_mode not in ("lettered", "art_only"):
             self._send_json(
                 {"error": f"unsupported export_mode: {export_mode!r}"},
+                status=400,
+            )
+            return
+        if export_mode == "lettered":
+            if lettering is False and "export_mode" in payload:
+                self._send_json(
+                    {"error": "export_mode=lettered requires lettering_enabled=true"},
+                    status=400,
+                )
+                return
+            lettering = True
+        elif lettering is True:
+            self._send_json(
+                {"error": "lettering_enabled=true requires export_mode=lettered"},
                 status=400,
             )
             return

@@ -121,10 +121,9 @@ def test_prompt_binds_outfit_and_prop_to_the_named_character():
     assert_positive_image_prompt(prompt)
 
 
-# Defect 5: lettered export is the readable default; art-only is opt-in
+# Defect 5: art-only export is the default; lettered is explicit opt-in
 def test_export_mode_selects_lettered_or_blank(tmp_path):
-    """prepare_finished_page_export defaults to the deferred dialogue pages;
-    'art_only' selects the clean blank art preview."""
+    """prepare_finished_page_export defaults to clean blank art; lettered is opt-in."""
     pages = tmp_path / "pages"
     (pages / "blank").mkdir(parents=True)
     lettered = pages / "page_c0000_p0000.png"
@@ -138,7 +137,7 @@ def test_export_mode_selects_lettered_or_blank(tmp_path):
     art_only = prepare_finished_page_export(pages, export_mode="art_only")
     lettered_out = prepare_finished_page_export(pages, export_mode="lettered")
 
-    assert default == [lettered]
+    assert default == [blank]
     assert art_only == [blank]
     assert lettered_out == [lettered]
     assert not stale.exists()

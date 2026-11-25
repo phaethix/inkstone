@@ -54,7 +54,7 @@ def test_lettering_on_keeps_current_behavior(tmp_path, blank_and_plan, monkeypat
         return blank_img.copy()
 
     monkeypatch.setattr(cc, "letter_finished_page", _fake_letter)
-    cc._letter_page_from_blank(blank, finished, plan, output_dir=tmp_path)
+    cc._letter_page_from_blank(blank, finished, plan, output_dir=tmp_path, lettering=True)
     assert seen["called"] is True
     assert finished.is_file()
 
@@ -87,7 +87,7 @@ def test_default_lettering_arg_reads_env(tmp_path, blank_and_plan, monkeypatch):
     blank, plan = blank_and_plan
     monkeypatch.setenv(config.ENV_LETTERING, "0")
     finished = tmp_path / "finished.png"
-    cc._letter_page_from_blank(blank, finished, plan, output_dir=tmp_path)
+    cc._letter_page_from_blank(blank, finished, plan, output_dir=tmp_path, lettering=False)
     assert finished.read_bytes() == blank.read_bytes()
 
 
@@ -114,9 +114,15 @@ def _fakes():
     return FakeChat, FakeImage, _fake_export_pdf
 
 
+def _lettered_comic(*args, **kwargs):
+    kwargs.setdefault("lettering_enabled_override", True)
+    kwargs.setdefault("export_mode", "lettered")
+    return cc.creative_comic(*args, **kwargs)
+
+
 def _run_comic(tmp_path):
     FakeChat, FakeImage, fake_pdf = _fakes()
-    assert os.environ.get("INKSTONE_LETTERING", "1") == "1", (
+    assert config.lettering_enabled() is False, (
         f"INKSTONE_LETTERING leaked: {os.environ.get('INKSTONE_LETTERING')!r}"
     )
     # vision_placement_boxes 走全局 get_chat_provider()（不读注入的 chat）。
@@ -131,7 +137,7 @@ def _run_comic(tmp_path):
         ),
     ):
         return asyncio.run(
-            cc.creative_comic(_SRC, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage())
+            _lettered_comic(_SRC, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage())
         )
 
 
@@ -163,7 +169,7 @@ def _run_resume(tmp_path, monkeypatch):
         ),
     ):
         asyncio.run(
-            cc.creative_comic(_SRC, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage())
+            _lettered_comic(_SRC, output_dir=str(tmp_path), chat=FakeChat(), image=FakeImage())
         )
     return seen, chunk_stage_srcs
 

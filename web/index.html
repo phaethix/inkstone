@@ -868,7 +868,7 @@
             </div>
           </div>
           <div class="gen-options">
-            <label for="letteringEnabled"><input id="letteringEnabled" type="checkbox" checked /> Lettered pages</label>
+            <label for="letteringEnabled"><input id="letteringEnabled" type="checkbox" /> Lettered pages</label>
             <span id="gateApprovalHint">Sample gate decisions are persisted with the project.</span>
           </div>
 
@@ -1774,6 +1774,7 @@
         const pid = $("projectId").value.trim();
         if (pid) payload.project_id = pid;
         payload.lettering_enabled = $("letteringEnabled").checked;
+        payload.export_mode = payload.lettering_enabled ? "lettered" : "art_only";
         const res = await fetch("/api/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -2172,7 +2173,12 @@
       renderTiming();
       setProgress(0, "Redrawing…");
       try {
-        const payload = { stale: true, format: lastFormat };
+        const payload = {
+          stale: true,
+          format: lastFormat,
+          lettering_enabled: $("letteringEnabled").checked,
+          export_mode: $("letteringEnabled").checked ? "lettered" : "art_only",
+        };
         const style = $("styleGuide").value.trim();
         if (style) payload.style_guide = style;
         const res = await fetch("/api/project/" + currentProjectId + "/regen", {
@@ -2208,7 +2214,12 @@
       renderTiming();
       setProgress(0, "Retrying…");
       try {
-        const payload = { keys, format: lastFormat };
+        const payload = {
+          keys,
+          format: lastFormat,
+          lettering_enabled: $("letteringEnabled").checked,
+          export_mode: $("letteringEnabled").checked ? "lettered" : "art_only",
+        };
         const style = $("styleGuide").value.trim();
         if (style) payload.style_guide = style;
         const res = await fetch("/api/project/" + currentProjectId + "/regen", {

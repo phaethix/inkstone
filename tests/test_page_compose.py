@@ -24,6 +24,22 @@ def test_compose_writes_blank_and_lettered_pages(tmp_path):
     assert blank.read_bytes() != lettered.read_bytes()
 
 
+def test_compose_without_lettering_writes_matching_clean_pages(tmp_path):
+    plan = ComicPagePlan(
+        page_id="p1",
+        panels=[
+            PagePanelSpec(panel_id="1", dialogue="我回来了。", caption="傍晚，村口。"),
+            PagePanelSpec(panel_id="2"),
+        ],
+    )
+    images = [Image.new("RGB", (300, 200), (200, 200, 200)) for _ in plan.panels]
+    blank = tmp_path / "blank.png"
+    projected = tmp_path / "projected.png"
+    compose_page_panels(plan, images, blank, projected, lettering=False)
+    assert blank.is_file() and projected.is_file()
+    assert blank.read_bytes() == projected.read_bytes()
+
+
 def test_compose_rejects_panel_count_mismatch(tmp_path):
     plan = ComicPagePlan(page_id="p1", panels=[PagePanelSpec(panel_id="1")])
     with pytest.raises(ValueError):

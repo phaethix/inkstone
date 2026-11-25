@@ -5,9 +5,9 @@ import pytest
 from core import config
 
 
-def test_lettering_default_is_enabled(monkeypatch):
+def test_lettering_default_is_disabled(monkeypatch):
     monkeypatch.delenv(config.ENV_LETTERING, raising=False)
-    assert config.lettering_enabled() is True
+    assert config.lettering_enabled() is False
 
 
 @pytest.mark.parametrize("raw", ["0", " false", "FALSE", "no", "OFF", ""])

@@ -379,15 +379,15 @@ def finished_page_files(pages_dir: Path) -> list[Path]:
 def prepare_finished_page_export(
     pages_dir: Path,
     state=None,
-    export_mode: str = "lettered",
+    export_mode: str = "art_only",
 ) -> list[Path]:
     """Collect finished-page assets for binding into the exported book.
 
-    ``"lettered"`` binds the deferred-lettering pages (with dialogue), which is
-    the readable default; ``export_mode="art_only"`` binds the un-lettered
-    ``pages/blank/`` art for a clean-art preview. Blank art that is missing
-    falls back to the lettered page so older projects lose nothing.
-    Stale panel-compose ``page_NN.png`` sheets are dropped as before.
+    ``export_mode="art_only"`` binds the un-lettered ``pages/blank/`` art and
+    is the ordinary default. ``"lettered"`` is an explicit opt-in for the
+    deferred-lettering pages. Missing blank art is skipped: an older lettered
+    page is never silently substituted. Stale panel-compose ``page_NN.png``
+    sheets are dropped as before.
     """
     if state is None:
         finished = finished_page_files(pages_dir)
@@ -398,9 +398,7 @@ def prepare_finished_page_export(
     if export_mode == "art_only":
         blank_dir = pages_dir / "blank"
         chosen: list[Path] = []
-        for page in finished:
-            blank = blank_dir / page.name
-            chosen.append(blank if blank.is_file() else page)
+        chosen = [blank for page in finished if (blank := blank_dir / page.name).is_file()]
         finished = chosen
     for stale in pages_dir.glob("page_*.png"):
         if not stale.match("page_c*_p*.png"):
