@@ -301,7 +301,7 @@ def test_ensure_character_l1_legacy_call_unchanged():
     assert "⚠" not in char.l1_prompt  # no warning when no source provided
 
 
-def test_ensure_character_l1_marks_unverified_evidence():
+def test_ensure_character_l1_keeps_unverified_evidence_out_of_the_prompt():
     from core.comic.identity import ensure_character_l1
     from core.schemas import Appearance, CharacterAsset, EvidenceQuote
 
@@ -319,10 +319,13 @@ def test_ensure_character_l1_marks_unverified_evidence():
         l1_prompt="",
     )
     ensure_character_l1(char, source_text=src)
-    assert "⚠ unverified evidence for: eyewear" in char.l1_prompt
+    assert "⚠" not in char.l1_prompt
+    assert "unverified" not in char.l1_prompt
+    assert "eyewear" not in char.l1_prompt
+    assert "灰布长衫" in char.l1_prompt
 
 
-def test_ensure_character_l1_marks_no_evidence():
+def test_ensure_character_l1_keeps_missing_evidence_out_of_the_prompt():
     from core.comic.identity import ensure_character_l1
     from core.schemas import Appearance, CharacterAsset
 
@@ -332,7 +335,9 @@ def test_ensure_character_l1_marks_no_evidence():
         l1_prompt="",
     )
     ensure_character_l1(char, source_text="some unrelated text")
-    assert "⚠ no source evidence" in char.l1_prompt
+    assert "⚠" not in char.l1_prompt
+    assert "no source evidence" not in char.l1_prompt
+    assert "generic placeholder" not in char.l1_prompt
 
 
 def test_ensure_character_l1_clean_when_all_evidence_verified():
@@ -357,7 +362,7 @@ def test_ensure_character_l1_clean_when_all_evidence_verified():
 
 
 def test_ensure_character_l1_injects_verified_quotes():
-    """pipeline (source_text provided) must inject verified quotes into l1_prompt."""
+    """Audit quotes must stay out of the model-facing L1 prompt."""
     from core.comic.identity import ensure_character_l1
     from core.schemas import Appearance, CharacterAsset, EvidenceQuote
 
@@ -377,7 +382,9 @@ def test_ensure_character_l1_injects_verified_quotes():
         l1_prompt="",
     )
     ensure_character_l1(char, source_text=src)
-    assert "头上永远剃得发亮" in char.l1_prompt
+    assert "source:" not in char.l1_prompt
+    assert "头上永远剃得发亮" not in char.l1_prompt
+    assert "fully open eyes" in char.l1_prompt
     assert "⚠" not in char.l1_prompt
 
 
@@ -397,11 +404,12 @@ def test_ensure_character_l1_excludes_fabricated_quote():
     )
     ensure_character_l1(char, source_text=src)
     assert "一头紫发" not in char.l1_prompt
-    assert "⚠ unverified evidence for: hair" in char.l1_prompt
+    assert "⚠" not in char.l1_prompt
+    assert "unverified" not in char.l1_prompt
 
 
 def test_ensure_character_l1_no_source_keeps_evidence():
-    """legacy/no-source callers still carry evidence quotes into the prompt."""
+    """Audit quotes are excluded from model-facing prompts in every caller."""
     from core.comic.identity import ensure_character_l1
     from core.schemas import Appearance, CharacterAsset, EvidenceQuote
 
@@ -414,7 +422,8 @@ def test_ensure_character_l1_no_source_keeps_evidence():
         l1_prompt="",
     )
     ensure_character_l1(char)
-    assert "头上永远剃得发亮" in char.l1_prompt
+    assert "source:" not in char.l1_prompt
+    assert "头上永远剃得发亮" not in char.l1_prompt
 
 
 def test_ensure_character_l1_is_idempotent_with_existing_prompt_and_evidence():
@@ -434,7 +443,7 @@ def test_ensure_character_l1_is_idempotent_with_existing_prompt_and_evidence():
     first = char.l1_prompt
     ensure_character_l1(char, source_text="福贵很瘦")
     assert char.l1_prompt == first
-    assert char.l1_prompt.count("source:") == 1
+    assert char.l1_prompt.count("source:") == 0
 
 
 def test_elements_with_recorded_merges_resolves_a_chain():

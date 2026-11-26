@@ -652,6 +652,93 @@ def test_default_publishing_is_art_only_without_lettering_overlays():
     assert inspect.signature(server._start_job).parameters["lettering_enabled"].default is False
 
 
+def test_default_page_plan_request_asks_for_pure_artwork():
+    from core.schemas import StoryElements
+    from core.screenwriter import build_page_plan_request, build_storyboard_request
+
+    request = build_page_plan_request(
+        "第一回\n福贵在村口。", StoryElements(), lettering=False, model="chat-a"
+    )
+    content = request.messages[1]["content"].lower()
+    tool = request.tools[0]["function"]
+    assert "purely painted artwork" in content
+    assert "purely painted artwork" in content
+    assert "edge-to-edge painted artwork" in tool["description"].lower()
+    assert (
+        build_page_plan_request(
+            "第一回\n福贵在村口。", StoryElements(), lettering=True, model="chat-a"
+        ).digest()
+        != request.digest()
+    )
+
+    storyboard = build_storyboard_request(
+        "第一回\n福贵在村口。", StoryElements(), lettering=False, model="chat-a"
+    )
+    storyboard_blob = json.dumps(storyboard.messages, ensure_ascii=False).lower()
+    assert "purely painted artwork" in storyboard_blob
+    assert "split narration" not in storyboard_blob
+    assert "speech into dialogue" not in storyboard_blob
+
+
+def test_art_only_plans_scrub_provider_lettering_without_a_retry():
+    import asyncio
+
+    from core.schemas import StoryElements
+    from core.screenwriter import plan_comic_pages, plan_storyboard
+
+    class FakeChat:
+        model = "chat-a"
+        calls = 0
+
+        async def chat_function_call(self, *_args, **_kwargs):
+            self.calls += 1
+            return {
+                "chapter_id": "ch01",
+                "pages": [
+                    {
+                        "page_id": "p1",
+                        "panels": [
+                            {
+                                "panel_id": "g1",
+                                "action": "福贵 leans over the rail",
+                                "caption": "夜色降临",
+                                "dialogue": "我回来了",
+                                "sfx": "wind",
+                            }
+                        ],
+                        "lettering_boxes": [
+                            {
+                                "kind": "caption",
+                                "panel_id": "g1",
+                                "x": 0.1,
+                                "y": 0.1,
+                                "w": 0.2,
+                                "h": 0.1,
+                            }
+                        ],
+                    }
+                ],
+            }
+
+    chat = FakeChat()
+    storyboard = asyncio.run(
+        plan_storyboard("福贵在村口。", StoryElements(), chat=chat, lettering=False)
+    )
+    pageset = asyncio.run(
+        plan_comic_pages("福贵在村口。", StoryElements(), chat=chat, lettering=False)
+    )
+    assert chat.calls == 2
+    assert all(
+        panel.dialogue is None and panel.caption is None and panel.sfx is None
+        for panel in storyboard.panels
+    )
+    assert pageset.pages[0].lettering_boxes == []
+    assert all(
+        panel.caption is None and panel.dialogue is None and panel.sfx is None
+        for panel in pageset.pages[0].panels
+    )
+
+
 def test_default_export_never_binds_a_caption_bar_even_when_blank_is_missing():
     from unittest.mock import patch
 
@@ -738,11 +825,56 @@ def test_image_prompts_lock_eyes_without_copying_reference_expression():
 
 
 def test_default_portrait_prompt_asks_for_open_eyes():
-    from core.comic.identity import harden_human_identity_prompt
+    from core.comic.identity import harden_human_identity_prompt, sanitize_portrait_prompt
 
     prompt = harden_human_identity_prompt("少年", "young man, short black hair")
     assert "fully open eyes" in prompt
     assert "clearly defined pupils and irises" in prompt
+
+    cleaned = sanitize_portrait_prompt(
+        "young man, short black hair; ⚠ no source evidence; source: “倚着栏杆”; "
+        "line art; without closed eyes",
+        name="少年",
+    )
+    lowered = cleaned.lower()
+    assert "fully open eyes" in lowered
+    assert "clearly defined pupils and irises" in lowered
+    assert not re.search(
+        r"⚠|no source evidence|unverified|source:|倚着栏杆|line art|without|closed eyes",
+        lowered,
+    )
+
+
+def test_portrait_prompt_sent_bytes_are_positive_and_invalidate_legacy_keys():
+    from core.comic.cas import portrait_action_key
+    from core.pipelines import creative_comic as pipeline
+
+    asset = CharacterAsset(
+        name="少年",
+        l1_prompt="young man, short black hair",
+        portrait_prompt="young man; ⚠ no source evidence; line art",
+    )
+    material = pipeline._portrait_key_material("少年", asset, "manhua")
+    assert "fully open eyes" in material
+    assert "clearly defined pupils and irises" in material
+    assert not re.search(r"⚠|no source evidence|line art", material, re.IGNORECASE)
+    legacy_material = "\n".join(
+        [
+            "少年",
+            "young man; ⚠ no source evidence; line art",
+            "young man, short black hair",
+            "manhua",
+            pipeline.DEFAULT_PORTRAIT_STYLE,
+        ]
+    )
+    assert portrait_action_key(
+        name="少年", material=material, env="image-a", stage_src=pipeline._PORTRAIT_STAGE_SRC
+    ) != portrait_action_key(
+        name="少年",
+        material=legacy_material,
+        env="image-a",
+        stage_src=pipeline._PORTRAIT_STAGE_SRC,
+    )
 
 
 def test_portrait_style_is_positive_and_changes_the_portrait_cache_key(monkeypatch):
@@ -838,3 +970,100 @@ def test_web_rejects_conflicting_lettering_and_export_modes():
         assert "requires lettering_enabled=true" in json.loads(handler.body)["error"]
     finally:
         monkeypatch.undo()
+
+
+def test_source_watermark_never_reaches_chunks_or_image_prompts():
+    import unicodedata
+
+    from core.comic.page_prompt import render_page_panel_prompt
+    from core.comic.segmentation import segment_text
+    from core.schemas import ComicPagePlan, PagePanelSpec, Setting, StoryElements
+    from core.screenwriter import build_extract_request, build_page_plan_request, sanitize_text
+
+    source = Path("examples/letter-from-an-unknown-woman.txt").read_text(encoding="utf-8")
+    watermark = next(
+        line.strip()
+        for line in source.splitlines()
+        if "x" in line.lower() and "txt" in line.lower() and len(line.strip()) < 80
+    )
+
+    def normalized(text):
+        return unicodedata.normalize("NFKC", text).casefold()
+
+    def polluted(text):
+        return watermark in text or "xiaoshuotxt" in normalized(text)
+
+    cleaned = sanitize_text(source)
+    assert not polluted(cleaned)
+    chunks = segment_text(cleaned)
+    assert all(not polluted(chunk) for chunk in chunks)
+    assert build_extract_request(chunks[0]).messages[1]["content"]
+    assert not polluted(build_extract_request(chunks[0]).messages[1]["content"])
+    assert not polluted(build_page_plan_request(chunks[0], StoryElements()).messages[1]["content"])
+    plan = ComicPagePlan(page_id="p1", panels=[PagePanelSpec(panel_id="g1", action=watermark)])
+    image_prompt = render_page_panel_prompt(
+        plan,
+        plan.panels[0],
+        characters_by_name={},
+        settings_by_name={"s": Setting(name="s", scene_prompt=watermark)},
+        style_guide="",
+    )
+    assert not polluted(image_prompt)
+
+
+def test_scenery_and_landmark_assets_are_not_people():
+    from pydantic import ValidationError
+
+    from core.comic.segmentation import merge_characters
+    from core.schemas import CharacterAsset, NonCharacterAsset, StoryElements
+
+    landmark = {
+        "name": "雾中灯塔",
+        "role": "背景意象",
+        "l1_prompt": "n/a — non-character",
+        "portrait_prompt": "n/a — inanimate background element",
+    }
+    elements = StoryElements.model_validate(
+        {"characters": [{"name": "沈知意", "role": "protagonist"}, landmark]}
+    )
+    assert [character.name for character in elements.characters] == ["沈知意"]
+    with pytest.raises((ValidationError, NonCharacterAsset)):
+        CharacterAsset.model_validate(landmark)
+    merged, created = merge_characters({}, [])
+    assert created == []
+    assert merged == {}
+
+
+def test_action_clause_scrubbing_preserves_visible_action():
+    from core.comic.page_prompt import render_page_panel_prompt
+    from core.schemas import ComicPagePlan, PagePanelSpec
+
+    plan = ComicPagePlan(
+        page_id="p1",
+        panels=[
+            PagePanelSpec(panel_id="g1", action="沈知意 pours tea; a speech bubble floats above")
+        ],
+    )
+    prompt = render_page_panel_prompt(
+        plan, plan.panels[0], characters_by_name={}, settings_by_name={}, style_guide=""
+    )
+    assert "pours tea" in prompt
+    assert "speech bubble" not in prompt.lower()
+
+
+def test_legacy_landmark_identity_is_removed_from_resumed_state():
+    import json
+
+    from core.comic.visual_bible import sanitize_visual_bible_state
+    from core.schemas import ProjectState
+
+    raw = json.loads(Path("comic_out/state.json").read_text(encoding="utf-8"))
+    raw.update(json.loads(Path("comic_out/cache.json").read_text(encoding="utf-8")))
+    state = ProjectState.model_validate(raw)
+    assert "雾中灯塔" not in state.characters
+    assert sanitize_visual_bible_state(state) is True
+    assert "雾中灯塔" not in state.visual_bible.characters
+    assert "雾中灯塔" not in state.page_cache["0"].pages[0].reference_characters
+    assert all(
+        "雾中灯塔" not in panel.characters for panel in state.page_cache["0"].pages[0].panels
+    )

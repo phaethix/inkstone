@@ -38,6 +38,16 @@ _HUMAN_LOCK = (
     "human figure from head to feet"
 )
 
+_AUDIT_NOISE_RE = re.compile(
+    r"\b(?:⚠|unverified|generic placeholder|no source evidence|"
+    r"leave unverified|source:|non-character|n/?a)\b|"
+    r"\b(?:line art|lineart|design sheet|model sheet|turnaround|chrome|"
+    r"caption|dialogue|sfx|speech bubble|thought bubble|lettering|"
+    r"watermark|subtitle)\b|"
+    r"\b(?:no|not|never|avoid|without|unless|forbidden|nothing)\b",
+    re.IGNORECASE,
+)
+
 EYE_IDENTITY_LOCK = (
     "fully open eyes, clearly defined pupils and irises, gaze follows the action, "
     "pose follows the action"
@@ -120,6 +130,19 @@ def harden_human_identity_prompt(name: str, prompt: str) -> str:
     return f"{lead}; {_HUMAN_LOCK}; {EYE_IDENTITY_LOCK}"
 
 
+def sanitize_portrait_prompt(prompt: str, *, name: str = "") -> str:
+    """Return a model-facing portrait prompt made only of drawable positives."""
+    clause_source_re = re.compile(r"(?i)[,;]?\s*source:.*?(?=[,;\n]|$)")
+    cleaned = clause_source_re.sub("", prompt or "")
+    cleaned = re.sub(r"[“\"'][^“”\"']+[”\"']", "", cleaned)
+    clauses = [
+        clause.strip(" ,;—-")
+        for clause in re.split(r"[,;，；。\n]| — ", cleaned)
+        if clause.strip(" ,;—-") and not _AUDIT_NOISE_RE.search(clause)
+    ]
+    return harden_human_identity_prompt(name, ", ".join(clauses))
+
+
 def build_l1_from_appearance(
     name: str,
     appearance: Appearance,
@@ -167,11 +190,8 @@ def verify_evidence_against_source(
 
 
 def _evidence_suffix(quotes: Iterable[str]) -> str:
-    """Format verbatim evidence quotes as a compact ``; source: “…”`` suffix."""
-    fragments = [f"“{q}”" for q in quotes if (q or "").strip()]
-    if not fragments:
-        return ""
-    return "; source: " + "; ".join(fragments)
+    """Keep audit evidence out of model-facing identity prompts."""
+    return ""
 
 
 def ensure_character_l1(
@@ -211,21 +231,18 @@ def ensure_character_l1(
         evidence = char.appearance.appearance_evidence or []
         if source_text is not None:
             # Verification path: inject ONLY quotes found verbatim in the
-            # source; fabricated/unverified quotes are excluded from the prompt
-            # and surfaced as visible ⚠ warnings instead.
-            unverified = verify_evidence_against_source(char.appearance, source_text)
+            # source; fabricated/unverified quotes stay out of model-facing
+            # identity strings. Verification still runs for state review.
+            verify_evidence_against_source(char.appearance, source_text)
             verified_quotes = [it.quote for it in evidence if it.quote in source_text]
             suffix = _evidence_suffix(verified_quotes)
             if suffix and suffix not in char.l1_prompt:
                 char.l1_prompt = f"{char.l1_prompt}{suffix}"
-            if not evidence:
-                marker = "; ⚠ no source evidence; using generic placeholder"
-                if marker not in char.l1_prompt:
-                    char.l1_prompt = f"{char.l1_prompt}{marker}"
-            elif unverified:
-                marker = f"; ⚠ unverified evidence for: {', '.join(unverified)}"
-                if marker not in char.l1_prompt:
-                    char.l1_prompt = f"{char.l1_prompt}{marker}"
+            # Audit warnings stay out of model-facing identity strings. The
+            # verification result is still computed above for state review, but
+            # Qwen's text encoder reads a warning as drawable prompt content.
+            # Keep verification results available to callers without adding
+            # audit-only wording to the model-facing L1 string.
         else:
             # Legacy / no-source callers: no verification is possible, but we
             # still carry the evidence quotes into the prompt so the source
@@ -235,7 +252,9 @@ def ensure_character_l1(
                 char.l1_prompt = f"{char.l1_prompt}{suffix}"
 
     if char.portrait_prompt:
-        char.portrait_prompt = harden_human_identity_prompt(char.name, char.portrait_prompt)
+        char.portrait_prompt = harden_human_identity_prompt(
+            char.name, sanitize_portrait_prompt(char.portrait_prompt, name=char.name)
+        )
     return char
 
 

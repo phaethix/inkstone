@@ -85,11 +85,13 @@ _INPUT_SOURCES: dict[str, dict[str, str]] = {
         "page_plan": "page_plan",
         "bible_entries_for_page": "bible",
         "prompt_renderer": EXTERNAL,
+        "portrait_references": "portrait",
     },
     "render.page_panel": {
         "page_plan": "page_plan",
         "bible_entries_for_page": "bible",
         "prompt_renderer": EXTERNAL,
+        "portrait_references": "portrait",
     },
     "render.panel": {
         "storyboard_panel": "storyboard",

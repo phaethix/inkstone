@@ -67,6 +67,9 @@ def test_empty_negative_prompt_keeps_the_legacy_key():
 def test_render_page_inputs_ignore_the_negative_prompt():
     assert render_page_inputs("{}", "p") == render_page_inputs("{}", "p", "")
     assert render_page_inputs("{}", "p") == render_page_inputs("{}", "p", "no bubbles")
+    assert render_page_inputs("{}", "p", reference_image_hashes=["sha256:face-a"]) != (
+        render_page_inputs("{}", "p", reference_image_hashes=["sha256:face-b"])
+    )
 
 
 def test_openai_compat_payload_carries_negative_prompt():

@@ -200,6 +200,7 @@ def test_render_page_keeps_the_continuity_image_soft():
     contract = stage_contract("render.page")
     assert "l2_reference" in contract.soft_refs
     assert "l2_reference" not in contract.hard_inputs
+    assert "portrait_references" in contract.hard_inputs
 
 
 def test_chat_key_argument_surface_is_locked_to_the_contract_table():

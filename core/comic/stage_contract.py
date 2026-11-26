@@ -76,10 +76,14 @@ _STAGES: dict[str, StageContract] = {
         hard_inputs=frozenset({"source_chunk", "beats", "bible_entries_for_page"}),
         historical_limit=RECENT_LAYOUT_LIMIT,
     ),
+    # The portrait bytes sent to i2i are hard inputs: a regenerated face changes
+    # the pixels this stage produces, even when the plan and prompt are equal.
     "render.page": StageContract(
         stage="render.page",
         reads_accumulated=False,
-        hard_inputs=frozenset({"page_plan", "bible_entries_for_page", "prompt_renderer"}),
+        hard_inputs=frozenset(
+            {"page_plan", "bible_entries_for_page", "prompt_renderer", "portrait_references"}
+        ),
         soft_refs=frozenset({"l2_reference"}),
     ),
     # panel_compose: one planned panel, not a storyboard slot. The reference
@@ -87,7 +91,9 @@ _STAGES: dict[str, StageContract] = {
     "render.page_panel": StageContract(
         stage="render.page_panel",
         reads_accumulated=False,
-        hard_inputs=frozenset({"page_plan", "bible_entries_for_page", "prompt_renderer"}),
+        hard_inputs=frozenset(
+            {"page_plan", "bible_entries_for_page", "prompt_renderer", "portrait_references"}
+        ),
         soft_refs=frozenset({"l2_reference"}),
     ),
     # One character. The earlier portrait of the same person is an i2i reference,

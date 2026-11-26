@@ -512,7 +512,13 @@ def _image_safe(text: str) -> str:
         kept.append(clause)
     cleaned = " ".join(kept).strip(" ,;")
     cleaned = re.sub(r"(?i)[,;]?\s*[“\"'][^“\"']+[”\"']\s*(?=[,;]|$)", "", cleaned)
-    cleaned = re.sub(r"[,;]?\s*[^,;]*[\u3000-\u303f\u4e00-\u9fff][^,;]*$", "", cleaned)
+    cleaned = re.sub(r"(?i)\b(?:https?://|www\.)\S+", "", cleaned)
+    cleaned = re.sub(
+        r"(?i)\b(?:[a-z0-9\uFF21-\uFF3A\uFF41-\uFF5A]+\.)+[a-z\uFF21-\uFF3A\uFF41-\uFF5A]{2,}\b",
+        "",
+        cleaned,
+    )
+    cleaned = re.sub(r"[,;]?\s*[^,;]*[\uFF00-\uFFEF][^,;]*(?=[,;]|$)", "", cleaned)
     return cleaned.strip(" ,;")
 
 

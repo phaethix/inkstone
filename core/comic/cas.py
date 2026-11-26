@@ -215,17 +215,26 @@ def extract_action_key(
     )
 
 
-def render_page_inputs(plan_json: str, prompt: str, negative_prompt: str = "") -> list[str]:
-    """Ordered inputs for a finished page: the plan and the prompt sent.
+def render_page_inputs(
+    plan_json: str,
+    prompt: str,
+    negative_prompt: str = "",
+    reference_image_hashes: list[str] | None = None,
+) -> list[str]:
+    """Ordered inputs for a finished page: plan, prompt, and reference bytes.
 
     ``negative_prompt`` is retained for call compatibility but ignored: the
     Agnes i2i workflow drops that channel, so it never changes rendered bytes.
     Including it would only orphan caches or serve stale art under a new key.
+    Reference image hashes are model-facing bytes: a regenerated portrait must
+    not serve a page that was painted from the old face.
     """
-    return [
+    inputs = [
         "sha256:" + _hex_digest(plan_json.encode("utf-8")),
         "sha256:" + _hex_digest(prompt.encode("utf-8")),
     ]
+    inputs.extend(reference_image_hashes or [])
+    return inputs
 
 
 def render_page_action_key(
@@ -238,6 +247,7 @@ def render_page_action_key(
     env: str,
     stage_src: str,
     negative_prompt: str = "",
+    reference_image_hashes: list[str] | None = None,
 ) -> str:
     """Key a finished page from its plan, prompts, identity, and ref policy.
 
@@ -252,7 +262,7 @@ def render_page_action_key(
     return action_key(
         stage="render.page",
         stage_src=stage_src,
-        inputs=render_page_inputs(plan_json, prompt, negative_prompt),
+        inputs=render_page_inputs(plan_json, prompt, negative_prompt, reference_image_hashes),
         params={
             "page_key": page_key,
             "resolved_size": resolved_size,

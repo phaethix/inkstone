@@ -22,6 +22,7 @@ for it would make this module and the pipeline import each other.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -46,6 +47,19 @@ def plan_json(plan: ComicPagePlan) -> str:
     """Canonical bytes of a plan, so two equal plans cannot hash differently."""
     payload = plan.model_dump(mode="json")
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _reference_hashes_current(hashes: dict[str, str], output_dir: Path) -> bool:
+    """True when every recorded i2i portrait still has its recorded bytes."""
+    for path, digest in hashes.items():
+        candidate = Path(path)
+        if (
+            not is_within(candidate, output_dir)
+            or not candidate.is_file()
+            or "sha256:" + hashlib.sha256(candidate.read_bytes()).hexdigest() != digest
+        ):
+            return False
+    return True
 
 
 def page_asset_path(pages_dir: Path, chunk_index: int, page_index: int) -> Path:
@@ -118,6 +132,8 @@ def panel_page_chunk_complete(
             return False
         if not is_within(rec.local, output_dir) or not Path(rec.local).exists():
             return False
+        if not _reference_hashes_current(rec.reference_hashes, output_dir):
+            return False
         if rec.lettering_version != LETTERING_VERSION:
             return False
         for panel_index in range(len(plan.panels)):
@@ -128,6 +144,8 @@ def panel_page_chunk_complete(
                 return False
             gen = state.generated.panels.get(panel_key)
             if gen is None or panel_key not in state.panels_done:
+                return False
+            if not _reference_hashes_current(gen.reference_hashes, output_dir):
                 return False
             if not is_within(gen.local, output_dir) or not Path(gen.local).exists():
                 return False
@@ -357,6 +375,8 @@ def page_chunk_complete(
             or not is_within(rec.local, output_dir)
             or not Path(rec.local).exists()
         ):
+            return False
+        if not _reference_hashes_current(rec.reference_hashes, output_dir):
             return False
         if not rec.blank_local or not Path(rec.blank_local).is_file():
             continue

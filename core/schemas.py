@@ -38,6 +38,43 @@ from pydantic.json_schema import SkipJsonSchema
 logger = logging.getLogger(__name__)
 
 
+NON_CHARACTER_MARKERS = (
+    "non-character",
+    "inanimate",
+    "background motive",
+    "background_motive",
+    "landmark",
+    "scenery",
+    "setting element",
+    "背景意象",
+    "背景元素",
+    "地标",
+    "景物",
+    "场景",
+)
+
+
+def is_non_character_payload(entry: dict) -> bool:
+    """True when a character-shaped payload explicitly describes scenery."""
+    text = " ".join(
+        str(entry.get(key) or "")
+        for key in (
+            "name",
+            "role",
+            "l1_prompt",
+            "portrait_prompt",
+            "face_lock",
+            "narrative_function",
+            "description",
+        )
+    ).casefold()
+    return any(marker in text for marker in NON_CHARACTER_MARKERS)
+
+
+class NonCharacterAsset(ValueError):
+    """A character-shaped extraction that explicitly describes scenery."""
+
+
 def coerce_jsonish(value: Any) -> Any:
     """If ``value`` is a JSON object/array (or JSON-encoded string), parse it.
 
@@ -511,6 +548,8 @@ class CharacterAsset(BaseModel):
         value = coerce_jsonish(value)
         if not isinstance(value, dict):
             return value
+        if is_non_character_payload(value):
+            raise NonCharacterAsset("scenery is not a character asset")
         out = repair_fused_keys(
             value,
             {"name", "role", "character_name", "character", "label", "l1_prompt"},
@@ -664,17 +703,24 @@ class StoryElements(BaseModel):
         setting_keys = {"description", "scene_prompt", "setting_name", "location", "place"}
         kept: list[Any] = []
         moved: list[Any] = []
+        dropped = 0
         for entry in decoded:
+            if isinstance(entry, dict) and is_non_character_payload(entry):
+                dropped += 1
+                continue
             if isinstance(entry, dict) and not (character_keys & entry.keys()):
                 if setting_keys & entry.keys():
                     moved.append(entry)
                     continue
             kept.append(entry)
-        if not moved:
+        if not moved and not dropped:
             return data
-        logger.warning(
-            "%s setting(s) arrived inside characters; moving them to settings", len(moved)
-        )
+        if moved:
+            logger.warning(
+                "%s setting(s) arrived inside characters; moving them to settings", len(moved)
+            )
+        if dropped:
+            logger.warning("%s scenery asset(s) arrived inside characters; dropping them", dropped)
         out = dict(data)
         out["characters"] = kept
         existing = data.get("settings")
@@ -1245,6 +1291,9 @@ class GeneratedPage(BaseModel):
     # Empty until this page is rendered under an action key. A matching key
     # reuses the stored blank.
     render_action_key: str = ""
+    # Content hashes of the character portraits supplied as i2i references.
+    # A regenerated face invalidates pages and panels recorded under old refs.
+    reference_hashes: dict[str, str] = Field(default_factory=dict)
     # Prompt-facing inputs of the render key, without the font digest. A
     # resume compares these so an identity-prompt change repaints the page
     # while a font change only re-letters it. Empty on pages written before
@@ -1284,6 +1333,8 @@ class GeneratedPanel(BaseModel):
     chunk_index: int = 0
     panel_index: int = 0
     source_panel_id: str = ""
+    # Content hashes of the character portraits supplied as i2i references.
+    reference_hashes: dict[str, str] = Field(default_factory=dict)
     dialogue: str | None = None
     caption: str | None = None
     sfx: str | None = None
@@ -1690,6 +1741,18 @@ class ProjectState(BaseModel):
     model_snapshot: ModelSnapshot = Field(default_factory=ModelSnapshot)
     stage: Stage = "extract"
     characters: dict[str, CharacterAsset] = Field(default_factory=dict)
+
+    @field_validator("characters", mode="before")
+    @classmethod
+    def _drop_non_character_state(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        return {
+            name: entry
+            for name, entry in value.items()
+            if not (isinstance(entry, dict) and is_non_character_payload(entry))
+        }
+
     # Cross-chunk scene/location registry (exact-name merge).
     settings: dict[str, Setting] = Field(default_factory=dict)
     chunks_done: list[str] = Field(default_factory=list)

@@ -83,6 +83,7 @@ from core.comic.identity import (
     merge_settings,
     offer_alias_suggestion,
     page_state_key,
+    sanitize_portrait_prompt,
     suggestion_from_alias,
 )
 from core.comic.key_beats import (
@@ -271,6 +272,7 @@ from core.screenwriter import (
     plan_page_script,
     plan_storyboard,
     reconcile_visual_bible,
+    sanitize_text,
 )
 
 logger = logging.getLogger(__name__)
@@ -361,7 +363,8 @@ def _require_density(density: str | None) -> DensityTier:
 
 
 def _canonicalize_source(source_txt: str) -> str:
-    return source_txt.replace("\r\n", "\n").replace("\r", "\n")
+    normalized = source_txt.replace("\r\n", "\n").replace("\r", "\n")
+    return sanitize_text(normalized)
 
 
 def _structure_fingerprint(
@@ -646,9 +649,44 @@ def _portrait_key_material(name: str, asset, style: str) -> str:
     Key on the prop-stripped prompt that is actually sent, so a portrait baked
     with a held instrument is invalidated once props become panel-only.
     """
-    portrait = _strip_portrait_props(asset.portrait_prompt or "")
-    l1 = _strip_portrait_props(asset.l1_prompt or "")
+    portrait = sanitize_portrait_prompt(
+        _strip_portrait_props(asset.portrait_prompt or ""), name=name
+    )
+    l1 = sanitize_portrait_prompt(_strip_portrait_props(asset.l1_prompt or ""), name=name)
     return "\n".join([name, portrait, l1, style or "", DEFAULT_PORTRAIT_STYLE])
+
+
+def _portrait_state_current(state: ProjectState, style: str, image_model: str) -> bool:
+    """True when stored portrait stamps match the bytes this build would send."""
+    for name, asset in state.characters.items():
+        expected = portrait_action_key(
+            name=name,
+            material=_portrait_key_material(name, asset, style),
+            env=image_model,
+            stage_src=_PORTRAIT_STAGE_SRC,
+        )
+        if asset.portrait_action_key != expected:
+            return False
+        path = asset.portrait_local
+        if not path or not Path(path).is_file():
+            return False
+    return True
+
+
+def _reference_hashes(reference_images: list[str]) -> dict[str, str]:
+    """Map each i2i reference path to its content hash for resume checks."""
+    hashes: dict[str, str] = {}
+    for path in reference_images:
+        if not Path(path).is_file():
+            continue
+        hashes[path] = "sha256:" + hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    return hashes
+
+
+def _reference_hash_inputs(reference_images: list[str]) -> list[str]:
+    """Ordered content ids for the exact reference images sent to i2i."""
+    hashes = _reference_hashes(reference_images)
+    return [f"{path}:{digest}" for path, digest in sorted(hashes.items())]
 
 
 def _panel_key_material(panel) -> str:
@@ -1658,7 +1696,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
     # Unpacked into the local names the body already used. Assigning 18 locals is
     # cheaper than rewriting 1,800 lines, and it keeps the closures below
     # (``_render_page_node`` and friends) closing over the same bindings.
-    source_txt = options.source_txt
+    source_txt = _canonicalize_source(options.source_txt)
     output_dir = options.output_dir
     project_id = options.project_id
     chat = options.chat
@@ -1924,6 +1962,20 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
         _soft_invalidate_render(state)
         state.render_fingerprint = _render_for_bible(state.visual_bible)
         state.save(state_path)
+
+    portrait_style = (
+        state.visual_bible.style_guide
+        if state.visual_bible is not None and state.visual_bible.style_guide
+        else style_guide
+    )
+    if not _portrait_state_current(state, portrait_style or "", snapshot.t2i):
+        _soft_invalidate_render(state)
+        state.chunks_done = []
+        state.render_fingerprint = _render_for_bible(state.visual_bible)
+        state.save(state_path)
+        if panel_key_filter is not None:
+            logger.info("portrait stamps changed: ignoring panel_keys filter, redrawing all panels")
+            panel_key_filter = None
 
     if prune_unsourced_age_stages(state):
         _soft_invalidate_render(state)
@@ -2380,8 +2432,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                     color_block = format_color_bible_block(_state.visual_bible)
                     if color_block:
                         prompt = f"{prompt}, {color_block}"
-                prompt = re.sub(r"(?i);\s*source:.*$", "", prompt)
-                prompt = re.sub(r"(?i)[“\"'][^“\"']+[”\"']", "", prompt)
+                prompt = sanitize_portrait_prompt(prompt, name=name)
                 comic_style = (
                     f"{style}, {DEFAULT_PORTRAIT_STYLE}" if style else DEFAULT_PORTRAIT_STYLE
                 )
@@ -2632,6 +2683,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                     genre=run_genre,
                     harness=run_harness,
                     model=snapshot.chat,
+                    lettering=lettering,
                 )
                 plan_key = _page_plan_key(
                     chunk,
@@ -2727,6 +2779,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                                 craft_notes=craft_notes,
                                 harness=run_harness,
                                 model=snapshot.chat,
+                                lettering=lettering,
                             )
                             review.record("page_plan", ci, plan_request)
                             pageset = await plan_comic_pages(
@@ -2787,6 +2840,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                         genre=run_genre,
                         harness=run_harness,
                         model=snapshot.chat,
+                        lettering=lettering,
                     )
                     pageset.action_key = _page_plan_key(
                         chunk,
@@ -2899,6 +2953,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                         )
                         active_size = panel_size_for_shape(spec.shape_hint, default=panel_size())
                         render_env = h_env(text=prompt, resolved_size=active_size, scope="render")
+                        ref_hash_inputs = _reference_hash_inputs(refs)
                         render_key = render_page_action_key(
                             plan_json=_art_panel_json(spec),
                             prompt=prompt,
@@ -2908,6 +2963,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                             env=render_env,
                             stage_src=_RENDER_PAGE_PANEL_STAGE_SRC,
                             negative_prompt=negative_prompt,
+                            reference_image_hashes=ref_hash_inputs,
                         )
                         _sync_page_panel_key(_state, p_key, render_key)
                         if not _panel_needs_generation(_state, p_key):
@@ -3020,7 +3076,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                             stage_src=_RENDER_PAGE_PANEL_STAGE_SRC,
                             env=render_env,
                             inputs=render_page_inputs(
-                                _art_panel_json(spec), prompt, negative_prompt
+                                _art_panel_json(spec), prompt, negative_prompt, ref_hash_inputs
                             ),
                         )
                         _state.generated.panels[p_key] = GeneratedPanel(
@@ -3028,6 +3084,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                             chunk_index=_chunk_index,
                             panel_index=panel_index,
                             source_panel_id=spec.panel_id,
+                            reference_hashes=_reference_hashes(refs),
                             render_action_key=render_key,
                         )
                         _mark_panel_done(_state, p_key)
@@ -3060,6 +3117,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                             resolved_size=panel_size(),
                             render_action_key="panel_compose",
                             prompt_inputs=[_plan_json(plan)],
+                            reference_hashes=_reference_hashes(refs),
                             reference_binding=_REFERENCE_BINDING,
                             page_id=plan.page_id,
                             unit_index=_chunk_index,
@@ -3147,7 +3205,10 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                             reference_images=early_refs,
                         )
                         early_inputs = render_page_inputs(
-                            _art_plan_json(plan), early_prompt, early_negative
+                            _art_plan_json(plan),
+                            early_prompt,
+                            early_negative,
+                            _reference_hash_inputs(early_refs),
                         )
                         # An unlabeled page was painted before each reference
                         # image was bound to one character. A recorded binding
@@ -3258,6 +3319,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                     if page_size != _FALLBACK_PAGE_SIZE and _state.rejected_page_size == page_size:
                         active_size = _FALLBACK_PAGE_SIZE
                     render_env = h_env(text=prompt, resolved_size=active_size, scope="render")
+                    ref_hash_inputs = _reference_hash_inputs(refs)
                     render_key = render_page_action_key(
                         plan_json=_plan_json(plan),
                         prompt=prompt,
@@ -3267,6 +3329,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                         env=render_env,
                         stage_src=_RENDER_PAGE_STAGE_SRC,
                         negative_prompt=negative_prompt,
+                        reference_image_hashes=ref_hash_inputs,
                     )
                     recorded_render = read_manifest_entry(
                         output_dir, render_key, stage="render.page"
@@ -3317,8 +3380,12 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                                     resolved_size=active_size,
                                     render_action_key=render_key,
                                     prompt_inputs=render_page_inputs(
-                                        _art_plan_json(plan), prompt, negative_prompt
+                                        _art_plan_json(plan),
+                                        prompt,
+                                        negative_prompt,
+                                        ref_hash_inputs,
                                     ),
+                                    reference_hashes=_reference_hashes(refs),
                                     reference_binding=_REFERENCE_BINDING,
                                     page_id=page_id,
                                     unit_index=_chunk_index,
@@ -3444,7 +3511,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                         text=prompt, resolved_size=active_size, scope="render"
                     )
                     stored_render_inputs = render_page_inputs(
-                        _art_plan_json(plan), prompt, negative_prompt
+                        _art_plan_json(plan), prompt, negative_prompt, ref_hash_inputs
                     )
                     stored_render_key = render_page_action_key(
                         plan_json=_plan_json(plan),
@@ -3455,6 +3522,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                         env=stored_render_env,
                         stage_src=_RENDER_PAGE_STAGE_SRC,
                         negative_prompt=negative_prompt,
+                        reference_image_hashes=ref_hash_inputs,
                     )
                     record(
                         output_dir,
@@ -3501,6 +3569,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                             resolved_size=active_size,
                             render_action_key=stored_render_key,
                             prompt_inputs=list(stored_render_inputs),
+                            reference_hashes=_reference_hashes(refs),
                             reference_binding=_REFERENCE_BINDING,
                             page_id=page_id,
                             unit_index=_chunk_index,
@@ -3563,6 +3632,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                 genre=run_genre,
                 harness=run_harness,
                 model=snapshot.chat,
+                lettering=lettering,
             )
             review.record("storyboard", ci, storyboard_request)
             storyboard_key_request = build_storyboard_request(
@@ -3575,6 +3645,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                 genre=run_genre,
                 harness=run_harness,
                 model=snapshot.chat,
+                lettering=lettering,
             )
             storyboard_key = storyboard_action_key(
                 chunk=chunk,
@@ -3617,6 +3688,7 @@ async def _creative_comic(options: ComicRunOptions) -> ComicProject:
                             enforce_budget=clips_plan(density_plan.tier),
                             tier=density_plan.tier,
                             key_beats=storyboard_beats,
+                            lettering=lettering,
                             request=storyboard_request,
                         )
                 except Exception as exc:  # noqa: BLE001 — content rejections must not abort the run

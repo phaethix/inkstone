@@ -12,6 +12,7 @@ from typing import Literal
 from core.comic.identity import merge_character_alias, offer_alias_suggestion, suggestion_from_alias
 from core.comic.stage_contract import stage_source_hash
 from core.schemas import (
+    NON_CHARACTER_MARKERS,
     CharacterAsset,
     CharacterCanon,
     CharacterStage,
@@ -690,6 +691,15 @@ def is_illegal_character_name(name: str) -> bool:
     return False
 
 
+def is_non_character_asset(asset: CharacterAsset) -> bool:
+    """True when a stored character row explicitly describes scenery."""
+    text = " ".join(
+        str(value or "")
+        for value in (asset.name, asset.role, asset.l1_prompt, asset.portrait_prompt)
+    ).casefold()
+    return any(marker in text for marker in NON_CHARACTER_MARKERS)
+
+
 def identity_stem(name: str) -> str:
     """Strip stage suffixes and parenthetical role tags: ``R（收信人）`` → ``R``."""
     base, _stage = parse_stage_ref(name)
@@ -1255,6 +1265,44 @@ def sanitize_visual_bible_state(state: ProjectState) -> bool:
         return False
 
     mutated = False
+
+    non_people = {name for name, asset in state.characters.items() if is_non_character_asset(asset)}
+    for key, canon in list(bible.characters.items()):
+        if any(
+            marker in f"{canon.face_lock or ''} {canon.role or ''}".casefold()
+            for marker in NON_CHARACTER_MARKERS
+        ):
+            non_people.add(key)
+            non_people.update(canon.aliases or [])
+    for name in non_people:
+        if state.characters.pop(name, None) is not None:
+            mutated = True
+        if bible.characters.pop(name, None) is not None:
+            mutated = True
+        state.generated.portraits.pop(name, None)
+        state.needs_review = [item for item in state.needs_review if name not in str(item)]
+    for canon in bible.characters.values():
+        kept_aliases = [alias for alias in canon.aliases if alias not in non_people]
+        if kept_aliases != canon.aliases:
+            canon.aliases = kept_aliases
+            mutated = True
+    for pageset in state.page_cache.values():
+        for plan in pageset.pages:
+            refs = [name for name in plan.reference_characters if name not in non_people]
+            if refs != plan.reference_characters:
+                plan.reference_characters = refs
+                mutated = True
+            for panel in plan.panels:
+                cast = [name for name in panel.characters if name not in non_people]
+                if cast != panel.characters:
+                    panel.characters = cast
+                    mutated = True
+    for beats in state.beat_cache.values():
+        for beat in getattr(beats, "beats", []):
+            cast = [name for name in getattr(beat, "characters", []) if name not in non_people]
+            if cast != getattr(beat, "characters", []):
+                beat.characters = cast
+                mutated = True
 
     illegal_character_keys = [
         name for name in list(state.characters) if is_illegal_character_name(name)

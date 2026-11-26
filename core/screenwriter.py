@@ -10,6 +10,7 @@ reject the call.
 
 import json
 import logging
+import re
 
 import requests
 
@@ -68,12 +69,27 @@ STORYBOARD_TOOL = to_tool_schema(
     "Plan the comic panels for one chunk of text as structured data. "
     "When key beats are provided, set beat_ids on the panels that stage them.",
 )
+_ART_ONLY_STORYBOARD_TOOL = to_tool_schema(
+    Storyboard,
+    "plan_storyboard",
+    "Plan the comic panels for one chunk of text as edge-to-edge painted "
+    "artwork. Stage visible action, gesture, and scenery. "
+    "When key beats are provided, set beat_ids on the panels that stage them.",
+)
 PAGE_PLAN_TOOL = to_tool_schema(
     ComicPagePlanSet,
     "plan_comic_pages",
     "Plan finished comic pages for one text unit: per-page purpose, "
     "dynamic layout_intent, panel specs with source-language lettering, and "
     "lettering_boxes as normalized 0-1 page rectangles. "
+    "When key beats are provided, set covers_beats on pages that stage them.",
+)
+_ART_ONLY_PAGE_PLAN_TOOL = to_tool_schema(
+    ComicPagePlanSet,
+    "plan_comic_pages",
+    "Plan finished comic pages as edge-to-edge painted artwork: per-page "
+    "purpose, dynamic layout_intent, and panels that stage visible action, "
+    "gesture, and scenery. "
     "When key beats are provided, set covers_beats on pages that stage them.",
 )
 KEY_BEATS_TOOL = to_tool_schema(
@@ -93,6 +109,12 @@ RECONCILE_BIBLE_TOOL = to_tool_schema(
 # system prompt + upstream provider filters. Callers may pass a non-empty
 # ``banned`` list (or replace this tuple) when project policy needs local redaction.
 DEFAULT_BANNED_TERMS: tuple[str, ...] = ()
+
+_SOURCE_URL_RE = re.compile(r"(?i)(?:https?://|www\.)\S+")
+_SOURCE_DOMAIN_RE = re.compile(
+    r"(?i)\b(?:[a-z0-9\uFF21-\uFF3A\uFF41-\uFF5A]+\.)+[a-z\uFF21-\uFF3A\uFF41-\uFF5A]{2,}\b"
+)
+_SOURCE_LINE_NOISE_RE = re.compile(r"(?i)\b(?:txt|com|net|org|www)\b")
 
 
 def _tool_choice(name: str) -> dict:
@@ -219,6 +241,7 @@ def build_storyboard_request(
     genre: str | None = None,
     harness: Harness | None = None,
     model: str = "",
+    lettering: bool = True,
 ) -> ChatRequest:
     """The storyboard request for one chunk.
 
@@ -254,13 +277,21 @@ def build_storyboard_request(
         if harness is not None
         else render_stage("storyboard", values)
     )
+    if not lettering:
+        context = context.replace(
+            "Reminder: caption / dialogue / sfx must match the source language "
+            "(if the excerpt is Chinese, lettering must be Chinese — never English translation). "
+            "Split narration into caption, speech into dialogue, and onomatopoeia into sfx.",
+            "The finished page is purely painted artwork. Keep caption, dialogue, "
+            "and sfx null and let staging, gesture, and scenery carry the beat.",
+        )
     return ChatRequest(
         model=model,
         messages=[
             {"role": "system", "content": system},
             {"role": "user", "content": context},
         ],
-        tools=[STORYBOARD_TOOL],
+        tools=[STORYBOARD_TOOL if lettering else _ART_ONLY_STORYBOARD_TOOL],
         tool_choice=_tool_choice("plan_storyboard"),
     )
 
@@ -280,6 +311,7 @@ def build_page_plan_request(
     craft_notes: str = "",
     harness: Harness | None = None,
     model: str = "",
+    lettering: bool = True,
 ) -> ChatRequest:
     """The finished-page plan request for one chunk.
 
@@ -304,6 +336,10 @@ def build_page_plan_request(
         "inside the page (0.05–0.95). "
         "Also emit lettering_boxes: normalized 0-1 page rectangles "
         "(kind, panel_id, x, y, w, h) for every non-null lettering field."
+        if lettering
+        else "The finished page is purely painted artwork. Keep caption, dialogue, "
+        "sfx, and lettering_boxes empty and let staging, gesture, and scenery carry "
+        "the beat."
     )
     diversity = layout_diversity_instructions(recent_layouts)
     voice = voice_timeline_plan_instructions(visual_bible)
@@ -338,13 +374,26 @@ def build_page_plan_request(
         if harness is not None
         else render_stage("page_plan", values)
     )
+    if not lettering:
+        user = re.sub(
+            r"Each page needs purpose, layout_intent, panels, and lettering_boxes\.",
+            "Each page needs purpose, layout_intent, and panels.",
+            user,
+        )
+        user = re.sub(
+            r"## Lettering.*?(?=\n## Rhythm across the excerpt)",
+            "## Pure artwork\n\nKeep caption, dialogue, sfx, and lettering_boxes "
+            "empty. Let staging, gesture, and scenery carry every beat.\n\n",
+            user,
+            flags=re.DOTALL,
+        )
     return ChatRequest(
         model=model,
         messages=[
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-        tools=[PAGE_PLAN_TOOL],
+        tools=[PAGE_PLAN_TOOL if lettering else _ART_ONLY_PAGE_PLAN_TOOL],
         tool_choice=_tool_choice("plan_comic_pages"),
     )
 
@@ -447,13 +496,30 @@ def sanitize_text(
     text: str,
     banned: "list[str] | tuple[str, ...]" = DEFAULT_BANNED_TERMS,
 ) -> str:
-    """Replace each banned term with a redaction block.
+    """Remove source-host watermarks and replace each banned term.
 
-    With the default empty ``banned`` list this is a no-op. Pass terms explicitly
-    (or set ``DEFAULT_BANNED_TERMS``) when local scrubbing is desired; the system
-    prompt and upstream provider remain the primary content-policy controls.
+    Site watermarks are often rendered with mixed full-width characters that
+    survive a literal banned-term match. NFKC normalization plus a compact
+    domain/URL check drops those lines before they reach a chat or image prompt.
+    Pass terms explicitly (or set ``DEFAULT_BANNED_TERMS``) for project policy
+    redaction; the system prompt and upstream provider remain the primary
+    content-policy controls.
     """
+    import unicodedata
+
     cleaned = text
+    kept_lines: list[str] = []
+    for line in cleaned.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        normalized = unicodedata.normalize("NFKC", line).casefold()
+        compact = re.sub(r"[^a-z0-9]", "", normalized)
+        if len(line.strip()) <= 80 and (
+            _SOURCE_URL_RE.search(normalized)
+            or _SOURCE_DOMAIN_RE.search(normalized)
+            or ("xiaoshuotxt" in compact and _SOURCE_LINE_NOISE_RE.search(normalized))
+        ):
+            continue
+        kept_lines.append(line)
+    cleaned = "\n".join(kept_lines)
     for term in banned:
         if term:
             cleaned = cleaned.replace(term, "■")
@@ -743,6 +809,7 @@ async def plan_storyboard(
     enforce_budget: bool = False,
     tier: str | None = None,
     key_beats: KeyBeatSet | None = None,
+    lettering: bool = True,
     request: ChatRequest | None = None,
 ) -> Storyboard:
     """Plan the panels for ``text`` given already-extracted ``elements``."""
@@ -754,10 +821,20 @@ async def plan_storyboard(
         panel_budget=panel_budget,
         enforce_budget=enforce_budget,
         tier=tier,
+        lettering=lettering,
         model=getattr(chat, "model", ""),
     )
     args = await _audited_chat(chat, request.messages, request.tools, request.tool_choice)
     board = Storyboard.model_validate(args)
+    if not lettering:
+        board = board.model_copy(
+            update={
+                "panels": [
+                    panel.model_copy(update={"dialogue": None, "caption": None, "sfx": None})
+                    for panel in board.panels
+                ]
+            }
+        )
     if panel_budget is not None and enforce_budget:
         # Spread the kept panels instead of taking the front: clipping by
         # position kept the opening and dropped the turn and the close.
@@ -830,10 +907,52 @@ async def plan_comic_pages(
     panel_budget: int | None = None,
     enforce_budget: bool = False,
     tier: str | None = None,
+    lettering: bool = True,
     request: ChatRequest | None = None,
 ) -> ComicPagePlanSet:
     """Plan finished readable pages for ``text`` given ``elements``."""
     chat = chat or get_chat_provider()
+    if not lettering:
+        args = (
+            await _audited_chat(chat, request.messages, request.tools, request.tool_choice)
+            if request
+            else None
+        )
+        if args is None:
+            request = build_page_plan_request(
+                text,
+                elements,
+                recent_layouts=recent_layouts,
+                visual_bible=visual_bible,
+                key_beats=key_beats,
+                extra_user_note=extra_user_note,
+                panel_budget=panel_budget,
+                enforce_budget=enforce_budget,
+                tier=tier,
+                lettering=False,
+                model=getattr(chat, "model", ""),
+            )
+            args = await _audited_chat(chat, request.messages, request.tools, request.tool_choice)
+        pageset = ComicPagePlanSet.model_validate(args)
+        cleaned = pageset.model_copy(
+            update={
+                "pages": [
+                    page.model_copy(
+                        update={
+                            "lettering_boxes": [],
+                            "panels": [
+                                panel.model_copy(
+                                    update={"caption": None, "dialogue": None, "sfx": None}
+                                )
+                                for panel in page.panels
+                            ],
+                        }
+                    )
+                    for page in pageset.pages
+                ]
+            }
+        )
+        return _clip_page_plan(cleaned, panel_budget, enforce=enforce_budget)
     script = source_lettering_script(text)
     request = request or build_page_plan_request(
         text,
@@ -845,6 +964,7 @@ async def plan_comic_pages(
         panel_budget=panel_budget,
         enforce_budget=enforce_budget,
         tier=tier,
+        lettering=lettering,
         model=getattr(chat, "model", ""),
     )
     args = await _audited_chat(chat, request.messages, request.tools, request.tool_choice)
