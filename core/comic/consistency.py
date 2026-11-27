@@ -45,9 +45,10 @@ DEFAULT_PORTRAIT_STYLE = (
     "manhua comic style, soft cel shading, flat colors, "
     "a single complete painted portrait of one person, full color throughout, "
     "upper body only, empty hands, the person alone with a clear silhouette, "
-    "pure painted portrait, fully open eyes, clearly defined pupils and irises, "
-    "gaze directed forward, relaxed neutral expression, mouth closed or gently "
-    "smiling, consistent character reference"
+    "pure painted portrait, two fully open eyes, two symmetric dark pupils and "
+    "two clearly defined irises, both pupil-and-iris pairs fully painted in "
+    "the center of each eye, gaze directed forward, relaxed neutral "
+    "expression, mouth closed or gently smiling, consistent character reference"
 )
 
 

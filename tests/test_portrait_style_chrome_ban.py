@@ -14,7 +14,7 @@ def test_portrait_style_declares_a_pure_painted_portrait():
     low = DEFAULT_PORTRAIT_STYLE.lower()
     assert "pure painted portrait" in low
     assert "fully open eyes" in low
-    assert "clearly defined pupils and irises" in low
+    assert "two symmetric dark pupils" in low
     assert "speech bubble" not in low
     assert "lettering" not in low
     assert "caption" not in low

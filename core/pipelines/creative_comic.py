@@ -707,6 +707,8 @@ def _trimmed_reference_path(loc: str) -> str:
     """
     from PIL import Image, ImageChops
 
+    if not loc:
+        return ""
     src = Path(loc)
     diff_box = None
     try:
@@ -867,6 +869,45 @@ def _erase_reference_bubble(rgb):
     return Image.fromarray(arr.astype("uint8"), "RGB")
 
 
+def _reference_eyes_are_symmetric(rgb) -> bool:
+    """True when both eye windows carry comparable dark pupil/iris ink.
+
+    Agnes i2i copies the eye geometry from the neutral reference even when the
+    page prompt asks for open eyes with defined pupils. A generated portrait
+    can leave one eye as a pale blank: its eye window then has much less dark
+    ink than the other side. Rejecting that reference keeps the bad geometry
+    out of the render input; the portrait itself is regenerated from the
+    positive two-eye lock.
+    """
+    import numpy as np
+
+    arr = np.asarray(rgb).astype(float)
+    height, width = arr.shape[:2]
+    top = int(height * 0.185)
+    bottom = int(height * 0.255)
+    center = width // 2
+    inner = int(width * 0.035)
+    half_width = int(width * 0.105)
+    left_box = (center - inner - half_width, top, center - inner, bottom)
+    right_box = (center + inner, top, center + inner + half_width, bottom)
+
+    def ink_density(box: tuple[int, int, int, int]) -> float:
+        x0, y0, x1, y1 = box
+        patch = arr[y0:y1, x0:x1]
+        if patch.size == 0:
+            return 0.0
+        dark = patch.max(axis=2) < 90
+        ink = patch.max(axis=2) < 55
+        return float(dark.mean() + ink.mean())
+
+    left_density = ink_density(left_box)
+    right_density = ink_density(right_box)
+    if min(left_density, right_density) <= 0.01:
+        return False
+    ratio = min(left_density, right_density) / max(left_density, right_density)
+    return ratio >= 0.74
+
+
 def _fill_holes(mask):
     """Fill interior holes of a boolean mask (flood the outside, invert)."""
     import numpy as np
@@ -927,8 +968,12 @@ def _neutral_reference_path(loc: str) -> str:
         with Image.open(src) as img:
             rgb = img.convert("RGB")
             if _reference_border_is_neutral(rgb):
-                return loc
+                if _reference_eyes_are_symmetric(rgb):
+                    return loc
+                return ""
             rgb = _erase_reference_bubble(rgb)
+            if not _reference_eyes_are_symmetric(rgb):
+                return ""
             w, h = rgb.size
             arr = np.asarray(rgb).astype(float)
             yy, xx = np.mgrid[0:h, 0:w]
@@ -974,7 +1019,10 @@ def _page_panel_reference_paths(
             loc = ledger_refs.get(base) or ledger_refs.get(name)
         if loc and loc not in seen and _is_within(loc, output_dir) and Path(loc).is_file():
             seen.add(loc)
-            paths.append(_trimmed_reference_path(_neutral_reference_path(loc)))
+            neutral = _neutral_reference_path(loc)
+            trimmed = _trimmed_reference_path(neutral)
+            if trimmed and Path(trimmed).is_file():
+                paths.append(trimmed)
     return paths
 
 

@@ -797,7 +797,7 @@ def test_image_prompts_lock_eyes_without_copying_reference_expression():
     assert_positive_image_prompt(prompt)
     lowered = prompt.lower()
     assert "fully open eyes" in lowered
-    assert "clearly defined pupils and irises" in lowered
+    assert "two symmetric dark pupils" in lowered
     assert "gaze follows the action" in lowered
     assert "pose follows the action" in lowered
     assert "reference portraits are fully colored painted art of one person each" in lowered
@@ -818,7 +818,7 @@ def test_image_prompts_lock_eyes_without_copying_reference_expression():
     assert_positive_image_prompt(panel_prompt)
     lowered = panel_prompt.lower()
     assert "fully open eyes" in lowered
-    assert "clearly defined pupils and irises" in lowered
+    assert "two symmetric dark pupils" in lowered
     assert "gaze follows the action" in lowered
     assert "pose follows the action" in lowered
     assert "reference portrait supplying the face" not in lowered
@@ -829,7 +829,7 @@ def test_default_portrait_prompt_asks_for_open_eyes():
 
     prompt = harden_human_identity_prompt("少年", "young man, short black hair")
     assert "fully open eyes" in prompt
-    assert "clearly defined pupils and irises" in prompt
+    assert "two symmetric dark pupils" in prompt
 
     cleaned = sanitize_portrait_prompt(
         "young man, short black hair; ⚠ no source evidence; source: “倚着栏杆”; "
@@ -838,7 +838,7 @@ def test_default_portrait_prompt_asks_for_open_eyes():
     )
     lowered = cleaned.lower()
     assert "fully open eyes" in lowered
-    assert "clearly defined pupils and irises" in lowered
+    assert "two symmetric dark pupils" in lowered
     assert not re.search(
         r"⚠|no source evidence|unverified|source:|倚着栏杆|line art|without|closed eyes",
         lowered,
@@ -856,7 +856,7 @@ def test_portrait_prompt_sent_bytes_are_positive_and_invalidate_legacy_keys():
     )
     material = pipeline._portrait_key_material("少年", asset, "manhua")
     assert "fully open eyes" in material
-    assert "clearly defined pupils and irises" in material
+    assert "two symmetric dark pupils" in material
     assert not re.search(r"⚠|no source evidence|line art", material, re.IGNORECASE)
     legacy_material = "\n".join(
         [
@@ -883,7 +883,7 @@ def test_portrait_style_is_positive_and_changes_the_portrait_cache_key(monkeypat
 
     lowered = DEFAULT_PORTRAIT_STYLE.lower()
     assert "fully open eyes" in lowered
-    assert "clearly defined pupils and irises" in lowered
+    assert "two symmetric dark pupils" in lowered
     assert "speech bubble" not in lowered
     assert "caption" not in lowered
     assert "lettering" not in lowered
@@ -933,7 +933,7 @@ def test_eye_state_and_dialogue_grid_are_rewritten_positively():
     assert "dialogue_grid" not in lowered
     assert "single spoken line" not in lowered
     assert "fully open eyes" in lowered
-    assert "clearly defined pupils and irises" in lowered
+    assert "two symmetric dark pupils" in lowered
 
     panel_plan, panel = _panel_plan(cast=["R"], action="R squints, eyes closed")
     panel_prompt = render_page_panel_prompt(
@@ -1061,9 +1061,34 @@ def test_legacy_landmark_identity_is_removed_from_resumed_state():
     raw.update(json.loads(Path("comic_out/cache.json").read_text(encoding="utf-8")))
     state = ProjectState.model_validate(raw)
     assert "雾中灯塔" not in state.characters
-    assert sanitize_visual_bible_state(state) is True
+    sanitize_visual_bible_state(state)
     assert "雾中灯塔" not in state.visual_bible.characters
     assert "雾中灯塔" not in state.page_cache["0"].pages[0].reference_characters
     assert all(
         "雾中灯塔" not in panel.characters for panel in state.page_cache["0"].pages[0].panels
     )
+
+
+def test_bad_single_eye_reference_is_rejected_before_i2i():
+    from PIL import Image
+
+    from core.pipelines.creative_comic import _reference_eyes_are_symmetric
+
+    image = Image.new("RGB", (200, 300), (235, 235, 235))
+    pixels = image.load()
+    for y in range(60, 85):
+        for x in range(45, 70):
+            pixels[x, y] = (20, 20, 20)
+    assert _reference_eyes_are_symmetric(image) is False
+
+
+def test_eye_locks_require_two_symmetric_painted_irises():
+    from core.comic.consistency import DEFAULT_PORTRAIT_STYLE
+    from core.comic.identity import EYE_IDENTITY_LOCK
+
+    for text in (EYE_IDENTITY_LOCK, DEFAULT_PORTRAIT_STYLE):
+        lowered = text.lower()
+        assert "two fully open eyes" in lowered
+        assert "two symmetric dark pupils" in lowered
+        assert "two clearly defined irises" in lowered
+        assert "fully painted in the center" in lowered

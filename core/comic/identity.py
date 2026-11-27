@@ -49,8 +49,9 @@ _AUDIT_NOISE_RE = re.compile(
 )
 
 EYE_IDENTITY_LOCK = (
-    "fully open eyes, clearly defined pupils and irises, gaze follows the action, "
-    "pose follows the action"
+    "two fully open eyes, two symmetric dark pupils and two clearly defined "
+    "irises, both eyes gazing toward the action, every pupil and iris fully "
+    "painted in the center of its own eye, pose follows the action"
 )
 
 
@@ -114,7 +115,7 @@ def harden_human_identity_prompt(name: str, prompt: str) -> str:
     """
     text = (prompt or "").strip()
     lower = text.lower()
-    if "fully open eyes" in lower and "clearly defined pupils and irises" in lower:
+    if "two fully open eyes" in lower and "two symmetric dark pupils" in lower:
         return text
     if not name_suggests_animal_metaphor(name):
         return f"{text}; {EYE_IDENTITY_LOCK}" if text else EYE_IDENTITY_LOCK
